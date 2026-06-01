@@ -599,6 +599,27 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     @Override
+    public void reloadConfig() {
+        VodConfig.get().clear().config(getConfig()).load(new Callback() {
+            @Override
+            public void start() {
+                mBinding.progressLayout.showProgress();
+            }
+
+            @Override
+            public void success() {
+                showContent();
+            }
+
+            @Override
+            public void error(String msg) {
+                Notify.show(msg);
+                showContent();
+            }
+        });
+    }
+
+    @Override
     public void setSite(Site item) {
         SpiderDebug.log("site-dialog", "set site key=%s name=%s homePage=%s", item.getKey(), item.getName(), item.hasHomePage());
         VodConfig.get().setHome(item);

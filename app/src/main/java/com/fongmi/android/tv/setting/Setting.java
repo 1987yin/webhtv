@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat;
 import android.webkit.WebView;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.BuildConfig;
 import com.github.catvod.crawler.DebugLogStore;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Prefers;
@@ -121,11 +122,34 @@ public class Setting {
 
     public static void putDebugLog(boolean debugLog) {
         DebugLogStore.setEnabled(debugLog);
-        if (debugLog) logWebViewProvider();
+        if (debugLog) logDebugEnvironment("enable");
+    }
+
+    public static void logDebugEnvironment(String reason) {
+        SpiderDebug.log("env", "reason=%s app=%s(%s) mode=%s abi=%s debug=%s android=%s sdk=%s incremental=%s manufacturer=%s brand=%s model=%s device=%s product=%s supportedAbis=%s",
+                reason,
+                BuildConfig.VERSION_NAME,
+                BuildConfig.VERSION_CODE,
+                BuildConfig.FLAVOR_mode,
+                BuildConfig.FLAVOR_abi,
+                BuildConfig.DEBUG,
+                Build.VERSION.RELEASE,
+                Build.VERSION.SDK_INT,
+                Build.VERSION.INCREMENTAL,
+                Build.MANUFACTURER,
+                Build.BRAND,
+                Build.MODEL,
+                Build.DEVICE,
+                Build.PRODUCT,
+                String.join(",", Build.SUPPORTED_ABIS));
+        logWebViewProvider();
     }
 
     private static void logWebViewProvider() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            SpiderDebug.log("webview", "provider unavailable sdk=%s", Build.VERSION.SDK_INT);
+            return;
+        }
         try {
             PackageInfo info = WebView.getCurrentWebViewPackage();
             if (info == null) SpiderDebug.log("webview", "provider unavailable");

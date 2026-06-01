@@ -4,8 +4,10 @@ import android.text.TextUtils;
 
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.server.impl.Process;
+import com.fongmi.android.tv.setting.Setting;
 import com.github.catvod.crawler.DebugLogStore;
 
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
@@ -23,18 +25,18 @@ public class DebugLogs implements Process {
     @Override
     public Response doResponse(IHTTPSession session, String url, Map<String, String> files) {
         if (url.startsWith("/debug/enable")) {
-            DebugLogStore.setEnabled(true);
+            Setting.putDebugLog(true);
             return noCache(NanoHTTPD.newFixedLengthResponse(Response.Status.REDIRECT, NanoHTTPD.MIME_HTML, ""), "/debug/logs");
         }
         if (url.startsWith("/debug/disable")) {
-            DebugLogStore.setEnabled(false);
+            Setting.putDebugLog(false);
             return noCache(NanoHTTPD.newFixedLengthResponse(Response.Status.REDIRECT, NanoHTTPD.MIME_HTML, ""), "/debug/logs");
         }
         if (url.startsWith("/debug/clear")) {
             DebugLogStore.clear();
             return noCache(NanoHTTPD.newFixedLengthResponse(Response.Status.REDIRECT, NanoHTTPD.MIME_HTML, ""), "/debug/logs");
         }
-        if (url.startsWith("/debug/stream")) return stream();
+        if (url.startsWith("/debug/stream")) return stream(session);
         if (url.startsWith("/debug/logs.txt")) return download();
         return page();
     }
@@ -46,16 +48,27 @@ public class DebugLogs implements Process {
 
     private Response download() {
         String text = DebugLogStore.text();
-        Response response = NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", text);
+        byte[] data = text.getBytes(StandardCharsets.UTF_8);
+        Response response = NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", new ByteArrayInputStream(data), data.length);
         response.addHeader("Content-Disposition", "attachment; filename=webhtv-debug-log.txt");
-        response.addHeader("Content-Length", String.valueOf(text.getBytes(StandardCharsets.UTF_8).length));
+        response.addHeader("X-Content-Type-Options", "nosniff");
         return noCache(response, null);
     }
 
-    private Response stream() {
-        String text = DebugLogStore.text();
-        Response response = NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", "{\"enabled\":" + DebugLogStore.isEnabled() + ",\"size\":" + DebugLogStore.size() + ",\"text\":\"" + json(text) + "\"}");
+    private Response stream(IHTTPSession session) {
+        long version = DebugLogStore.version();
+        boolean unchanged = version == paramLong(session, "v", -1);
+        String text = unchanged ? null : DebugLogStore.text();
+        Response response = NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", "{\"enabled\":" + DebugLogStore.isEnabled() + ",\"size\":" + DebugLogStore.size() + ",\"bytes\":" + DebugLogStore.bytes() + ",\"version\":" + version + ",\"text\":" + (unchanged ? "null" : "\"" + json(text) + "\"") + "}");
         return noCache(response, null);
+    }
+
+    private long paramLong(IHTTPSession session, String key, long fallback) {
+        try {
+            return Long.parseLong(session.getParms().get(key));
+        } catch (Exception e) {
+            return fallback;
+        }
     }
 
     private Response noCache(Response response, String location) {
@@ -75,8 +88,8 @@ public class DebugLogs implements Process {
                 + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">"
                 + "<title>调试日志</title>"
                 + "<style>" + css() + "</style></head><body>"
-                + "<header><h1>调试日志</h1><a href=\"/debug/logs\">刷新</a><a href=\"/debug/logs.txt\">下载</a><a href=\"/debug/clear\">清空</a><a href=\"" + (enabled ? "/debug/disable" : "/debug/enable") + "\">" + (enabled ? "关闭" : "开启") + "</a><span id=\"meta\" class=\"meta\">" + (enabled ? "开启" : "关闭") + " · " + DebugLogStore.size() + " 行</span></header>"
-                + "<main><details class=\"info\"><summary>地址和说明</summary><p class=\"hint\">本页显示 App 当前进程内调试日志。开启后记录 WebHome、SDK、HTTP 服务、爬虫请求和播放链路；关闭会自动清空。</p>"
+                + "<header><h1>调试日志</h1><a href=\"/debug/logs\">刷新</a><a id=\"download\" href=\"/debug/logs.txt\" download=\"webhtv-debug-log.txt\">下载</a><a href=\"/debug/clear\">清空</a><a href=\"" + (enabled ? "/debug/disable" : "/debug/enable") + "\">" + (enabled ? "关闭" : "开启") + "</a><span id=\"meta\" class=\"meta\" data-version=\"" + DebugLogStore.version() + "\">" + (enabled ? "开启" : "关闭") + " · " + DebugLogStore.size() + " 行 · " + DebugLogStore.bytes() / 1024 + " KB</span></header>"
+                + "<main><details class=\"info\"><summary>地址和说明</summary><p class=\"hint\">本页显示 App 当前进程内调试日志。开启后记录安卓系统版本、设备型号、WebView 版本、WebHome、SDK、HTTP 服务、爬虫请求和播放链路；最多保留最近 2000 行，关闭会自动清空。</p>"
                 + "<div class=\"addr\"><a href=\"" + escape(localUrl) + "\">本机地址：" + escape(localUrl) + "</a><a href=\"" + escape(lanUrl) + "\">局域网地址：" + escape(lanUrl) + "</a></div></details>"
                 + "<section class=\"tools\"><div class=\"chips\"><button class=\"chip on\" data-mode=\"all\">全部</button><button class=\"chip\" data-mode=\"proxy\">代理</button><button class=\"chip\" data-mode=\"player\">播放</button><button class=\"chip\" data-mode=\"webhome\">WebHome</button><button class=\"chip\" data-mode=\"webview\">WebView</button><button class=\"chip\" data-mode=\"api\">站源</button><button class=\"chip\" data-mode=\"pan\">网盘</button><button class=\"chip\" data-mode=\"server\">服务</button><button class=\"chip\" data-mode=\"sync\">同步</button><button class=\"chip\" data-mode=\"startup\">启动</button><button class=\"chip\" data-mode=\"error\">错误</button></div>"
                 + "<div class=\"search\"><input id=\"filter\" placeholder=\"过滤关键词，例如 tmdb、夸克、timeout\"><label class=\"simple\"><input id=\"simple\" type=\"checkbox\" autocomplete=\"off\"><span>解释</span></label><button id=\"pause\">暂停</button></div><div id=\"summary\" class=\"summary\"></div></section>"
@@ -97,9 +110,10 @@ public class DebugLogs implements Process {
     }
 
     private String scriptEnhanced() {
-        return "const rawEl=document.getElementById('raw'),logs=document.getElementById('logs'),meta=document.getElementById('meta'),summary=document.getElementById('summary'),filter=document.getElementById('filter'),simple=document.getElementById('simple'),pause=document.getElementById('pause');"
-                + "let raw=rawEl.textContent,mode='all',paused=false,stick=true;simple.checked=false;document.body.classList.remove('simple');addEventListener('scroll',()=>{stick=(innerHeight+scrollY)>=(document.body.scrollHeight-80)});"
+        return "const rawEl=document.getElementById('raw'),logs=document.getElementById('logs'),meta=document.getElementById('meta'),summary=document.getElementById('summary'),filter=document.getElementById('filter'),simple=document.getElementById('simple'),pause=document.getElementById('pause'),download=document.getElementById('download');"
+                + "let raw=rawEl.textContent,mode='all',paused=false,stick=true,lastVersion=Number(meta.dataset.version||0);simple.checked=false;document.body.classList.remove('simple');addEventListener('scroll',()=>{stick=(innerHeight+scrollY)>=(document.body.scrollHeight-80)});"
                 + "document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));b.classList.add('on');mode=b.dataset.mode;render()});filter.oninput=render;simple.onchange=()=>{document.body.classList.toggle('simple',simple.checked);render()};pause.onclick=()=>{paused=!paused;pause.textContent=paused?'继续':'暂停';pause.classList.toggle('on',paused)};"
+                + "download.onclick=()=>{paused=true;pause.textContent='继续';pause.classList.add('on')};"
                 + "function esc(s){return String(s||'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]))}"
                 + "function part(s,k){const i=s.indexOf(k);if(i<0)return'';let v=s.slice(i+k.length),e=v.length;[' ',',',']'].forEach(c=>{const p=v.indexOf(c);if(p>=0&&p<e)e=p});return v.slice(0,e)}"
                 + "function between(s,a,b){const i=s.indexOf(a);if(i<0)return'';const j=s.indexOf(b,i+a.length);return j<0?s.slice(i+a.length):s.slice(i+a.length,j)}"
@@ -109,6 +123,7 @@ public class DebugLogs implements Process {
                 + "function explain(r){const text=(r.tag+': '+r.msg),low=text.toLowerCase();let e=base(r);if(low.includes('error')||low.includes('exception')||low.includes('failed')||low.includes('timeout')||low.includes('失败')||low.includes('崩溃')||low.includes('异常')){e.kind='error';e.state='err';e.badge='错误';e.title='发现错误或异常';return e}"
                 + "if(r.tag==='startup'){e.kind='startup';e.state='ok';e.badge='启动';e.title='启动阶段耗时';e.detail=r.msg;return e}"
                 + "if(r.tag==='debug'){e.kind='server';e.state='ok';e.badge='调试';e.title=r.msg.includes('ready')?'调试日志服务已准备':'调试日志状态变化';e.detail=r.msg;return e}"
+                + "if(r.tag==='env'){e.kind='startup';e.state='ok';e.badge='环境';e.title='设备和系统环境';e.detail=r.msg;return e}"
                 + "if(r.tag==='server'){e.kind='server';e.state='raw';e.badge='服务';e.title='App 本机 HTTP 服务收到请求';e.detail=r.msg;return e}"
                 + "if(r.tag==='web-resource'){e.kind='server';e.state=r.msg.includes('->')?'ok':'raw';e.badge='资源';e.title=r.msg.includes('->')?'Web 资源代理返回响应':'Web 资源代理发起请求';e.detail=r.msg;return e}"
                 + "if(r.tag==='sync'){e.kind='sync';e.state='ok';e.badge='同步';e.title=r.msg.includes('archive')?'正在打包同步目录':r.msg.includes('restore')?'正在恢复同步目录':'一键同步';e.detail=r.msg;return e}"
@@ -130,7 +145,7 @@ public class DebugLogs implements Process {
                 + "if(['player','player-engine','playback-flow','exo-source'].includes(r.tag)){e.kind='player';e.state=low.includes('error')?'err':'ok';e.badge='播放';e.title=r.tag==='playback-flow'?'播放页面/服务链路':r.tag==='player-engine'?'播放器内核事件':r.tag==='exo-source'?'媒体源创建':'播放解析/状态';e.detail=r.msg;return e}return e}"
                 + "function pass(e,key){const all=(e.raw+' '+e.title+' '+e.detail).toLowerCase();if(key&&!all.includes(key))return false;if(mode==='all')return true;if(mode==='error')return e.kind==='error'||e.state==='err';return e.kind===mode}"
                 + "function render(){try{const key=filter.value.trim().toLowerCase();const rows=raw.split('\\n').filter(Boolean).map(parse).map(explain);let shown=0,hit=0,err=0,playerProxy=0,webview=0,api=0;const html=[];rows.forEach(e=>{if(e.kind==='proxy'&&e.title.includes('命中'))hit++;if(e.kind==='error'||e.state==='err')err++;if(e.kind==='player'&&(e.title.includes('代理')||e.raw.includes('via proxy')))playerProxy++;if(e.kind==='webview')webview++;if(e.kind==='api')api++;if(!pass(e,key))return;shown++;html.push('<div class=\"entry '+e.state+'\"><div class=\"top\"><span class=\"badge\">'+esc(e.badge)+'</span><span class=\"title\">'+esc(e.title)+'</span><span class=\"time\">'+esc(e.time)+'</span></div><div class=\"detail\">'+esc(e.detail)+'</div><code class=\"rawline\">'+esc(e.raw)+'</code></div>')});logs.innerHTML=html.join('')||'<div class=\"entry raw\"><div class=\"detail\">没有匹配日志</div></div>';summary.textContent='显示 '+shown+'/'+rows.length+' 行 · 错误 '+err+' 条 · 代理命中 '+hit+' 次 · 播放代理链路 '+playerProxy+' 次 · WebView '+webview+' 条 · 站源 '+api+' 条';rawEl.hidden=true}catch(err){rawEl.hidden=false;logs.innerHTML='<div class=\"entry err\"><div class=\"detail\">日志页面渲染失败，已显示原始日志：'+esc(err&&err.message?err.message:err)+'</div></div>';summary.textContent='渲染失败 · 已显示原始日志'}}"
-                + "async function poll(){try{if(!paused){const r=await fetch('/debug/stream?_='+Date.now(),{cache:'no-store'});const j=await r.json();raw=j.text||'';meta.textContent=(j.enabled?'开启':'关闭')+' · '+j.size+' 行';render();if(stick)scrollTo(0,document.body.scrollHeight)}}catch(e){}setTimeout(poll,1000)}render();poll();";
+                + "async function poll(){try{if(!paused){const r=await fetch('/debug/stream?v='+lastVersion+'&_='+Date.now(),{cache:'no-store'});const j=await r.json();lastVersion=j.version||lastVersion;meta.textContent=(j.enabled?'开启':'关闭')+' · '+j.size+' 行 · '+Math.ceil((j.bytes||0)/1024)+' KB';if(j.text!==null&&j.text!==undefined){raw=j.text||'';render();if(stick)scrollTo(0,document.body.scrollHeight)}}}catch(e){}setTimeout(poll,1500)}render();poll();";
     }
 
     private String json(String text) {

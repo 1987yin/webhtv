@@ -8,6 +8,7 @@ import com.github.catvod.utils.Prefers;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
@@ -23,6 +24,10 @@ public class DebugLogStore {
     private static final ThreadLocal<SimpleDateFormat> FORMAT = ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US));
     private static final String FILE_NAME = "webhtv-debug-log.txt";
     private static final String PREF_ENABLED = "debug_log";
+    private static final int MAX_LINES = 2000;
+    private static final int MAX_FILE_BYTES = 1024 * 1024;
+    private static final int MAX_MESSAGE_CHARS = 12000;
+    private static long version;
     private static volatile boolean enabled;
 
     public static boolean isEnabled() {
@@ -38,24 +43,32 @@ public class DebugLogStore {
 
     public static void restoreEnabled() {
         enabled = Prefers.getBoolean(PREF_ENABLED);
-        if (enabled) add("debug", "调试日志已恢复");
+        if (!enabled) return;
+        synchronized (LOCK) {
+            loadLocked();
+        }
+        add("debug", "调试日志已恢复");
     }
 
     public static void add(String tag, String msg) {
         if (!isEnabled()) return;
         if (TextUtils.isEmpty(msg)) return;
-        String line = FORMAT.get().format(new Date()) + " [" + Thread.currentThread().getName() + "] " + safe(tag) + ": " + msg;
+        String line = FORMAT.get().format(new Date()) + " [" + Thread.currentThread().getName() + "] " + safe(tag) + ": " + limit(msg);
         synchronized (LOCK) {
             LINES.addLast(line);
-            write(line);
+            trimLinesLocked();
+            version++;
+            writeLocked(line);
         }
     }
 
     public static String text() {
         if (!isEnabled()) return "调试日志未开启";
-        String file = read();
-        if (!TextUtils.isEmpty(file)) return file;
-        List<String> copy = snapshot();
+        List<String> copy;
+        synchronized (LOCK) {
+            if (LINES.isEmpty()) loadLocked();
+            copy = new ArrayList<>(LINES);
+        }
         if (copy.isEmpty()) return "暂无调试日志";
         StringBuilder builder = new StringBuilder();
         for (String line : copy) builder.append(line).append('\n');
@@ -70,19 +83,39 @@ public class DebugLogStore {
 
     public static int size() {
         synchronized (LOCK) {
+            if (enabled && LINES.isEmpty()) loadLocked();
             return LINES.size();
         }
+    }
+
+    public static long bytes() {
+        try {
+            File file = file();
+            return file != null && file.exists() ? file.length() : 0;
+        } catch (Throwable e) {
+            return 0;
+        }
+    }
+
+    public static long version() {
+        return version;
     }
 
     public static void clear() {
         synchronized (LOCK) {
             LINES.clear();
+            version++;
             delete();
         }
     }
 
     private static String safe(String tag) {
         return TextUtils.isEmpty(tag) ? "Debug" : tag;
+    }
+
+    private static String limit(String msg) {
+        if (msg.length() <= MAX_MESSAGE_CHARS) return msg;
+        return msg.substring(0, MAX_MESSAGE_CHARS) + " ...(truncated " + (msg.length() - MAX_MESSAGE_CHARS) + " chars)";
     }
 
     private static File file() {
@@ -93,28 +126,60 @@ public class DebugLogStore {
         }
     }
 
-    private static void write(String line) {
+    private static void writeLocked(String line) {
         try {
             File file = file();
             if (file == null) return;
             try (FileOutputStream stream = new FileOutputStream(file, true)) {
                 stream.write((line + "\n").getBytes(StandardCharsets.UTF_8));
             }
+            if (file.length() > MAX_FILE_BYTES) rewriteLocked();
         } catch (Throwable ignored) {
         }
     }
 
-    private static String read() {
+    private static void loadLocked() {
         try {
             File file = file();
-            if (file == null || !file.exists()) return "";
-            byte[] data = new byte[(int) file.length()];
-            try (FileInputStream stream = new FileInputStream(file)) {
-                int read = stream.read(data);
-                return read <= 0 ? "" : new String(data, 0, read, StandardCharsets.UTF_8);
+            if (file == null || !file.exists()) return;
+            String text = readTail(file);
+            if (TextUtils.isEmpty(text)) return;
+            LINES.clear();
+            for (String line : text.split("\\r?\\n")) {
+                if (!TextUtils.isEmpty(line)) LINES.addLast(line);
+                trimLinesLocked();
             }
+            if (file.length() > MAX_FILE_BYTES || LINES.size() >= MAX_LINES) rewriteLocked();
         } catch (Throwable e) {
-            return "";
+        }
+    }
+
+    private static String readTail(File file) throws Exception {
+        long length = file.length();
+        long offset = Math.max(0, length - MAX_FILE_BYTES);
+        byte[] data = new byte[(int) (length - offset)];
+        try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+            raf.seek(offset);
+            raf.readFully(data);
+        }
+        String text = new String(data, StandardCharsets.UTF_8);
+        if (offset <= 0) return text;
+        int firstBreak = text.indexOf('\n');
+        return firstBreak >= 0 ? text.substring(firstBreak + 1) : text;
+    }
+
+    private static void trimLinesLocked() {
+        while (LINES.size() > MAX_LINES) LINES.removeFirst();
+    }
+
+    private static void rewriteLocked() {
+        try {
+            File file = file();
+            if (file == null) return;
+            try (FileOutputStream stream = new FileOutputStream(file, false)) {
+                for (String line : LINES) stream.write((line + "\n").getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (Throwable ignored) {
         }
     }
 

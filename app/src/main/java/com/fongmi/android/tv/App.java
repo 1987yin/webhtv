@@ -14,6 +14,7 @@ import androidx.core.os.HandlerCompat;
 
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.setting.ProxySetting;
+import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.utils.NsdDeviceDiscovery;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.hook.Hook;
@@ -87,6 +88,7 @@ public class App extends Application implements Application.ActivityLifecycleCal
     public void onCreate() {
         super.onCreate();
         DebugLogStore.restoreEnabled();
+        if (DebugLogStore.isEnabled()) Setting.logDebugEnvironment("restore");
         Notify.createChannel();
         ProxySetting.apply();
         registerActivityLifecycleCallbacks(this);

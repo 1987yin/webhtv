@@ -10,8 +10,10 @@ import androidx.viewbinding.ViewBinding;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.databinding.ActivitySettingEnhanceBinding;
+import com.fongmi.android.tv.setting.CustomCspSetting;
 import com.fongmi.android.tv.setting.ProxySetting;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.dialog.CustomCspDialog;
 import com.fongmi.android.tv.ui.dialog.DebugLogDialog;
 import com.fongmi.android.tv.ui.dialog.OneKeySyncDialog;
 import com.fongmi.android.tv.ui.dialog.ShellProxyDialog;
@@ -25,7 +27,7 @@ public class SettingEnhanceActivity extends BaseActivity {
     }
 
     private String getSwitch(boolean value) {
-        return getString(value ? R.string.setting_on : R.string.setting_off);
+        return getString(value ? R.string.setting_enable : R.string.setting_disable);
     }
 
     @Override
@@ -43,12 +45,10 @@ public class SettingEnhanceActivity extends BaseActivity {
     protected void initEvent() {
         mBinding.driveCheck.setOnClickListener(this::setDriveCheck);
         mBinding.debugLog.setOnClickListener(this::setDebugLog);
-        mBinding.shellProxy.setOnClickListener(this::setShellProxy);
-        mBinding.shellProxy.setOnLongClickListener(v -> {
-            ShellProxyDialog.show(this, this::setText);
-            return true;
-        });
+        mBinding.shellProxy.setOnClickListener(view -> ShellProxyDialog.show(this, this::setText));
+        mBinding.shellProxy.setOnLongClickListener(v -> false);
         mBinding.shellProxyConfig.setVisibility(View.GONE);
+        mBinding.customCsp.setOnClickListener(view -> CustomCspDialog.show(this, this::setText));
         mBinding.oneKeySync.setOnClickListener(v -> OneKeySyncDialog.create().show(this));
     }
 
@@ -57,6 +57,9 @@ public class SettingEnhanceActivity extends BaseActivity {
         mBinding.debugLogText.setText(getSwitch(Setting.isDebugLog()));
         mBinding.shellProxyText.setText(getSwitch(Setting.isShellProxy()));
         mBinding.shellProxyConfigText.setText(getString(R.string.setting_proxy_rule_count, ProxySetting.count()));
+        CustomCspSetting.Registry registry = CustomCspSetting.load();
+        CustomCspSetting.Count count = CustomCspSetting.count();
+        mBinding.customCspText.setText(getSwitch(registry.isEnabled()) + " · " + getString(R.string.setting_custom_csp_count, count.active(), count.enabled()));
     }
 
     private void setDriveCheck(View view) {
@@ -69,18 +72,6 @@ public class SettingEnhanceActivity extends BaseActivity {
         mBinding.debugLogText.setText(getSwitch(Setting.isDebugLog()));
         if (!Setting.isDebugLog()) return;
         DebugLogDialog.show(this);
-    }
-
-    private void setShellProxy(View view) {
-        if (!Setting.isShellProxy()) {
-            ShellProxyDialog.show(this, () -> {
-                Setting.putShellProxy(true);
-                setText();
-            });
-            return;
-        }
-        Setting.putShellProxy(false);
-        setText();
     }
 
     @Override

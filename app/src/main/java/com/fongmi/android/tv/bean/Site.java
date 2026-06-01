@@ -196,6 +196,14 @@ public class Site implements Parcelable {
         this.jar = jar;
     }
 
+    public void setClick(String click) {
+        this.click = click;
+    }
+
+    public void setPlayUrl(String playUrl) {
+        this.playUrl = playUrl;
+    }
+
     public String getClick() {
         return TextUtils.isEmpty(click) ? "" : click;
     }
@@ -216,8 +224,16 @@ public class Site implements Parcelable {
         return type == null ? 0 : type;
     }
 
+    public void setType(Integer type) {
+        this.type = type;
+    }
+
     public Integer getHide() {
         return hide == null ? 0 : hide;
+    }
+
+    public void setHide(Integer hide) {
+        this.hide = hide;
     }
 
     public Integer getIndexs() {
@@ -240,6 +256,10 @@ public class Site implements Parcelable {
         return quickSearch == null ? 1 : quickSearch;
     }
 
+    public void setQuickSearch(Integer quickSearch) {
+        this.quickSearch = quickSearch;
+    }
+
     public List<String> getCategories() {
         return categories == null ? Collections.emptyList() : categories;
     }
@@ -254,6 +274,10 @@ public class Site implements Parcelable {
 
     public Style getStyle() {
         return style;
+    }
+
+    public void setStyle(Style style) {
+        this.style = style;
     }
 
     public Style getStyle(Style style) {

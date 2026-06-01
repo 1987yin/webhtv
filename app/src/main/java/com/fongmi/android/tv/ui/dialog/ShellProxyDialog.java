@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ui.dialog;
 
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
+import android.content.DialogInterface;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
@@ -48,7 +49,9 @@ public class ShellProxyDialog extends BaseAlertDialog {
     private RuleAdapter adapter;
     private Runnable callback;
     private boolean syncing;
+    private boolean proxyEnabled;
     private boolean textMode = true;
+    private boolean saved;
 
     public static void show(Fragment fragment) {
         show(fragment, null);
@@ -104,11 +107,14 @@ public class ShellProxyDialog extends BaseAlertDialog {
         scrollParams.weight = land ? 1 : 0;
         binding.contentScroll.setLayoutParams(scrollParams);
         binding.contentScroll.setMaxHeight(land ? 0 : (int) (screenHeight * 0.52f));
+        binding.proxyEnabled.requestFocus();
     }
 
     @Override
     protected void initView() {
         adapter = new RuleAdapter();
+        proxyEnabled = Setting.isShellProxy();
+        updateProxyEnabledText();
         binding.defaultUrl.setText(Setting.getShellProxyUrl());
         if (TextUtils.isEmpty(binding.defaultUrl.getText())) binding.defaultUrl.setText("socks5://");
         binding.defaultUrl.setSelection(binding.defaultUrl.length());
@@ -127,6 +133,10 @@ public class ShellProxyDialog extends BaseAlertDialog {
 
     @Override
     protected void initEvent() {
+        binding.proxyEnabled.setOnClickListener(view -> {
+            proxyEnabled = !proxyEnabled;
+            updateProxyEnabledText();
+        });
         binding.defaultUrl.setOnEditorActionListener((textView, actionId, event) -> false);
         binding.defaultUrl.setOnFocusChangeListener((view, hasFocus) -> {
             if (hasFocus && TextUtils.isEmpty(binding.defaultUrl.getText())) {
@@ -156,6 +166,18 @@ public class ShellProxyDialog extends BaseAlertDialog {
             syncTextFromRules();
             binding.ruleRecycler.scrollToPosition(adapter.getItemCount() - 1);
         });
+    }
+
+    @Override
+    public void onCancel(@NonNull DialogInterface dialog) {
+        save(false);
+        super.onCancel(dialog);
+    }
+
+    @Override
+    public void onDismiss(@NonNull DialogInterface dialog) {
+        save(false);
+        super.onDismiss(dialog);
     }
 
     private void setupEditableText(EditText input, boolean multiline) {
@@ -214,6 +236,11 @@ public class ShellProxyDialog extends BaseAlertDialog {
         binding.modePanel.invalidate();
     }
 
+    private void updateProxyEnabledText() {
+        binding.proxyEnabled.setText(proxyEnabled ? R.string.setting_enable : R.string.setting_disable);
+        binding.proxyEnabled.setAlpha(proxyEnabled ? 1.0f : 0.65f);
+    }
+
     private void updateRulesFromText() {
         if (syncing) return;
         syncing = true;
@@ -253,15 +280,24 @@ public class ShellProxyDialog extends BaseAlertDialog {
     }
 
     private void onPositive() {
+        if (save(true)) dismiss();
+    }
+
+    private boolean save(boolean validate) {
+        if (saved) return true;
+        boolean enabled = proxyEnabled;
         String url = getDefaultUrl();
         String rules = getRuleText();
-        if (!ProxySetting.isValidRules(rules, url)) {
+        if (validate && enabled && !ProxySetting.isValidRules(rules, url)) {
             Notify.show(R.string.setting_proxy_invalid);
-            return;
+            return false;
         }
+        if (!enabled) Setting.putShellProxy(false);
         Setting.putShellProxyConfig(url, rules);
+        if (enabled) Setting.putShellProxy(true);
         if (callback != null) callback.run();
-        dismiss();
+        saved = true;
+        return true;
     }
 
     private static class Rule {

@@ -612,6 +612,7 @@
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 10px;
+      contain: layout style;
     }
 
     html.tv-mode .media-grid {
@@ -644,6 +645,7 @@
       color: var(--text);
       scroll-snap-align: start;
       backdrop-filter: blur(10px) saturate(1.05);
+      contain: layout style;
     }
 
     .media-grid .card {
@@ -2287,7 +2289,7 @@
       outline-offset: -2px;
       border-color: rgba(255, 255, 255, .96);
       background: rgba(var(--panel-rgb), .72);
-      box-shadow: inset 0 0 0 1px rgba(168, 218, 255, .72);
+      box-shadow: none;
       transition: none;
       z-index: 12;
     }
@@ -2298,10 +2300,40 @@
 
     html.tv-mode .card:focus {
       border-color: rgba(255, 255, 255, .98);
-      box-shadow: inset 0 0 0 1px rgba(168, 218, 255, .74);
+      box-shadow: none;
+    }
+
+    html.tv-mode #recommendRail .card:focus,
+    html.tv-mode #listStack .card:focus,
+    html.tv-mode #searchRail .card:focus {
+      transform: translateY(-2px) scale(1.045);
+      outline: none;
+      border-color: rgba(255, 255, 255, .98);
+      background: rgba(var(--panel-rgb), .76);
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, .98);
+    }
+
+    html.tv-mode .pan-result-item:focus {
+      transform: translateY(-1px);
+      outline: 2px solid rgba(255, 255, 255, .9);
+      outline-offset: -2px;
+      border-color: rgba(255, 255, 255, .96);
+      box-shadow: none;
+      background: rgba(82, 100, 112, .86);
+      z-index: 12;
+    }
+
+    html.tv-mode #detailSheet.detail-large .episode-card:focus,
+    html.tv-mode #detailSheet.detail-large .person-card:focus,
+    html.tv-mode #detailSheet.detail-large .card.landscape-card:focus {
+      border-color: rgba(255, 255, 255, .98);
+      box-shadow: none;
     }
 
     html.tv-mode .card,
+    html.tv-mode .field,
+    html.tv-mode .pan-result-item,
+    html.tv-mode .person-info,
     html.tv-mode .rating-badge,
     html.tv-mode .recent-badge,
     html.tv-mode .live-entry-card {
@@ -2466,6 +2498,9 @@
               <div class="connection-item"><b>Relays</b><span id="statusRelays">未连接</span></div>
             </div>
             <div class="pan-config">
+              <label for="tmdbKeyInput">TMDB Key
+                <input class="field focusable mono" id="tmdbKeyInput" type="password" inputmode="text" autocomplete="off" placeholder="TMDB API Key" readonly>
+              </label>
               <label for="panBaseInput">盘搜地址
                 <input class="field focusable" id="panBaseInput" type="url" inputmode="url" placeholder="https://so.252035.xyz" readonly>
               </label>
@@ -2479,7 +2514,7 @@
                 <input class="field focusable" id="panPassInput" type="password" autocomplete="current-password" placeholder="未启用认证可留空" readonly>
               </label>
               <div class="pan-disk-grid" id="panDiskGrid"></div>
-              <button class="btn focusable" id="savePanConfigBtn" type="button">保存盘搜</button>
+              <button class="btn focusable" id="savePanConfigBtn" type="button">保存配置</button>
             </div>
             <div class="actions" style="margin-top:10px">
               <button class="btn focusable" id="syncBtn" type="button">同步身份</button>
@@ -2538,7 +2573,7 @@
       <div class="pan-result-list" id="panResultList"></div>
     </div>
     <div class="detail-block" id="seasonBlock" style="display:none">
-      <h3>分季 / 分集</h3>
+      <h3>剧情概要</h3>
       <div class="chips" id="seasonTabs"></div>
       <div class="rail" id="episodeRail"></div>
     </div>
@@ -2663,7 +2698,6 @@
         nsecKey: "fish2018_home_v1_nsec",
         relays: [
           "wss://relay-sgp.signedbyme.com",
-          "wss://relay.lovelana.org",
           "wss://relay.nostr.moe",
           "wss://nostr.spacecitynode.com",
           // "ws://139.162.37.202",
@@ -2685,6 +2719,7 @@
     };
 
     const $ = (id) => document.getElementById(id);
+    const DEFAULT_TMDB_API_KEY = String(window.WEBHOME_CONFIG.tmdb.apiKey || "").trim();
     const PAN_DISK_TYPES = [
       { id: "quark", name: "夸克" },
       { id: "aliyun", name: "阿里" },
@@ -2736,6 +2771,7 @@
         identity: "未就绪"
       },
       deleteState: { loaded: false, users: {} },
+      tmdb: { config: null, configDirty: false },
       blocked: { loaded: false, items: {}, selecting: false, holdTimer: 0, holdTarget: null, longPressFired: false, pointer: null, suppressClickUntil: 0 },
       pan: { config: null, configDirty: false, loading: false, keyword: "", activeType: "", results: [], health: {}, pending: {}, queued: new Map(), inFlight: new Set(), observer: null, flushTimer: 0, pollTimers: [], pollRound: 0, viewToken: "", renderKeys: "", tabKeys: "", checkEnabled: false, focusKey: "", focusMode: "", playbackReturn: null },
       watch: { item: null, timer: 0, bestMs: 0, durationMs: 0, lastAt: 0, published: false, intentAction: "" },
@@ -2749,6 +2785,8 @@
       homeContentSeq: 0,
       activeGridAppendTimer: 0,
       activeGridAppendId: "",
+      focusScrollTimer: 0,
+      focusScrollTarget: null,
       scrollingUntil: 0,
       infiniteObserver: null,
       scrollLoadTimer: 0,
@@ -2912,7 +2950,54 @@
       if (type === "ui") return "fish2018_home_v1_ui_snapshot";
       if (type === "deleteState") return "fish2018_home_v1_delete_state";
       if (type === "blockedRecommend") return "fish2018_home_v1_blocked_recommend";
+      if (type === "tmdb") return "fish2018_home_v1_tmdb_config";
       return type;
+    }
+
+    function sanitizeTmdbConfig(value) {
+      const raw = value && typeof value === "object" ? value : {};
+      return { apiKey: String(raw.apiKey || "").trim() || DEFAULT_TMDB_API_KEY };
+    }
+
+    function tmdbApiKey() {
+      return String(window.WEBHOME_CONFIG.tmdb.apiKey || "").trim() || DEFAULT_TMDB_API_KEY;
+    }
+
+    async function initTmdbConfig(options) {
+      options = options || {};
+      if (window.fongmiBridge && !window.fm) await waitForNativeSdk(options.timeout == null ? 1500 : options.timeout);
+      if (options.preserveDirty && state.tmdb.configDirty) return;
+      let saved = null;
+      try { saved = safeJson(await sdk().cache.get(cacheKey("tmdb")), null); } catch (e) { saved = null; }
+      state.tmdb.config = sanitizeTmdbConfig(saved);
+      window.WEBHOME_CONFIG.tmdb.apiKey = state.tmdb.config.apiKey;
+      state.tmdb.configDirty = false;
+      renderTmdbConfigControls();
+    }
+
+    function readTmdbConfigControls() {
+      return { apiKey: $("tmdbKeyInput") ? $("tmdbKeyInput").value : "" };
+    }
+
+    function renderTmdbConfigControls() {
+      const config = state.tmdb.config || sanitizeTmdbConfig(null);
+      if ($("tmdbKeyInput")) {
+        $("tmdbKeyInput").value = config.apiKey || DEFAULT_TMDB_API_KEY;
+        disablePanelTextEditing($("tmdbKeyInput"));
+      }
+    }
+
+    function resetTmdbRuntimeAfterConfigChange() {
+      state.catalog = {};
+      state.catalogPage = {};
+      state.fallback = [];
+      state.fallbackPage = { sourceIndex: 0, page: 0, loading: false, loaded: false, done: false };
+      state.searchItems = [];
+      state.gridRender = {};
+      state.recommendationSource = "pending";
+      renderSearch();
+      renderAll({ deferContent: true });
+      loadCatalog();
     }
 
     function defaultPanConfig() {
@@ -2990,13 +3075,20 @@
     async function savePanConfig() {
       if (window.fongmiBridge && !window.fm) await waitForNativeSdk(1500);
       if (window.fongmiBridge && !window.fm) throw new Error("App SDK 未就绪，请稍后再保存");
+      const previousTmdbKey = tmdbApiKey();
+      state.tmdb.config = sanitizeTmdbConfig(readTmdbConfigControls());
+      window.WEBHOME_CONFIG.tmdb.apiKey = state.tmdb.config.apiKey;
       state.pan.config = sanitizePanConfig(readPanConfigControls());
+      await sdk().cache.set(cacheKey("tmdb"), JSON.stringify(state.tmdb.config));
       await sdk().cache.set(cacheKey("pan"), JSON.stringify(state.pan.config));
+      renderTmdbConfigControls();
       renderPanConfigControls();
+      state.tmdb.configDirty = false;
       state.pan.configDirty = false;
       setPanStatus("配置已保存");
       closeConnectionPanel();
-      toast("盘搜配置已保存");
+      toast("配置已保存");
+      if (previousTmdbKey !== tmdbApiKey()) resetTmdbRuntimeAfterConfigChange();
     }
 
     function readPanConfigControls() {
@@ -3040,8 +3132,10 @@
       }));
     }
 
-    function markPanConfigDirty() {
-      state.pan.configDirty = true;
+    function markPanConfigDirty(event) {
+      const target = event && event.target;
+      if (target && target.id === "tmdbKeyInput") state.tmdb.configDirty = true;
+      else state.pan.configDirty = true;
     }
 
     function panDiskName(type) {
@@ -3996,7 +4090,7 @@
 
     function tmdbUrl(list, page) {
       const url = new URL(`${window.WEBHOME_CONFIG.tmdb.apiBase}/${list.endpoint}`);
-      url.searchParams.set("api_key", window.WEBHOME_CONFIG.tmdb.apiKey);
+      url.searchParams.set("api_key", tmdbApiKey());
       url.searchParams.set("language", window.WEBHOME_CONFIG.tmdb.language);
       Object.entries(list.params || {}).forEach(([key, value]) => {
         const param = key.replace(/_lte$/, ".lte");
@@ -4009,7 +4103,7 @@
     function tmdbFallbackUrl(type, page) {
       const endpoint = type === "airing" ? "tv/airing_today" : "trending/all/day";
       const url = new URL(`${window.WEBHOME_CONFIG.tmdb.apiBase}/${endpoint}`);
-      url.searchParams.set("api_key", window.WEBHOME_CONFIG.tmdb.apiKey);
+      url.searchParams.set("api_key", tmdbApiKey());
       url.searchParams.set("language", window.WEBHOME_CONFIG.tmdb.language);
       url.searchParams.set("page", String(page || 1));
       return url.toString();
@@ -4017,7 +4111,7 @@
 
     function tmdbSearchUrl(keyword) {
       const url = new URL(`${window.WEBHOME_CONFIG.tmdb.apiBase}/search/multi`);
-      url.searchParams.set("api_key", window.WEBHOME_CONFIG.tmdb.apiKey);
+      url.searchParams.set("api_key", tmdbApiKey());
       url.searchParams.set("language", window.WEBHOME_CONFIG.tmdb.language);
       url.searchParams.set("query", keyword);
       url.searchParams.set("include_adult", "false");
@@ -4034,7 +4128,7 @@
 
     function tmdbDetailUrl(item) {
       const url = new URL(`${window.WEBHOME_CONFIG.tmdb.apiBase}/${item.mediaType}/${item.tmdbId}`);
-      url.searchParams.set("api_key", window.WEBHOME_CONFIG.tmdb.apiKey);
+      url.searchParams.set("api_key", tmdbApiKey());
       url.searchParams.set("language", window.WEBHOME_CONFIG.tmdb.language);
       url.searchParams.set("append_to_response", item.mediaType === "tv" ? "credits,images,season/1" : "credits,images");
       url.searchParams.set("include_image_language", "zh,null,en");
@@ -4043,7 +4137,7 @@
 
     function tmdbRecommendationsUrl(item) {
       const url = new URL(`${window.WEBHOME_CONFIG.tmdb.apiBase}/${item.mediaType}/${item.tmdbId}/recommendations`);
-      url.searchParams.set("api_key", window.WEBHOME_CONFIG.tmdb.apiKey);
+      url.searchParams.set("api_key", tmdbApiKey());
       url.searchParams.set("language", window.WEBHOME_CONFIG.tmdb.language);
       url.searchParams.set("page", "1");
       return url.toString();
@@ -4051,21 +4145,21 @@
 
     function tmdbSeasonUrl(item, seasonNumber) {
       const url = new URL(`${window.WEBHOME_CONFIG.tmdb.apiBase}/tv/${item.tmdbId}/season/${seasonNumber}`);
-      url.searchParams.set("api_key", window.WEBHOME_CONFIG.tmdb.apiKey);
+      url.searchParams.set("api_key", tmdbApiKey());
       url.searchParams.set("language", window.WEBHOME_CONFIG.tmdb.language);
       return url.toString();
     }
 
     function tmdbPersonUrl(personId) {
       const url = new URL(`${window.WEBHOME_CONFIG.tmdb.apiBase}/person/${personId}/combined_credits`);
-      url.searchParams.set("api_key", window.WEBHOME_CONFIG.tmdb.apiKey);
+      url.searchParams.set("api_key", tmdbApiKey());
       url.searchParams.set("language", window.WEBHOME_CONFIG.tmdb.language);
       return url.toString();
     }
 
     function tmdbPersonDetailUrl(personId) {
       const url = new URL(`${window.WEBHOME_CONFIG.tmdb.apiBase}/person/${personId}`);
-      url.searchParams.set("api_key", window.WEBHOME_CONFIG.tmdb.apiKey);
+      url.searchParams.set("api_key", tmdbApiKey());
       url.searchParams.set("language", window.WEBHOME_CONFIG.tmdb.language);
       url.searchParams.set("append_to_response", "combined_credits");
       return url.toString();
@@ -5100,13 +5194,22 @@
     }
 
     function gridColumns(grid) {
+      const widthKey = grid ? `${Math.floor(window.innerWidth || document.documentElement.clientWidth || 0)}:${isTvMode() ? "tv" : "web"}` : "";
+      if (grid && grid.dataset.columnCacheKey === widthKey && grid.dataset.columnCacheValue) return Number(grid.dataset.columnCacheValue) || 1;
       const value = grid ? getComputedStyle(grid).gridTemplateColumns : "";
       const count = value && value !== "none" ? value.split(" ").filter(Boolean).length : 0;
-      if (count > 0) return count;
-      if (isTvMode()) return 5;
-      if ((window.innerWidth || 0) >= 1180) return 6;
-      if ((window.innerWidth || 0) >= 720) return 4;
-      return 3;
+      let columns = count;
+      if (columns <= 0) {
+        if (isTvMode()) columns = 5;
+        else if ((window.innerWidth || 0) >= 1180) columns = 6;
+        else if ((window.innerWidth || 0) >= 720) columns = 4;
+        else columns = 3;
+      }
+      if (grid) {
+        grid.dataset.columnCacheKey = widthKey;
+        grid.dataset.columnCacheValue = String(columns);
+      }
+      return columns;
     }
 
     function initialGridBatchSize(grid) {
@@ -5184,8 +5287,11 @@
       if (!grid) return;
       const info = state.gridRender[gridRenderId(grid)];
       if (!info || Number(info.rendered || 0) >= Number(info.total || 0)) return;
-      const cards = Array.from(grid.querySelectorAll(".card"));
-      const index = cards.indexOf(card);
+      let index = Number(card.dataset.cardIndex || -1);
+      if (!Number.isFinite(index) || index < 0) {
+        const cards = Array.from(grid.children).filter((child) => child.classList && child.classList.contains("card"));
+        index = cards.indexOf(card);
+      }
       if (index < 0) return;
       const threshold = Math.max(0, Number(info.rendered || 0) - gridColumns(grid) * 2);
       if (index >= threshold) scheduleGridAppend(grid);
@@ -5303,6 +5409,7 @@
       const landscape = !!opts.landscape;
       button.className = "card focusable" + (people > 0 ? " has-people" : "") + (recent ? " recent-card" : "") + (landscape ? " landscape-card" : "");
       button.type = "button";
+      button.dataset.cardIndex = String(index || 0);
       if (key) button.dataset.mediaKey = key;
       if (blockKey) button.dataset.blockKey = blockKey;
       button.__mediaItem = item;
@@ -8283,7 +8390,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
         if (handleScrollableOverlayKey(key, event)) return;
         if (handlePanDirectionalKey(key, event)) return;
         if (handleDetailDirectionalKey(key, event)) return;
-        const target = nearestFocusable(key);
+        const target = fastDirectionalTarget(key, el) || nearestFocusable(key);
         if (target) {
           event.preventDefault();
           if (!isPanFocusTarget(target)) state.pan.focusMode = "";
@@ -8834,7 +8941,12 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
     function isFirstVisiblePanResult(el) {
       const list = $("panResultList");
       if (!list || !list.contains(el)) return false;
-      return Array.from(list.querySelectorAll(".pan-result-item")).filter(isVisibleFocusable)[0] === el;
+      let node = list.firstElementChild;
+      while (node) {
+        if (node.classList && node.classList.contains("pan-result-item") && isVisibleFocusable(node)) return node === el;
+        node = node.nextElementSibling;
+      }
+      return false;
     }
 
     function siblingFocusable(root, current, delta) {
@@ -8859,6 +8971,86 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       return map[event.keyCode || event.which] || "";
     }
 
+    function fastDirectionalTarget(key, active) {
+      if (!active || !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(key)) return null;
+      if (focusScopeRoot() !== document) return null;
+      return fastChipDirectionalTarget(key, active)
+        || fastGridDirectionalTarget(key, active)
+        || fastRailDirectionalTarget(key, active)
+        || fastLiveDirectionalTarget(key, active);
+    }
+
+    function fastChipDirectionalTarget(key, active) {
+      const chips = $("chips");
+      if (!chips || !chips.contains(active)) return null;
+      if (key === "ArrowLeft" || key === "ArrowRight") return fastSibling(chips, active, key === "ArrowRight" ? 1 : -1, ".chip");
+      if (key === "ArrowDown") return firstHomeContentTarget();
+      return null;
+    }
+
+    function fastGridDirectionalTarget(key, active) {
+      const card = active && active.classList && active.classList.contains("card") ? active : null;
+      const grid = card && card.closest && card.closest(".media-grid");
+      if (!grid || grid.closest && grid.closest(".list-panel[hidden]")) return null;
+      let index = Number(card.dataset.cardIndex || -1);
+      if (!Number.isFinite(index) || index < 0) index = Array.prototype.indexOf.call(grid.children, card);
+      if (index < 0) return null;
+      const columns = Math.max(1, gridColumns(grid));
+      const count = grid.children.length;
+      let targetIndex = -1;
+      if (key === "ArrowLeft" && index % columns > 0) targetIndex = index - 1;
+      else if (key === "ArrowRight" && index % columns < columns - 1) targetIndex = index + 1;
+      else if (key === "ArrowUp") targetIndex = index - columns;
+      else if (key === "ArrowDown") targetIndex = index + columns;
+      if (targetIndex >= 0 && targetIndex < count) return gridCardAt(grid, targetIndex);
+      if (key === "ArrowUp" && targetIndex < 0) return currentHomeFocus();
+      if (key === "ArrowDown" && targetIndex >= count && appendGridBatch(grid)) {
+        observeInfiniteScroll();
+        return gridCardAt(grid, targetIndex);
+      }
+      return null;
+    }
+
+    function fastRailDirectionalTarget(key, active) {
+      const rail = active && active.closest && active.closest("#searchRail");
+      if (!rail || !rail.contains(active)) return null;
+      if (key === "ArrowLeft" || key === "ArrowRight") return fastSibling(rail, active, key === "ArrowRight" ? 1 : -1, ".card");
+      if (key === "ArrowUp") return $("searchInput") || null;
+      if (key === "ArrowDown") return currentHomeFocus() || firstHomeContentTarget();
+      return null;
+    }
+
+    function fastLiveDirectionalTarget(key, active) {
+      if (!active || !active.classList || !active.classList.contains("live-entry-card")) return null;
+      return key === "ArrowUp" ? currentHomeFocus() : null;
+    }
+
+    function firstHomeContentTarget() {
+      const grid = activeMediaGrid();
+      const gridTarget = grid && gridCardAt(grid, 0);
+      if (gridTarget) return gridTarget;
+      const panel = Array.from($("listStack").querySelectorAll(".list-panel")).find((item) => !item.hidden && item.dataset.listId === state.activeList);
+      return panel && (Array.from(panel.children).find((child) => canFastFocus(child)) || Array.from(panel.querySelectorAll(".live-entry-card.focusable, .focusable, button")).find(canFastFocus)) || null;
+    }
+
+    function gridCardAt(grid, index) {
+      const target = grid && index >= 0 ? grid.children[index] : null;
+      return target && target.classList && target.classList.contains("card") && canFastFocus(target) ? target : null;
+    }
+
+    function fastSibling(root, current, delta, selector) {
+      let target = delta > 0 ? current.nextElementSibling : current.previousElementSibling;
+      while (target && root.contains(target)) {
+        if (target.matches && target.matches(selector) && canFastFocus(target)) return target;
+        target = delta > 0 ? target.nextElementSibling : target.previousElementSibling;
+      }
+      return null;
+    }
+
+    function canFastFocus(el) {
+      return !!(el && el.matches && el.matches(".focusable,button,input,textarea") && !el.disabled && el.getAttribute("tabindex") !== "-1" && !el.hidden && !el.closest("[hidden]") && !el.closest('[aria-hidden="true"]'));
+    }
+
     function focusRemoteTarget(target) {
       if (!target) return;
       try {
@@ -8867,7 +9059,18 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
         target.focus();
       }
       maybeAppendGridForFocus(target);
-      keepFocusInView(target);
+      scheduleFocusInView(target);
+    }
+
+    function scheduleFocusInView(target) {
+      state.focusScrollTarget = target;
+      if (state.focusScrollTimer) return;
+      state.focusScrollTimer = requestAnimationFrame(() => {
+        const target = state.focusScrollTarget;
+        state.focusScrollTimer = 0;
+        state.focusScrollTarget = null;
+        if (target && target.isConnected) keepFocusInView(target);
+      });
     }
 
     function keepFocusInView(target) {
@@ -9228,7 +9431,10 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
     });
     window.addEventListener("pageshow", () => scheduleWebHomeResume());
     window.addEventListener("fmsdk", () => {
-      initPanConfig({ preserveDirty: true, timeout: 0 })
+      Promise.all([
+        initTmdbConfig({ preserveDirty: true, timeout: 0 }),
+        initPanConfig({ preserveDirty: true, timeout: 0 })
+      ])
         .then(loadInfo)
         .then(() => scheduleWebHomeResume({ force: true }))
         .catch(() => {});
@@ -9261,6 +9467,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       lockViewportWidth();
       bindActions();
       installRemoteKeys();
+      await initTmdbConfig();
       await initPanConfig();
       await loadBlockedRecommend();
       renderConnection();

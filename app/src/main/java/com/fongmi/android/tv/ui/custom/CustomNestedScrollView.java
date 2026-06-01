@@ -3,6 +3,8 @@ package com.fongmi.android.tv.ui.custom;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.util.AttributeSet;
+import android.view.View;
+import android.view.ViewParent;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -49,5 +51,26 @@ public class CustomNestedScrollView extends NestedScrollView {
         if (maxHeight > 0) heightMeasureSpec = MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.AT_MOST);
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
         if (minHeight > 0 && getMeasuredHeight() < minHeight) setMeasuredDimension(getMeasuredWidth(), minHeight);
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        try {
+            super.onSizeChanged(w, h, oldw, oldh);
+        } catch (IllegalArgumentException e) {
+            View focus = findFocus();
+            if (isDescendant(focus)) throw e;
+            if (focus != null) focus.clearFocus();
+        }
+    }
+
+    private boolean isDescendant(View view) {
+        if (view == null || view == this) return true;
+        ViewParent parent = view.getParent();
+        while (parent instanceof View) {
+            if (parent == this) return true;
+            parent = parent.getParent();
+        }
+        return false;
     }
 }
