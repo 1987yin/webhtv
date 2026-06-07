@@ -3,9 +3,11 @@
 // - Build one clean native playback panel on the detail page.
 // - Group resources into 在线播放 / 网盘 / 磁力.
 // - Click any row to call the App native playback/push ability directly.
+// - Simplify Pomo mobile pages into a search-first movie UI with TV focus states.
 (function () {
   const CONFIG = {
     panelId: "fm-pomo-panel",
+    searchId: "fm-pomo-search",
     titleSelector: ".x-dbjs-title",
     detailCardSelector: ".x-dbjs-card",
     downloadSectionSelector: "#x-dbjs-download-section",
@@ -76,6 +78,22 @@
     const detailTitle = document.querySelector(CONFIG.titleSelector);
     const text = detailTitle && detailTitle.textContent ? cleanText(detailTitle.textContent) : "";
     return text || cleanText(document.title.replace(/\s*-\s*(4K.*|在线播放).*$/i, "")) || location.href;
+  }
+
+  function isDetailPage() {
+    return !!(document.querySelector(CONFIG.detailCardSelector) || document.querySelector(CONFIG.downloadSectionSelector));
+  }
+
+  function currentKeyword() {
+    try {
+      const params = new URLSearchParams(location.search);
+      const keyword = cleanText(params.get("keyword"));
+      if (keyword) return keyword;
+    } catch (e) {
+      // ignore
+    }
+    const input = document.querySelector("input[name='keyword']");
+    return input ? cleanText(input.value || input.getAttribute("value")) : "";
   }
 
   function gid() {
@@ -488,7 +506,168 @@
     }
   }
 
+  function enhancePage() {
+    document.documentElement.classList.add("fm-pomo-enhanced");
+    enhanceHeader();
+    if (!isDetailPage()) enhanceListPage();
+    enhanceDetailPage();
+    enhanceFocusable();
+  }
+
+  function enhanceHeader() {
+    const login = document.querySelector("a[href*='Ixc_login_but_login']");
+    if (login) login.classList.add("fm-pomo-hide");
+
+    const nav = document.querySelector("header nav");
+    if (nav) nav.classList.add("fm-pomo-nav");
+  }
+
+  function enhanceListPage() {
+    const hero = document.getElementById("hero-carousel");
+    if (hero && hero.parentElement) hero.parentElement.classList.add("fm-pomo-hero-wrap");
+    ensureSearchHero();
+    enhanceMovieCards();
+    enhanceFilters();
+  }
+
+  function ensureSearchHero() {
+    if (document.getElementById(CONFIG.searchId)) {
+      syncSearchHero();
+      return;
+    }
+
+    const host = document.createElement("section");
+    host.id = CONFIG.searchId;
+    host.innerHTML = ""
+      + "<form class='fm-pomo-search-form' action='" + escapeHtml(location.origin + "/") + "' method='get'>"
+      + "  <div class='fm-pomo-search-label'>Pomo</div>"
+      + "  <div class='fm-pomo-search-row'>"
+      + "    <input class='fm-pomo-search-input' type='search' name='keyword' placeholder='搜索电影、剧集、演员' autocomplete='off'>"
+      + "    <button class='fm-pomo-search-button' type='submit'>搜索</button>"
+      + "  </div>"
+      + "  <div class='fm-pomo-search-meta'></div>"
+      + "</form>";
+
+    const main = document.querySelector("main");
+    if (main) main.insertBefore(host, main.firstChild);
+    else document.body.insertBefore(host, document.body.firstChild);
+
+    host.addEventListener("submit", function (event) {
+      const input = host.querySelector("input[name='keyword']");
+      const keyword = cleanText(input && input.value);
+      if (!keyword) {
+        event.preventDefault();
+        if (input) input.focus();
+      }
+    });
+
+    syncSearchHero();
+  }
+
+  function syncSearchHero() {
+    const host = document.getElementById(CONFIG.searchId);
+    if (!host) return;
+    const keyword = currentKeyword();
+    const input = host.querySelector("input[name='keyword']");
+    const meta = host.querySelector(".fm-pomo-search-meta");
+    if (input && document.activeElement !== input) input.value = keyword;
+    if (meta) {
+      const text = keyword ? "正在显示 “" + keyword + "” 的搜索结果" : "最新 4K 影视";
+      if (meta.textContent !== text) meta.textContent = text;
+    }
+  }
+
+  function enhanceMovieCards() {
+    const grids = document.querySelectorAll("main .grid");
+    for (let i = 0; i < grids.length; i++) {
+      const grid = grids[i];
+      if (!grid.querySelector("a[href] img")) continue;
+      grid.classList.add("fm-pomo-grid");
+      const cards = grid.children;
+      for (let j = 0; j < cards.length; j++) enhanceMovieCard(cards[j]);
+    }
+  }
+
+  function enhanceMovieCard(card) {
+    if (!card || card.nodeType !== 1) return;
+    const link = card.querySelector("a[href]");
+    const image = card.querySelector("img");
+    if (!link || !image) return;
+
+    card.classList.add("fm-pomo-card");
+    link.classList.add("fm-pomo-card-link");
+    link.setAttribute("tabindex", "0");
+
+    const poster = image.closest("a > div") || image.parentElement;
+    if (poster) poster.classList.add("fm-pomo-card-poster");
+
+    const heading = card.querySelector("h3,h4");
+    const info = heading && heading.closest("a > div");
+    if (info) info.classList.add("fm-pomo-card-info");
+
+    const title = cleanText((heading || image).textContent || image.getAttribute("alt"));
+    const sub = cleanText(card.querySelector(".text-gray-300,.text-gray-400") && card.querySelector(".text-gray-300,.text-gray-400").textContent);
+    if (!card.querySelector(".fm-pomo-card-cta")) {
+      const cta = document.createElement("span");
+      cta.className = "fm-pomo-card-cta";
+      cta.textContent = "详情";
+      link.appendChild(cta);
+    }
+    if (title && !link.getAttribute("aria-label")) {
+      link.setAttribute("aria-label", sub ? title + "，" + sub : title);
+    }
+  }
+
+  function enhanceFilters() {
+    const filter = document.querySelector(".filter-container");
+    if (filter) filter.classList.add("fm-pomo-filter");
+    const form = document.getElementById("filter-form");
+    if (form) form.classList.add("fm-pomo-filter-form");
+  }
+
+  function enhanceDetailPage() {
+    const card = document.querySelector(CONFIG.detailCardSelector);
+    if (card) card.classList.add("fm-pomo-detail");
+
+    const header = card && card.querySelector(".x-dbjs-header");
+    if (header) header.classList.add("fm-pomo-detail-header");
+
+    const desc = document.querySelector(".x-dbjs-desc-block");
+    if (desc) desc.classList.add("fm-pomo-detail-desc");
+
+    const stills = document.querySelector(".pic-col5");
+    if (stills) stills.classList.add("fm-pomo-stills");
+  }
+
+  function enhanceFocusable() {
+    const selectors = [
+      "a[href]",
+      "button",
+      "input",
+      "select",
+      ".x-dbjs-accordion-header",
+      ".x-dbjs-category-btn"
+    ];
+    const nodes = document.querySelectorAll(selectors.join(","));
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      if (node.closest(".fm-pomo-hide")) continue;
+      if (!node.hasAttribute("tabindex") && !/^(A|BUTTON|INPUT|SELECT|TEXTAREA)$/i.test(node.tagName)) {
+        node.setAttribute("tabindex", "0");
+      }
+    }
+  }
+
+  function onKeyboardActivate(event) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const target = event.target.closest(".x-dbjs-accordion-header,.x-dbjs-category-btn");
+    if (!target) return;
+    event.preventDefault();
+    target.click();
+  }
+
   function scan() {
+    enhancePage();
     if (!document.querySelector(CONFIG.detailCardSelector) && !document.querySelector(CONFIG.downloadSectionSelector)) return;
     collectDownloadItems();
     ensureActiveTab();
@@ -526,6 +705,457 @@
 
   function installStyle() {
     const css = `
+      .fm-pomo-enhanced body {
+        background: #f5f7fa !important;
+        color: #111827;
+      }
+      .dark.fm-pomo-enhanced body {
+        background: #0d1116 !important;
+        color: #e5e7eb;
+      }
+      .fm-pomo-enhanced body > .absolute.top-0.left-0.w-full {
+        display: none !important;
+      }
+      .fm-pomo-enhanced * {
+        -webkit-tap-highlight-color: transparent;
+      }
+      .fm-pomo-hide,
+      .fm-pomo-hero-wrap,
+      #mobile-search-btn,
+      #mobile-search-box,
+      #mobile-nav-btn,
+      #mobile-nav-menu,
+      header form[action],
+      footer,
+      #floating-tools {
+        display: none !important;
+      }
+      .fm-pomo-enhanced header {
+        max-width: 1228px !important;
+        min-height: 58px !important;
+        height: auto !important;
+        padding: 10px 14px !important;
+        position: sticky !important;
+        top: 0;
+        z-index: 80;
+        background: rgba(10, 10, 10, .96);
+        border-bottom: 1px solid rgba(255, 255, 255, .08);
+      }
+      .fm-pomo-enhanced header img {
+        max-height: 30px !important;
+      }
+      .fm-pomo-enhanced header > div:first-child {
+        min-width: 0;
+        gap: 14px !important;
+      }
+      .fm-pomo-enhanced header .fm-pomo-nav,
+      .fm-pomo-enhanced #mobile-nav-menu nav {
+        display: flex !important;
+        gap: 6px !important;
+        overflow-x: auto;
+        scrollbar-width: thin;
+        -webkit-overflow-scrolling: touch;
+      }
+      .fm-pomo-enhanced header nav a,
+      .fm-pomo-enhanced #mobile-nav-menu nav a {
+        min-height: 44px;
+        padding: 0 10px !important;
+        border-radius: 8px !important;
+        display: inline-flex !important;
+        align-items: center;
+        color: #d1d5db !important;
+        white-space: nowrap;
+        font-size: 12px !important;
+        letter-spacing: 0;
+      }
+      .fm-pomo-enhanced header nav a span.absolute,
+      .fm-pomo-enhanced #mobile-nav-menu nav a span.absolute {
+        display: none !important;
+      }
+      .fm-pomo-enhanced main {
+        max-width: 1228px !important;
+        padding: 0 14px 28px !important;
+      }
+      .fm-pomo-enhanced #pjax-container {
+        transition: none !important;
+      }
+      #${CONFIG.searchId} {
+        max-width: 1228px;
+        margin: 12px auto 14px;
+      }
+      .fm-pomo-search-form {
+        padding: 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, .07);
+      }
+      .dark .fm-pomo-search-form {
+        border-color: #26313c;
+        background: #121820;
+        box-shadow: none;
+      }
+      .fm-pomo-search-label {
+        color: #0f766e;
+        font-size: 13px;
+        font-weight: 900;
+        line-height: 1;
+      }
+      .dark .fm-pomo-search-label {
+        color: #5eead4;
+      }
+      .fm-pomo-search-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        margin-top: 9px;
+      }
+      .fm-pomo-search-input {
+        width: 100%;
+        min-width: 0;
+        min-height: 48px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #f8fafc;
+        color: #111827;
+        padding: 0 13px;
+        font-size: 15px;
+        outline: none;
+      }
+      .dark .fm-pomo-search-input {
+        border-color: #334155;
+        background: #0f141b;
+        color: #f8fafc;
+      }
+      .fm-pomo-search-button {
+        min-width: 72px;
+        min-height: 48px;
+        border: 1px solid #0f766e;
+        border-radius: 8px;
+        background: #0f766e;
+        color: #fff;
+        padding: 0 14px;
+        font-size: 15px;
+        font-weight: 900;
+      }
+      .fm-pomo-search-meta {
+        min-height: 18px;
+        margin-top: 8px;
+        color: #64748b;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .dark .fm-pomo-search-meta {
+        color: #94a3b8;
+      }
+      .fm-pomo-enhanced .filter-container {
+        margin-bottom: 12px !important;
+      }
+      .fm-pomo-enhanced .filter-container h2 {
+        margin: 8px 0 10px !important;
+        color: #111827 !important;
+        font-size: 18px !important;
+        line-height: 1.25 !important;
+      }
+      .dark.fm-pomo-enhanced .filter-container h2 {
+        color: #f8fafc !important;
+      }
+      .fm-pomo-enhanced .compact-filter {
+        padding: 0 !important;
+      }
+      .fm-pomo-enhanced .fm-pomo-filter-form {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px !important;
+        align-items: stretch !important;
+      }
+      .fm-pomo-enhanced .compact-select,
+      .fm-pomo-enhanced .compact-btn,
+      .fm-pomo-enhanced .compact-btn-outline {
+        min-height: 44px;
+        border-radius: 8px !important;
+        font-size: 13px !important;
+      }
+      .fm-pomo-enhanced .compact-btn,
+      .fm-pomo-enhanced .compact-btn-outline {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .fm-pomo-enhanced .fm-pomo-grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 10px !important;
+      }
+      .fm-pomo-card {
+        min-width: 0;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 8px !important;
+        background: #fff !important;
+        box-shadow: 0 4px 14px rgba(15, 23, 42, .06) !important;
+        overflow: hidden !important;
+        transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease !important;
+      }
+      .dark .fm-pomo-card {
+        border-color: #26313c !important;
+        background: #121820 !important;
+        box-shadow: none !important;
+      }
+      .fm-pomo-card-link {
+        position: relative;
+        min-height: 100%;
+        color: inherit !important;
+        text-decoration: none !important;
+      }
+      .fm-pomo-card-poster {
+        aspect-ratio: 2 / 3 !important;
+        height: auto !important;
+        background: #dbe3ec;
+      }
+      .fm-pomo-card img {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important;
+        transform: none !important;
+        transition: none !important;
+      }
+      .fm-pomo-card .bg-gradient-to-t,
+      .fm-pomo-card .absolute.inset-0:not(.w-full) {
+        display: none !important;
+      }
+      .fm-pomo-card-info {
+        margin-top: 0 !important;
+        padding: 8px !important;
+        background: #fff !important;
+        position: relative !important;
+      }
+      .dark .fm-pomo-card-info {
+        background: #121820 !important;
+      }
+      .fm-pomo-card h3,
+      .fm-pomo-card h4 {
+        margin: 0 0 5px !important;
+        color: #111827 !important;
+        font-size: 14px !important;
+        line-height: 1.35 !important;
+        font-weight: 900 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        text-shadow: none !important;
+      }
+      .dark .fm-pomo-card h3,
+      .dark .fm-pomo-card h4 {
+        color: #f8fafc !important;
+      }
+      .fm-pomo-card .text-gray-300,
+      .fm-pomo-card .text-gray-400 {
+        color: #64748b !important;
+        font-size: 12px !important;
+        line-height: 1.35 !important;
+        text-shadow: none !important;
+      }
+      .dark .fm-pomo-card .text-gray-300,
+      .dark .fm-pomo-card .text-gray-400 {
+        color: #94a3b8 !important;
+      }
+      .fm-pomo-card .tag-container {
+        gap: 5px !important;
+        padding-top: 7px !important;
+      }
+      .fm-pomo-card .tag {
+        min-height: 25px !important;
+        border-radius: 6px !important;
+        background: #eef2ff !important;
+        color: #3730a3 !important;
+        box-shadow: none !important;
+        font-size: 11px !important;
+      }
+      .fm-pomo-card .tag .highlight {
+        color: #be123c !important;
+      }
+      .fm-pomo-card-cta {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        min-height: 28px;
+        padding: 0 8px;
+        border-radius: 8px;
+        background: rgba(15, 23, 42, .82);
+        color: #fff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 900;
+        pointer-events: none;
+      }
+      .fm-pomo-enhanced .load-more-container {
+        margin-top: 18px !important;
+      }
+      .fm-pomo-enhanced .load-more-btn,
+      .fm-pomo-enhanced .pagination-container a,
+      .fm-pomo-enhanced .pagination-container span {
+        min-width: 44px !important;
+        min-height: 44px !important;
+        border-radius: 8px !important;
+      }
+      .fm-pomo-detail {
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        background: #fff !important;
+        color: #111827 !important;
+        padding: 14px !important;
+        box-shadow: 0 6px 20px rgba(15, 23, 42, .07) !important;
+      }
+      .dark .fm-pomo-detail {
+        border-color: #26313c !important;
+        background: #121820 !important;
+        color: #f8fafc !important;
+        box-shadow: none !important;
+      }
+      .fm-pomo-detail .x-dbjs-header {
+        display: grid !important;
+        grid-template-columns: 128px minmax(0, 1fr);
+        gap: 12px !important;
+        align-items: start !important;
+      }
+      .fm-pomo-detail .x-dbjs-poster {
+        width: auto !important;
+        margin: 0 !important;
+      }
+      .fm-pomo-detail .x-dbjs-poster img {
+        width: 100% !important;
+        max-height: none !important;
+        aspect-ratio: 2 / 3;
+        object-fit: cover;
+        border-radius: 8px !important;
+        box-shadow: none !important;
+      }
+      .fm-pomo-detail .x-dbjs-info {
+        width: auto !important;
+        min-width: 0;
+        text-align: left !important;
+      }
+      .fm-pomo-detail .x-dbjs-title {
+        margin: 0 0 10px !important;
+        color: #111827 !important;
+        font-size: 20px !important;
+        line-height: 1.28 !important;
+      }
+      .dark .fm-pomo-detail .x-dbjs-title {
+        color: #f8fafc !important;
+      }
+      .fm-pomo-detail .x-dbjs-meta {
+        color: #475569 !important;
+        font-size: 13px !important;
+        line-height: 1.6 !important;
+      }
+      .dark .fm-pomo-detail .x-dbjs-meta {
+        color: #cbd5e1 !important;
+      }
+      .fm-pomo-detail .meta-row {
+        margin-bottom: 4px !important;
+      }
+      .fm-pomo-detail .meta-row span {
+        color: #64748b !important;
+      }
+      .fm-pomo-detail .x-dbjs-actions {
+        margin-top: 12px !important;
+        justify-content: flex-start !important;
+      }
+      .fm-pomo-detail-desc {
+        margin: 14px 0 10px !important;
+        padding-top: 12px;
+        border-top: 1px solid #e2e8f0;
+      }
+      .dark .fm-pomo-detail-desc {
+        border-top-color: #26313c;
+      }
+      .fm-pomo-detail-desc p {
+        color: #334155 !important;
+        font-size: 14px !important;
+        line-height: 1.75 !important;
+      }
+      .dark .fm-pomo-detail-desc p {
+        color: #d1d5db !important;
+      }
+      .fm-pomo-stills {
+        display: grid !important;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(132px, 42%);
+        gap: 8px !important;
+        overflow-x: auto;
+        padding: 2px 0 10px !important;
+        margin: 0 !important;
+        flex-wrap: nowrap !important;
+        scrollbar-width: thin;
+        -webkit-overflow-scrolling: touch;
+      }
+      .fm-pomo-stills li {
+        width: auto !important;
+        margin: 0 !important;
+      }
+      .fm-pomo-stills li .still-wrap {
+        border-radius: 8px !important;
+      }
+      .fm-pomo-stills img {
+        transform: none !important;
+      }
+      .fm-pomo-enhanced a:focus,
+      .fm-pomo-enhanced button:focus,
+      .fm-pomo-enhanced input:focus,
+      .fm-pomo-enhanced select:focus,
+      .fm-pomo-enhanced [tabindex]:focus {
+        outline: 3px solid #14b8a6 !important;
+        outline-offset: 3px !important;
+        box-shadow: 0 0 0 5px rgba(20, 184, 166, .18) !important;
+      }
+      .fm-pomo-card:focus-within {
+        border-color: #14b8a6 !important;
+        transform: translateY(-2px);
+        box-shadow: 0 10px 28px rgba(15, 118, 110, .20) !important;
+      }
+      @media (min-width: 700px) {
+        .fm-pomo-enhanced .fm-pomo-grid {
+          grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+          gap: 12px !important;
+        }
+        .fm-pomo-enhanced .fm-pomo-filter-form {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+        .fm-pomo-stills {
+          grid-auto-columns: minmax(160px, 24%);
+        }
+      }
+      @media (min-width: 1100px) {
+        .fm-pomo-enhanced .fm-pomo-grid {
+          grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+        }
+        .fm-pomo-enhanced .fm-pomo-filter-form {
+          grid-template-columns: repeat(6, minmax(0, 1fr));
+        }
+        .fm-pomo-card h3,
+        .fm-pomo-card h4 {
+          font-size: 15px !important;
+        }
+      }
+      @media (max-width: 420px) {
+        .fm-pomo-enhanced header {
+          padding-left: 10px !important;
+          padding-right: 10px !important;
+        }
+        .fm-pomo-enhanced main {
+          padding-left: 10px !important;
+          padding-right: 10px !important;
+        }
+        .fm-pomo-detail .x-dbjs-header {
+          grid-template-columns: 108px minmax(0, 1fr);
+        }
+        .fm-pomo-detail .x-dbjs-title {
+          font-size: 18px !important;
+        }
+      }
       #${CONFIG.panelId} {
         margin: 16px 0 22px;
         padding: 14px;
@@ -779,6 +1409,7 @@
     installStyle();
     document.addEventListener("click", interceptOriginalClicks, true);
     document.addEventListener("click", onPanelClick, true);
+    document.addEventListener("keydown", onKeyboardActivate, true);
     installObserver();
     scan();
     log("ready", location.href);
