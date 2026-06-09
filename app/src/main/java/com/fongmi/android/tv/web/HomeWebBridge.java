@@ -30,22 +30,29 @@ import com.google.gson.JsonObject;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+
 public class HomeWebBridge {
 
     private static final int INLINE_LIMIT = 12000;
     private static final int CHUNK_SIZE = 60000;
+    private static final long INLINE_RESOLVE_TIMEOUT_SECONDS = 20;
 
     private final HomeWebController controller;
     private final Activity activity;
     private final WebView webView;
     private final Map<String, String> results;
+    private final Map<String, CompletableFuture<String>> inlineResults;
 
     public HomeWebBridge(HomeWebController controller, Activity activity, WebView webView) {
         this.controller = controller;
         this.activity = activity;
         this.webView = webView;
         this.results = new ConcurrentHashMap<>();
+        this.inlineResults = new ConcurrentHashMap<>();
     }
 
     @JavascriptInterface
@@ -90,6 +97,12 @@ public class HomeWebBridge {
         results.remove(id);
     }
 
+    @JavascriptInterface
+    public void inlineResult(String id, String payload) {
+        CompletableFuture<String> future = inlineResults.remove(id);
+        if (future != null) future.complete(payload);
+    }
+
     private void handle(String requestId, String method, JsonObject payload) {
         try {
             SpiderDebug.log("webhome", "invoke method=%s payload=%s", method, payload);
@@ -98,6 +111,7 @@ public class HomeWebBridge {
                 case "net.resourceUrl" -> quote(resourceUrl(Json.safeString(payload, "url"), payload.toString()));
                 case "player.playUrl" -> playUrl(payload);
                 case "player.playVod" -> playVod(payload);
+                case "player.playVodInline" -> playVodInline(payload);
                 case "player.control" -> control(payload);
                 case "player.status" -> WebCall.request(statusPayload());
                 case "app.search" -> search(payload);
@@ -145,6 +159,60 @@ public class HomeWebBridge {
         String pic = Json.safeString(payload, "pic");
         App.post(() -> VideoActivity.start(activity, siteKey, vodId, title, pic));
         return "{}";
+    }
+
+    private String playVodInline(JsonObject payload) {
+        String vodId = WebHomeInlineVodStore.put(payload, this::resolveInlineEpisode);
+        String title = Json.safeString(payload, "title");
+        if (TextUtils.isEmpty(title)) title = Json.safeString(payload, "vod_name");
+        String pic = Json.safeString(payload, "pic");
+        if (TextUtils.isEmpty(pic)) pic = Json.safeString(payload, "vod_pic");
+        String mark = Json.safeString(payload, "mark");
+        final String playTitle = TextUtils.isEmpty(title) ? vodId : title;
+        final String playPic = pic;
+        final String playMark = mark;
+        SpiderDebug.log("webhome", "player.playVodInline title=%s id=%s mark=%s", playTitle, vodId, playMark);
+        App.post(() -> VideoActivity.start(activity, WebHomeInlineVodStore.KEY, vodId, playTitle, playPic, playMark));
+        JsonObject result = new JsonObject();
+        result.addProperty("siteKey", WebHomeInlineVodStore.KEY);
+        result.addProperty("vodId", vodId);
+        return result.toString();
+    }
+
+    private JsonObject resolveInlineEpisode(JsonObject payload) throws Exception {
+        String id = "inline_" + UUID.randomUUID().toString().replace("-", "");
+        CompletableFuture<String> future = new CompletableFuture<>();
+        inlineResults.put(id, future);
+        String script = """
+                (function(){
+                  const id=%s;
+                  const payload=%s;
+                  const done=function(value){
+                    try{fongmiBridge.inlineResult(id,JSON.stringify(value||{}));}catch(e){}
+                  };
+                  const fail=function(error){
+                    const message=error&&error.message?error.message:String(error||'');
+                    done({error:message});
+                  };
+                  try{
+                    const resolver=window.__fmWebHomeInlineResolver||window.__fmYmvidResolveEpisode;
+                    if(typeof resolver!=='function'){fail('inline resolver unavailable');return;}
+                    Promise.resolve(resolver(payload)).then(done,fail);
+                  }catch(e){
+                    fail(e);
+                  }
+                })();
+                """.formatted(quote(id), payload == null ? "{}" : payload.toString());
+        try {
+            eval(script);
+            String result = future.get(INLINE_RESOLVE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            JsonObject object = WebCall.object(result);
+            String error = Json.safeString(object, "error");
+            if (!TextUtils.isEmpty(error)) throw new IllegalStateException(error);
+            return object;
+        } finally {
+            inlineResults.remove(id);
+        }
     }
 
     private String control(JsonObject payload) {
