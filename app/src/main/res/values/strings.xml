@@ -446,10 +446,17 @@
     <string name="dialog_audio_site_rules">Audio source rules: enabled sources or keywords, separated by ;. Default: [音];[听]</string>
     <string name="dialog_audio_site_manage">Select audio sources</string>
     <string name="dialog_audio_site_default">Default [音]/[听]</string>
+    <string name="dialog_audio_enabled_label">启用规则</string>
+    <string name="dialog_audio_add_hint">添加关键词或站点…</string>
+    <string name="dialog_audio_add">添加</string>
     <string name="dialog_short_drama_site_rules">Short drama source rules: enabled sources or keywords, separated by ;. Default: [短];短剧</string>
     <string name="dialog_short_drama_site_manage">Select short drama sources</string>
     <string name="dialog_short_drama_site_default">Default [短]/短剧</string>
     <string name="dialog_short_drama_site_disabled">Excluded: %1$s</string>
+    <string name="dialog_short_drama_enabled_label">启用规则</string>
+    <string name="dialog_short_drama_disabled_label">已排除</string>
+    <string name="dialog_short_drama_add_hint">添加关键词或站点…</string>
+    <string name="dialog_short_drama_add">添加</string>
 
     <string name="dialog_reset">Reset</string>
     <string name="dialog_select_title">Select chapter</string>

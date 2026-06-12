@@ -1,9 +1,9 @@
 package com.fongmi.android.tv.ui.dialog;
 
-import android.content.DialogInterface;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 
 import androidx.appcompat.app.AlertDialog;
@@ -14,6 +14,8 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.AudioConfig;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.setting.Setting;
+import com.google.android.material.chip.Chip;
+import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.ArrayList;
@@ -24,7 +26,7 @@ public class AudioSourceDialog {
 
     private final FragmentActivity activity;
     private AlertDialog dialog;
-    private EditText rulesEdit;
+    private ChipGroup enabledChips;
     private Runnable onDismiss;
 
     public static AudioSourceDialog create(FragmentActivity activity) {
@@ -42,59 +44,95 @@ public class AudioSourceDialog {
 
     public void show() {
         View view = LayoutInflater.from(activity).inflate(R.layout.dialog_audio_source, null);
-        rulesEdit = view.findViewById(R.id.rules);
+        enabledChips = view.findViewById(R.id.enabledChips);
+        EditText ruleInput = view.findViewById(R.id.ruleInput);
+        View addBtn = view.findViewById(R.id.add);
         View manageBtn = view.findViewById(R.id.manage);
+        View resetBtn = view.findViewById(R.id.resetDefault);
 
         AudioConfig config = AudioConfig.objectFrom(Setting.getAudioConfig());
-        rulesEdit.setText(toDisplayText(config.getEnabledSites()));
+        updateChipsDisplay(config);
+
+        addBtn.setOnClickListener(v -> addRule(ruleInput));
+        ruleInput.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                addRule(ruleInput);
+                return true;
+            }
+            return false;
+        });
         manageBtn.setOnClickListener(v -> showSiteManage());
+        resetBtn.setOnClickListener(v -> resetToDefault());
 
         dialog = new MaterialAlertDialogBuilder(activity)
                 .setTitle(R.string.setting_audio_source)
                 .setView(view)
-                .setPositiveButton(R.string.dialog_positive, this::onSave)
                 .setNegativeButton(R.string.dialog_negative, null)
-                .setNeutralButton(R.string.dialog_audio_site_default, (d, w) -> rulesEdit.setText(AudioConfig.defaultRulesText()))
                 .setOnDismissListener(d -> { if (onDismiss != null) onDismiss.run(); })
                 .create();
         dialog.show();
-    }
-
-    private void onSave(DialogInterface d, int which) {
-        List<String> rules = extractKeys(rulesEdit.getText().toString());
-        String json = "{\"configured\":true,\"enabledSites\":" + toJsonArray(rules) + "}";
-        Setting.putAudioConfig(AudioConfig.objectFrom(json).toJson());
     }
 
     private void showSiteManage() {
         List<Site> sites = VodConfig.get().getSites().stream().filter(s -> s != null && !s.isEmpty()).toList();
         if (sites.isEmpty()) return;
 
-        List<String> current = splitRules(rulesEdit.getText().toString());
+        AudioConfig config = AudioConfig.objectFrom(Setting.getAudioConfig());
+        List<String> enabledRules = config.getEnabledSites().isEmpty()
+            ? List.of(AudioConfig.defaultRulesText().split(";"))
+            : config.getEnabledSites();
+
         String[] labels = new String[sites.size()];
         boolean[] checked = new boolean[sites.size()];
 
         for (int i = 0; i < sites.size(); i++) {
             Site site = sites.get(i);
             labels[i] = TextUtils.isEmpty(site.getName()) ? site.getKey() : site.getName() + "  " + site.getKey();
-            checked[i] = matchesRule(current, site);
+            checked[i] = matchesRule(enabledRules, site);
         }
 
         new MaterialAlertDialogBuilder(activity)
                 .setTitle(R.string.dialog_audio_site_manage)
                 .setMultiChoiceItems(labels, checked, (d, which, isChecked) -> checked[which] = isChecked)
-                .setPositiveButton(R.string.dialog_positive, (d, w) -> {
-                    List<String> selected = new ArrayList<>();
-                    for (int i = 0; i < sites.size(); i++)
-                        if (checked[i]) selected.add(displayName(sites.get(i)));
-                    // 合并已有的关键词规则（非站点条目）
-                    for (String rule : splitRules(rulesEdit.getText().toString())) {
-                        if (findSite(rule) == null && !selected.contains(rule)) selected.add(rule);
-                    }
-                    rulesEdit.setText(String.join(";", selected));
-                })
+                .setPositiveButton(R.string.dialog_positive, (d, w) -> applySiteManage(sites, enabledRules, checked))
                 .setNegativeButton(R.string.dialog_negative, null)
                 .show();
+    }
+
+    private void applySiteManage(List<Site> sites, List<String> enabledRules, boolean[] checked) {
+        List<String> newEnabled = new ArrayList<>();
+        // 保留关键词（非站点条目）
+        for (String rule : enabledRules) {
+            if (findSite(rule) == null) newEnabled.add(rule);
+        }
+
+        for (int i = 0; i < sites.size(); i++) {
+            if (!checked[i]) continue;
+
+            Site site = sites.get(i);
+            String key = site.getKey();
+            boolean matchedByKeyword = false;
+
+            // 检查是否被关键词匹配
+            for (String rule : enabledRules) {
+                if (findSite(rule) == null && matchesRule(List.of(rule), site)) {
+                    matchedByKeyword = true;
+                    break;
+                }
+            }
+
+            // 只有不被关键词匹配的，才显式加入
+            if (!matchedByKeyword && !newEnabled.contains(key)) {
+                newEnabled.add(key);
+            }
+        }
+
+        // 立即保存配置
+        String json = "{\"configured\":true,\"enabledSites\":" + toJsonArray(newEnabled) + "}";
+        Setting.putAudioConfig(AudioConfig.objectFrom(json).toJson());
+
+        // 刷新 Chip 显示
+        updateChipsDisplay(AudioConfig.objectFrom(Setting.getAudioConfig()));
     }
 
     private boolean matchesRule(List<String> rules, Site site) {
@@ -104,33 +142,11 @@ public class AudioSourceDialog {
             if (TextUtils.isEmpty(rule)) continue;
             String r = rule.trim().toLowerCase(Locale.ROOT);
             if (key.equals(r) || name.equals(r)) return true;
+            if (key.contains(r) || name.contains(r)) return true;
         }
         return false;
     }
 
-    // 显示文本：站点 key 转为站点名称，关键词原样保留
-    private String toDisplayText(List<String> rules) {
-        if (rules == null || rules.isEmpty()) return "";
-        List<String> display = new ArrayList<>();
-        for (String rule : rules) {
-            Site site = findSite(rule);
-            display.add(site != null ? displayName(site) : rule);
-        }
-        return String.join(";", display);
-    }
-
-    // 保存时：站点名称转回 key，关键词原样保留
-    private List<String> extractKeys(String text) {
-        List<String> result = new ArrayList<>();
-        for (String rule : splitRules(text)) {
-            Site site = findSite(rule);
-            String value = site != null ? site.getKey() : rule;
-            if (!result.contains(value)) result.add(value);
-        }
-        return result;
-    }
-
-    // 按 key 或名称精确查找站点
     private Site findSite(String value) {
         if (TextUtils.isEmpty(value)) return null;
         String target = value.trim();
@@ -146,16 +162,6 @@ public class AudioSourceDialog {
         return TextUtils.isEmpty(site.getName()) ? site.getKey() : site.getName();
     }
 
-    private List<String> splitRules(String text) {
-        List<String> result = new ArrayList<>();
-        if (TextUtils.isEmpty(text)) return result;
-        for (String item : text.split("[,，;；\\n]")) {
-            String s = item.trim();
-            if (!s.isEmpty() && !result.contains(s)) result.add(s);
-        }
-        return result;
-    }
-
     private String toJsonArray(List<String> values) {
         if (values == null || values.isEmpty()) return "[]";
         StringBuilder sb = new StringBuilder("[");
@@ -164,5 +170,84 @@ public class AudioSourceDialog {
             sb.append('"').append(values.get(i).replace("\"", "\\\"")).append('"');
         }
         return sb.append(']').toString();
+    }
+
+    // Chip 相关方法
+    private void updateChipsDisplay(AudioConfig config) {
+        enabledChips.removeAllViews();
+
+        List<String> enabledRules = config.getEnabledSites().isEmpty()
+            ? List.of(AudioConfig.defaultRulesText().split(";"))
+            : config.getEnabledSites();
+
+        for (String rule : enabledRules) {
+            if (TextUtils.isEmpty(rule)) continue;
+            Chip chip = createChip(rule.trim());
+            enabledChips.addView(chip);
+        }
+    }
+
+    private Chip createChip(String text) {
+        Chip chip = new Chip(activity);
+
+        // 启用规则：key 转站点名显示，关键词原样
+        Site site = findSite(text);
+        chip.setText(site != null ? displayName(site) : text);
+
+        chip.setCloseIconVisible(true);
+        chip.setCheckable(false);
+
+        chip.setOnCloseIconClickListener(v -> removeEnabledRule(text));
+
+        return chip;
+    }
+
+    private void removeEnabledRule(String rule) {
+        AudioConfig config = AudioConfig.objectFrom(Setting.getAudioConfig());
+        List<String> enabled = new ArrayList<>(config.getEnabledSites());
+
+        // 尝试按显示名和 key 移除
+        Site site = findSite(rule);
+        if (site != null) {
+            enabled.remove(site.getKey());
+            enabled.remove(displayName(site));
+        } else {
+            enabled.remove(rule);
+        }
+
+        String json = "{\"configured\":true,\"enabledSites\":" + toJsonArray(enabled) + "}";
+        Setting.putAudioConfig(AudioConfig.objectFrom(json).toJson());
+
+        updateChipsDisplay(AudioConfig.objectFrom(Setting.getAudioConfig()));
+    }
+
+    private void resetToDefault() {
+        String json = "{\"configured\":true,\"enabledSites\":[]}";
+        Setting.putAudioConfig(AudioConfig.objectFrom(json).toJson());
+        updateChipsDisplay(AudioConfig.objectFrom(Setting.getAudioConfig()));
+    }
+
+    private void addRule(EditText input) {
+        String rule = input.getText().toString().trim();
+        if (TextUtils.isEmpty(rule)) return;
+
+        AudioConfig config = AudioConfig.objectFrom(Setting.getAudioConfig());
+        List<String> enabled = new ArrayList<>(config.getEnabledSites());
+
+        // 去重：站点 key/名称 或关键词已存在则不重复添加
+        Site site = findSite(rule);
+        String toAdd = site != null ? site.getKey() : rule;
+        if (enabled.contains(toAdd)) {
+            input.setText("");
+            return;
+        }
+
+        enabled.add(toAdd);
+
+        String json = "{\"configured\":true,\"enabledSites\":" + toJsonArray(enabled) + "}";
+        Setting.putAudioConfig(AudioConfig.objectFrom(json).toJson());
+
+        input.setText("");
+        updateChipsDisplay(AudioConfig.objectFrom(Setting.getAudioConfig()));
     }
 }
