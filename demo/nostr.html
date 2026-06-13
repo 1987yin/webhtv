@@ -1290,7 +1290,6 @@
     }
 
     @media (max-width: 719px) {
-      html:not(.tv-mode) #closeDetailBtn,
       html:not(.tv-mode) #imageViewer.episode-mode #closeImageBtn {
         display: none;
       }
@@ -1319,11 +1318,6 @@
       max-height: none;
       aspect-ratio: 16 / 9;
       margin-top: 0;
-    }
-
-    html.tv-mode #closeDetailBtn,
-    #detailSheet.detail-large #closeDetailBtn {
-      display: none;
     }
 
     @media (max-height: 760px) {
@@ -4365,10 +4359,6 @@
   <section class="sheet" id="detailSheet" aria-hidden="true">
     <button class="mobile-detail-back focusable" id="mobileDetailBackBtn" type="button" aria-label="返回">
       <svg class="icon" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
-    </button>
-    <button class="btn focusable" id="closeDetailBtn" type="button">
-      <svg class="icon" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
-      返回
     </button>
     <div class="detail-cover">
       <img id="detailImage" alt="">
@@ -7651,10 +7641,8 @@
 
     function syncDetailBackFocusability(large) {
       const root = document.documentElement;
-      const close = $("closeDetailBtn");
       const mobile = $("mobileDetailBackBtn");
       const phoneBack = root && root.classList.contains("native-phone-app") && !large;
-      if (close) close.tabIndex = large || phoneBack ? -1 : 0;
       if (mobile) mobile.tabIndex = phoneBack ? 0 : -1;
     }
 
@@ -8778,7 +8766,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       if (shouldRefreshRecentList()) loadRecentList({ silent: true }).catch(() => {});
       loadDetail(item);
       scheduleUiSnapshotSave();
-      if (!opts.restore) setTimeout(() => focusRemoteTarget(detailPrimaryActionButton() || $("closeDetailBtn")), 40);
+      if (!opts.restore) setTimeout(() => focusRemoteTarget(detailPrimaryActionButton()), 40);
     }
 
     function ensureSheetViewport(sheet, display) {
@@ -10823,7 +10811,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       $("mobileImageBackBtn").classList.remove("is-hidden");
       if (!fromPopState && location.hash === "#image") history.back();
       scheduleUiSnapshotSave();
-      restoreFocusReturn($("detailSheet") && $("detailSheet").classList.contains("active") ? $("closeDetailBtn") : null);
+      restoreFocusReturn($("detailSheet") && $("detailSheet").classList.contains("active") ? detailPrimaryActionButton() : null);
     }
 
     async function nativeSearch(title) {
@@ -10899,7 +10887,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       const apply = () => {
         if ($("detailSheet")) $("detailSheet").scrollTop = Number(saved.scrollTop || 0);
         const savedTarget = saved.targetId && $(saved.targetId);
-        const target = isVisibleFocusable(savedTarget) ? savedTarget : detailPrimaryActionButton() || $("closeDetailBtn");
+        const target = isVisibleFocusable(savedTarget) ? savedTarget : detailPrimaryActionButton();
         if (target) focusRemoteTarget(target);
       };
       requestAnimationFrame(apply);
@@ -12187,7 +12175,6 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       searchSubmit.addEventListener("click", handleSearchSubmitClick);
       $("homeSettingBtn").addEventListener("click", openSettingHome);
       $("clearSearchBtn").addEventListener("click", clearSearchResults);
-      $("closeDetailBtn").addEventListener("click", () => closeDetail(false));
       $("mobileDetailBackBtn").addEventListener("click", () => closeDetail(false));
       $("detailContinueBtn").addEventListener("click", () => {
         openDetailContinueHistory();
@@ -12837,12 +12824,6 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       const active = document.activeElement;
       if (!sheet || !sheet.classList.contains("active") || !active || !sheet.contains(active)) return false;
       if (isPanSearchActive() && isPanFocusTarget(active)) return false;
-      if (active === $("closeDetailBtn") && useLargeDetailLayout()) {
-        event.preventDefault();
-        event.stopPropagation();
-        focusRemoteTarget(detailPrimaryActionButton() || $("panSearchBtn"));
-        return true;
-      }
       const currentBlock = detailFocusBlock(active);
       if (!currentBlock) return false;
       let target = null;
@@ -12904,7 +12885,6 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
     }
 
     function detailFocusBlock(el) {
-      if (el === $("closeDetailBtn")) return useLargeDetailLayout() ? null : { id: "closeDetailBtn", root: $("closeDetailBtn") };
       if (el === $("detailMoreBtn")) return { id: "detailInfo", root: el.closest(".detail-info") };
       if (el === $("detailContinueBtn") || el === $("detailSearchBtn") || el === $("panSearchBtn")) return { id: "detailActions", root: el.closest(".actions") };
       const ids = ["panSearchBlock", "seasonBlock", "castBlock", "personWorkBlock", "recommendBlock"];
@@ -12917,7 +12897,6 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
 
     function detailBlockOrder() {
       const order = [];
-      if (!useLargeDetailLayout() && isVisibleFocusable($("closeDetailBtn"))) order.push({ id: "closeDetailBtn", root: $("closeDetailBtn") });
       const info = $("detailMoreBtn") && $("detailMoreBtn").closest(".detail-info");
       if (info && detailBlockFocusables(info).length) order.push({ id: "detailInfo", root: info });
       const actions = $("detailSearchBtn") && $("detailSearchBtn").closest(".actions");
