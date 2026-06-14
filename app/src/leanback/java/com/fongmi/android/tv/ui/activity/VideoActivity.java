@@ -53,6 +53,7 @@ import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.impl.CustomTarget;
 import com.fongmi.android.tv.model.SiteViewModel;
+import com.fongmi.android.tv.playback.PlaybackEventCollector;
 import com.fongmi.android.tv.player.PlayerHelper;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.service.PlaybackService;
@@ -1246,6 +1247,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.control.action.ending.setText(mHistory.getEnding() <= 0 ? getString(R.string.play_ed) : Util.timeMs(mHistory.getEnding()));
         mBinding.control.action.speed.setText(player().setSpeed(mHistory.getSpeed()));
         mHistory.setVodName(item.getName());
+        PlaybackEventCollector.get().updateHistory(mHistory);
         setArtwork(item.getPic());
         setScale(getScale());
         setPartAdapter();
@@ -1279,7 +1281,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         android.util.Log.d("VideoActivity", "saveHistory: exit=" + exit + " mHistory=" + (mHistory != null) +
             " canSave=" + (mHistory != null ? mHistory.canSave() : "null") +
             " incognito=" + Setting.isIncognito());
-        if (mHistory == null || !mHistory.canSave() || Setting.isIncognito()) return;
+        if (mHistory == null || Setting.isIncognito()) return;
+        if (exit && isOwner()) updatePlaybackHistoryPosition();
+        if (exit && service() != null) PlaybackEventCollector.get().onStop(player());
+        if (!mHistory.canSave()) return;
         History history = mHistory.copy();
         Task.execute(() -> {
             history.merge().save();
@@ -1296,11 +1301,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private void updateHistory(Episode item) {
         boolean sameEpisode = item.matchesName(mHistory.getEpisode());
+        boolean sameFlag = TextUtils.equals(mHistory.getVodFlag(), getFlag().getFlag());
+        if ((!sameEpisode || !sameFlag) && service() != null) {
+            updatePlaybackHistoryPosition();
+            PlaybackEventCollector.get().onStop(player());
+        }
         mHistory.setPosition(sameEpisode ? mHistory.getPosition() : C.TIME_UNSET);
         if (!sameEpisode) mHistory.setDuration(C.TIME_UNSET);
         mHistory.setVodFlag(getFlag().getFlag());
         mHistory.setVodRemarks(item.getName());
         mHistory.setEpisodeUrl(item.getUrl());
+        PlaybackEventCollector.get().updateHistory(mHistory);
     }
 
     private void checkKeepImg() {
@@ -1343,6 +1354,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (pic || name) updateKeep();
         if (id) updateNavigationKey();
         if (name) setPartAdapter();
+        PlaybackEventCollector.get().updateHistory(mHistory);
         setText(item);
     }
 
@@ -1463,13 +1475,22 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (!isOwner()) return;
         long position, duration;
         mHistory.setCreateTime(time);
-        mHistory.setPosition(position = player().getPosition());
-        mHistory.setDuration(duration = player().getDuration());
+        updatePlaybackHistoryPosition();
+        position = mHistory.getPosition();
+        duration = mHistory.getDuration();
         android.util.Log.d("VideoActivity", "onTimeChanged: position=" + position + " duration=" + duration + " canSave=" + mHistory.canSave());
+        PlaybackEventCollector.get().onProgress(mHistory, player());
         if (mHistory.canSave() && mHistory.canSync()) syncHistory();
         if (mHistory.getEnding() > 0 && duration > 0 && mHistory.getEnding() + position >= duration) {
             checkEnded(false);
         }
+    }
+
+    private void updatePlaybackHistoryPosition() {
+        if (mHistory == null) return;
+        mHistory.setPosition(player().getPosition());
+        mHistory.setDuration(player().getDuration());
+        PlaybackEventCollector.get().updateHistory(mHistory);
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)

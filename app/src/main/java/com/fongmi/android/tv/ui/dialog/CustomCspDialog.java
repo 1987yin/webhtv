@@ -1,11 +1,13 @@
 package com.fongmi.android.tv.ui.dialog;
 
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
 import android.app.Activity;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.res.ColorStateList;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.os.SystemClock;
 import android.text.Editable;
 import android.text.InputType;
@@ -25,13 +27,16 @@ import androidx.annotation.NonNull;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.AppCompatImageButton;
 import androidx.appcompat.widget.LinearLayoutCompat;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.LiveConfig;
 import com.fongmi.android.tv.api.config.VodConfig;
@@ -44,9 +49,11 @@ import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.github.catvod.utils.Path;
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
+import com.google.android.material.textview.MaterialTextView;
 import com.google.gson.GsonBuilder;
 
 import java.util.ArrayList;
@@ -65,9 +72,13 @@ public class CustomCspDialog extends BaseAlertDialog {
     private CustomCspSetting.Registry registry;
     private CspAdapter adapter;
     private CustomCspSetting.Item pendingImport;
+    private CspEditor editor;
+    private CustomCspSetting.Item editingItem;
+    private int editingPosition = -1;
     private Runnable callback;
     private boolean enabled;
     private boolean textMode;
+    private boolean editMode;
     private boolean saved;
     private long lastAddTime;
 
@@ -135,6 +146,7 @@ public class CustomCspDialog extends BaseAlertDialog {
         binding.modeGroup.check(R.id.uiMode);
         syncJsonFromForm(false);
         showTextMode(false);
+        showList();
     }
 
     @Override
@@ -152,7 +164,10 @@ public class CustomCspDialog extends BaseAlertDialog {
         });
         setupScrollableText(binding.jsonText);
         binding.add.setOnClickListener(view -> addItem());
-        binding.negative.setOnClickListener(view -> closeAndSave(false));
+        binding.negative.setOnClickListener(view -> {
+            if (editMode) showList();
+            else closeAndSave(false);
+        });
         binding.positive.setOnClickListener(view -> onPositive());
     }
 
@@ -209,6 +224,7 @@ public class CustomCspDialog extends BaseAlertDialog {
     }
 
     private boolean showTextMode(boolean text) {
+        if (editMode) return false;
         if (text == textMode) {
             updateModeVisibility();
             return true;
@@ -223,7 +239,13 @@ public class CustomCspDialog extends BaseAlertDialog {
     private void updateModeVisibility() {
         binding.recycler.setVisibility(textMode ? View.GONE : View.VISIBLE);
         binding.jsonLayout.setVisibility(textMode ? View.VISIBLE : View.GONE);
-        binding.add.setVisibility(textMode ? View.GONE : View.VISIBLE);
+        binding.editPanel.setVisibility(editMode ? View.VISIBLE : View.GONE);
+        binding.recycler.setVisibility(textMode || editMode ? View.GONE : View.VISIBLE);
+        binding.jsonLayout.setVisibility(textMode ? View.VISIBLE : View.GONE);
+        binding.add.setVisibility(textMode || editMode ? View.GONE : View.VISIBLE);
+        binding.enabled.setVisibility(editMode ? View.GONE : View.VISIBLE);
+        binding.globalPanel.setVisibility(editMode ? View.GONE : View.VISIBLE);
+        binding.modeGroup.setVisibility(editMode ? View.GONE : View.VISIBLE);
     }
 
     private void addItem() {
@@ -232,8 +254,7 @@ public class CustomCspDialog extends BaseAlertDialog {
         lastAddTime = now;
         CustomCspSetting.Item item = CustomCspSetting.createDefaultItem();
         item.setName(nextName(KIND_WEB_HOME));
-        adapter.add(item);
-        binding.recycler.scrollToPosition(adapter.getItemCount() - 1);
+        showEdit(item, -1);
     }
 
     private String nextName(String kind) {
@@ -254,6 +275,7 @@ public class CustomCspDialog extends BaseAlertDialog {
     }
 
     private boolean onPositive() {
+        if (editMode) return saveEdit();
         return closeAndSave(true);
     }
 
@@ -269,6 +291,49 @@ public class CustomCspDialog extends BaseAlertDialog {
         View focus = binding.root.findFocus();
         if (focus != null) focus.clearFocus();
         binding.positive.requestFocus();
+    }
+
+    private void showList() {
+        editMode = false;
+        editor = null;
+        editingItem = null;
+        editingPosition = -1;
+        binding.editPanel.removeAllViews();
+        binding.negative.setText(R.string.dialog_negative);
+        binding.positive.setText(R.string.dialog_positive);
+        updateModeVisibility();
+        adapter.notifyDataSetChanged();
+        binding.add.requestFocus();
+    }
+
+    private void showEdit(CustomCspSetting.Item item, int position) {
+        syncAllVisibleRows();
+        editMode = true;
+        editingPosition = position;
+        editingItem = copy(item);
+        binding.editPanel.removeAllViews();
+        AdapterCustomCspBinding form = AdapterCustomCspBinding.inflate(LayoutInflater.from(requireContext()), binding.editPanel, false);
+        binding.editPanel.addView(form.getRoot());
+        editor = new CspEditor(form);
+        editor.bind(editingItem);
+        binding.negative.setText(R.string.playback_webhook_back);
+        binding.positive.setText(R.string.playback_webhook_save);
+        updateModeVisibility();
+        binding.contentScroll.scrollTo(0, 0);
+        form.name.requestFocus();
+    }
+
+    private boolean saveEdit() {
+        if (editor == null || editingItem == null) return false;
+        editor.sync();
+        if (editingItem.hasInvalidExtensions()) {
+            Notify.show(R.string.setting_custom_csp_extensions_invalid);
+            return false;
+        }
+        if (editingPosition >= 0) adapter.replace(editingPosition, editingItem);
+        else adapter.add(editingItem);
+        showList();
+        return true;
     }
 
     private void focusBeforeRemove(View removed) {
@@ -306,7 +371,12 @@ public class CustomCspDialog extends BaseAlertDialog {
         registry.setEnabled(enabled);
         registry.setInsertIndex(getInsertIndex());
         registry.setItems(new ArrayList<>(adapter.getItems()));
-        CustomCspSetting.save(registry);
+        try {
+            CustomCspSetting.save(registry);
+        } catch (Exception e) {
+            Notify.show(e.getMessage());
+            return false;
+        }
         reloadConfigs();
         if (callback != null) callback.run();
         saved = true;
@@ -361,6 +431,10 @@ public class CustomCspDialog extends BaseAlertDialog {
     }
 
     private void syncAllVisibleRows() {
+        if (editMode && editor != null) {
+            editor.sync();
+            return;
+        }
         for (int i = 0; i < binding.recycler.getChildCount(); i++) {
             RecyclerView.ViewHolder holder = binding.recycler.getChildViewHolder(binding.recycler.getChildAt(i));
             if (holder instanceof CspAdapter.ViewHolder viewHolder) viewHolder.sync();
@@ -400,7 +474,8 @@ public class CustomCspDialog extends BaseAlertDialog {
                 .setView(createInputPanel(R.string.setting_custom_csp_link, input))
                 .setPositiveButton(R.string.dialog_positive, (dialog, which) -> {
                     item.setHomePage(input.getText().toString().trim());
-                    adapter.notifyDataSetChanged();
+                    if (editMode && editor != null && item == editingItem) editor.updateHomePage();
+                    else adapter.notifyDataSetChanged();
                 })
                 .setNegativeButton(R.string.dialog_negative, null));
     }
@@ -439,20 +514,147 @@ public class CustomCspDialog extends BaseAlertDialog {
     }
 
     private void saveCode(CustomCspSetting.Item item, String code) {
-        Path.write(CustomCspSetting.file(item.getId(), "index.html"), code.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        item.setHomePage(CustomCspSetting.localUrl(item.getId(), "index.html"));
-        adapter.notifyDataSetChanged();
+        try {
+            CustomCspSetting.writePage(item.getId(), code);
+            item.setHomePage(CustomCspSetting.localUrl(item.getId(), "index.html"));
+            if (editMode && editor != null && item == editingItem) editor.updateHomePage();
+            else adapter.notifyDataSetChanged();
+        } catch (Exception e) {
+            Notify.show(e.getMessage());
+        }
     }
 
     private final ActivityResultLauncher<Intent> launcher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
         if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null || pendingImport == null) return;
         String path = FileChooser.getPathFromUri(result.getData().getData());
         if (TextUtils.isEmpty(path)) return;
-        Path.copy(Path.local(path), CustomCspSetting.file(pendingImport.getId(), "index.html"));
-        pendingImport.setHomePage(CustomCspSetting.localUrl(pendingImport.getId(), "index.html"));
-        pendingImport = null;
-        adapter.notifyDataSetChanged();
+        try {
+            CustomCspSetting.copyPage(Path.local(path), pendingImport.getId());
+            pendingImport.setHomePage(CustomCspSetting.localUrl(pendingImport.getId(), "index.html"));
+            boolean editingImport = editMode && editor != null && pendingImport == editingItem;
+            pendingImport = null;
+            if (editingImport) editor.updateHomePage();
+            else adapter.notifyDataSetChanged();
+        } catch (Exception e) {
+            Notify.show(e.getMessage());
+        }
     });
+
+    private CustomCspSetting.Item copy(CustomCspSetting.Item item) {
+        return App.gson().fromJson(App.gson().toJson(item), CustomCspSetting.Item.class).normalize();
+    }
+
+    private String primaryDetail(CustomCspSetting.Item item) {
+        if (item.isLive()) return getString(R.string.setting_custom_csp_live_url) + ": " + empty(item.getUrl());
+        if (item.isWebHome()) return getString(R.string.setting_custom_csp_home_page) + ": " + empty(item.getHomePage());
+        return getString(R.string.setting_custom_csp_api) + ": " + empty(item.getApi());
+    }
+
+    private String meta(CustomCspSetting.Item item) {
+        String status = item.isEnabled() ? getString(item.isValid() ? R.string.playback_webhook_active : R.string.playback_webhook_incomplete) : getString(R.string.setting_disable);
+        if (item.isWebHome() && item.hasInvalidExtensions()) status += " · " + getString(R.string.setting_custom_csp_extensions_invalid);
+        if (item.isLive()) return status + " · " + getString(R.string.setting_custom_csp_player_type) + " " + empty(String.valueOf(item.getPlayerType()));
+        if (item.isWebHome()) return status + " · " + getString(R.string.setting_custom_csp_extensions_toggle) + " " + (TextUtils.isEmpty(item.getExtensionsText()) ? getString(R.string.none) : getString(R.string.setting_enable));
+        return status + " · " + getString(R.string.setting_custom_csp_type) + " " + item.getType();
+    }
+
+    private String kindName(CustomCspSetting.Item item) {
+        return getString(item.isLive() ? R.string.setting_custom_csp_live : item.isWebHome() ? R.string.setting_custom_csp_webhome : R.string.setting_custom_csp_common);
+    }
+
+    private String empty(String value) {
+        return TextUtils.isEmpty(value) || "null".equals(value) ? getString(R.string.none) : value;
+    }
+
+    private int statusColor(CustomCspSetting.Item item) {
+        if (!item.isEnabled()) return Color.parseColor("#6F7378");
+        return item.isValid() && !item.hasInvalidExtensions() ? Color.parseColor("#137333") : Color.parseColor("#B3261E");
+    }
+
+    private GradientDrawable rowBackground(CustomCspSetting.Item item) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.parseColor(item.isValid() ? "#F5F6F7" : "#FFF7F7"));
+        drawable.setStroke(dp(1), Color.parseColor(item.isValid() ? "#DADCE0" : "#F1C9C6"));
+        drawable.setCornerRadius(dp(6));
+        return drawable;
+    }
+
+    private MaterialTextView text(String value, int sp, int color, boolean bold) {
+        MaterialTextView view = new MaterialTextView(requireContext());
+        view.setText(value);
+        view.setTextColor(color);
+        view.setTextSize(sp);
+        view.setSingleLine(false);
+        if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        return view;
+    }
+
+    private MaterialTextView badge(String value, int color) {
+        MaterialTextView view = text(value, 12, color, true);
+        view.setGravity(Gravity.CENTER);
+        view.setSingleLine(true);
+        view.setPadding(dp(8), dp(3), dp(8), dp(3));
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.WHITE);
+        drawable.setStroke(dp(1), color);
+        drawable.setCornerRadius(dp(6));
+        view.setBackground(drawable);
+        return view;
+    }
+
+    private void addDetail(LinearLayoutCompat root, String value) {
+        if (TextUtils.isEmpty(value)) return;
+        MaterialTextView view = text(value, 12, Color.parseColor("#5F6368"), false);
+        LinearLayoutCompat.LayoutParams params = new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(3);
+        root.addView(view, params);
+    }
+
+    private MaterialButton actionButton(int text, boolean tonal, boolean danger) {
+        MaterialButton button = new MaterialButton(requireContext());
+        button.setText(text);
+        button.setMinWidth(0);
+        button.setMinHeight(dp(36));
+        button.setMinimumHeight(dp(36));
+        button.setPadding(dp(6), 0, dp(6), 0);
+        ColorStateList bg = ContextCompat.getColorStateList(requireContext(), tonal ? R.color.dialog_tonal_button_bg : R.color.dialog_outlined_button_bg);
+        ColorStateList fg = danger ? ColorStateList.valueOf(Color.parseColor("#B3261E")) : ContextCompat.getColorStateList(requireContext(), tonal ? R.color.dialog_tonal_button_text : R.color.dialog_outlined_button_text);
+        button.setBackgroundTintList(bg);
+        button.setTextColor(fg);
+        if (!tonal) {
+            button.setStrokeColor(ContextCompat.getColorStateList(requireContext(), R.color.dialog_outlined_button_stroke));
+            button.setStrokeWidth(dp(1));
+        }
+        return button;
+    }
+
+    private LinearLayoutCompat.LayoutParams actionLayout(int marginStart) {
+        LinearLayoutCompat.LayoutParams params = new LinearLayoutCompat.LayoutParams(0, dp(36), 1);
+        params.leftMargin = dp(marginStart);
+        return params;
+    }
+
+    private AppCompatImageButton iconButton(int icon, int contentDescription, View.OnClickListener listener) {
+        AppCompatImageButton button = new AppCompatImageButton(requireContext());
+        button.setBackgroundResource(R.drawable.selector_dialog_switch);
+        button.setImageResource(icon);
+        button.setColorFilter(Color.parseColor("#5F6368"));
+        button.setContentDescription(getString(contentDescription));
+        button.setFocusable(true);
+        button.setPadding(dp(8), dp(8), dp(8), dp(8));
+        button.setOnClickListener(listener);
+        return button;
+    }
+
+    private LinearLayoutCompat.LayoutParams iconLayout(int marginStart) {
+        LinearLayoutCompat.LayoutParams params = new LinearLayoutCompat.LayoutParams(dp(40), dp(40));
+        params.leftMargin = dp(marginStart);
+        return params;
+    }
+
+    private int dp(int value) {
+        return ResUtil.dp2px(value);
+    }
 
     private class CspAdapter extends RecyclerView.Adapter<CspAdapter.ViewHolder> {
 
@@ -469,6 +671,14 @@ public class CustomCspDialog extends BaseAlertDialog {
         void add(CustomCspSetting.Item item) {
             items.add(item);
             notifyItemInserted(items.size() - 1);
+            binding.recycler.scrollToPosition(items.size() - 1);
+        }
+
+        void replace(int position, CustomCspSetting.Item item) {
+            if (position < 0 || position >= items.size()) return;
+            CustomCspSetting.Item old = items.set(position, item);
+            if (!old.isLive() && old.site().getKey().equals(registry.getHomeKey())) registry.setHomeKey(item.isLive() ? "" : item.site().getKey());
+            notifyItemChanged(position);
         }
 
         void setItems(List<CustomCspSetting.Item> items) {
@@ -484,14 +694,12 @@ public class CustomCspDialog extends BaseAlertDialog {
 
         void move(int from, int to) {
             if (from < 0 || to < 0 || from >= items.size() || to >= items.size()) return;
-            syncAllVisibleRows();
             Collections.swap(items, from, to);
             notifyItemMoved(from, to);
         }
 
         void remove(int position, View removed) {
             if (position < 0 || position >= items.size()) return;
-            syncAllVisibleRows();
             focusBeforeRemove(removed);
             CustomCspSetting.Item item = items.remove(position);
             if (!item.isLive() && item.site().getKey().equals(registry.getHomeKey())) registry.setHomeKey("");
@@ -500,7 +708,6 @@ public class CustomCspDialog extends BaseAlertDialog {
 
         void setHome(CustomCspSetting.Item item) {
             if (item.isLive()) return;
-            syncAllVisibleRows();
             String key = item.site().getKey();
             registry.setHomeKey(key.equals(registry.getHomeKey()) ? "" : key);
             notifyDataSetChanged();
@@ -514,7 +721,13 @@ public class CustomCspDialog extends BaseAlertDialog {
         @NonNull
         @Override
         public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            return new ViewHolder(AdapterCustomCspBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
+            LinearLayoutCompat root = new LinearLayoutCompat(parent.getContext());
+            root.setOrientation(LinearLayoutCompat.VERTICAL);
+            root.setPadding(dp(10), dp(9), dp(10), dp(9));
+            RecyclerView.LayoutParams params = new RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            params.bottomMargin = dp(10);
+            root.setLayoutParams(params);
+            return new ViewHolder(root);
         }
 
         @Override
@@ -524,291 +737,359 @@ public class CustomCspDialog extends BaseAlertDialog {
 
         private class ViewHolder extends RecyclerView.ViewHolder {
 
-            private final AdapterCustomCspBinding binding;
+            private final LinearLayoutCompat root;
             private CustomCspSetting.Item item;
-            private boolean bindingItem;
-            private boolean autoName;
-            private boolean autoKey;
 
-            ViewHolder(@NonNull AdapterCustomCspBinding binding) {
-                super(binding.getRoot());
-                this.binding = binding;
-                binding.name.addTextChangedListener(new TextSync(this));
-                binding.key.addTextChangedListener(new TextSync(this));
-                binding.type.addTextChangedListener(new TextSync(this));
-                binding.api.addTextChangedListener(new TextSync(this));
-                binding.homePage.addTextChangedListener(new TextSync(this));
-                binding.extensions.addTextChangedListener(new TextSync(this));
-                binding.ext.addTextChangedListener(new TextSync(this));
-                binding.jar.addTextChangedListener(new TextSync(this));
-                binding.click.addTextChangedListener(new TextSync(this));
-                binding.playUrl.addTextChangedListener(new TextSync(this));
-                binding.liveUrl.addTextChangedListener(new TextSync(this));
-                binding.logo.addTextChangedListener(new TextSync(this));
-                binding.epg.addTextChangedListener(new TextSync(this));
-                binding.ua.addTextChangedListener(new TextSync(this));
-                binding.referer.addTextChangedListener(new TextSync(this));
-                binding.origin.addTextChangedListener(new TextSync(this));
-                binding.timeZone.addTextChangedListener(new TextSync(this));
-                binding.timeout.addTextChangedListener(new TextSync(this));
-                binding.enabled.setOnClickListener(view -> toggleEnabled());
-                binding.home.setOnCheckedChangeListener((button, checked) -> onHomeChecked(checked));
-                binding.typeGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> onTypeChecked(checkedId, isChecked));
-                binding.liveTypeGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> onLiveTypeChecked(checkedId, isChecked));
-                binding.playerTypeGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> onPlayerTypeChecked(checkedId, isChecked));
-                binding.hide.setOnCheckedChangeListener((button, checked) -> sync());
-                binding.searchable.setOnCheckedChangeListener((button, checked) -> sync());
-                binding.changeable.setOnCheckedChangeListener((button, checked) -> sync());
-                binding.quickSearch.setOnCheckedChangeListener((button, checked) -> sync());
-                binding.importFile.setOnClickListener(view -> chooseFile(item));
-                binding.code.setOnClickListener(view -> editCode(item));
-                binding.link.setOnClickListener(view -> editLink(item));
-                binding.extensionsToggle.setOnClickListener(view -> toggleExtensions());
-                binding.up.setOnClickListener(view -> move(getBindingAdapterPosition(), getBindingAdapterPosition() - 1));
-                binding.down.setOnClickListener(view -> move(getBindingAdapterPosition(), getBindingAdapterPosition() + 1));
-                binding.delete.setOnClickListener(view -> remove(getBindingAdapterPosition(), itemView));
-                setupScrollableText(binding.extensions);
+            ViewHolder(@NonNull LinearLayoutCompat root) {
+                super(root);
+                this.root = root;
             }
 
             void bind(CustomCspSetting.Item item) {
                 this.item = item;
-                bindingItem = true;
-                autoName = isAutoName(item.getName(), item.getKind());
-                autoKey = isAutoKey(item.getKey());
-                binding.enabled.setAlpha(item.isEnabled() ? 1.0f : 0.65f);
-                binding.enabled.setText(item.isEnabled() ? R.string.setting_enable : R.string.setting_disable);
-                binding.typeGroup.check(item.isLive() ? R.id.liveMode : item.isWebHome() ? R.id.webHomeMode : R.id.cspMode);
-                setText(binding.name, item.getName());
-                setText(binding.key, item.getKey());
-                setText(binding.type, String.valueOf(item.getType()));
-                setText(binding.api, item.getApi());
-                setText(binding.homePage, item.getHomePage());
-                setText(binding.extensions, item.getExtensionsText());
-                setText(binding.ext, item.getExt());
-                setText(binding.jar, item.getJar());
-                setText(binding.click, item.getClick());
-                setText(binding.playUrl, item.getPlayUrl());
-                setText(binding.liveUrl, item.getUrl());
-                setText(binding.logo, item.getLogo());
-                setText(binding.epg, item.getEpg());
-                setText(binding.ua, item.getUa());
-                setText(binding.referer, item.getReferer());
-                setText(binding.origin, item.getOrigin());
-                setText(binding.timeZone, item.getTimeZone());
-                setText(binding.timeout, item.getTimeout() == null ? "" : String.valueOf(item.getTimeout()));
-                binding.liveTypeGroup.check(liveTypeId(item.getType()));
-                binding.playerTypeGroup.check(playerTypeId(item.getPlayerType()));
-                binding.hide.setChecked(item.getHide() == 1);
-                binding.searchable.setChecked(item.getSearchable() == 1);
-                binding.changeable.setChecked(item.getChangeable() == 1);
-                binding.quickSearch.setChecked(item.getQuickSearch() == 1);
-                boolean home = !item.isLive() && item.site().getKey().equals(registry.getHomeKey());
-                binding.home.setChecked(home);
-                updateTypePanels();
-                updateExtensionsToggle();
-                updateExtensionsError();
-                updateValidity();
-                bindingItem = false;
-            }
+                root.removeAllViews();
+                root.setBackground(rowBackground(item));
+                root.setFocusable(true);
+                root.setClickable(true);
+                root.setOnClickListener(view -> editCurrent());
 
-            private void toggleEnabled() {
-                if (item == null) return;
-                boolean checked = !item.isEnabled();
-                item.setEnabled(checked);
-                binding.enabled.setAlpha(checked ? 1.0f : 0.65f);
-                binding.enabled.setText(checked ? R.string.setting_enable : R.string.setting_disable);
-            }
+                LinearLayoutCompat header = new LinearLayoutCompat(requireContext());
+                header.setGravity(Gravity.CENTER_VERTICAL);
+                header.setOrientation(LinearLayoutCompat.HORIZONTAL);
+                root.addView(header, new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-            private void toggleExtensions() {
-                if (bindingItem || item == null) return;
-                item.setExtensionsExpanded(!item.isExtensionsExpanded());
-                if (!item.isExtensionsExpanded()) setText(binding.extensions, "");
-                updateTypePanels();
-                updateExtensionsToggle();
-                updateExtensionsError();
-                sync();
-            }
+                MaterialTextView title = text(item.getName(), 15, Color.BLACK, true);
+                header.addView(title, new LinearLayoutCompat.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+                header.addView(badge(kindName(item), statusColor(item)));
+                header.addView(iconButton(R.drawable.ic_subtitle_up, R.string.setting_custom_csp_up, view -> move(getBindingAdapterPosition(), getBindingAdapterPosition() - 1)), iconLayout(8));
+                header.addView(iconButton(R.drawable.ic_subtitle_down, R.string.setting_custom_csp_down, view -> move(getBindingAdapterPosition(), getBindingAdapterPosition() + 1)), iconLayout(4));
 
-            private void onHomeChecked(boolean checked) {
-                if (bindingItem || item == null) return;
-                if (item.isLive()) return;
-                if (checked != item.site().getKey().equals(registry.getHomeKey())) setHome(item);
-            }
+                addDetail(root, primaryDetail(item));
+                if (!item.isLive()) addDetail(root, getString(R.string.setting_custom_csp_key) + ": " + item.getKey());
+                addDetail(root, meta(item));
 
-            private void onTypeChecked(int checkedId, boolean isChecked) {
-                if (bindingItem || item == null || !isChecked) return;
-                String oldKind = item.getKind();
-                String newKind = checkedId == R.id.liveMode ? KIND_LIVE : checkedId == R.id.webHomeMode ? KIND_WEB_HOME : KIND_CSP;
-                if (oldKind.equals(newKind)) return;
-                String oldHomeKey = item.isLive() ? "" : item.site().getKey();
-                item.setKind(newKind);
-                if (item.isLive() && registry.getHomeKey().equals(oldHomeKey)) registry.setHomeKey("");
-                if (KIND_LIVE.equals(newKind) && !KIND_LIVE.equals(oldKind)) {
-                    item.setApi("");
-                    item.setExt("");
-                    item.setJar("");
-                    item.setClick("");
-                    setText(binding.api, "");
-                    setText(binding.ext, "");
-                    setText(binding.jar, "");
-                    setText(binding.click, "");
+                LinearLayoutCompat actions = new LinearLayoutCompat(requireContext());
+                actions.setGravity(Gravity.CENTER_VERTICAL);
+                actions.setOrientation(LinearLayoutCompat.HORIZONTAL);
+                LinearLayoutCompat.LayoutParams actionParams = new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                actionParams.topMargin = dp(7);
+                root.addView(actions, actionParams);
+
+                MaterialButton toggle = actionButton(item.isEnabled() ? R.string.setting_disable : R.string.setting_enable, !item.isEnabled(), false);
+                toggle.setOnClickListener(view -> {
+                    int position = getBindingAdapterPosition();
+                    if (position == RecyclerView.NO_POSITION) return;
+                    item.setEnabled(!item.isEnabled());
+                    notifyItemChanged(position);
+                });
+                actions.addView(toggle, actionLayout(0));
+
+                MaterialButton edit = actionButton(R.string.dialog_edit, false, false);
+                edit.setOnClickListener(view -> editCurrent());
+                actions.addView(edit, actionLayout(8));
+
+                if (!item.isLive()) {
+                    boolean home = item.site().getKey().equals(registry.getHomeKey());
+                    MaterialButton homeButton = actionButton(R.string.setting_custom_csp_home, home, false);
+                    homeButton.setOnClickListener(view -> setHome(item));
+                    actions.addView(homeButton, actionLayout(8));
                 }
-                if (autoName) {
-                    String name = nextName(newKind);
-                    item.setName(name);
-                    setText(binding.name, name);
-                }
-                updateTypePanels();
-                updateValidity();
+
+                MaterialButton delete = actionButton(R.string.setting_delete, false, true);
+                delete.setOnClickListener(view -> remove(getBindingAdapterPosition(), itemView));
+                actions.addView(delete, actionLayout(8));
             }
 
-            private void onLiveTypeChecked(int checkedId, boolean isChecked) {
-                if (bindingItem || item == null || !item.isLive() || !isChecked) return;
-                item.setType(liveTypeFromId(checkedId));
-                updateValidity();
-            }
-
-            private void onPlayerTypeChecked(int checkedId, boolean isChecked) {
-                if (bindingItem || item == null || !item.isLive() || !isChecked) return;
-                item.setPlayerType(playerTypeFromId(checkedId));
-                updateValidity();
-            }
-
-            private void updateTypePanels() {
-                boolean webHome = item != null && item.isWebHome();
-                boolean live = item != null && item.isLive();
-                binding.webHomePanel.setVisibility(webHome ? View.VISIBLE : View.GONE);
-                binding.home.setVisibility(live ? View.GONE : View.VISIBLE);
-                binding.apiLayout.setVisibility(webHome || live ? View.GONE : View.VISIBLE);
-                binding.homePageLayout.setVisibility(webHome ? View.VISIBLE : View.GONE);
-                binding.extensionsPanel.setVisibility(webHome ? View.VISIBLE : View.GONE);
-                binding.extensionsLayout.setVisibility(webHome && item.isExtensionsExpanded() ? View.VISIBLE : View.GONE);
-                binding.liveUrlLayout.setVisibility(live ? View.VISIBLE : View.GONE);
-                binding.liveTypePanel.setVisibility(View.GONE);
-                binding.cspOptionsPanel.setVisibility(!live ? View.VISIBLE : View.GONE);
-                binding.keyLayout.setVisibility(!live ? View.VISIBLE : View.GONE);
-                binding.typeLayout.setVisibility(!webHome && !live ? View.VISIBLE : View.GONE);
-                binding.liveMetaPanel.setVisibility(live ? View.VISIBLE : View.GONE);
-                binding.liveHeaderPanel.setVisibility(live ? View.VISIBLE : View.GONE);
-                binding.liveTunePanel.setVisibility(live ? View.VISIBLE : View.GONE);
-                binding.flagsPanel.setVisibility(!webHome && !live ? View.VISIBLE : View.GONE);
-                binding.advancedPanel.setVisibility(!webHome && !live ? View.VISIBLE : View.GONE);
-                binding.playPanel.setVisibility(!webHome && !live ? View.VISIBLE : View.GONE);
-                binding.playUrlLayout.setVisibility(live ? View.GONE : View.VISIBLE);
+            private void editCurrent() {
+                int position = getBindingAdapterPosition();
+                if (position == RecyclerView.NO_POSITION) return;
+                showEdit(items.get(position), position);
             }
 
             void sync() {
-                if (item == null || bindingItem) return;
-                String name = binding.name.getText().toString().trim();
-                String key = binding.key.getText().toString().trim();
-                if (!key.equals(item.getKey())) autoKey = false;
-                autoName = autoName || isAutoName(item.getName(), item.getKind());
-                if (!name.equals(item.getName())) autoName = false;
+            }
+        }
+    }
+
+    private class CspEditor {
+
+        private final AdapterCustomCspBinding binding;
+        private CustomCspSetting.Item item;
+        private boolean bindingItem;
+        private boolean autoName;
+        private boolean autoKey;
+
+        CspEditor(@NonNull AdapterCustomCspBinding binding) {
+            this.binding = binding;
+            binding.name.addTextChangedListener(new TextSync(this));
+            binding.key.addTextChangedListener(new TextSync(this));
+            binding.type.addTextChangedListener(new TextSync(this));
+            binding.api.addTextChangedListener(new TextSync(this));
+            binding.homePage.addTextChangedListener(new TextSync(this));
+            binding.extensions.addTextChangedListener(new TextSync(this));
+            binding.ext.addTextChangedListener(new TextSync(this));
+            binding.jar.addTextChangedListener(new TextSync(this));
+            binding.click.addTextChangedListener(new TextSync(this));
+            binding.playUrl.addTextChangedListener(new TextSync(this));
+            binding.liveUrl.addTextChangedListener(new TextSync(this));
+            binding.logo.addTextChangedListener(new TextSync(this));
+            binding.epg.addTextChangedListener(new TextSync(this));
+            binding.ua.addTextChangedListener(new TextSync(this));
+            binding.referer.addTextChangedListener(new TextSync(this));
+            binding.origin.addTextChangedListener(new TextSync(this));
+            binding.timeZone.addTextChangedListener(new TextSync(this));
+            binding.timeout.addTextChangedListener(new TextSync(this));
+            binding.enabled.setOnClickListener(view -> toggleEnabled());
+            binding.typeGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> onTypeChecked(checkedId, isChecked));
+            binding.liveTypeGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> onLiveTypeChecked(checkedId, isChecked));
+            binding.playerTypeGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> onPlayerTypeChecked(checkedId, isChecked));
+            binding.hide.setOnCheckedChangeListener((button, checked) -> sync());
+            binding.searchable.setOnCheckedChangeListener((button, checked) -> sync());
+            binding.changeable.setOnCheckedChangeListener((button, checked) -> sync());
+            binding.quickSearch.setOnCheckedChangeListener((button, checked) -> sync());
+            binding.importFile.setOnClickListener(view -> chooseFile(item));
+            binding.code.setOnClickListener(view -> editCode(item));
+            binding.link.setOnClickListener(view -> editLink(item));
+            binding.extensionsToggle.setOnClickListener(view -> toggleExtensions());
+            binding.home.setVisibility(View.GONE);
+            binding.up.setVisibility(View.GONE);
+            binding.down.setVisibility(View.GONE);
+            binding.delete.setVisibility(View.GONE);
+            setupScrollableText(binding.extensions);
+        }
+
+        void bind(CustomCspSetting.Item item) {
+            this.item = item;
+            bindingItem = true;
+            autoName = isAutoName(item.getName(), item.getKind());
+            autoKey = isAutoKey(item.getKey());
+            binding.enabled.setAlpha(item.isEnabled() ? 1.0f : 0.65f);
+            binding.enabled.setText(item.isEnabled() ? R.string.setting_enable : R.string.setting_disable);
+            binding.typeGroup.check(item.isLive() ? R.id.liveMode : item.isWebHome() ? R.id.webHomeMode : R.id.cspMode);
+            setText(binding.name, item.getName());
+            setText(binding.key, item.getKey());
+            setText(binding.type, String.valueOf(item.getType()));
+            setText(binding.api, item.getApi());
+            setText(binding.homePage, item.getHomePage());
+            setText(binding.extensions, item.getExtensionsText());
+            setText(binding.ext, item.getExt());
+            setText(binding.jar, item.getJar());
+            setText(binding.click, item.getClick());
+            setText(binding.playUrl, item.getPlayUrl());
+            setText(binding.liveUrl, item.getUrl());
+            setText(binding.logo, item.getLogo());
+            setText(binding.epg, item.getEpg());
+            setText(binding.ua, item.getUa());
+            setText(binding.referer, item.getReferer());
+            setText(binding.origin, item.getOrigin());
+            setText(binding.timeZone, item.getTimeZone());
+            setText(binding.timeout, item.getTimeout() == null ? "" : String.valueOf(item.getTimeout()));
+            binding.liveTypeGroup.check(liveTypeId(item.getType()));
+            binding.playerTypeGroup.check(playerTypeId(item.getPlayerType()));
+            binding.hide.setChecked(item.getHide() == 1);
+            binding.searchable.setChecked(item.getSearchable() == 1);
+            binding.changeable.setChecked(item.getChangeable() == 1);
+            binding.quickSearch.setChecked(item.getQuickSearch() == 1);
+            updateTypePanels();
+            updateExtensionsToggle();
+            updateExtensionsError();
+            updateValidity();
+            bindingItem = false;
+        }
+
+        void updateHomePage() {
+            if (item != null) setText(binding.homePage, item.getHomePage());
+        }
+
+        private void toggleEnabled() {
+            if (item == null) return;
+            boolean checked = !item.isEnabled();
+            item.setEnabled(checked);
+            binding.enabled.setAlpha(checked ? 1.0f : 0.65f);
+            binding.enabled.setText(checked ? R.string.setting_enable : R.string.setting_disable);
+        }
+
+        private void toggleExtensions() {
+            if (bindingItem || item == null) return;
+            item.setExtensionsExpanded(!item.isExtensionsExpanded());
+            if (!item.isExtensionsExpanded()) setText(binding.extensions, "");
+            updateTypePanels();
+            updateExtensionsToggle();
+            updateExtensionsError();
+            sync();
+        }
+
+        private void onTypeChecked(int checkedId, boolean isChecked) {
+            if (bindingItem || item == null || !isChecked) return;
+            String oldKind = item.getKind();
+            String newKind = checkedId == R.id.liveMode ? KIND_LIVE : checkedId == R.id.webHomeMode ? KIND_WEB_HOME : KIND_CSP;
+            if (oldKind.equals(newKind)) return;
+            item.setKind(newKind);
+            if (KIND_LIVE.equals(newKind) && !KIND_LIVE.equals(oldKind)) {
+                item.setApi("");
+                item.setExt("");
+                item.setJar("");
+                item.setClick("");
+                setText(binding.api, "");
+                setText(binding.ext, "");
+                setText(binding.jar, "");
+                setText(binding.click, "");
+            }
+            if (autoName) {
+                String name = nextName(newKind);
                 item.setName(name);
-                if (autoKey && !item.isLive() && !binding.key.getText().toString().trim().equals(item.getKey())) {
-                    bindingItem = true;
-                    setText(binding.key, item.getKey());
-                    bindingItem = false;
-                }
-                if (item.isLive()) {
-                    item.setUrl(binding.liveUrl.getText().toString().trim());
-                    item.setExtensionsExpanded(false);
-                    item.setApi(binding.api.getText().toString().trim());
-                    item.setExt(binding.ext.getText().toString().trim());
-                    item.setJar(binding.jar.getText().toString().trim());
-                    item.setClick(binding.click.getText().toString().trim());
-                    item.setLogo(binding.logo.getText().toString().trim());
-                    item.setEpg(binding.epg.getText().toString().trim());
-                    item.setUa(binding.ua.getText().toString().trim());
-                    item.setReferer(binding.referer.getText().toString().trim());
-                    item.setOrigin(binding.origin.getText().toString().trim());
-                    item.setTimeZone(binding.timeZone.getText().toString().trim());
-                    item.setTimeout(parseOptionalInt(binding.timeout.getText().toString()));
-                    item.setHomePage("");
-                    item.setPlayUrl("");
-                } else if (!item.isWebHome()) {
-                    item.setKey(binding.key.getText().toString().trim());
-                    item.setExtensionsExpanded(false);
-                    item.setType(parseInt(binding.type.getText().toString(), 3));
-                    item.setApi(binding.api.getText().toString().trim());
-                    item.setHide(binding.hide.isChecked() ? 1 : 0);
-                    item.setSearchable(binding.searchable.isChecked() ? 1 : 0);
-                    item.setChangeable(binding.changeable.isChecked() ? 1 : 0);
-                    item.setQuickSearch(binding.quickSearch.isChecked() ? 1 : 0);
-                }
-                if (item.isLive()) {
-                    item.setHomePage("");
-                    item.setPlayUrl("");
-                } else if (!item.isWebHome()) {
-                    item.setHomePage("");
-                    item.setExt(binding.ext.getText().toString().trim());
-                    item.setJar(binding.jar.getText().toString().trim());
-                    item.setClick(binding.click.getText().toString().trim());
-                    item.setPlayUrl(binding.playUrl.getText().toString().trim());
-                } else {
-                    item.setKey(binding.key.getText().toString().trim());
-                    item.setHomePage(binding.homePage.getText().toString().trim());
-                    item.setExtensionsText(item.isExtensionsExpanded() ? binding.extensions.getText().toString() : "");
-                    item.setClick("");
-                    item.setPlayUrl("");
-                }
-                updateExtensionsToggle();
-                updateExtensionsError();
-                updateValidity();
+                setText(binding.name, name);
             }
+            updateTypePanels();
+            updateValidity();
+        }
 
-            private int liveTypeId(int value) {
-                if (value == 1) return R.id.liveType1;
-                if (value == 2) return R.id.liveType2;
-                return R.id.liveType0;
-            }
+        private void onLiveTypeChecked(int checkedId, boolean isChecked) {
+            if (bindingItem || item == null || !item.isLive() || !isChecked) return;
+            item.setType(liveTypeFromId(checkedId));
+            updateValidity();
+        }
 
-            private int playerTypeId(Integer value) {
-                if (value == null) return R.id.playerTypeUnset;
-                if (value == 0) return R.id.playerType0;
-                if (value == 1) return R.id.playerType1;
-                return R.id.playerType2;
-            }
+        private void onPlayerTypeChecked(int checkedId, boolean isChecked) {
+            if (bindingItem || item == null || !item.isLive() || !isChecked) return;
+            item.setPlayerType(playerTypeFromId(checkedId));
+            updateValidity();
+        }
 
-            private int liveTypeFromId(int id) {
-                if (id == R.id.liveType1) return 1;
-                if (id == R.id.liveType2) return 2;
-                return 0;
-            }
+        private void updateTypePanels() {
+            boolean webHome = item != null && item.isWebHome();
+            boolean live = item != null && item.isLive();
+            binding.webHomePanel.setVisibility(webHome ? View.VISIBLE : View.GONE);
+            binding.home.setVisibility(View.GONE);
+            binding.apiLayout.setVisibility(webHome || live ? View.GONE : View.VISIBLE);
+            binding.homePageLayout.setVisibility(webHome ? View.VISIBLE : View.GONE);
+            binding.extensionsPanel.setVisibility(webHome ? View.VISIBLE : View.GONE);
+            binding.extensionsLayout.setVisibility(webHome && item.isExtensionsExpanded() ? View.VISIBLE : View.GONE);
+            binding.liveUrlLayout.setVisibility(live ? View.VISIBLE : View.GONE);
+            binding.liveTypePanel.setVisibility(View.GONE);
+            binding.cspOptionsPanel.setVisibility(!live ? View.VISIBLE : View.GONE);
+            binding.keyLayout.setVisibility(!live ? View.VISIBLE : View.GONE);
+            binding.typeLayout.setVisibility(!webHome && !live ? View.VISIBLE : View.GONE);
+            binding.liveMetaPanel.setVisibility(live ? View.VISIBLE : View.GONE);
+            binding.liveHeaderPanel.setVisibility(live ? View.VISIBLE : View.GONE);
+            binding.liveTunePanel.setVisibility(live ? View.VISIBLE : View.GONE);
+            binding.flagsPanel.setVisibility(!webHome && !live ? View.VISIBLE : View.GONE);
+            binding.advancedPanel.setVisibility(!webHome && !live ? View.VISIBLE : View.GONE);
+            binding.playPanel.setVisibility(!webHome && !live ? View.VISIBLE : View.GONE);
+            binding.playUrlLayout.setVisibility(live ? View.GONE : View.VISIBLE);
+        }
 
-            private Integer playerTypeFromId(int id) {
-                if (id == R.id.playerTypeUnset) return null;
-                if (id == R.id.playerType0) return 0;
-                if (id == R.id.playerType1) return 1;
-                return 2;
+        void sync() {
+            if (item == null || bindingItem) return;
+            String name = binding.name.getText().toString().trim();
+            String key = binding.key.getText().toString().trim();
+            if (!key.equals(item.getKey())) autoKey = false;
+            autoName = autoName || isAutoName(item.getName(), item.getKind());
+            if (!name.equals(item.getName())) autoName = false;
+            item.setName(name);
+            if (autoKey && !item.isLive() && !binding.key.getText().toString().trim().equals(item.getKey())) {
+                bindingItem = true;
+                setText(binding.key, item.getKey());
+                bindingItem = false;
             }
+            if (item.isLive()) {
+                item.setUrl(binding.liveUrl.getText().toString().trim());
+                item.setExtensionsExpanded(false);
+                item.setApi(binding.api.getText().toString().trim());
+                item.setExt(binding.ext.getText().toString().trim());
+                item.setJar(binding.jar.getText().toString().trim());
+                item.setClick(binding.click.getText().toString().trim());
+                item.setLogo(binding.logo.getText().toString().trim());
+                item.setEpg(binding.epg.getText().toString().trim());
+                item.setUa(binding.ua.getText().toString().trim());
+                item.setReferer(binding.referer.getText().toString().trim());
+                item.setOrigin(binding.origin.getText().toString().trim());
+                item.setTimeZone(binding.timeZone.getText().toString().trim());
+                item.setTimeout(parseOptionalInt(binding.timeout.getText().toString()));
+                item.setHomePage("");
+                item.setPlayUrl("");
+            } else if (!item.isWebHome()) {
+                item.setKey(binding.key.getText().toString().trim());
+                item.setExtensionsExpanded(false);
+                item.setType(parseInt(binding.type.getText().toString(), 3));
+                item.setApi(binding.api.getText().toString().trim());
+                item.setHide(binding.hide.isChecked() ? 1 : 0);
+                item.setSearchable(binding.searchable.isChecked() ? 1 : 0);
+                item.setChangeable(binding.changeable.isChecked() ? 1 : 0);
+                item.setQuickSearch(binding.quickSearch.isChecked() ? 1 : 0);
+            }
+            if (item.isLive()) {
+                item.setHomePage("");
+                item.setPlayUrl("");
+            } else if (!item.isWebHome()) {
+                item.setHomePage("");
+                item.setExt(binding.ext.getText().toString().trim());
+                item.setJar(binding.jar.getText().toString().trim());
+                item.setClick(binding.click.getText().toString().trim());
+                item.setPlayUrl(binding.playUrl.getText().toString().trim());
+            } else {
+                item.setKey(binding.key.getText().toString().trim());
+                item.setHomePage(binding.homePage.getText().toString().trim());
+                item.setExtensionsText(item.isExtensionsExpanded() ? binding.extensions.getText().toString() : "");
+                item.setClick("");
+                item.setPlayUrl("");
+            }
+            updateExtensionsToggle();
+            updateExtensionsError();
+            updateValidity();
+        }
 
-            private boolean isAutoName(String name, String kind) {
-                String prefix = getKindPrefix(kind);
-                if (TextUtils.isEmpty(name)) return true;
-                if (name.equals(prefix)) return true;
-                return name.matches(java.util.regex.Pattern.quote(prefix) + " \\d+");
-            }
+        private int liveTypeId(int value) {
+            if (value == 1) return R.id.liveType1;
+            if (value == 2) return R.id.liveType2;
+            return R.id.liveType0;
+        }
 
-            private boolean isAutoKey(String key) {
-                return TextUtils.isEmpty(key) || key.startsWith("__custom_csp_");
-            }
+        private int playerTypeId(Integer value) {
+            if (value == null) return R.id.playerTypeUnset;
+            if (value == 0) return R.id.playerType0;
+            if (value == 1) return R.id.playerType1;
+            return R.id.playerType2;
+        }
 
-            private void updateValidity() {
-                if (item == null) return;
-                boolean invalid = item.isEnabled() && !item.isValid();
-                binding.getRoot().setActivated(invalid);
-            }
+        private int liveTypeFromId(int id) {
+            if (id == R.id.liveType1) return 1;
+            if (id == R.id.liveType2) return 2;
+            return 0;
+        }
 
-            private void updateExtensionsError() {
-                binding.extensionsLayout.setError(item != null && item.hasInvalidExtensions() ? getString(R.string.setting_custom_csp_extensions_invalid) : null);
-            }
+        private Integer playerTypeFromId(int id) {
+            if (id == R.id.playerTypeUnset) return null;
+            if (id == R.id.playerType0) return 0;
+            if (id == R.id.playerType1) return 1;
+            return 2;
+        }
 
-            private void updateExtensionsToggle() {
-                boolean expanded = item != null && item.isWebHome() && item.isExtensionsExpanded();
-                binding.extensionsToggle.setSelected(expanded);
-                binding.extensionsToggle.setAlpha(expanded ? 1.0f : 0.65f);
-            }
+        private boolean isAutoName(String name, String kind) {
+            String prefix = getKindPrefix(kind);
+            if (TextUtils.isEmpty(name)) return true;
+            if (name.equals(prefix)) return true;
+            return name.matches(java.util.regex.Pattern.quote(prefix) + " \\d+");
+        }
+
+        private boolean isAutoKey(String key) {
+            return TextUtils.isEmpty(key) || key.startsWith("__custom_csp_");
+        }
+
+        private void updateValidity() {
+            if (item == null) return;
+            boolean invalid = item.isEnabled() && !item.isValid();
+            binding.getRoot().setActivated(invalid);
+        }
+
+        private void updateExtensionsError() {
+            binding.extensionsLayout.setError(item != null && item.hasInvalidExtensions() ? getString(R.string.setting_custom_csp_extensions_invalid) : null);
+        }
+
+        private void updateExtensionsToggle() {
+            boolean expanded = item != null && item.isWebHome() && item.isExtensionsExpanded();
+            binding.extensionsToggle.setSelected(expanded);
+            binding.extensionsToggle.setAlpha(expanded ? 1.0f : 0.65f);
         }
     }
 
@@ -828,15 +1109,15 @@ public class CustomCspDialog extends BaseAlertDialog {
 
     private static class TextSync extends CustomTextListener {
 
-        private final CspAdapter.ViewHolder holder;
+        private final CspEditor editor;
 
-        TextSync(CspAdapter.ViewHolder holder) {
-            this.holder = holder;
+        TextSync(CspEditor editor) {
+            this.editor = editor;
         }
 
         @Override
         public void afterTextChanged(Editable editable) {
-            holder.sync();
+            editor.sync();
         }
     }
 }

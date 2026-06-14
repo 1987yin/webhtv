@@ -16,6 +16,8 @@ import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.db.AppDatabase;
+import com.fongmi.android.tv.playback.PlaybackEventCollector;
+import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.utils.Trans;
@@ -50,7 +52,7 @@ class VodBrowse {
         epNavMap.clear();
         epEntries.clear();
         epCountMap.clear();
-        browseHistory = null;
+        setBrowseHistory(null);
         searchCache = ImmutableList.of();
     }
 
@@ -119,11 +121,16 @@ class VodBrowse {
     }
 
     static boolean saveProgress(long position, long duration) {
+        return saveProgress(position, duration, null);
+    }
+
+    static boolean saveProgress(long position, long duration, @Nullable PlayerManager player) {
         if (browseHistory == null || Setting.isIncognito()) return false;
         History history = browseHistory;
         history.setPosition(position);
         history.setDuration(duration);
         history.setCreateTime(System.currentTimeMillis());
+        PlaybackEventCollector.get().onProgress(history, player);
         if (history.canSave()) Task.execute(() -> history.merge().save());
         return true;
     }
@@ -153,7 +160,7 @@ class VodBrowse {
         Flag resumeFlag = findFlag(vod, history.getVodFlag());
         if (resumeFlag == null || resumeFlag.getEpisodes().isEmpty()) return null;
         int currentIdx = buildEpIndex(historyKey, resumeFlag, history);
-        browseHistory = history;
+        setBrowseHistory(history);
         String epId = epNavMap.get(epNavKey(historyKey, resumeFlag.getFlag(), currentIdx));
         return epId != null ? resolveEp(epId) : null;
     }
@@ -187,7 +194,7 @@ class VodBrowse {
         Flag flag = findFlag(vod, history.getVodFlag());
         if (flag == null || flag.getEpisodes().isEmpty()) return null;
         int currentIdx = buildEpIndex(historyKey, flag, history);
-        browseHistory = history;
+        setBrowseHistory(history);
         return epNavMap.get(epNavKey(historyKey, flag.getFlag(), currentIdx));
     }
 
@@ -226,7 +233,11 @@ class VodBrowse {
         int target = BrowseTree.wrapIndex(current.index, delta, count);
         String nextId = epNavMap.get(epNavKey(current.historyKey, current.flagName, target));
         if (nextId == null) return null;
-        if (browseHistory != null) browseHistory.setPosition(0);
+        if (browseHistory != null) {
+            PlaybackEventCollector.get().onStop(null);
+            browseHistory.setPosition(0);
+            PlaybackEventCollector.get().updateHistory(browseHistory);
+        }
         return resolveEp(nextId);
     }
 
@@ -252,6 +263,12 @@ class VodBrowse {
         if (browseHistory == null) return;
         browseHistory.setVodRemarks(episode.getName());
         browseHistory.setEpisodeUrl(episode.getUrl());
+        PlaybackEventCollector.get().updateHistory(browseHistory);
+    }
+
+    private static void setBrowseHistory(@Nullable History history) {
+        browseHistory = history;
+        PlaybackEventCollector.get().updateHistory(history);
     }
 
     @Nullable

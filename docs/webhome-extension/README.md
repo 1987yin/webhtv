@@ -464,7 +464,10 @@ await fm.cache.del("key", "rule");
 
 | 接口 | 说明 |
 | --- | --- |
-| `fm.ui.setToolbar(visible)` | `false` 隐藏原生 WebHome 工具栏（手机端同时进入沉浸模式，隐藏底部导航和悬浮按钮）；`true` 恢复。进入自绘详情浮层时隐藏、关闭时**必须恢复** |
+| `fm.ui.setChrome(options)` | 运行时切换 WebHome chrome。手机端支持 `normal` / `edge` / `immersive`；首页融合用 `edge`，专注详情页才用 `immersive`。TV 端支持 `tv-normal` / `tv-toolbar-hidden` / `tv-overlay` / `tv-full`，跨端 `edge` / `immersive` 会映射为 `tv-full`。`options` 可含 `mode`、`statusBarStyle`、`navigationBarStyle`、`restoreAffordance`、`scrim`。仅首页全屏偏好这类“下次冷启动也要生效”的设置才带 `startup: true`，Native 只持久化 `normal` / `edge`，不会保存 `immersive` |
+| `fm.ui.restoreChrome()` | 从 `immersive` 回到进入前的 chrome；关闭自绘详情页时优先用它，或显式 `setChrome({ mode: "edge" })` |
+| `fm.ui.getViewport()` | 返回当前 WebView 尺寸、安全区、手势区、系统栏高度和 `chromeMode`；持续变化看 `fmviewport` |
+| `fm.ui.setToolbar(visible)` | legacy chrome API。`false` 在手机端等价旧式沉浸行为，会隐藏原生顶部/底部和系统栏；TV 端 `false` 切到 `tv-toolbar-hidden`，`true` 恢复站点默认 chrome。新脚本不要用它表示首页融合，保留给旧页面兼容 |
 | `fm.back()` | 触发 App 侧 WebHome 返回，遵循返回边界规则（下） |
 | `fm.reload()` | 清 WebView 缓存并以 `_fm_reload={ts}` 参数重新加载主页 |
 
@@ -478,11 +481,18 @@ await fm.cache.del("key", "rule");
 | `fmextload` | `__fmExt` | 某扩展执行成功结束 |
 | `fmexterror` | `__fmExt + { message }` | 某扩展运行期抛错 |
 | `fmurlchange` | `{ url }` | SDK hook 了 `pushState`/`replaceState`/`popstate`，SPA 路由变化必听 |
-| `fmviewport` | `{ width, height, safeBottom }` | WebView 布局尺寸变化；同时更新根元素 CSS 变量 |
+| `fmviewport` | `{ width, height, safeTop, safeRight, safeBottom, safeLeft, safeBottomMax, gestureLeft, gestureRight, gestureBottom, statusBarHeight, navigationBarHeight, keyboardBottom, chromeMode, systemBarsHidden }` | WebView 布局尺寸、安全区、手势区或 chrome mode 变化；同时更新根元素 CSS 变量 |
 | `fmresume` | `{ time, pausedMs }` | App 从后台恢复 WebHome（延迟分多次派发以兜底渲染恢复） |
 | `fmpause` | `{ time }` | WebHome 进入后台暂停 |
 
-CSS 变量（挂在 `:root`）：`--fm-web-width`、`--fm-web-height`、`--fm-safe-bottom`。注入 UI 的高度用 `var(--fm-web-height, 100vh)` 替代裸 `100vh`，规避旧 WebView 视口偏差。
+CSS 变量（挂在 `:root`）：`--fm-web-width`、`--fm-web-height`、`--fm-safe-top`、`--fm-safe-right`、`--fm-safe-bottom`、`--fm-safe-left`、`--fm-safe-bottom-max`、`--fm-gesture-left`、`--fm-gesture-right`、`--fm-gesture-bottom`、`--fm-status-bar-height`、`--fm-navigation-bar-height`、`--fm-keyboard-bottom`、`--fm-chrome-mode`、`--fm-system-bars-hidden`。注入 UI 的高度用 `var(--fm-web-height, 100vh)` 替代裸 `100vh`，规避旧 WebView 视口偏差。
+
+扩展样式需要同时兼容浏览器 `env()` 和 Native 注入变量时，必须用 `max()` 去重，不要相加：
+
+```css
+padding-bottom: calc(12px + max(var(--fm-safe-bottom, 0px), env(safe-area-inset-bottom, 0px)));
+top: max(12px, max(var(--fm-safe-top, 0px), env(safe-area-inset-top, 0px)));
+```
 
 ## 8. 按集解析深入（`fm.vodInline` + resolver）
 
@@ -687,14 +697,14 @@ function classify(url) {
 - **唯一可靠判定是 `window.fongmiClient.isLeanback`**（Native 注入）。不要用屏幕宽度或 UA 猜测：1080p 电视的 CSS 视口宽度可能与平板接近，盒子 UA 千奇百怪。
 - 判定结果落到 `body` 状态类（如 `fm-tv` / `fm-mobile`），CSS 和 JS 都从类读取，每次 `scan` 时用 `classList.toggle` 同步（SDK 晚于脚本就绪时也能纠正）。
 - 同一脚本服务两种形态：共用 DOM 和扫描逻辑，只切换类与少量参数（列数、字号、按钮尺寸）。不要写两套脚本。
-- 布局尺寸读 `--fm-web-width` / `--fm-web-height`，监听 `fmviewport` 响应窗口变化（分屏、折叠屏、TV 工具栏显隐）。
+- 布局尺寸读 `--fm-web-width` / `--fm-web-height`，监听 `fmviewport` 响应窗口、安全区和 chrome mode 变化（分屏、折叠屏、TV 工具栏显隐、手机端 edge/immersive 切换）。
 
 ### 12.2 手机端
 
 触控与可达性：
 
 - 注入按钮的可点热区不小于约 44x44 CSS px（视觉可以更小，用 padding 扩热区）。
-- "App 播放"等高频入口放在资源条目内或吸底操作区，避免顶部。吸底元素要避开手势条：`padding-bottom: calc(12px + var(--fm-safe-bottom, 0px))`。
+- "App 播放"等高频入口放在资源条目内或吸底操作区，避免顶部。吸底元素要避开手势条，Native 安全区和浏览器 `env()` 必须用 `max()` 去重：`padding-bottom: calc(12px + max(var(--fm-safe-bottom, 0px), env(safe-area-inset-bottom, 0px)))`。
 - 屏幕左右边缘约 24dp 是系统返回手势区，注入的浮动按钮不要贴边。
 
 清理与重排：
@@ -707,7 +717,7 @@ function classify(url) {
 弹层与滚动：
 
 - 自绘面板打开时给 `body` 加锁滚动类，关闭时**必须移除**；关闭后恢复原滚动位置。
-- 进入自绘全屏详情可 `fm.ui.setToolbar(false)` 沉浸，自绘仅图标返回按钮，关闭时恢复 `setToolbar(true)`。
+- 进入自绘全屏详情可 `fm.ui.setChrome({ mode: "immersive", restoreAffordance: "none" })`，自绘仅图标返回按钮，关闭时 `fm.ui.restoreChrome()` 或 `fm.ui.setChrome({ mode: "edge" })` 回到首页融合；缺少自绘返回兜底时才用 `restoreAffordance: "native"`。`fm.ui.setToolbar(false)` 只作为旧脚本兼容，不再作为新脚本推荐写法。
 
 ### 12.3 电视端
 

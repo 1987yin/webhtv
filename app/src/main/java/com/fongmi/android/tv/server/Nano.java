@@ -11,6 +11,8 @@ import com.fongmi.android.tv.server.process.Local;
 import com.fongmi.android.tv.server.process.Manage;
 import com.fongmi.android.tv.server.process.Media;
 import com.fongmi.android.tv.server.process.Parse;
+import com.fongmi.android.tv.server.process.PlaybackProgressApi;
+import com.fongmi.android.tv.server.process.PlaybackRecordApi;
 import com.fongmi.android.tv.server.process.Proxy;
 import com.fongmi.android.tv.server.process.WebResourceGateway;
 import com.github.catvod.crawler.SpiderDebug;
@@ -45,6 +47,8 @@ public class Nano extends NanoHTTPD {
         process.add(new Manage());
         process.add(new Media());
         process.add(new Parse());
+        process.add(new PlaybackProgressApi());
+        process.add(new PlaybackRecordApi());
         process.add(new Proxy());
         process.add(new WebResourceGateway());
     }
@@ -69,12 +73,21 @@ public class Nano extends NanoHTTPD {
     public Response serve(IHTTPSession session) {
         String url = session.getUri().trim();
         Map<String, String> files = new HashMap<>();
-        if (session.getMethod() == Method.POST) parse(session, files);
+        if (session.getMethod() == Method.POST && shouldParseBody(url)) parse(session, files);
         SpiderDebug.log("server", "%s %s params=%s", session.getMethod(), url, session.getParms());
         if (url.startsWith("/tvbus")) return ok(LiveConfig.getResp());
         if (url.startsWith("/device")) return ok(Device.get().toString());
         for (Process process : process) if (process.isRequest(session, url)) return process.doResponse(session, url, files);
         return getAssets(url.substring(1));
+    }
+
+    private boolean shouldParseBody(String url) {
+        return !"/api/playback/progress".equals(url)
+                && !"/api/playback/progress/batch".equals(url)
+                && !"/api/playback/progress/delete".equals(url)
+                && !"/playback/progress".equals(url)
+                && !"/playback/progress/batch".equals(url)
+                && !"/playback/progress/delete".equals(url);
     }
 
     private void parse(IHTTPSession session, Map<String, String> files) {

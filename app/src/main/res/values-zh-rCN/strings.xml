@@ -131,6 +131,96 @@
     <string name="setting_site_health_dialog_sort">站点弹窗排序</string>
     <string name="site_health_clear_done">站点健康记录已清空</string>
     <string name="setting_web_home_extension">WebHome 扩展</string>
+    <string name="setting_viewing_record_sync">观影记录同步</string>
+    <string name="viewing_record_sync_entry_summary">%1$s · 远端 %2$d/%3$d · Webhook %4$d/%5$d</string>
+    <string name="viewing_record_sync_switches">开关</string>
+    <string name="viewing_record_sync_master_desc">控制远端同步和 Webhook 上报。</string>
+    <string name="viewing_record_sync_local_write">允许本机 API 修改</string>
+    <string name="viewing_record_sync_local_write_desc">允许爬虫通过本机 HTTP API 写入或清理本地观影进度。关闭后仍可读取当前播放记录。</string>
+    <string name="playback_remote_sync">远端同步</string>
+    <string name="playback_remote_sync_manage">管理</string>
+    <string name="playback_remote_sync_edit">编辑远端同步</string>
+    <string name="playback_remote_sync_empty">暂无远端同步源</string>
+    <string name="playback_remote_sync_summary">启用 %1$d · 总数 %2$d</string>
+    <string name="playback_remote_sync_name">名称</string>
+    <string name="playback_remote_sync_url">远端 API URL</string>
+    <string name="playback_remote_sync_token_optional">服务端 Token，可选</string>
+    <string name="playback_remote_sync_interval">间隔分钟</string>
+    <string name="playback_remote_sync_max_items">最大条数</string>
+    <string name="playback_remote_sync_startup">启动时同步</string>
+    <string name="playback_remote_sync_now">同步</string>
+    <string name="playback_remote_sync_saved">远端同步已保存</string>
+    <string name="playback_remote_sync_done">写入 %1$d · 跳过 %2$d · 失败 %3$d</string>
+    <string name="playback_remote_sync_result">拉取 %1$d · 写入 %2$d · 跳过 %3$d · 失败 %4$d</string>
+    <string name="playback_remote_sync_last_at">最近 %1$s</string>
+    <string name="playback_remote_sync_last_error">错误：%1$s</string>
+    <string name="playback_remote_sync_never">从未同步</string>
+    <string name="playback_remote_sync_delete_title">删除远端同步</string>
+    <string name="playback_remote_sync_delete_message">删除 %1$s？</string>
+    <string name="playback_webhook_manage">管理</string>
+    <string name="playback_webhook">Webhook 上报</string>
+    <string name="playback_webhook_edit">编辑 Webhook</string>
+    <string name="playback_webhook_empty">暂无 Webhook 端点</string>
+    <string name="playback_webhook_summary">启用 %1$d · 总数 %2$d</string>
+    <string name="playback_webhook_name">名称</string>
+    <string name="playback_webhook_url">端点 URL</string>
+    <string name="playback_webhook_token">服务端 Token</string>
+    <string name="playback_webhook_token_optional">服务端 Token，可选</string>
+    <string name="playback_webhook_site_keys">站点 key，留空为全部</string>
+    <string name="playback_webhook_preset">字段预设</string>
+    <string name="playback_webhook_preset_safe">基础</string>
+    <string name="playback_webhook_preset_standard">标准</string>
+    <string name="playback_webhook_preset_full">完整</string>
+    <string name="playback_webhook_preset_anonymous">匿名</string>
+    <string name="playback_webhook_preset_custom">自定义</string>
+    <string name="playback_webhook_fields">自定义字段</string>
+    <string name="playback_webhook_fields_summary">字段：%1$s</string>
+    <string name="playback_webhook_select_fields">选择字段</string>
+    <string name="playback_webhook_interval">进度间隔</string>
+    <string name="playback_webhook_retries">重试</string>
+    <string name="playback_webhook_advanced">高级</string>
+    <string name="playback_webhook_advanced_hide">收起高级</string>
+    <string name="playback_webhook_back">返回</string>
+    <string name="playback_webhook_save">保存</string>
+    <string name="playback_webhook_active">运行中</string>
+    <string name="playback_webhook_incomplete">未完成</string>
+    <string name="playback_webhook_suspended">已暂停</string>
+    <string name="playback_webhook_token_set">已设服务端 Token</string>
+    <string name="playback_webhook_token_empty">无服务端 Token</string>
+    <string name="playback_webhook_all_sites">全部站点</string>
+    <string name="playback_webhook_sites">站点 %1$s</string>
+    <string name="playback_webhook_row_meta">%1$s · %2$s · %3$s</string>
+    <string name="playback_webhook_last_error">最近错误：%1$s</string>
+    <string name="playback_webhook_saved">Webhook 上报已保存</string>
+    <string name="playback_webhook_delete_title">删除端点</string>
+    <string name="playback_webhook_delete_message">删除 %1$s？</string>
+    <string name="playback_webhook_url_invalid">端点 URL 必须以 http 开头</string>
+    <string name="playback_webhook_privacy_title">观影记录同步隐私声明</string>
+    <string name="playback_webhook_privacy_message">Webhook 上报会把您的观影记录（包括影片名称、播放进度）发送到您配置的服务器。\n\nApp 不会收集或转发给第三方；您可以随时停用或删除端点。填写服务端 Token 后会通过 X-WebHTV-Token 请求头发送，方便您的服务器分组和校验上报。</string>
+    <string-array name="playback_webhook_field_descriptions">
+        <item>本地点播配置 id，跨设备不稳定。</item>
+        <item>点播接口稳定 key，用于区分不同接口。</item>
+        <item>点播接口显示名称。</item>
+        <item>App 历史主键，通常由 siteKey 和 vodId 组成。</item>
+        <item>来源站点 key。</item>
+        <item>来源站点显示名称。</item>
+        <item>影片 id。</item>
+        <item>影片名称。</item>
+        <item>封面 URL。</item>
+        <item>播放线路或来源名称。</item>
+        <item>当前集名称或备注。</item>
+        <item>播放器状态，如 playing、paused、ended。</item>
+        <item>当前进度，单位毫秒。</item>
+        <item>总时长，单位毫秒。</item>
+        <item>进度比例，范围 0 到 1。</item>
+        <item>播放倍速。</item>
+        <item>是否视为完播。</item>
+        <item>当前集原始 URL，可能包含源站参数。</item>
+        <item>当前集序号，可识别时返回。</item>
+        <item>App 版本名。</item>
+        <item>客户端类型，例如 mobile 或 leanback。</item>
+        <item>设备标识哈希，只建议可信服务使用。</item>
+    </string-array>
     <string name="web_home_extension_clear_done">WebHome 扩展缓存已清空</string>
     <string name="web_home_extension_empty">暂无扩展。点击新增创建本地代码或添加外部源。</string>
     <string name="web_home_extension_add_source">新增</string>
@@ -222,6 +312,8 @@
     <string name="setting_custom_csp_extensions_toggle">扩展</string>
     <string name="setting_custom_csp_extensions">extensions 数组</string>
     <string name="setting_custom_csp_extensions_invalid">extensions JSON 格式无效</string>
+    <string name="setting_custom_csp_permission_required">站点注入需要文件访问权限。</string>
+    <string name="setting_custom_csp_save_failed">站点注入保存失败：%1$s</string>
     <string name="setting_custom_csp_webhome">WebHome</string>
     <string name="setting_custom_csp_common">通用 CSP</string>
     <string name="setting_custom_csp_live">直播</string>

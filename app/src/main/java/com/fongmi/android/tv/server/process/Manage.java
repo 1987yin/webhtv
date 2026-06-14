@@ -771,7 +771,7 @@ public class Manage implements Process {
         if (!TextUtils.isEmpty(link)) {
             homePage = link.trim();
         } else {
-            Path.write(CustomCspSetting.file(safeId, "index.html"), (code == null ? "" : code).getBytes(StandardCharsets.UTF_8));
+            CustomCspSetting.writePage(safeId, code);
             homePage = CustomCspSetting.localUrl(safeId, "index.html");
         }
         JsonObject object = new JsonObject();

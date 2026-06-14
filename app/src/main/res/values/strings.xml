@@ -132,6 +132,96 @@
     <string name="setting_site_health_dialog_sort">Sort site dialog</string>
     <string name="site_health_clear_done">Site health data cleared</string>
     <string name="setting_web_home_extension">WebHome extensions</string>
+    <string name="setting_viewing_record_sync">Viewing record sync</string>
+    <string name="viewing_record_sync_entry_summary">%1$s · Remote %2$d/%3$d · Webhook %4$d/%5$d</string>
+    <string name="viewing_record_sync_switches">Switches</string>
+    <string name="viewing_record_sync_master_desc">Controls remote sync and webhook reporting.</string>
+    <string name="viewing_record_sync_local_write">Allow local API changes</string>
+    <string name="viewing_record_sync_local_write_desc">Allow crawler HTTP API to write or delete local viewing progress. Reading current playback is still available when off.</string>
+    <string name="playback_remote_sync">Remote sync</string>
+    <string name="playback_remote_sync_manage">Manage</string>
+    <string name="playback_remote_sync_edit">Edit remote sync</string>
+    <string name="playback_remote_sync_empty">No remote sync source yet</string>
+    <string name="playback_remote_sync_summary">Active %1$d · Total %2$d</string>
+    <string name="playback_remote_sync_name">Name</string>
+    <string name="playback_remote_sync_url">Remote API URL</string>
+    <string name="playback_remote_sync_token_optional">Server token, optional</string>
+    <string name="playback_remote_sync_interval">Interval min</string>
+    <string name="playback_remote_sync_max_items">Max items</string>
+    <string name="playback_remote_sync_startup">Sync on startup</string>
+    <string name="playback_remote_sync_now">Sync</string>
+    <string name="playback_remote_sync_saved">Remote sync saved</string>
+    <string name="playback_remote_sync_done">Applied %1$d · Skipped %2$d · Failed %3$d</string>
+    <string name="playback_remote_sync_result">Fetched %1$d · Applied %2$d · Skipped %3$d · Failed %4$d</string>
+    <string name="playback_remote_sync_last_at">Last %1$s</string>
+    <string name="playback_remote_sync_last_error">Error: %1$s</string>
+    <string name="playback_remote_sync_never">Never synced</string>
+    <string name="playback_remote_sync_delete_title">Delete remote sync</string>
+    <string name="playback_remote_sync_delete_message">Delete %1$s?</string>
+    <string name="playback_webhook_manage">Manage</string>
+    <string name="playback_webhook">Webhook reporting</string>
+    <string name="playback_webhook_edit">Edit webhook</string>
+    <string name="playback_webhook_empty">No webhook endpoint yet</string>
+    <string name="playback_webhook_summary">Active %1$d · Total %2$d</string>
+    <string name="playback_webhook_name">Name</string>
+    <string name="playback_webhook_url">Endpoint URL</string>
+    <string name="playback_webhook_token">Server token</string>
+    <string name="playback_webhook_token_optional">Server token, optional</string>
+    <string name="playback_webhook_site_keys">Site keys, blank for all</string>
+    <string name="playback_webhook_preset">Field preset</string>
+    <string name="playback_webhook_preset_safe">Basic</string>
+    <string name="playback_webhook_preset_standard">Standard</string>
+    <string name="playback_webhook_preset_full">Complete</string>
+    <string name="playback_webhook_preset_anonymous">Anonymous</string>
+    <string name="playback_webhook_preset_custom">Custom</string>
+    <string name="playback_webhook_fields">Custom fields</string>
+    <string name="playback_webhook_fields_summary">Fields: %1$s</string>
+    <string name="playback_webhook_select_fields">Select fields</string>
+    <string name="playback_webhook_interval">Progress interval</string>
+    <string name="playback_webhook_retries">Retries</string>
+    <string name="playback_webhook_advanced">Advanced</string>
+    <string name="playback_webhook_advanced_hide">Hide advanced</string>
+    <string name="playback_webhook_back">Back</string>
+    <string name="playback_webhook_save">Save</string>
+    <string name="playback_webhook_active">Active</string>
+    <string name="playback_webhook_incomplete">Incomplete</string>
+    <string name="playback_webhook_suspended">Suspended</string>
+    <string name="playback_webhook_token_set">Server token set</string>
+    <string name="playback_webhook_token_empty">No server token</string>
+    <string name="playback_webhook_all_sites">All sites</string>
+    <string name="playback_webhook_sites">Sites %1$s</string>
+    <string name="playback_webhook_row_meta">%1$s · %2$s · %3$s</string>
+    <string name="playback_webhook_last_error">Last error: %1$s</string>
+    <string name="playback_webhook_saved">Webhook saved</string>
+    <string name="playback_webhook_delete_title">Delete endpoint</string>
+    <string name="playback_webhook_delete_message">Delete %1$s?</string>
+    <string name="playback_webhook_url_invalid">Endpoint URL must start with http</string>
+    <string name="playback_webhook_privacy_title">Viewing record sync privacy notice</string>
+    <string name="playback_webhook_privacy_message">Webhook reporting sends your viewing record, including title and progress, to the server you configure.\n\nThe app does not collect or forward this data to other parties. You can disable or delete endpoints at any time. If a server token is set, it is sent in the X-WebHTV-Token header so your server can group and verify reports.</string>
+    <string-array name="playback_webhook_field_descriptions">
+        <item>Local vod configuration id. Not stable across devices.</item>
+        <item>Stable vod configuration key, used to separate different interfaces.</item>
+        <item>Vod configuration display name.</item>
+        <item>App history key, usually siteKey + vodId.</item>
+        <item>Source site key.</item>
+        <item>Source site display name.</item>
+        <item>Vod id.</item>
+        <item>Vod title.</item>
+        <item>Poster URL.</item>
+        <item>Playback line or source name.</item>
+        <item>Episode name or remark.</item>
+        <item>Player state, such as playing, paused, or ended.</item>
+        <item>Current position in milliseconds.</item>
+        <item>Total duration in milliseconds.</item>
+        <item>Progress ratio from 0 to 1.</item>
+        <item>Playback speed.</item>
+        <item>Whether this item is considered completed.</item>
+        <item>Original episode URL. May contain source-site parameters.</item>
+        <item>Episode index when available.</item>
+        <item>App version name.</item>
+        <item>Client flavor, such as mobile or leanback.</item>
+        <item>Hashed device id. Use only for trusted services.</item>
+    </string-array>
     <string name="web_home_extension_clear_done">WebHome extension cache cleared</string>
     <string name="web_home_extension_empty">No extensions yet. Tap Add to create a local script or add an external source.</string>
     <string name="web_home_extension_add_source">Add</string>
@@ -223,6 +313,8 @@
     <string name="setting_custom_csp_extensions_toggle">Extensions</string>
     <string name="setting_custom_csp_extensions">extensions array</string>
     <string name="setting_custom_csp_extensions_invalid">Invalid extensions JSON</string>
+    <string name="setting_custom_csp_permission_required">Site injection needs file access permission.</string>
+    <string name="setting_custom_csp_save_failed">Site injection save failed: %1$s</string>
     <string name="setting_custom_csp_webhome">WebHome</string>
     <string name="setting_custom_csp_common">General CSP</string>
     <string name="setting_custom_csp_live">Live</string>

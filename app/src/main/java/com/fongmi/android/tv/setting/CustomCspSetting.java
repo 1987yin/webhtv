@@ -3,6 +3,7 @@ package com.fongmi.android.tv.setting;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.Live;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Style;
@@ -21,6 +22,7 @@ import com.google.gson.JsonParser;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -115,7 +117,34 @@ public class CustomCspSetting {
     }
 
     public static void save(Registry registry) {
-        Path.write(registryFile(), App.gson().toJson(registry.normalize()).getBytes(StandardCharsets.UTF_8));
+        ensureFileAccess();
+        File file = registryFile();
+        String text = App.gson().toJson(registry.normalize());
+        Path.write(file, text.getBytes(StandardCharsets.UTF_8));
+        ensureWritten(file, text);
+    }
+
+    public static void writePage(String id, String code) {
+        ensureFileAccess();
+        File file = file(id, "index.html");
+        String text = code == null ? "" : code;
+        Path.write(file, text.getBytes(StandardCharsets.UTF_8));
+        ensureWritten(file, text);
+    }
+
+    public static void copyPage(File source, String id) {
+        ensureFileAccess();
+        File file = file(id, "index.html");
+        Path.copy(source, file);
+        if (!source.exists() || !file.exists() || !Arrays.equals(Path.readToByte(source), Path.readToByte(file))) throw new IllegalStateException(App.get().getString(R.string.setting_custom_csp_save_failed, file.getAbsolutePath()));
+    }
+
+    private static void ensureFileAccess() {
+        if (!Setting.hasFileAccess()) throw new IllegalStateException(App.get().getString(R.string.setting_custom_csp_permission_required));
+    }
+
+    private static void ensureWritten(File file, String text) {
+        if (!file.exists() || !TextUtils.equals(Path.read(file), text)) throw new IllegalStateException(App.get().getString(R.string.setting_custom_csp_save_failed, file.getAbsolutePath()));
     }
 
     public static File dir() {

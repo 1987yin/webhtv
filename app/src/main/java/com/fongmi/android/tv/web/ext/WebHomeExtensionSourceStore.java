@@ -28,6 +28,16 @@ public class WebHomeExtensionSourceStore {
         return read();
     }
 
+    public static Entry draft(String name, String raw, boolean enabled, String siteKey) {
+        Entry entry = new Entry();
+        entry.name = name == null ? "" : name.trim();
+        entry.raw = raw == null ? "" : raw.trim();
+        entry.enabled = enabled;
+        entry.siteKey = siteKey == null ? "" : siteKey.trim();
+        entry.updatedAt = System.currentTimeMillis();
+        return entry;
+    }
+
     public static synchronized void saveRawJson(String json) {
         if (TextUtils.isEmpty(json)) {
             write(new ArrayList<>());
@@ -378,6 +388,10 @@ public class WebHomeExtensionSourceStore {
 
         public boolean isEnabled() {
             return enabled;
+        }
+
+        public void setDraftEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
 
         public long getUpdatedAt() {

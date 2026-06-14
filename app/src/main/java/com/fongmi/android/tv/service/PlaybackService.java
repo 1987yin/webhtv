@@ -30,6 +30,7 @@ import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.browse.BrowseTree;
 import com.fongmi.android.tv.event.ActionEvent;
 import com.fongmi.android.tv.event.ConfigEvent;
+import com.fongmi.android.tv.playback.PlaybackEventCollector;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.engine.PlaySpec;
 import com.fongmi.android.tv.server.Server;
@@ -103,6 +104,7 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
         SpiderDebug.log("playback-flow", "service onCreate start");
         running = true;
         player = new PlayerManager(this);
+        PlaybackEventCollector.get().setPlayer(player);
         SpiderDebug.log("playback-flow", "service player ready cost=%dms", System.currentTimeMillis() - start);
         exoPlayer = player.getPlayer();
         exoPlayer.addListener(listener);
@@ -191,6 +193,7 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
         running = false;
         syncAudioHistoryProgress(true);
         clearAudioHistoryRecord();
+        PlaybackEventCollector.get().onStop(player);
         releaseSession();
         player.stop();
         player.release();
@@ -203,6 +206,7 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
     private void stopAndClear() {
         syncAudioHistoryProgress(true);
         clearAudioHistoryRecord();
+        PlaybackEventCollector.get().onStop(player);
         player.stop();
         player.clearMediaItems();
     }
@@ -246,7 +250,7 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
 
     private void saveProgress() {
         if (hasNavigationCallback() || session == null) return;
-        if (BrowseTree.saveProgress(player.getPosition(), player.getDuration())) {
+        if (BrowseTree.saveProgress(player.getPosition(), player.getDuration(), player)) {
             session.notifyChildrenChanged("VOD", 0, null);
         }
     }
@@ -550,6 +554,7 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
         exoPlayer.removeListener(listener);
         exoPlayer = newPlayer;
         exoPlayer.addListener(listener);
+        PlaybackEventCollector.get().setPlayer(player);
         if (session != null) session.setPlayer(wrap(newPlayer));
         playerCallbacks.forEach(callback -> callback.onPlayerRebuild(newPlayer));
     }
@@ -563,6 +568,7 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
 
         @Override
         public void onPlaybackStateChanged(int state) {
+            PlaybackEventCollector.get().onPlaybackStateChanged(player, state);
             if (state == Player.STATE_READY) {
                 updateAudioHistoryForReady();
                 scheduleAudioHistorySync();
@@ -571,6 +577,11 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
                 syncAudioHistoryProgress(true);
                 if (!(hasNavigationCallback() && isNavigationOwner())) navigateItem(1);
             }
+        }
+
+        @Override
+        public void onIsPlayingChanged(boolean isPlaying) {
+            PlaybackEventCollector.get().onIsPlayingChanged(player, isPlaying);
         }
 
         @Override

@@ -10,6 +10,7 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 
 import com.fongmi.android.tv.bean.Result;
+import com.fongmi.android.tv.player.PlayerManager;
 import com.google.common.collect.ImmutableList;
 
 import java.util.Map;
@@ -117,6 +118,10 @@ public class BrowseTree {
 
     public static boolean saveProgress(long position, long duration) {
         return VodBrowse.saveProgress(position, duration);
+    }
+
+    public static boolean saveProgress(long position, long duration, PlayerManager player) {
+        return VodBrowse.saveProgress(position, duration, player);
     }
 
     @Nullable

@@ -14,6 +14,7 @@ import androidx.fragment.app.FragmentActivity;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.service.ManageService;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.PermissionUtil;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
@@ -27,6 +28,13 @@ public final class ManagePageDialog {
     }
 
     public static void show(FragmentActivity activity) {
+        PermissionUtil.requestFile(activity, granted -> {
+            if (granted) showInternal(activity);
+            else Notify.show(R.string.setting_custom_csp_permission_required);
+        });
+    }
+
+    private static void showInternal(FragmentActivity activity) {
         ManageService.start(activity);
         String localUrl = ManageService.getLocalUrl();
         String lanUrl = ManageService.getLanUrl();

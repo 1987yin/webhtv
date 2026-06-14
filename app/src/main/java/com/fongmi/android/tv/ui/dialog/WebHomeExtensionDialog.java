@@ -63,6 +63,9 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
     private Runnable callback;
     private boolean enabled;
     private boolean textMode;
+    private boolean editMode;
+    private WebHomeExtensionSourceStore.Entry editingSource;
+    private SourceEditor editingEditor;
     private WebHomeExtensionSourceStore.Entry pendingFileEdit;
     private SourceEditor pendingFileEditor;
     private final List<SourceEditor> editors = new ArrayList<>();
@@ -122,6 +125,8 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
     public void onDestroyView() {
         binding = null;
         editors.clear();
+        editingSource = null;
+        editingEditor = null;
         pendingFileEdit = null;
         pendingFileEditor = null;
         super.onDestroyView();
@@ -135,6 +140,7 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
         setupScrollableText(binding.jsonText);
         showTextMode(false);
         render();
+        showList();
         refresh(false);
     }
 
@@ -152,7 +158,10 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
             if (checkedId == R.id.uiMode && !showTextMode(false)) binding.modeGroup.check(R.id.textMode);
         });
         binding.clear.setOnClickListener(view -> clearCache());
-        binding.negative.setOnClickListener(view -> dismiss());
+        binding.negative.setOnClickListener(view -> {
+            if (editMode) showList();
+            else dismiss();
+        });
         binding.positive.setOnClickListener(view -> onPositive());
     }
 
@@ -191,7 +200,7 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
         }
         if (text) {
             try {
-                binding.jsonText.setText(currentFormSourcesJson());
+                binding.jsonText.setText(currentSourcesJson());
             } catch (Throwable e) {
                 Notify.show(errorText(e));
                 return false;
@@ -207,7 +216,11 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
     private void updateModeVisibility() {
         binding.contentScroll.setVisibility(textMode ? View.GONE : View.VISIBLE);
         binding.jsonLayout.setVisibility(textMode ? View.VISIBLE : View.GONE);
-        binding.add.setVisibility(textMode ? View.GONE : View.VISIBLE);
+        binding.add.setVisibility(textMode || editMode ? View.GONE : View.VISIBLE);
+        binding.debug.setVisibility(editMode ? View.GONE : View.VISIBLE);
+        binding.clear.setVisibility(editMode ? View.GONE : View.VISIBLE);
+        binding.enabled.setVisibility(editMode ? View.GONE : View.VISIBLE);
+        binding.modeGroup.setVisibility(editMode ? View.GONE : View.VISIBLE);
     }
 
     private boolean saveTextSources(boolean notify) {
@@ -222,6 +235,10 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
     }
 
     private void onPositive() {
+        if (editMode) {
+            saveEditingSource(true);
+            return;
+        }
         if (textMode && !saveTextSources(true)) return;
         if (!textMode && !saveFormSources(true)) return;
         boolean changed = Setting.isWebHomeExtension() != enabled;
@@ -236,6 +253,7 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
 
     private void render() {
         if (!canRender()) return;
+        if (editMode) return;
         WebHomeExtensionRegistry.Snapshot snapshot = WebHomeExtensionRegistry.get().snapshot();
         List<RowModel> rows = rows(snapshot);
         String siteKey = TextUtils.isEmpty(snapshot.siteKey) ? getString(R.string.web_home_extension_unknown_site) : snapshot.siteKey;
@@ -244,6 +262,53 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
         editors.clear();
         binding.empty.setVisibility(rows.isEmpty() ? View.VISIBLE : View.GONE);
         for (RowModel row : rows) binding.list.addView(row(row));
+    }
+
+    private void showList() {
+        editMode = false;
+        editingSource = null;
+        editingEditor = null;
+        editors.clear();
+        binding.list.removeAllViews();
+        binding.list.addView(binding.empty);
+        updateModeVisibility();
+        binding.negative.setText(R.string.dialog_negative);
+        binding.positive.setText(R.string.dialog_positive);
+        render();
+        binding.add.requestFocus();
+    }
+
+    private void showEdit(WebHomeExtensionSourceStore.Entry source) {
+        editMode = true;
+        editingSource = source;
+        editors.clear();
+        binding.list.removeAllViews();
+        binding.empty.setVisibility(View.GONE);
+        LinearLayoutCompat root = new LinearLayoutCompat(requireContext());
+        root.setOrientation(LinearLayoutCompat.VERTICAL);
+        root.setPadding(dp(10), dp(8), dp(10), dp(8));
+        root.setBackground(rowBackground());
+        binding.list.addView(root, new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayoutCompat header = new LinearLayoutCompat(requireContext());
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setOrientation(LinearLayoutCompat.HORIZONTAL);
+        root.addView(header);
+        header.addView(text(getString(R.string.web_home_extension_edit_source), 16, Color.BLACK, true), new LinearLayoutCompat.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        MaterialButton toggle = sourceActionButton(source.isEnabled() ? R.string.setting_enable : R.string.setting_disable, true, false);
+        toggle.setOnClickListener(view -> {
+            source.setDraftEnabled(!source.isEnabled());
+            toggle.setText(source.isEnabled() ? R.string.setting_enable : R.string.setting_disable);
+            toggle.setAlpha(source.isEnabled() ? 1.0f : 0.65f);
+        });
+        toggle.setAlpha(source.isEnabled() ? 1.0f : 0.65f);
+        header.addView(toggle, new LinearLayoutCompat.LayoutParams(dp(84), dp(36)));
+        addSourceForm(root, source);
+        editingEditor = editors.isEmpty() ? null : editors.get(0);
+        updateModeVisibility();
+        binding.negative.setText(R.string.playback_webhook_back);
+        binding.positive.setText(R.string.playback_webhook_save);
+        binding.contentScroll.scrollTo(0, 0);
+        root.requestFocus();
     }
 
     private List<RowModel> rows(WebHomeExtensionRegistry.Snapshot snapshot) {
@@ -304,7 +369,7 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
             if (!TextUtils.isEmpty(item.reason)) addDetail(root, item.reason);
             if (!TextUtils.isEmpty(item.lastLog)) addDetail(root, getString(R.string.web_home_extension_last_log, item.lastLog));
         }
-        if (source != null) addSourceForm(root, source);
+        if (source != null) addSourceDetails(root, source, item);
 
         LinearLayoutCompat actions = new LinearLayoutCompat(requireContext());
         actions.setGravity(Gravity.CENTER_VERTICAL);
@@ -326,11 +391,24 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
         actions.addView(toggle, actionLayout(0));
 
         if (source != null) {
+            MaterialButton edit = sourceActionButton(R.string.dialog_edit, false, false);
+            edit.setOnClickListener(view -> showEdit(source));
+            actions.addView(edit, actionLayout(8));
+
             MaterialButton delete = sourceActionButton(R.string.setting_delete, false, true);
             delete.setOnClickListener(view -> deleteSource(source));
             actions.addView(delete, actionLayout(8));
         }
         return root;
+    }
+
+    private void addSourceDetails(LinearLayoutCompat root, WebHomeExtensionSourceStore.Entry source, WebHomeExtensionRegistry.Item item) {
+        FormFields fields = formFields(source);
+        addDetail(root, getString(R.string.web_home_extension_source_type) + ": " + sourceTypeName(fields.sourceType));
+        if (!TextUtils.isEmpty(fields.match)) addDetail(root, getString(R.string.web_home_extension_match, fields.match));
+        if (!TextUtils.isEmpty(fields.link)) addDetail(root, getString(R.string.web_home_extension_source, shortText(fields.link)));
+        else if (!TextUtils.isEmpty(fields.code)) addDetail(root, getString(R.string.web_home_extension_source, shortText(fields.code)));
+        if (item != null && !TextUtils.isEmpty(item.lastLog)) addDetail(root, getString(R.string.web_home_extension_last_log, item.lastLog));
     }
 
     private void addSourceForm(LinearLayoutCompat root, WebHomeExtensionSourceStore.Entry source) {
@@ -427,9 +505,29 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
         }
     }
 
+    private boolean saveEditingSource(boolean notify) {
+        try {
+            if (editingEditor == null) return false;
+            saveFormEditor(editingEditor);
+            onSourceSaved(false);
+            if (notify) Notify.show(R.string.web_home_extension_source_saved);
+            showList();
+            return true;
+        } catch (Throwable e) {
+            if (notify) Notify.show(errorText(e));
+            return false;
+        }
+    }
+
     private String currentFormSourcesJson() {
         JsonArray array = new JsonArray();
         for (SourceEditor editor : editors) array.add(sourceJson(editor));
+        return new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create().toJson(array);
+    }
+
+    private String currentSourcesJson() {
+        JsonArray array = new JsonArray();
+        for (WebHomeExtensionSourceStore.Entry source : WebHomeExtensionSourceStore.list()) array.add(sourceJson(source));
         return new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create().toJson(array);
     }
 
@@ -440,6 +538,17 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
         object.addProperty("name", inputText(editor.name, source.getName()));
         object.addProperty("raw", formRaw(editor));
         object.addProperty("siteKey", currentSiteKey(source));
+        object.addProperty("enabled", source.isEnabled());
+        object.addProperty("updatedAt", source.getUpdatedAt());
+        return object;
+    }
+
+    private JsonObject sourceJson(WebHomeExtensionSourceStore.Entry source) {
+        JsonObject object = new JsonObject();
+        object.addProperty("id", source.getId());
+        object.addProperty("name", source.getName());
+        object.addProperty("raw", source.getRaw());
+        object.addProperty("siteKey", source.getSiteKey());
         object.addProperty("enabled", source.isEnabled());
         object.addProperty("updatedAt", source.getUpdatedAt());
         return object;
@@ -556,8 +665,8 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
 
     private void addDefaultSource() {
         String name = getString(R.string.web_home_extension_local_code_default, WebHomeExtensionSourceStore.list().size() + 1);
-        WebHomeExtensionSourceStore.saveCode("", name, "GM_log('ready');\n", true, currentSiteKey(null));
-        onSourceSaved();
+        WebHomeExtensionSourceStore.Entry source = WebHomeExtensionSourceStore.draft(name, WebHomeExtensionSourceStore.rawCode("", name, WebHomeExtension.RUN_AT_END, currentSiteKey(null), "GM_log('ready');\n", WebHomeExtensionSourceStore.SOURCE_TYPE_CODE), true, currentSiteKey(null));
+        showEdit(source);
     }
 
     private void chooseFile(SourceEditor editor) {
@@ -588,6 +697,13 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
         WebHomeExtensionSourceStore.Entry source = pendingFileEdit;
         SourceEditor editor = pendingFileEditor;
         String name = path.substring(path.lastIndexOf('/') + 1);
+        if (editMode && editor != null) {
+            if (TextUtils.isEmpty(inputText(editor.name))) editor.name.setText(name);
+            editor.code.setText(fileCode(name, code));
+            pendingFileEditor = null;
+            pendingFileEdit = null;
+            return;
+        }
         WebHomeExtensionSourceStore.saveCodeMeta(source == null ? "" : source.getId(), inputText(editor == null ? null : editor.name, name), runAt(editor == null ? null : editor.runAtGroup, editor == null ? 0 : editor.startId, editor == null ? 0 : editor.idleId), inputText(editor == null ? null : editor.match), fileCode(name, code), source == null || source.isEnabled(), currentSiteKey(source), WebHomeExtensionSourceStore.SOURCE_TYPE_FILE);
         pendingFileEditor = null;
         pendingFileEdit = null;
@@ -650,6 +766,12 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
         HomeWebController.requestExtensionReload();
         refresh(false);
         if (notify) Notify.show(R.string.web_home_extension_source_saved);
+    }
+
+    private String sourceTypeName(String type) {
+        if (WebHomeExtensionSourceStore.SOURCE_TYPE_FILE.equals(type)) return getString(R.string.web_home_extension_add_file);
+        if (WebHomeExtensionSourceStore.SOURCE_TYPE_LINK.equals(type)) return getString(R.string.web_home_extension_add_link);
+        return getString(R.string.web_home_extension_add_code);
     }
 
     private TextInputEditText createInput(boolean multiline) {
