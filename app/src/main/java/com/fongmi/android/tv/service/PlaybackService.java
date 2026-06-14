@@ -562,6 +562,7 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
     private final Player.Listener listener = new Player.Listener() {
         @Override
         public void onIsPlayingChanged(boolean isPlaying) {
+            PlaybackEventCollector.get().onIsPlayingChanged(player, isPlaying);
             if (isPlaying) scheduleAudioHistorySync();
             else syncAudioHistoryProgress(true);
         }
@@ -577,11 +578,6 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
                 syncAudioHistoryProgress(true);
                 if (!(hasNavigationCallback() && isNavigationOwner())) navigateItem(1);
             }
-        }
-
-        @Override
-        public void onIsPlayingChanged(boolean isPlaying) {
-            PlaybackEventCollector.get().onIsPlayingChanged(player, isPlaying);
         }
 
         @Override
