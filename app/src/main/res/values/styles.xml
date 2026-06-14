@@ -37,6 +37,8 @@
         <item name="keep_content_on_player_reset">true</item>
     </style>
 
+    <style name="Video" />
+
     <style name="Video.ContextText">
         <item name="android:shadowColor">@color/black_90</item>
         <item name="android:shadowDx">0</item>
