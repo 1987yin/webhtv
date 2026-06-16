@@ -175,7 +175,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     public static void collect(Activity activity, String key, String id, String name, String pic, String wallPic) {
-        start(activity, key, id, name, pic, null, true, false, wallPic);
+        start(activity, key, id, name, pic, null, true, false, null, wallPic);
     }
 
     public static void start(Activity activity, String url) {
@@ -200,7 +200,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, String wallPic) {
-        start(activity, key, id, name, pic, mark, false, false, wallPic);
+        start(activity, key, id, name, pic, mark, false, false, null, wallPic);
     }
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast) {

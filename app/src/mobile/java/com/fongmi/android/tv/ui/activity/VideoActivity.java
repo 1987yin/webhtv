@@ -180,7 +180,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     public static void collect(Activity activity, String key, String id, String name, String pic, String wallPic) {
-        start(activity, key, id, name, pic, null, true, wallPic);
+        start(activity, key, id, name, pic, null, true, null, wallPic);
     }
 
     public static void start(Activity activity, String url) {
@@ -205,7 +205,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, String wallPic) {
-        start(activity, key, id, name, pic, mark, false, wallPic);
+        start(activity, key, id, name, pic, mark, false, null, wallPic);
     }
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect) {
