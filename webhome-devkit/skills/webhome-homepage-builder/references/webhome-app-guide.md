@@ -3657,7 +3657,7 @@ HOT_VECTOR_VERSION = 5
 - 长按“站点健康排序”：清空当前已学习的站点健康记录。
 - “观影记录同步”当前用于管理用户本地 Webhook 端点和当前播放只读 API。界面分为“开关”“远端同步”“Webhook 上报”三块：顶层只显示总开关、本机 API 修改开关和状态摘要；远端同步源列表与 Webhook 端点列表点击后进入二级界面，新增/编辑都在独立表单中完成。Webhook 上报时机固定为进度更新、退出/暂停/切集前最终进度和自然完播，不再让用户选择；字段预设为“基础/标准/完整/自定义”，自定义字段使用带说明的多选列表。Webhook 和远端同步 token 均由用户服务端统一提供，App 只负责保存并随请求发送。协议字段、远端同步源和本机修改 API 规范见 13.4。
 - “管理页面”会启动浏览器页面 `/m`，用于本机或远端管理文件、登录态、同步目录、站点注入、接口、壳代理、搜索和推送。页面运行期间 App 会启动前台服务保活，空闲一段时间后自动停止。
-- “站点注入”会在当前点播配置加载完成后，把用户维护的 WebHome 或通用 CSP 站点插入 `sites` 列表。主界面只显示条目摘要、启用状态和常用操作；新增/修改在独立表单中完成。WebHome 扩展依赖站点 `key`、`homePage` 和站点级 `extensions`，因此入口放在增强功能页内站点注入附近。WebHome 站点级扩展支持手填 `extensions` 数组，也支持选择本地 JS/CSS/JSON 后自动生成数组。
+- “站点注入”会在当前点播配置加载完成后，把用户维护的 WebHome 或通用 CSP 站点插入 `sites` 列表。主界面只显示条目摘要、启用状态和常用操作；新增/修改在独立表单中完成。WebHome 扩展依赖站点 `key`、`homePage` 和站点级 `extensions`，因此入口放在增强功能页内站点注入附近。WebHome 站点级扩展支持直接填写扩展 URL / JSON，也支持选择本地 JS/CSS/JSON 后自动生成配置。
 - “WebHome 扩展”用于给真实 WebHome 网页注入用户脚本。主界面只显示扩展源摘要、匹配状态和常用操作；新增/修改在独立表单中配置文件、链接/manifest、代码、表单或 JSON 来源，可编辑启用状态、匹配范围、运行时机和依赖，并提供调试工作台用于 Web 预览、Console、Network、Elements 和代码保存预览。匹配范围默认从当前点播配置的 WebHome 站点列表弹窗多选，正则模式作为高级方式保留。
 - “登录态学习”默认不启动。用户手动开启后，App 会学习 Cookie、Token、SharedPreferences、cache 或接口 Jar 产生的登录状态文件路径；待确认项可以在“管理路径”里查看、勾选、编辑，确认后参与一键同步。
 - “Proxy 壳代理”是 App 级代理开关和规则编辑入口。开启后，配置的默认代理地址和规则会通过 `OkHttp.selector()` 应用到 App 网络请求、WebHome `fm.req()` 和 `/webResource` 等统一 OkHttp 链路。
@@ -3721,7 +3721,7 @@ Proxy 壳代理使用方式：
 3. 主列表只显示名称、类型、核心地址、Key、启用/可用状态和常用操作。点击“新增”或“修改”进入独立表单，取消不会写入草稿，保存后才刷新列表。
 4. 插入位置限制在 `sites`/`lives` 前 10 位内。界面显示为 1 到 10，显示“1”表示插入到列表第 0 位前面。
 5. WebHome 类型只需要维护名称、Key、WebHome 地址和可选站点级扩展；适合把本地 HTML 文件、手写 HTML 代码或在线链接作为网页首页。新增条目的默认 Key 会根据名称生成稳定值，便于 WebHome 扩展使用 `cspKeyRegex` 匹配；手动修改 Key 后会保留用户填写值。
-6. WebHome 行的 Key 下方有“扩展”开关，默认关闭。打开后填写的是站点 JSON 的 `extensions` 数组值，例如 `[{"id":"pomo-native-router","name":"Pomo native router","runAt":"document-end","js":["https://example.com/webhome/pomo.mom.js"]}]`。表单兼容单个 URL 或单个扩展对象，保存时会包装为数组；也可以点“文件”选择本地 `.js`、`.css` 或 `.json`，本地 JS 会生成内联 `code` 扩展对象，CSS 会生成 `GM_addStyle(...)`，JSON 会规范化为数组。站点级 `extensions` 默认绑定当前站点 `key`，通常不需要再写 `cspKeyRegex`。
+6. WebHome 行的 Key 下方有“扩展”开关，默认关闭。打开后输入框显示为“扩展 URL / JSON”，最简单只填一个 JS URL，例如 `https://example.com/site.js`。表单也兼容 `extensions` 数组或单个扩展对象，保存时会包装为数组；也可以点“文件”选择本地 `.js`、`.css` 或 `.json`，本地 JS 会生成内联 `code` 扩展对象，CSS 会生成 `GM_addStyle(...)`，JSON 会规范化为数组。站点级 `extensions` 默认绑定当前站点 `key`，通常不需要再写 `cspKeyRegex`。
 7. 通用 CSP 类型会显示 `type`、`api`、`ext`、`jar`、`click`、`playUrl`、`hide`、`searchable`、`changeable`、`quickSearch`、`indexs`、`timeout`、`categories`、`header`、`style` 等站点参数，也支持直接编辑完整 Site JSON。
 8. 直播类型只生成注入到 `lives` 列表的 Live 条目，不额外创建独立直播接口或独立 CSP 加载方式。常用参数优先显示 `name`、`url`、`ua`、`epg`、`logo`，其中 `ua` 新增时默认 `okhttp`；`type` 和 `playerType` 不在界面展示，保存时默认写入 `type: 0`、`playerType: 2`。`header`、`timeout`、`groups`、`catchup`、`core`、`boot`、`pass` 等低频参数收在高级区，也支持直接编辑完整 Live JSON。
 9. JSON raw 支持完整 registry、`sites`/`lives` 数组、单个 site object 或单个 live object；单个 live object 保存后会作为 `lives` 注入项处理。保存后会自动刷新当前点播配置和直播配置，让注入结果立即生效。

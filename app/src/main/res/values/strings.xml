@@ -254,7 +254,7 @@
     <string name="web_home_extension_run_at_end_short">End</string>
     <string name="web_home_extension_run_at_idle_short">Idle</string>
     <string name="web_home_extension_match_mode">Match mode</string>
-    <string name="web_home_extension_match_sites">Sites</string>
+    <string name="web_home_extension_match_sites">Select</string>
     <string name="web_home_extension_match_regex">Regex</string>
     <string name="web_home_extension_choose_sites">Choose sites</string>
     <string name="web_home_extension_no_webhome_sites">No WebHome sites in current VOD config</string>
@@ -319,9 +319,9 @@
     <string name="setting_custom_csp_home_page">WebHome URL</string>
     <string name="setting_custom_csp_home_page_optional">WebHome URL (optional)</string>
     <string name="setting_custom_csp_extensions_toggle">Extensions</string>
-    <string name="setting_custom_csp_extensions">extensions array</string>
+    <string name="setting_custom_csp_extensions">Extension URL / JSON</string>
     <string name="setting_custom_csp_extensions_file">File</string>
-    <string name="setting_custom_csp_extensions_example">[{\"id\":\"site-helper\",\"name\":\"Site helper\",\"runAt\":\"document-end\",\"js\":[\"https://example.com/site.js\"]}]</string>
+    <string name="setting_custom_csp_extensions_example">https://example.com/site.js</string>
     <string name="setting_custom_csp_extensions_invalid">Invalid extensions JSON</string>
     <string name="setting_custom_csp_permission_required">Site injection needs file access permission.</string>
     <string name="setting_custom_csp_save_failed">Site injection save failed: %1$s</string>

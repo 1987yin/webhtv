@@ -194,9 +194,13 @@ public class CustomCspDialog extends BaseAlertDialog {
     }
 
     private void setupScrollableText(EditText input) {
+        setupScrollableText(input, true);
+    }
+
+    private void setupScrollableText(EditText input, boolean horizontal) {
         input.setSelectAllOnFocus(false);
-        input.setHorizontallyScrolling(true);
-        input.setHorizontalScrollBarEnabled(true);
+        input.setHorizontallyScrolling(horizontal);
+        input.setHorizontalScrollBarEnabled(horizontal);
         input.setVerticalScrollBarEnabled(true);
         input.setOnTouchListener((view, event) -> {
             int action = event.getActionMasked();
@@ -919,7 +923,7 @@ public class CustomCspDialog extends BaseAlertDialog {
             binding.up.setVisibility(View.GONE);
             binding.down.setVisibility(View.GONE);
             binding.delete.setVisibility(View.GONE);
-            setupScrollableText(binding.extensions);
+            setupScrollableText(binding.extensions, false);
         }
 
         void bind(CustomCspSetting.Item item) {
