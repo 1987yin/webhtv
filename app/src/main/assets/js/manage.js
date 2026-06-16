@@ -1484,7 +1484,7 @@ function buildLiveFields(item) {
     return `<div class="field-row compact live-common-row">${buildLiveTextField('url', '直播地址', item.url, 'http(s):// 或本地路径', true, 'URL/分组至少一项')}</div><div class="field-row compact">${buildLiveTextField('ua', 'UA', item.ua, 'okhttp')}${buildLiveTextField('epg', 'EPG', item.epg, 'http://...{name}...')}${buildLiveTextField('logo', 'Logo', item.logo, 'https://.../{name}.png')}</div>${buildAdvancedLiveFields(item)}`;
 }
 function buildAdvancedSiteFields(item, wrap = true) {
-    const field = `<label class="form-label">完整 Site JSON</label><textarea class="code-area csp-field compact-code" data-key="siteText" spellcheck="false" placeholder="完整站点 JSON，可填写 docs/应用完整开发文档.md 里的其它字段">${escHtml(item.siteText)}</textarea>`;
+    const field = `<label class="form-label">完整 Site JSON</label><textarea class="code-area csp-field compact-code" data-key="siteText" spellcheck="false" placeholder="完整站点 JSON，可参考 webhome-devkit/docs/应用完整开发文档.md 里的其它字段">${escHtml(item.siteText)}</textarea>`;
     return wrap ? `<details class="advanced-panel"><summary>高级 Site JSON</summary>${field}</details>` : field;
 }
 function buildAdvancedLiveFields(item) {
