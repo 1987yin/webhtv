@@ -326,10 +326,12 @@ public class HomeWebBridge {
 
     private String search(JsonObject payload) {
         String keyword = Json.safeString(payload, "keyword");
+        String pic = Json.safeString(payload, "pic");
+        String wall = wallPic(payload);
         boolean direct = payload.has("direct") && payload.get("direct").getAsBoolean();
         App.post(() -> {
-            if (direct) SearchActivity.direct(activity, keyword);
-            else SearchActivity.start(activity, keyword);
+            if (direct) SearchActivity.direct(activity, keyword, null, pic, wall);
+            else SearchActivity.start(activity, keyword, null, pic, wall);
         });
         return "{}";
     }

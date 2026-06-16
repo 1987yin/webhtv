@@ -167,6 +167,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         start(activity, key, id, name, pic, null, true);
     }
 
+    public static void collect(Activity activity, String key, String id, String name, String pic, String wallPic) {
+        start(activity, key, id, name, pic, null, true, wallPic);
+    }
+
     public static void start(Activity activity, String url) {
         start(activity, SiteApi.PUSH, url, url);
     }
@@ -475,7 +479,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         getIntent().putExtra("key", item.getSiteKey());
         getIntent().putExtra("pic", item.getPic());
         getIntent().putExtra("id", item.getId());
-        getIntent().removeExtra("wallPic");
         mBinding.swipeLayout.setRefreshing(true);
         mBinding.swipeLayout.setEnabled(false);
         mBinding.scroll.scrollTo(0, 0);
@@ -1078,7 +1081,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void setArtwork(String url) {
         if (mHistory != null) mHistory.setVodPic(url);
         loadArtwork(url);
-        setContextWall(getContextWall(url));
+        setContextWall(getContextWall());
     }
 
     private void setArtwork() {
@@ -1100,10 +1103,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         });
     }
 
-    private String getContextWall(String fallback) {
-        String wall = getWallPic();
-        if (!TextUtils.isEmpty(wall)) return wall;
-        return Objects.toString(fallback, "");
+    private String getContextWall() {
+        return getWallPic();
     }
 
     private String lockContextWall(String url) {

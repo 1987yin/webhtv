@@ -4402,6 +4402,10 @@
                 <button class="detail-style-option focusable" id="homeFullscreenOnBtn" type="button" data-home-fullscreen="on">开启</button>
                 <button class="detail-style-option focusable" id="homeFullscreenOffBtn" type="button" data-home-fullscreen="off">关闭</button>
               </div></div>
+              <div class="connection-item"><b>高清剧照</b><div class="detail-style-segmented" id="highResBackdropSegmented" role="group" aria-label="高清剧照">
+                <button class="detail-style-option focusable" id="highResBackdropOnBtn" type="button" data-high-res-backdrop="on">开启</button>
+                <button class="detail-style-option focusable" id="highResBackdropOffBtn" type="button" data-high-res-backdrop="off">关闭</button>
+              </div></div>
               <div class="connection-item"><b>手机详情</b><div class="detail-style-segmented" id="mobileDetailStyleSegmented" role="group" aria-label="手机详情样式">
                 <button class="detail-style-option focusable" id="mobileDetailImmersiveBtn" type="button" data-mobile-detail-style="immersive">沉浸式</button>
                 <button class="detail-style-option focusable" id="mobileDetailTranslucentBtn" type="button" data-mobile-detail-style="translucent">半透明</button>
@@ -4723,7 +4727,7 @@
       },
       deleteState: { loaded: false, users: {} },
       tmdb: { config: null, configDirty: false },
-      uiPrefs: { loaded: false, mobileDetailStyle: "immersive", homeFullscreenEnabled: true, ratingLimitEnabled: true },
+      uiPrefs: { loaded: false, mobileDetailStyle: "immersive", homeFullscreenEnabled: true, ratingLimitEnabled: true, highResBackdropEnabled: true },
       autoBlocked: { loaded: false, items: {}, pending: {}, queue: [], queued: {}, active: 0, timer: 0, viewportTimer: 0, refreshTimer: 0, saveTimer: 0, version: 0 },
       blocked: { loaded: false, items: {}, selecting: false, holdTimer: 0, holdTarget: null, longPressFired: false, pointer: null, suppressClickUntil: 0, saveTimer: 0, lastPosition: null, restoring: false, restoreSeq: 0 },
       pan: { config: null, configDirty: false, loading: false, keyword: "", activeType: "", results: [], health: {}, pending: {}, queued: new Map(), inFlight: new Set(), observer: null, flushTimer: 0, pollTimers: [], pollRound: 0, viewToken: "", renderKeys: "", tabKeys: "", checkEnabled: false, focusKey: "", focusMode: "", playbackReturn: null },
@@ -4995,7 +4999,12 @@
     function sanitizeUiPrefs(value) {
       const raw = value && typeof value === "object" ? value : {};
       const style = raw.mobileDetailStyle === "translucent" ? "translucent" : "immersive";
-      return { mobileDetailStyle: style, homeFullscreenEnabled: raw.homeFullscreenEnabled === false ? false : true, ratingLimitEnabled: raw.ratingLimitEnabled === false ? false : true };
+      return {
+        mobileDetailStyle: style,
+        homeFullscreenEnabled: raw.homeFullscreenEnabled === false ? false : true,
+        ratingLimitEnabled: raw.ratingLimitEnabled === false ? false : true,
+        highResBackdropEnabled: raw.highResBackdropEnabled === false ? false : true
+      };
     }
 
     function isHomeFullscreenEnabled() {
@@ -5004,6 +5013,10 @@
 
     function isRatingLimitEnabled() {
       return !state.uiPrefs || state.uiPrefs.ratingLimitEnabled !== false;
+    }
+
+    function isHighResBackdropEnabled() {
+      return !state.uiPrefs || state.uiPrefs.highResBackdropEnabled !== false;
     }
 
     function applyUiPrefs() {
@@ -5047,6 +5060,12 @@
         button.classList.toggle("active", active);
         button.setAttribute("aria-pressed", active ? "true" : "false");
       });
+      const highResBackdrop = isHighResBackdropEnabled() ? "on" : "off";
+      document.querySelectorAll("[data-high-res-backdrop]").forEach((button) => {
+        const active = button.dataset.highResBackdrop === highResBackdrop;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
     }
 
     async function setMobileDetailStyle(style) {
@@ -5066,6 +5085,17 @@
       try { await sdk().cache.set(cacheKey("uiPrefs"), JSON.stringify(sanitizeUiPrefs(state.uiPrefs))); } catch (e) {}
       syncNativeToolbarForRoute();
       toast(isHomeFullscreenEnabled() ? "首页全屏：已开启" : "首页全屏：已关闭");
+      scheduleUiSnapshotSave();
+    }
+
+    async function setHighResBackdropEnabled(enabled) {
+      state.uiPrefs = Object.assign({}, state.uiPrefs || {}, sanitizeUiPrefs(state.uiPrefs || {}), { highResBackdropEnabled: enabled !== false, loaded: true });
+      applyUiPrefs();
+      if (window.fongmiBridge && !window.fm) await waitForNativeSdk(1200);
+      try { await sdk().cache.set(cacheKey("uiPrefs"), JSON.stringify(sanitizeUiPrefs(state.uiPrefs))); } catch (e) {}
+      state.playbackArtworkPreloadKey = "";
+      preloadDetailPlaybackArtwork();
+      toast(isHighResBackdropEnabled() ? "高清剧照：已开启" : "高清剧照：已关闭");
       scheduleUiSnapshotSave();
     }
 
@@ -6471,6 +6501,14 @@
       const tmdbPath = tmdbImagePath(url);
       if (tmdbPath) return tmdbImageUrl(tmdbPath, opts.size || "w342");
       return nativeImage(url);
+    }
+
+    function playbackImage(url) {
+      const value = String(url || "").trim();
+      if (!value) return "";
+      const tmdbPath = tmdbImagePath(value);
+      if (tmdbPath) return tmdbImageUrl(tmdbPath, isHighResBackdropEnabled() ? "original" : "w780");
+      return value;
     }
 
     function nativeImage(url) {
@@ -8520,7 +8558,7 @@
         startWatchTracking(state.selected);
         const playbackItem = Object.assign({}, state.selected || {}, history || {}, {
           title: history.title || state.selected.title,
-          pic: history.pic || state.selected.pic
+          pic: state.selected.pic || history.pic || ""
         });
         await sdk().vod(history.siteKey, history.vodId, playbackItem.title, playbackItem.pic, vodPlaybackOptions(playbackItem));
       } catch (e) {
@@ -8566,13 +8604,13 @@
       const matched = findMediaByContent(source) || null;
       const selected = state.selected || null;
       const selectedMatches = selected && (samePlaybackMedia(source, selected) || samePlaybackMedia(matched, selected));
-      return firstPlaybackWallPic([
+      return playbackImage(firstPlaybackWallPic([
         source.wallPic,
         selectedMatches ? currentDetailWallPic() : "",
         source.landscape,
         matched && matched.landscape,
         selectedMatches && selected.landscape
-      ]);
+      ]));
     }
 
     function firstPlaybackWallPic(values) {
@@ -11183,7 +11221,13 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
     async function nativeSearch(title) {
       if (!title) return;
       rememberDetailReturn($("detailSearchBtn"));
-      await sdk().search(title, { direct: true });
+      const item = state.selected || {};
+      const wallPic = playbackWallPic(item);
+      await sdk().search(title, {
+        direct: true,
+        pic: item.pic || "",
+        wallPic
+      });
       toast("已发起原生搜索");
     }
 
@@ -12449,6 +12493,20 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
           const next = event.key === "ArrowRight" ? "off" : "on";
           setHomeFullscreenEnabled(next !== "off").then(() => {
             const target = document.querySelector(`[data-home-fullscreen="${next}"]`);
+            if (target) focusRemoteTarget(target);
+          }).catch(() => {});
+        });
+      });
+      document.querySelectorAll("[data-high-res-backdrop]").forEach((button) => {
+        button.addEventListener("click", () => {
+          setHighResBackdropEnabled(button.dataset.highResBackdrop !== "off").catch(() => {});
+        });
+        button.addEventListener("keydown", (event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          const next = event.key === "ArrowRight" ? "off" : "on";
+          setHighResBackdropEnabled(next !== "off").then(() => {
+            const target = document.querySelector(`[data-high-res-backdrop="${next}"]`);
             if (target) focusRemoteTarget(target);
           }).catch(() => {});
         });
