@@ -66,6 +66,20 @@ public final class RemoteModels {
         public boolean siteInjectManage = false;
         public boolean webHomeExtensionManage = false;
         public boolean multiDeviceBatch = false;
+        public boolean webSocket = false;
+        public boolean persistentStorage = false;
+        public boolean externalObjectStorage = false;
+        public boolean deviceRevoke = false;
+    }
+
+    public static class ServerCapabilities {
+        public boolean ok;
+        public String serverMode = "";
+        public String serverName = "";
+        public String relayMode = "";
+        public long time;
+        public long maxSyncPartBytes;
+        public RemoteCapabilities capabilities = new RemoteCapabilities();
     }
 
     public static class RemoteCommand {

@@ -16,6 +16,7 @@ import com.fongmi.android.tv.remote.RemoteModels.RemoteBindGrant;
 import com.fongmi.android.tv.remote.RemoteModels.RemoteCommandResult;
 import com.fongmi.android.tv.remote.RemoteModels.RemoteGroup;
 import com.fongmi.android.tv.remote.RemoteModels.RemoteProfile;
+import com.fongmi.android.tv.remote.RemoteModels.ServerCapabilities;
 import com.github.catvod.net.OkHttp;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -40,8 +41,8 @@ public final class RemoteClient {
         this.profile = profile;
     }
 
-    public JsonObject capabilities() throws IOException {
-        return requestJson("GET", "/api/server/capabilities", null);
+    public ServerCapabilities capabilities() throws IOException {
+        return App.gson().fromJson(requestJson("GET", "/api/server/capabilities", null), ServerCapabilities.class);
     }
 
     public RegisterResponse register() throws IOException {
