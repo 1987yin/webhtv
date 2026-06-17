@@ -45,6 +45,7 @@ import com.fongmi.android.tv.databinding.DialogCustomCspBinding;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.setting.CustomCspSetting;
 import com.fongmi.android.tv.ui.custom.CustomTextListener;
+import com.fongmi.android.tv.ui.custom.SettingClipboardOverlay;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -88,6 +89,7 @@ public class CustomCspDialog extends BaseAlertDialog {
     private boolean recognizeMode;
     private boolean saved;
     private long lastAddTime;
+    private SettingClipboardOverlay clipboardOverlay;
 
     public static void show(Fragment fragment, Runnable callback) {
         CustomCspDialog dialog = new CustomCspDialog();
@@ -138,6 +140,7 @@ public class CustomCspDialog extends BaseAlertDialog {
         binding.contentScroll.setLayoutParams(scrollParams);
         binding.contentScroll.setMaxHeight(land ? 0 : (int) (screenHeight * 0.58f));
         binding.enabled.requestFocus();
+        if (clipboardOverlay == null) clipboardOverlay = SettingClipboardOverlay.attach(this, binding.getRoot());
     }
 
     @Override
@@ -187,6 +190,8 @@ public class CustomCspDialog extends BaseAlertDialog {
 
     @Override
     public void onDismiss(@NonNull DialogInterface dialog) {
+        if (clipboardOverlay != null) clipboardOverlay.detach();
+        clipboardOverlay = null;
         save(false);
         super.onDismiss(dialog);
     }

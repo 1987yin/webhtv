@@ -36,6 +36,7 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.databinding.DialogWebHomeExtensionBinding;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.ui.custom.SettingClipboardOverlay;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -71,6 +72,7 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
     private WebHomeExtensionSourceStore.Entry pendingFileEdit;
     private SourceEditor pendingFileEditor;
     private final List<SourceEditor> editors = new ArrayList<>();
+    private SettingClipboardOverlay clipboardOverlay;
 
     public static void show(Fragment fragment, Runnable callback) {
         WebHomeExtensionDialog dialog = new WebHomeExtensionDialog();
@@ -121,10 +123,13 @@ public class WebHomeExtensionDialog extends BaseAlertDialog {
         binding.contentScroll.setLayoutParams(scrollParams);
         binding.contentScroll.setMaxHeight(land ? 0 : (int) (screenHeight * 0.54f));
         binding.enabled.requestFocus();
+        if (clipboardOverlay == null) clipboardOverlay = SettingClipboardOverlay.attach(this, binding.getRoot());
     }
 
     @Override
     public void onDestroyView() {
+        if (clipboardOverlay != null) clipboardOverlay.detach();
+        clipboardOverlay = null;
         binding = null;
         editors.clear();
         editingSource = null;

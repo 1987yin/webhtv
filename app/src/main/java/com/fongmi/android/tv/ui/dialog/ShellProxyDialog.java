@@ -33,6 +33,7 @@ import com.fongmi.android.tv.databinding.DialogShellProxyBinding;
 import com.fongmi.android.tv.setting.ProxySetting;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.custom.CustomTextListener;
+import com.fongmi.android.tv.ui.custom.SettingClipboardOverlay;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Task;
@@ -69,6 +70,7 @@ public class ShellProxyDialog extends BaseAlertDialog {
     private boolean beforeRecognizeTextMode = true;
     private boolean saved;
     private boolean testing;
+    private SettingClipboardOverlay clipboardOverlay;
 
     public static void show(Fragment fragment) {
         show(fragment, null);
@@ -125,6 +127,7 @@ public class ShellProxyDialog extends BaseAlertDialog {
         binding.contentScroll.setLayoutParams(scrollParams);
         binding.contentScroll.setMaxHeight(land ? 0 : (int) (screenHeight * 0.52f));
         binding.proxyEnabled.requestFocus();
+        if (clipboardOverlay == null) clipboardOverlay = SettingClipboardOverlay.attach(this, binding.getRoot());
     }
 
     @Override
@@ -204,6 +207,8 @@ public class ShellProxyDialog extends BaseAlertDialog {
 
     @Override
     public void onDismiss(@NonNull DialogInterface dialog) {
+        if (clipboardOverlay != null) clipboardOverlay.detach();
+        clipboardOverlay = null;
         save(false);
         super.onDismiss(dialog);
     }
