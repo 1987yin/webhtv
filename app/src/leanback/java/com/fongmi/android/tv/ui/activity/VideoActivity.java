@@ -107,7 +107,7 @@ import java.util.Objects;
 
 public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.Listener, TrackDialog.Listener, ArrayAdapter.OnClickListener, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, Clock.Callback {
 
-    private static final int SHORT_DRAMA_SCALE = 4;
+    private static final int SHORT_DRAMA_SCALE = 0; // 0=原始(适合TV), 4=裁剪(适合手机)
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss", Locale.getDefault());
 
     private ActivityVideoBinding mBinding;
@@ -2102,13 +2102,16 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         Site site = getSite();
         if (!Setting.isShortDramaSiteEnabled(site == null ? getKey() : site.getKey(), site == null ? "" : site.getName())) return;
         if (!isFullscreen()) enterFullscreen();
-        setPreviewScale(SHORT_DRAMA_SCALE);
+        // 优先使用用户手动设置的格式，如果没有设置过则使用短剧默认格式
+        int scale = (mHistory != null && mHistory.getScale() != -1) ? mHistory.getScale() : SHORT_DRAMA_SCALE;
+        setPreviewScale(scale);
         hideInfo();
     }
 
     private void setPreviewScale(int scale) {
         String[] array = ResUtil.getStringArray(R.array.select_scale);
         if (scale < 0 || scale >= array.length) return;
+        if (mHistory != null) mHistory.setScale(scale);
         mBinding.exo.setResizeMode(scale);
         mBinding.control.action.scale.setText(array[scale]);
     }
