@@ -6,14 +6,19 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.text.InputType;
 import android.text.TextUtils;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.LinearLayoutCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.widget.NestedScrollView;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
@@ -41,6 +46,7 @@ import com.fongmi.android.tv.remote.RemoteTokens;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
+import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Task;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -73,14 +79,14 @@ public final class RemoteTrustDialog {
     public static void show(FragmentActivity activity, Runnable callback) {
         Binding binding = build(activity);
         AlertDialog dialog = new MaterialAlertDialogBuilder(activity, R.style.ThemeOverlay_WebHTV_LightDialog)
-                .setTitle(R.string.setting_remote_trust)
-                .setView(binding.scroll)
-                .setNegativeButton(R.string.dialog_cancel, null)
+                .setView(binding.root)
                 .create();
         binding.dialog = dialog;
         binding.callback = callback;
         render(activity, binding);
         dialog.setOnShowListener(d -> {
+            configureWindow(activity, dialog);
+            binding.close.setOnClickListener(v -> dialog.dismiss());
             binding.devicesTab.setOnClickListener(v -> {
                 binding.page = PAGE_DEVICES;
                 render(activity, binding);
@@ -95,34 +101,54 @@ public final class RemoteTrustDialog {
 
     private static Binding build(Context context) {
         Binding binding = new Binding();
-        binding.scroll = new NestedScrollView(context);
-        LinearLayoutCompat root = new LinearLayoutCompat(context);
-        root.setOrientation(LinearLayoutCompat.VERTICAL);
-        root.setPadding(dp(context, 6), dp(context, 2), dp(context, 6), dp(context, 2));
-        binding.scroll.addView(root, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        binding.root = new LinearLayoutCompat(context);
+        binding.root.setOrientation(LinearLayoutCompat.VERTICAL);
+        binding.root.setPadding(dp(context, 16), dp(context, 14), dp(context, 16), dp(context, 14));
+        binding.root.setBackground(background(context, "#FFFFFF", Color.TRANSPARENT, 16));
+
+        LinearLayoutCompat header = row(context);
+        MaterialTextView title = text(context, context.getString(R.string.setting_remote_trust), 21, "#202124", true);
+        header.addView(title, weight());
+        binding.close = closeButton(context);
+        header.addView(binding.close, new LinearLayoutCompat.LayoutParams(dp(context, 38), dp(context, 38)));
+        binding.root.addView(header, matchWrap());
 
         binding.summary = text(context, "", 13, "#5F6368", false);
-        root.addView(binding.summary, matchWrap());
+        binding.summary.setPadding(0, dp(context, 2), 0, dp(context, 6));
+        binding.root.addView(binding.summary, matchWrap());
 
         LinearLayoutCompat tabs = row(context);
         binding.devicesTab = tab(context, R.string.remote_trust_tab_devices);
         binding.settingsTab = tab(context, R.string.remote_trust_tab_settings);
         tabs.addView(binding.devicesTab, weight());
-        tabs.addView(binding.settingsTab, leftWeight(context));
-        root.addView(tabs, topMargin(matchWrap(), 12));
+        tabs.addView(binding.settingsTab, leftWeight(context, 6));
+        binding.root.addView(tabs, topMargin(matchWrap(), 6));
+
+        binding.scroll = new NestedScrollView(context);
+        binding.scroll.setFillViewport(false);
 
         binding.content = new LinearLayoutCompat(context);
         binding.content.setOrientation(LinearLayoutCompat.VERTICAL);
-        root.addView(binding.content, topMargin(matchWrap(), 10));
+        binding.scroll.addView(binding.content, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        binding.root.addView(binding.scroll, topMargin(matchWrap(), 10));
 
         binding.server = input(context, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, true);
         binding.serverLayout = inputLayout(context, R.string.remote_trust_server_url, binding.server);
         binding.enabled = check(context, R.string.remote_trust_enable);
         binding.keepOnline = check(context, R.string.remote_trust_keep_online);
-        binding.serviceState = text(context, "", 13, "#3C4043", true);
-        binding.serviceDetail = text(context, "", 12, "#5F6368", false);
-        binding.serviceDetail.setTextIsSelectable(true);
         return binding;
+    }
+
+    private static void configureWindow(Context context, AlertDialog dialog) {
+        Window window = dialog.getWindow();
+        if (window == null) return;
+        WindowManager.LayoutParams params = window.getAttributes();
+        params.width = (int) (ResUtil.getScreenWidth(context) * (ResUtil.isLand(context) ? 0.72f : 0.92f));
+        params.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        params.gravity = Gravity.CENTER;
+        window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        window.setAttributes(params);
+        window.setLayout(params.width, WindowManager.LayoutParams.WRAP_CONTENT);
     }
 
     private static void render(Context context, Binding binding) {
@@ -158,8 +184,8 @@ public final class RemoteTrustDialog {
         binding.content.addView(panel(context, localStatus(context, profile)), topMargin(matchWrap(), 6));
 
         LinearLayoutCompat actions = row(context);
-        MaterialButton bind = action(binding, context, R.string.remote_trust_bind_local);
-        MaterialButton add = action(binding, context, R.string.remote_trust_add_device);
+        MaterialButton bind = primaryAction(binding, context, R.string.remote_trust_bind_local);
+        MaterialButton add = tonalAction(binding, context, R.string.remote_trust_add_device);
         bind.setOnClickListener(v -> showBindCodeDialog((FragmentActivity) context, binding));
         add.setOnClickListener(v -> showAddDeviceDialog((FragmentActivity) context, binding));
         actions.addView(bind, weight());
@@ -168,16 +194,16 @@ public final class RemoteTrustDialog {
 
         LinearLayoutCompat titleRow = row(context);
         titleRow.addView(sectionTitle(context, R.string.remote_trust_device_list), weight());
-        MaterialButton refresh = smallAction(binding, context, R.string.remote_trust_refresh_devices);
+        MaterialButton refresh = smallOutlineAction(binding, context, R.string.remote_trust_refresh_devices);
         refresh.setOnClickListener(v -> refreshDevices((FragmentActivity) context, binding));
-        titleRow.addView(refresh, leftWrap(context));
+        titleRow.addView(refresh, fixed(context, 86, 32));
         binding.content.addView(titleRow, topMargin(matchWrap(), 16));
 
         List<DeviceRow> rows = deviceRows(profile);
         if (rows.isEmpty()) {
-            binding.content.addView(caption(context, R.string.remote_trust_no_devices), topMargin(matchWrap(), 8));
+            binding.content.addView(emptyPanel(context, context.getString(R.string.remote_trust_no_devices)), topMargin(matchWrap(), 8));
             if (profile == null) {
-                MaterialButton settings = action(binding, context, R.string.remote_trust_go_settings);
+                MaterialButton settings = outlineAction(binding, context, R.string.remote_trust_go_settings);
                 settings.setOnClickListener(v -> {
                     binding.page = PAGE_SETTINGS;
                     render(context, binding);
@@ -208,7 +234,7 @@ public final class RemoteTrustDialog {
             renderDevices(context, binding);
             return;
         }
-        MaterialButton back = smallAction(binding, context, R.string.remote_trust_back_devices);
+        MaterialButton back = smallOutlineAction(binding, context, R.string.remote_trust_back_devices);
         back.setOnClickListener(v -> {
             binding.page = PAGE_DEVICES;
             render(context, binding);
@@ -219,8 +245,8 @@ public final class RemoteTrustDialog {
         binding.content.addView(panel(context, deviceDetailText(context, profile, row.group, row.device)), topMargin(matchWrap(), 6));
 
         LinearLayoutCompat row1 = row(context);
-        MaterialButton status = action(binding, context, R.string.remote_trust_action_status);
-        MaterialButton search = action(binding, context, R.string.remote_trust_action_search);
+        MaterialButton status = primaryAction(binding, context, R.string.remote_trust_action_status);
+        MaterialButton search = tonalAction(binding, context, R.string.remote_trust_action_search);
         status.setOnClickListener(v -> sendCommand((FragmentActivity) context, binding, "device.status", new JsonObject()));
         search.setOnClickListener(v -> showTextCommandDialog((FragmentActivity) context, binding, R.string.remote_trust_action_search, R.string.remote_trust_search_keyword, "action.search", "word"));
         row1.addView(status, weight());
@@ -228,8 +254,8 @@ public final class RemoteTrustDialog {
         binding.content.addView(row1, topMargin(matchWrap(), 12));
 
         LinearLayoutCompat row2 = row(context);
-        MaterialButton push = action(binding, context, R.string.remote_trust_action_push);
-        MaterialButton log = action(binding, context, R.string.remote_trust_action_log);
+        MaterialButton push = tonalAction(binding, context, R.string.remote_trust_action_push);
+        MaterialButton log = outlineAction(binding, context, R.string.remote_trust_action_log);
         push.setOnClickListener(v -> showTextCommandDialog((FragmentActivity) context, binding, R.string.remote_trust_action_push, R.string.remote_trust_push_url, "action.push", "url"));
         log.setOnClickListener(v -> {
             JsonObject payload = new JsonObject();
@@ -251,14 +277,11 @@ public final class RemoteTrustDialog {
         binding.content.addView(binding.serverLayout, topMargin(matchWrap(), 8));
 
         String state = TextUtils.isEmpty(binding.serviceStateText) ? context.getString(R.string.remote_trust_service_unchecked) : binding.serviceStateText;
-        binding.serviceState.setText(state);
-        binding.serviceDetail.setText(TextUtils.isEmpty(binding.serviceDetailText) ? "" : binding.serviceDetailText);
-        binding.content.addView(binding.serviceState, topMargin(matchWrap(), 10));
-        if (!TextUtils.isEmpty(binding.serviceDetailText)) binding.content.addView(binding.serviceDetail, topMargin(matchWrap(), 4));
+        binding.content.addView(servicePanel(context, state, binding.serviceDetailText), topMargin(matchWrap(), 10));
 
         LinearLayoutCompat serviceRow = row(context);
-        MaterialButton detect = action(binding, context, R.string.remote_trust_detect_service);
-        MaterialButton save = action(binding, context, R.string.remote_trust_save_register);
+        MaterialButton detect = tonalAction(binding, context, R.string.remote_trust_detect_service);
+        MaterialButton save = primaryAction(binding, context, R.string.remote_trust_save_register);
         detect.setOnClickListener(v -> detectService((FragmentActivity) context, binding));
         save.setOnClickListener(v -> saveAndRegister((FragmentActivity) context, binding));
         serviceRow.addView(detect, weight());
@@ -266,24 +289,28 @@ public final class RemoteTrustDialog {
         binding.content.addView(serviceRow, topMargin(matchWrap(), 10));
 
         if (!TextUtils.isEmpty(binding.diagnostics)) {
-            MaterialButton copy = action(binding, context, R.string.remote_trust_copy_diagnostics);
+            MaterialButton copy = outlineAction(binding, context, R.string.remote_trust_copy_diagnostics);
             copy.setOnClickListener(v -> copyText(context, context.getString(R.string.setting_remote_trust), binding.diagnostics, R.string.remote_trust_diagnostics_copied));
-            binding.content.addView(copy, topMargin(matchWrap(), 8));
+            binding.content.addView(copy, topMargin(fixedHeight(context, 34), 8));
         }
 
-        binding.content.addView(binding.enabled, topMargin(matchWrap(), 10));
-        binding.content.addView(binding.keepOnline, matchWrap());
+        detach(binding.enabled);
+        detach(binding.keepOnline);
+        LinearLayoutCompat toggles = card(context);
+        toggles.addView(binding.enabled, compactWrap());
+        toggles.addView(binding.keepOnline, compactWrap());
+        binding.content.addView(toggles, topMargin(matchWrap(), 12));
 
         if (!Setting.hasFileAccess()) {
-            MaterialButton permission = action(binding, context, R.string.remote_trust_file_permission);
+            MaterialButton permission = outlineAction(binding, context, R.string.remote_trust_file_permission);
             permission.setOnClickListener(v -> requestFileAccess((FragmentActivity) context, binding));
-            binding.content.addView(permission, topMargin(matchWrap(), 8));
+            binding.content.addView(permission, topMargin(fixedHeight(context, 34), 8));
         }
 
         binding.content.addView(divider(context), topMargin(matchWrap(), 14));
-        MaterialButton clear = action(binding, context, R.string.remote_trust_clear);
+        MaterialButton clear = dangerAction(binding, context, R.string.remote_trust_clear);
         clear.setOnClickListener(v -> confirmClear((FragmentActivity) context, binding));
-        binding.content.addView(clear, topMargin(matchWrap(), 10));
+        binding.content.addView(clear, topMargin(fixedHeight(context, 36), 10));
     }
 
     private static void saveAndRegister(FragmentActivity activity, Binding binding) {
@@ -341,7 +368,7 @@ public final class RemoteTrustDialog {
                 App.post(() -> {
                     setBusy(binding, false);
                     binding.serviceStateText = activity.getString(R.string.remote_trust_service_error);
-                    binding.serviceDetailText = activity.getString(R.string.remote_trust_service_failed_with_reason, e.getMessage());
+                    binding.serviceDetailText = activity.getString(R.string.remote_trust_service_failed_with_reason, conciseError(activity, e));
                     binding.diagnostics = origin + "/api/server/capabilities\n" + e.getMessage();
                     render(activity, binding);
                 });
@@ -686,7 +713,7 @@ public final class RemoteTrustDialog {
     private static String localStatus(Context context, RemoteProfile profile) {
         if (profile == null) return context.getString(R.string.remote_trust_no_profile);
         StringBuilder builder = new StringBuilder();
-        builder.append(context.getString(R.string.remote_trust_server_url)).append(": ").append(profile.serverOrigin);
+        builder.append(context.getString(R.string.remote_trust_server_url)).append(": ").append(displayOrigin(profile.serverOrigin));
         builder.append('\n').append(context.getString(R.string.remote_trust_device_id)).append(": ").append(shortId(profile.deviceId));
         builder.append('\n').append(context.getString(R.string.remote_trust_status_summary, profile.keepOnline ? context.getString(R.string.remote_trust_status_online) : context.getString(R.string.remote_trust_status_enabled), 1, profile.groups == null ? 0 : profile.groups.size()));
         return builder.toString();
@@ -778,6 +805,34 @@ public final class RemoteTrustDialog {
         return TextUtils.isEmpty(value) ? "-" : value;
     }
 
+    private static String conciseError(Context context, Throwable e) {
+        String message = e == null ? "" : e.getMessage();
+        if (TextUtils.isEmpty(message)) return context.getString(R.string.remote_trust_service_request_failed);
+        String lower = message.toLowerCase(Locale.ROOT);
+        if (lower.contains("failed to connect") || lower.contains("timeout") || lower.contains("timed out") || lower.contains("unable to resolve") || lower.contains("connection refused")) {
+            return context.getString(R.string.remote_trust_service_connect_failed);
+        }
+        return shorten(message.replace('\n', ' '), 72);
+    }
+
+    private static String displayOrigin(String value) {
+        if (TextUtils.isEmpty(value)) return "-";
+        String text = value.replace("https://", "").replace("http://", "");
+        if (text.endsWith("/")) text = text.substring(0, text.length() - 1);
+        return shortenMiddle(text, 34);
+    }
+
+    private static String shorten(String value, int max) {
+        if (TextUtils.isEmpty(value) || value.length() <= max) return value;
+        return value.substring(0, Math.max(0, max - 1)) + "…";
+    }
+
+    private static String shortenMiddle(String value, int max) {
+        if (TextUtils.isEmpty(value) || value.length() <= max) return value;
+        int keep = Math.max(8, (max - 1) / 2);
+        return value.substring(0, keep) + "…" + value.substring(value.length() - keep);
+    }
+
     private static String shortId(String value) {
         if (TextUtils.isEmpty(value)) return "";
         return value.length() <= 8 ? value : value.substring(value.length() - 8);
@@ -797,6 +852,11 @@ public final class RemoteTrustDialog {
         for (MaterialButton button : binding.actions) button.setEnabled(!busy);
     }
 
+    private static void detach(View view) {
+        if (view == null || !(view.getParent() instanceof ViewGroup)) return;
+        ((ViewGroup) view.getParent()).removeView(view);
+    }
+
     private static LinearLayoutCompat dialogRoot(Context context) {
         LinearLayoutCompat root = new LinearLayoutCompat(context);
         root.setOrientation(LinearLayoutCompat.VERTICAL);
@@ -806,6 +866,7 @@ public final class RemoteTrustDialog {
 
     private static LinearLayoutCompat row(Context context) {
         LinearLayoutCompat row = new LinearLayoutCompat(context);
+        row.setGravity(Gravity.CENTER_VERTICAL);
         row.setOrientation(LinearLayoutCompat.HORIZONTAL);
         return row;
     }
@@ -828,8 +889,39 @@ public final class RemoteTrustDialog {
         MaterialTextView view = text(context, value, 13, "#3C4043", false);
         view.setTextIsSelectable(true);
         view.setLineSpacing(0, 1.08f);
-        view.setPadding(dp(context, 10), dp(context, 8), dp(context, 10), dp(context, 8));
-        view.setBackground(background(context, "#F8F9FA", "#E8EAED"));
+        view.setPadding(dp(context, 10), dp(context, 9), dp(context, 10), dp(context, 9));
+        view.setBackground(background(context, "#F8F9FA", Color.parseColor("#DADCE0"), 8));
+        return view;
+    }
+
+    private static LinearLayoutCompat servicePanel(Context context, String state, String detail) {
+        LinearLayoutCompat card = card(context);
+        MaterialTextView title = text(context, state, 14, "#202124", true);
+        card.addView(title, matchWrap());
+        if (!TextUtils.isEmpty(detail)) {
+            MaterialTextView text = text(context, detail, 12, "#5F6368", false);
+            text.setPadding(0, dp(context, 4), 0, 0);
+            text.setMaxLines(5);
+            text.setEllipsize(TextUtils.TruncateAt.END);
+            card.addView(text, matchWrap());
+        }
+        return card;
+    }
+
+    private static LinearLayoutCompat emptyPanel(Context context, String value) {
+        LinearLayoutCompat card = card(context);
+        MaterialTextView text = text(context, value, 13, "#5F6368", false);
+        text.setGravity(Gravity.CENTER);
+        text.setPadding(0, dp(context, 8), 0, dp(context, 8));
+        card.addView(text, matchWrap());
+        return card;
+    }
+
+    private static LinearLayoutCompat card(Context context) {
+        LinearLayoutCompat view = new LinearLayoutCompat(context);
+        view.setOrientation(LinearLayoutCompat.VERTICAL);
+        view.setPadding(dp(context, 10), dp(context, 9), dp(context, 10), dp(context, 9));
+        view.setBackground(background(context, "#F8F9FA", Color.parseColor("#DADCE0"), 8));
         return view;
     }
 
@@ -846,6 +938,8 @@ public final class RemoteTrustDialog {
         TextInputEditText input = new TextInputEditText(context);
         input.setInputType(inputType);
         input.setSingleLine(singleLine);
+        input.setTextSize(14);
+        input.setMinHeight(dp(context, 46));
         return input;
     }
 
@@ -853,6 +947,7 @@ public final class RemoteTrustDialog {
         TextInputLayout layout = new TextInputLayout(context);
         layout.setHint(context.getString(hint));
         layout.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
+        layout.setBoxCornerRadii(dp(context, 8), dp(context, 8), dp(context, 8), dp(context, 8));
         layout.addView(input, matchWrap());
         return layout;
     }
@@ -860,24 +955,46 @@ public final class RemoteTrustDialog {
     private static com.google.android.material.checkbox.MaterialCheckBox check(Context context, int resId) {
         com.google.android.material.checkbox.MaterialCheckBox box = new com.google.android.material.checkbox.MaterialCheckBox(context);
         box.setText(resId);
+        box.setTextSize(14);
+        box.setButtonTintList(ContextCompat.getColorStateList(context, R.color.dialog_checkbox_tint));
+        box.setPadding(0, 0, 0, 0);
         return box;
     }
 
     private static MaterialButton tab(Context context, int resId) {
-        MaterialButton button = button(context, resId);
+        MaterialButton button = segment(context, context.getString(resId));
         button.setCheckable(true);
         return button;
     }
 
-    private static MaterialButton action(Binding binding, Context context, int resId) {
-        MaterialButton button = button(context, resId);
+    private static MaterialButton primaryAction(Binding binding, Context context, int resId) {
+        MaterialButton button = primary(context, context.getString(resId));
         bindAction(binding, button);
         return button;
     }
 
-    private static MaterialButton smallAction(Binding binding, Context context, int resId) {
-        MaterialButton button = action(binding, context, resId);
-        button.setMinHeight(dp(context, 36));
+    private static MaterialButton tonalAction(Binding binding, Context context, int resId) {
+        MaterialButton button = tonal(context, context.getString(resId));
+        bindAction(binding, button);
+        return button;
+    }
+
+    private static MaterialButton outlineAction(Binding binding, Context context, int resId) {
+        MaterialButton button = outline(context, context.getString(resId));
+        bindAction(binding, button);
+        return button;
+    }
+
+    private static MaterialButton dangerAction(Binding binding, Context context, int resId) {
+        MaterialButton button = outlineAction(binding, context, resId);
+        button.setTextColor(Color.parseColor("#B3261E"));
+        button.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#F2B8B5")));
+        return button;
+    }
+
+    private static MaterialButton smallOutlineAction(Binding binding, Context context, int resId) {
+        MaterialButton button = outlineAction(binding, context, resId);
+        button.setTextSize(12);
         return button;
     }
 
@@ -888,20 +1005,60 @@ public final class RemoteTrustDialog {
     private static MaterialButton button(Context context, String text) {
         MaterialButton button = new MaterialButton(context);
         button.setText(text);
+        button.setTextSize(13);
         button.setAllCaps(false);
-        button.setMinHeight(dp(context, 42));
+        button.setMinWidth(0);
+        button.setMinHeight(dp(context, 32));
+        button.setMinimumHeight(dp(context, 32));
+        button.setPadding(dp(context, 6), 0, dp(context, 6), 0);
         button.setMaxLines(2);
         button.setEllipsize(TextUtils.TruncateAt.END);
         return button;
     }
 
-    private static MaterialButton listButton(Context context, String text) {
+    private static MaterialButton primary(Context context, String text) {
         MaterialButton button = button(context, text);
+        button.setBackgroundTintList(ContextCompat.getColorStateList(context, R.color.dialog_primary_button_bg));
+        button.setTextColor(ContextCompat.getColorStateList(context, R.color.dialog_primary_button_text));
+        return button;
+    }
+
+    private static MaterialButton tonal(Context context, String text) {
+        MaterialButton button = button(context, text);
+        button.setBackgroundTintList(ContextCompat.getColorStateList(context, R.color.dialog_tonal_button_bg));
+        button.setTextColor(ContextCompat.getColorStateList(context, R.color.dialog_tonal_button_text));
+        return button;
+    }
+
+    private static MaterialButton outline(Context context, String text) {
+        MaterialButton button = button(context, text);
+        button.setBackgroundTintList(ContextCompat.getColorStateList(context, R.color.dialog_outlined_button_bg));
+        button.setTextColor(ContextCompat.getColorStateList(context, R.color.dialog_outlined_button_text));
+        button.setStrokeColor(ContextCompat.getColorStateList(context, R.color.dialog_outlined_button_stroke));
+        button.setStrokeWidth(dp(context, 1));
+        return button;
+    }
+
+    private static MaterialButton segment(Context context, String text) {
+        MaterialButton button = outline(context, text);
+        button.setBackgroundTintList(segmentBackground());
+        button.setTextColor(segmentText());
+        button.setStrokeColor(segmentStroke());
+        return button;
+    }
+
+    private static MaterialButton closeButton(Context context) {
+        MaterialButton button = button(context, "×");
+        button.setTextSize(20);
+        button.setBackgroundTintList(ContextCompat.getColorStateList(context, R.color.dialog_outlined_button_bg));
+        button.setTextColor(Color.parseColor("#5F6368"));
+        return button;
+    }
+
+    private static MaterialButton listButton(Context context, String text) {
+        MaterialButton button = outline(context, text);
         button.setTextAlignment(View.TEXT_ALIGNMENT_TEXT_START);
         button.setTextColor(Color.parseColor("#202124"));
-        button.setBackgroundColor(Color.TRANSPARENT);
-        button.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#DADCE0")));
-        button.setStrokeWidth(dp(context, 1));
         button.setMinHeight(dp(context, 56));
         button.setMaxLines(3);
         return button;
@@ -918,12 +1075,54 @@ public final class RemoteTrustDialog {
         return view;
     }
 
-    private static GradientDrawable background(Context context, String color, String stroke) {
+    private static GradientDrawable background(Context context, String color, int stroke, int radius) {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(Color.parseColor(color));
-        drawable.setCornerRadius(dp(context, 6));
-        drawable.setStroke(dp(context, 1), Color.parseColor(stroke));
+        drawable.setCornerRadius(dp(context, radius));
+        if (stroke != Color.TRANSPARENT) drawable.setStroke(dp(context, 1), stroke);
         return drawable;
+    }
+
+    private static ColorStateList segmentBackground() {
+        return new ColorStateList(new int[][]{
+                new int[]{android.R.attr.state_checked},
+                new int[]{-android.R.attr.state_enabled},
+                new int[]{android.R.attr.state_focused},
+                new int[]{android.R.attr.state_pressed},
+                new int[]{}
+        }, new int[]{
+                Color.parseColor("#0B57D0"),
+                Color.parseColor("#F1F3F4"),
+                Color.parseColor("#E8F0FE"),
+                Color.parseColor("#E8F0FE"),
+                Color.WHITE
+        });
+    }
+
+    private static ColorStateList segmentText() {
+        return new ColorStateList(new int[][]{
+                new int[]{android.R.attr.state_checked},
+                new int[]{-android.R.attr.state_enabled},
+                new int[]{}
+        }, new int[]{
+                Color.WHITE,
+                Color.parseColor("#9AA0A6"),
+                Color.parseColor("#202124")
+        });
+    }
+
+    private static ColorStateList segmentStroke() {
+        return new ColorStateList(new int[][]{
+                new int[]{android.R.attr.state_checked},
+                new int[]{android.R.attr.state_focused},
+                new int[]{android.R.attr.state_pressed},
+                new int[]{}
+        }, new int[]{
+                Color.parseColor("#0B57D0"),
+                Color.parseColor("#0B57D0"),
+                Color.parseColor("#0B57D0"),
+                Color.parseColor("#C8CDD2")
+        });
     }
 
     private static LinearLayoutCompat.LayoutParams matchWrap() {
@@ -940,9 +1139,26 @@ public final class RemoteTrustDialog {
         return params;
     }
 
-    private static LinearLayoutCompat.LayoutParams leftWrap(Context context) {
-        LinearLayoutCompat.LayoutParams params = new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    private static LinearLayoutCompat.LayoutParams leftWeight(Context context, int marginDp) {
+        LinearLayoutCompat.LayoutParams params = weight();
+        params.setMarginStart(dp(context, marginDp));
+        return params;
+    }
+
+    private static LinearLayoutCompat.LayoutParams fixed(Context context, int widthDp, int heightDp) {
+        LinearLayoutCompat.LayoutParams params = new LinearLayoutCompat.LayoutParams(dp(context, widthDp), dp(context, heightDp));
         params.setMarginStart(dp(context, 8));
+        return params;
+    }
+
+    private static LinearLayoutCompat.LayoutParams fixedHeight(Context context, int heightDp) {
+        return new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, heightDp));
+    }
+
+    private static LinearLayoutCompat.LayoutParams compactWrap() {
+        LinearLayoutCompat.LayoutParams params = new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = 0;
+        params.bottomMargin = 0;
         return params;
     }
 
@@ -966,19 +1182,19 @@ public final class RemoteTrustDialog {
     }
 
     private static final class Binding {
+        private LinearLayoutCompat root;
         private NestedScrollView scroll;
         private AlertDialog dialog;
         private Runnable callback;
         private LinearLayoutCompat content;
         private MaterialTextView summary;
+        private MaterialButton close;
         private MaterialButton devicesTab;
         private MaterialButton settingsTab;
         private TextInputEditText server;
         private TextInputLayout serverLayout;
         private com.google.android.material.checkbox.MaterialCheckBox enabled;
         private com.google.android.material.checkbox.MaterialCheckBox keepOnline;
-        private MaterialTextView serviceState;
-        private MaterialTextView serviceDetail;
         private final List<MaterialButton> actions = new ArrayList<>();
         private boolean initialized;
         private boolean busy;

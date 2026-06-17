@@ -199,6 +199,8 @@
     <string name="remote_trust_service_ok">服務可用</string>
     <string name="remote_trust_service_error">服務不可用</string>
     <string name="remote_trust_service_failed_with_reason">原因：%1$s</string>
+    <string name="remote_trust_service_connect_failed">連線失敗，請檢查服務地址、網路或部署狀態。</string>
+    <string name="remote_trust_service_request_failed">檢測失敗，可複製診斷資訊查看詳情。</string>
     <string name="remote_trust_bind_local_title">本機綁定碼</string>
     <string name="remote_trust_refresh_bind_code">刷新</string>
     <string name="remote_trust_copy">複製</string>
