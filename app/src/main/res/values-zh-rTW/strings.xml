@@ -176,6 +176,7 @@
     <string name="remote_trust_search_keyword">搜尋關鍵詞</string>
     <string name="remote_trust_push_url">推送播放地址</string>
     <string name="remote_trust_add_done">設備已加入</string>
+    <string name="remote_trust_no_self_add">不能加入本機</string>
     <string name="remote_trust_no_profile">請先儲存/註冊中轉服務</string>
     <string name="remote_trust_no_group">暫無可信設備組</string>
     <string name="remote_trust_no_device_selected">請先選擇設備</string>

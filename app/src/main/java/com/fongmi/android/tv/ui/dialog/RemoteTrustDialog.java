@@ -936,6 +936,10 @@ public final class RemoteTrustDialog {
             Notify.show(R.string.remote_trust_no_profile);
             return;
         }
+        if (isLocalBindCode(binding, code)) {
+            Notify.show(R.string.remote_trust_no_self_add);
+            return;
+        }
         String groupToken = firstGroupToken(profile);
         setBusy(binding, true);
         Task.execute(() -> {
@@ -943,6 +947,7 @@ public final class RemoteTrustDialog {
                 RemoteClient client = new RemoteClient(profile);
                 client.register();
                 ClaimResponse response = client.claim(code, groupToken, alias);
+                if (isLocalClaim(profile, response)) throw new IllegalStateException(App.get().getString(R.string.remote_trust_no_self_add));
                 RemoteGroup group = RemoteStore.upsertClaimGroup(profile.serverOrigin, response, alias);
                 RemoteProfile updated = RemoteStore.getProfileByOrigin(profile.serverOrigin);
                 if (updated != null) {
@@ -968,6 +973,17 @@ public final class RemoteTrustDialog {
                 });
             }
         });
+    }
+
+    private static boolean isLocalBindCode(Binding binding, String code) {
+        if (binding == null || TextUtils.isEmpty(code) || TextUtils.isEmpty(binding.bindCode)) return false;
+        return hasFreshBindCode(binding) && TextUtils.equals(code.trim(), binding.bindCode.trim());
+    }
+
+    private static boolean isLocalClaim(RemoteProfile profile, ClaimResponse response) {
+        if (profile == null || response == null || TextUtils.isEmpty(profile.deviceId)) return false;
+        String deviceId = response.device == null ? response.deviceId : response.device.deviceId;
+        return TextUtils.equals(profile.deviceId, deviceId);
     }
 
     private static boolean hasFreshBindCode(Binding binding) {

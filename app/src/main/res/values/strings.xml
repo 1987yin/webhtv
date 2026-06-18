@@ -177,6 +177,7 @@
     <string name="remote_trust_search_keyword">Search keyword</string>
     <string name="remote_trust_push_url">Push URL</string>
     <string name="remote_trust_add_done">Device added</string>
+    <string name="remote_trust_no_self_add">Cannot add this device to itself</string>
     <string name="remote_trust_no_profile">Save/register the relay first</string>
     <string name="remote_trust_no_group">No trusted group yet</string>
     <string name="remote_trust_no_device_selected">Select a device first</string>
