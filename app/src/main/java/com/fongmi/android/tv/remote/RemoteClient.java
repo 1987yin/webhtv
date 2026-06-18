@@ -122,6 +122,12 @@ public final class RemoteClient {
         return requestJson("POST", "/api/sync/create", body, group.groupToken);
     }
 
+    public JsonObject getSync(RemoteGroup group, String syncId) throws IOException {
+        if (group == null || TextUtils.isEmpty(group.groupToken)) throw new IOException("Missing group token");
+        if (TextUtils.isEmpty(syncId)) throw new IOException("Missing sync id");
+        return requestJson("GET", "/api/sync/" + syncId, null, group.groupToken);
+    }
+
     public PollResponse poll() throws IOException {
         ensureDeviceIdentity(profile);
         JsonObject body = baseDeviceBody();
