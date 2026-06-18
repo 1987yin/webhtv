@@ -200,7 +200,7 @@
 [检测服务] [保存/注册]
 
 服务状态：正常 / 未检测 / 连接失败
-模式：simple
+模式：cloudflare
 中转：origin-token-memory
 能力：设备托管、远程同步、推送、最近日志
 最大同步分片：25 MB
@@ -256,7 +256,7 @@ https://webhtv-remote.xiazy2011820123.workers.dev/api/server/capabilities
 
 ```text
 服务可用
-模式：simple
+模式：cloudflare
 中转：origin-token-memory
 支持：设备托管、远程同步、推送、最近日志
 最大同步分片：25 MB
@@ -302,7 +302,7 @@ https://webhtv-remote.xiazy2011820123.workers.dev/api/server/capabilities
 
 验收：
 
-- 输入有效 Worker 地址后，点击“检测服务”显示 `simple/origin-token-memory` 和能力项。
+- 输入有效 Worker 地址后，点击“检测服务”显示 `cloudflare/cloudflare-durable-object` 和能力项。
 - 输入错误地址时显示明确错误，不跳浏览器。
 
 ### 阶段 2：拆分主界面

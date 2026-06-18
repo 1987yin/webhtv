@@ -60,11 +60,13 @@ public final class RemoteConfigOps {
     }
 
     public static RemoteCommandResult sites(JsonObject payload) {
-        Config config = vodConfig(payload);
+        Config config = payloadVodConfig(payload);
         if (config == null || config.isEmpty()) return RemoteCommandResult.failure("Missing vod config url");
-        String error = loadVod(config);
-        if (!TextUtils.isEmpty(error)) return RemoteCommandResult.failure(error);
-        return RemoteCommandResult.success("", sitesData(config));
+        try {
+            return RemoteCommandResult.success("", RemoteConfigSiteParser.parse(config, homeKey(config, payload), homeName(config, payload)));
+        } catch (Throwable e) {
+            return RemoteCommandResult.failure(e.getMessage());
+        }
     }
 
     public static RemoteCommandResult home(JsonObject payload) {
@@ -109,7 +111,10 @@ public final class RemoteConfigOps {
         item.addProperty("desc", config.getDesc());
         item.addProperty("time", config.getTime());
         item.addProperty("active", forceActive || isCurrent(config));
-        if (config.getType() == 0 && isCurrent(config) && VodConfig.get().getHome() != null) item.addProperty("homeName", VodConfig.get().getHome().getName());
+        if (config.getType() == 0 && isCurrent(config) && VodConfig.get().getHome() != null) {
+            item.addProperty("homeKey", VodConfig.get().getHome().getKey());
+            item.addProperty("homeName", VodConfig.get().getHome().getName());
+        }
         return item;
     }
 
@@ -141,11 +146,28 @@ public final class RemoteConfigOps {
         return data;
     }
 
+    private static Config payloadVodConfig(JsonObject payload) {
+        String url = string(payload, "url");
+        String name = string(payload, "name");
+        if (TextUtils.isEmpty(url)) return null;
+        return new Config().type(0).url(url).name(name);
+    }
+
     private static Config vodConfig(JsonObject payload) {
         String url = string(payload, "url");
         String name = string(payload, "name");
         if (TextUtils.isEmpty(url)) return null;
         return Config.find(url, 0).name(name).save();
+    }
+
+    private static String homeKey(Config config, JsonObject payload) {
+        if (isCurrent(config)) return VodConfig.get().getHome().getKey();
+        return string(payload, "homeKey");
+    }
+
+    private static String homeName(Config config, JsonObject payload) {
+        if (isCurrent(config)) return VodConfig.get().getHome().getName();
+        return string(payload, "homeName");
     }
 
     private static String loadVod(Config config) {

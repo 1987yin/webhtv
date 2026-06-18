@@ -37,6 +37,7 @@ import com.fongmi.android.tv.bean.Config;
 import com.fongmi.android.tv.remote.RemoteAgent;
 import com.fongmi.android.tv.remote.RemoteAgentService;
 import com.fongmi.android.tv.remote.RemoteClient;
+import com.fongmi.android.tv.remote.RemoteConfigSiteParser;
 import com.fongmi.android.tv.remote.RemoteModels.BindCodeResponse;
 import com.fongmi.android.tv.remote.RemoteModels.ClaimResponse;
 import com.fongmi.android.tv.remote.RemoteModels.CommandDetailResponse;
@@ -1691,7 +1692,10 @@ public final class RemoteTrustDialog {
     }
 
     private static JsonObject configPayload(JsonObject object) {
-        return configPayload(payloadType(object), safe(object, "url"), safe(object, "name"));
+        JsonObject payload = configPayload(payloadType(object), safe(object, "url"), safe(object, "name"));
+        if (object != null && object.has("homeKey")) payload.addProperty("homeKey", safe(object, "homeKey"));
+        if (object != null && object.has("homeName")) payload.addProperty("homeName", safe(object, "homeName"));
+        return payload;
     }
 
     private static void useRemoteConfig(FragmentActivity activity, Binding binding, ConfigDialogState state, JsonObject item) {
@@ -1756,6 +1760,18 @@ public final class RemoteTrustDialog {
         }
         state.content.removeAllViews();
         state.content.addView(emptyPanel(activity, activity.getString(R.string.remote_trust_config_home_loading)), matchWrap());
+        Task.execute(() -> {
+            try {
+                JsonArray sites = parseLocalSites(payload);
+                if (sites.size() == 0) throw new IllegalStateException("Empty sites");
+                App.post(() -> handleHomeSites(activity, binding, state, payload, sites));
+            } catch (Throwable e) {
+                App.post(() -> fetchRemoteHomeSites(activity, binding, state, payload));
+            }
+        });
+    }
+
+    private static void fetchRemoteHomeSites(FragmentActivity activity, Binding binding, ConfigDialogState state, JsonObject payload) {
         sendCommand(activity, binding, "config.sites", payload, false, command -> {
             RemoteCommandResult result = command == null ? null : command.result;
             if (result == null || !result.ok) {
@@ -1765,16 +1781,28 @@ public final class RemoteTrustDialog {
                 return;
             }
             JsonObject data = result == null || result.data == null || !result.data.isJsonObject() ? new JsonObject() : result.data.getAsJsonObject();
-            JsonArray sites = data.has("sites") && data.get("sites").isJsonArray() ? data.getAsJsonArray("sites") : new JsonArray();
-            if (sites.size() == 0) {
-                Notify.show(R.string.remote_trust_config_home_empty);
-                renderRemoteConfigList(activity, binding, state);
-                return;
-            }
-            binding.siteCache.put(siteCacheKey(binding, payload), sites);
-            applyHomeNameFromSites(state.items, payload, sites);
-            showHomeSitePicker(activity, binding, state, payload, sites);
+            handleHomeSites(activity, binding, state, payload, sitesFromData(data));
         });
+    }
+
+    private static void handleHomeSites(FragmentActivity activity, Binding binding, ConfigDialogState state, JsonObject payload, JsonArray sites) {
+        if (sites == null || sites.size() == 0) {
+            Notify.show(R.string.remote_trust_config_home_empty);
+            renderRemoteConfigList(activity, binding, state);
+            return;
+        }
+        binding.siteCache.put(siteCacheKey(binding, payload), sites);
+        applyHomeNameFromSites(state.items, payload, sites);
+        showHomeSitePicker(activity, binding, state, payload, sites);
+    }
+
+    private static JsonArray parseLocalSites(JsonObject payload) throws Exception {
+        Config config = new Config().type(0).url(safe(payload, "url")).name(safe(payload, "name"));
+        return sitesFromData(RemoteConfigSiteParser.parse(config, safe(payload, "homeKey"), safe(payload, "homeName")));
+    }
+
+    private static JsonArray sitesFromData(JsonObject data) {
+        return data != null && data.has("sites") && data.get("sites").isJsonArray() ? data.getAsJsonArray("sites") : new JsonArray();
     }
 
     private static void showHomeSitePicker(FragmentActivity activity, Binding binding, ConfigDialogState state, JsonObject payload, JsonArray sites) {
@@ -1888,17 +1916,29 @@ public final class RemoteTrustDialog {
             JsonObject payload = configPayload(item);
             String key = siteCacheKey(binding, payload);
             if (binding.siteCache.containsKey(key)) continue;
-            fetchCommandQuiet(activity, binding, "config.sites", payload, command -> {
-                RemoteCommandResult result = command == null ? null : command.result;
-                JsonObject data = result == null || result.data == null || !result.data.isJsonObject() ? new JsonObject() : result.data.getAsJsonObject();
-                JsonArray sites = data.has("sites") && data.get("sites").isJsonArray() ? data.getAsJsonArray("sites") : new JsonArray();
-                if (sites.size() == 0) return;
-                binding.siteCache.put(key, sites);
-                applyHomeNameFromSites(state.items, payload, sites);
-                if (state.dialog != null && state.dialog.isShowing() && state.type == 0 && !state.homePicking && !state.adding && !state.editing) {
-                    renderRemoteConfigList(activity, binding, state);
+            Task.execute(() -> {
+                try {
+                    JsonArray sites = parseLocalSites(payload);
+                    if (sites.size() == 0) throw new IllegalStateException("Empty sites");
+                    App.post(() -> cachePrefetchedSites(activity, binding, state, payload, key, sites));
+                } catch (Throwable e) {
+                    App.post(() -> fetchCommandQuiet(activity, binding, "config.sites", payload, command -> {
+                        RemoteCommandResult result = command == null ? null : command.result;
+                        JsonObject data = result == null || result.data == null || !result.data.isJsonObject() ? new JsonObject() : result.data.getAsJsonObject();
+                        JsonArray sites = sitesFromData(data);
+                        if (sites.size() == 0) return;
+                        cachePrefetchedSites(activity, binding, state, payload, key, sites);
+                    }));
                 }
             });
+        }
+    }
+
+    private static void cachePrefetchedSites(FragmentActivity activity, Binding binding, ConfigDialogState state, JsonObject payload, String key, JsonArray sites) {
+        binding.siteCache.put(key, sites);
+        applyHomeNameFromSites(state.items, payload, sites);
+        if (state.dialog != null && state.dialog.isShowing() && state.type == 0 && !state.homePicking && !state.adding && !state.editing) {
+            renderRemoteConfigList(activity, binding, state);
         }
     }
 
