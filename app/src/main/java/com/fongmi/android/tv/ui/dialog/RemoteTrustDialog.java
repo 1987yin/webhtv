@@ -1457,7 +1457,7 @@ public final class RemoteTrustDialog {
         boolean busy = configBusy(state);
         state.title.setText(homePicking ? activity.getString(R.string.remote_trust_config_home) : activity.getString(R.string.remote_trust_action_config));
         state.homeBack.setVisibility(homePicking ? View.VISIBLE : View.GONE);
-        state.close.setVisibility(form ? View.GONE : View.VISIBLE);
+        state.close.setVisibility(form || homePicking ? View.GONE : View.VISIBLE);
         state.summary.setText(homePicking ? activity.getString(R.string.remote_trust_config_home) : editing ? editConfigSummary(activity, state) : adding ? addConfigSummary(activity, state) : configListSummary(activity, state));
         state.typeRow.setVisibility(editing || homePicking ? View.GONE : View.VISIBLE);
         state.header.setVisibility(homePicking ? View.GONE : View.VISIBLE);
@@ -1467,7 +1467,7 @@ public final class RemoteTrustDialog {
         state.formActionsRow.setVisibility(form ? View.VISIBLE : View.GONE);
         state.addSave.setEnabled(!busy);
         state.addBack.setEnabled(!busy);
-        setConfigDialogCancelVisible(state, !form);
+        setConfigDialogCancelVisible(state, !form && !homePicking);
     }
 
     private static void setConfigDialogCancelVisible(ConfigDialogState state, boolean visible) {
