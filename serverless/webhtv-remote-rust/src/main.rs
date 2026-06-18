@@ -341,6 +341,7 @@ async fn claim_device(
 ) -> AppResult {
     cleanup(&state).await;
     let body = read_json(body)?;
+    let requester = require_device(&state, &headers, Some(&body)).await?;
     let code = string_value(body.get("code")).trim().to_string();
     if code.is_empty() {
         return Err(AppError::new(StatusCode::NOT_FOUND, "Bind code expired"));
@@ -355,6 +356,12 @@ async fn claim_device(
             .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Bind code expired"))?;
         if bind.expires_at < now_ms() {
             return Err(AppError::new(StatusCode::NOT_FOUND, "Bind code expired"));
+        }
+        if requester.device_id == bind.device_id {
+            return Err(AppError::new(
+                StatusCode::BAD_REQUEST,
+                "Cannot bind local device",
+            ));
         }
         let device = relay
             .devices

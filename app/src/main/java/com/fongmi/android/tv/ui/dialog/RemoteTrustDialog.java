@@ -2635,7 +2635,7 @@ public final class RemoteTrustDialog {
         for (RemoteGroup group : profile.groups) {
             if (group == null || group.devices == null) continue;
             for (RemoteDevice device : group.devices) {
-                if (device != null && !TextUtils.isEmpty(device.deviceId)) rows.add(new DeviceRow(group, device));
+                if (device != null && !TextUtils.isEmpty(device.deviceId) && !TextUtils.equals(profile.deviceId, device.deviceId)) rows.add(new DeviceRow(group, device));
             }
         }
         return rows;

@@ -180,12 +180,12 @@ public final class RemoteStore {
             else if (response.device != null && !TextUtils.isEmpty(response.device.name)) group.name = response.device.name;
             else group.name = "Remote group";
         }
-        if (response.device != null) upsertDevice(group, response.device);
+        if (response.device != null && !isLocalDevice(profile, response.device.deviceId)) upsertDevice(group, response.device);
         else if (!TextUtils.isEmpty(response.deviceId)) {
             RemoteDevice device = new RemoteDevice();
             device.deviceId = response.deviceId;
             device.name = response.deviceId;
-            upsertDevice(group, device);
+            if (!isLocalDevice(profile, device.deviceId)) upsertDevice(group, device);
         }
         group.updatedAt = System.currentTimeMillis();
         profile.updatedAt = group.updatedAt;
@@ -203,6 +203,7 @@ public final class RemoteStore {
         Set<String> seen = new HashSet<>();
         for (RemoteDevice device : devices) {
             if (device == null || TextUtils.isEmpty(device.deviceId)) continue;
+            if (isLocalDevice(profile, device.deviceId)) continue;
             seen.add(device.deviceId);
             upsertDevice(group, device);
         }
@@ -378,6 +379,10 @@ public final class RemoteStore {
         group.devices.add(device);
     }
 
+    private static boolean isLocalDevice(RemoteProfile profile, String deviceId) {
+        return profile != null && !TextUtils.isEmpty(profile.deviceId) && TextUtils.equals(profile.deviceId, deviceId);
+    }
+
     private static RemoteStoreFile parse(String json) {
         if (TextUtils.isEmpty(json)) return null;
         try {
@@ -404,7 +409,12 @@ public final class RemoteStore {
         if (profile.pendingBindGrants == null) profile.pendingBindGrants = new ArrayList<>();
         if (profile.groups == null) profile.groups = new ArrayList<>();
         for (RemoteGroup group : profile.groups) {
-            if (group != null && group.devices == null) group.devices = new ArrayList<>();
+            if (group == null) continue;
+            if (group.devices == null) group.devices = new ArrayList<>();
+            for (Iterator<RemoteDevice> it = group.devices.iterator(); it.hasNext(); ) {
+                RemoteDevice device = it.next();
+                if (device == null || isLocalDevice(profile, device.deviceId)) it.remove();
+            }
         }
     }
 

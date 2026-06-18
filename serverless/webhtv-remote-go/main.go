@@ -342,6 +342,10 @@ func claimDevice(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	requester, err := state.requireDevice(r, body)
+	if err != nil {
+		return err
+	}
 	code := strings.TrimSpace(str(body["code"]))
 	if code == "" {
 		return httpErrorf(http.StatusNotFound, "Bind code expired")
@@ -351,6 +355,10 @@ func claimDevice(w http.ResponseWriter, r *http.Request) error {
 	if bind == nil || time.Now().After(bind.ExpiresAt) {
 		state.mu.Unlock()
 		return httpErrorf(http.StatusNotFound, "Bind code expired")
+	}
+	if requester.DeviceID == bind.DeviceID {
+		state.mu.Unlock()
+		return httpErrorf(http.StatusBadRequest, "Cannot bind local device")
 	}
 	device := state.devices[bind.DeviceID]
 	if device == nil {

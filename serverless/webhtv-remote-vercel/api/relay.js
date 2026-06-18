@@ -155,9 +155,11 @@ async function createBindCode(request, options) {
 
 async function claimDevice(request, options) {
   const body = await readJson(request);
+  const { device: requester } = await requireDevice(request, body);
   const code = String(body.code || '').trim();
   const bind = state.bindCodes.get(code);
   if (!bind || bind.expiresAt < Date.now()) throw httpError(404, 'Bind code expired');
+  if (requester.deviceId === bind.deviceId) throw httpError(400, 'Cannot bind local device');
 
   const device = state.devices.get(bind.deviceId);
   if (!device) throw httpError(404, 'Device not found');
