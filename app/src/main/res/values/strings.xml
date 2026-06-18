@@ -149,7 +149,7 @@
     <string name="remote_trust_register_done">Remote trust registered</string>
     <string name="remote_trust_bind_code_done">Binding code created</string>
     <string name="remote_trust_bind_code_copied">Binding code copied</string>
-    <string name="remote_trust_bind_code_expired">Binding code expired. Use the latest code from the target device.</string>
+    <string name="remote_trust_bind_code_expired">Binding code was not found or expired. Check that both devices use the same relay server, then enter the latest code from the target device.</string>
     <string name="remote_trust_status_unbound">Unbound</string>
     <string name="remote_trust_status_enabled">Enabled</string>
     <string name="remote_trust_status_online">Online</string>

@@ -148,7 +148,7 @@
     <string name="remote_trust_register_done">远程托管已注册</string>
     <string name="remote_trust_bind_code_done">绑定码已生成</string>
     <string name="remote_trust_bind_code_copied">绑定码已复制</string>
-    <string name="remote_trust_bind_code_expired">绑定码已过期，请使用目标设备上最新的绑定码。</string>
+    <string name="remote_trust_bind_code_expired">绑定码不存在或已过期。请确认两台设备使用同一个中转服务，再输入目标设备最新绑定码。</string>
     <string name="remote_trust_status_unbound">未绑定</string>
     <string name="remote_trust_status_enabled">已启用</string>
     <string name="remote_trust_status_online">在线</string>

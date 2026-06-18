@@ -8,6 +8,7 @@ import com.fongmi.android.tv.remote.RemoteModels.RemoteProfile;
 import com.fongmi.android.tv.remote.RemoteStore;
 import com.fongmi.android.tv.remote.RemoteTokens;
 import com.fongmi.android.tv.server.impl.Process;
+import com.fongmi.android.tv.ui.dialog.RemoteTrustDialog;
 import com.fongmi.android.tv.utils.Notify;
 
 import java.util.Map;
@@ -40,6 +41,7 @@ public class RemoteTrustSetup implements Process {
         profile.keepOnline = true;
         RemoteStore.upsertProfile(profile);
         RemoteAgent.get().start();
+        RemoteTrustDialog.onRelaySetupSaved(TextUtils.isEmpty(profile.serverUrl) ? profile.serverOrigin : profile.serverUrl);
         App.post(() -> Notify.show("中转服务已更新"));
         return page("已保存：" + origin);
     }
