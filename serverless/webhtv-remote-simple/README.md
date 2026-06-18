@@ -1,8 +1,8 @@
 # WebHTV Remote Cloudflare Worker Relay
 
-这是“远程托管”简易版 Cloudflare Worker 中转服务。它只做在线命令中转和一次性同步文件中转，不需要 KV、R2、Durable Objects、数据库或必填环境变量，也不要求用户手动上传文件。
+这是“远程托管”简易版 Cloudflare Worker 中转服务。它只做在线命令中转和一次性同步文件中转，不需要 KV、R2、数据库或必填环境变量，也不要求用户手动上传文件。
 
-它使用 Worker 运行实例内的内存 Map 保存绑定码、在线设备快照、命令队列和同步临时文件。长期绑定状态保存在 App/主控端本地，`deviceId/groupId/grantId` 由 `serverOrigin + token` 派生。实例重启或被平台回收后，临时命令和同步文件会丢失，但同一个域名/origin 下不需要重新绑定；设备下一次 register/poll 会重建在线路由。需要离线队列、大文件暂存或长期备份时，再换完整版 Go/Rust 服务端或给 serverless 版本加存储增强。
+Cloudflare Worker 普通全局变量不能保证两台设备命中同一个运行实例，所以默认配置使用 Durable Object 统一承载绑定码、在线设备快照和命令队列，并保存轻量状态快照。长期绑定状态仍保存在 App/主控端本地，`deviceId/groupId/grantId` 由 `serverOrigin + token` 派生。同步文件分片仍是短期中转数据，不适合作为长期备份存储。需要离线队列、大文件暂存或长期备份时，再换完整版 Go/Rust 服务端或给 serverless 版本加 R2 等存储增强。
 
 ## 部署
 
@@ -13,7 +13,17 @@ cp wrangler.toml.example wrangler.toml
 npm run deploy
 ```
 
-`wrangler.toml.example` 已经是零绑定配置，复制后可以直接部署。
+`wrangler.toml.example` 已包含 Durable Object 绑定和迁移配置，复制后可以直接部署。旧版本如果已经有 `wrangler.toml`，需要手动补上：
+
+```toml
+[[durable_objects.bindings]]
+name = "RELAY_DO"
+class_name = "WebHTVRemoteRelayDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["WebHTVRemoteRelayDO"]
+```
 
 ## 核心流程
 
@@ -40,4 +50,4 @@ Authorization: Bearer <deviceToken>
 Authorization: Bearer <groupToken>
 ```
 
-`/api/server/capabilities` 会返回 `serverMode=simple`、`relayMode=origin-token-memory` 和能力清单。完整版 Go/Rust 服务端应复用同一套字段，只是开放更多能力。
+`/api/server/capabilities` 会返回 `serverMode=simple`、`relayMode=cloudflare-durable-object` 和能力清单。没有配置 `RELAY_DO` 时会降级为 `origin-token-memory`，该模式只适合本地调试，不建议生产使用。完整版 Go/Rust 服务端应复用同一套字段，只是开放更多能力。

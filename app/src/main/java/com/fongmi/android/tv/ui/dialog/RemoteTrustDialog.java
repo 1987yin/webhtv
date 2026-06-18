@@ -2255,11 +2255,15 @@ public final class RemoteTrustDialog {
         if (capabilities.pushAction) support.add(context.getString(R.string.remote_trust_cap_push));
         if (capabilities.recentLog) support.add(context.getString(R.string.remote_trust_cap_log));
         String supportText = support.isEmpty() ? context.getString(R.string.remote_trust_support_none) : TextUtils.join(", ", support);
-        return context.getString(R.string.remote_trust_service_info,
+        String info = context.getString(R.string.remote_trust_service_info,
                 empty(server.serverMode),
                 empty(server.relayMode),
                 supportText,
                 formatBytes(server.maxSyncPartBytes));
+        if (TextUtils.equals(server.relayMode, "origin-token-memory") && !capabilities.persistentStorage) {
+            info += "\n" + context.getString(R.string.remote_trust_service_memory_warning);
+        }
+        return info;
     }
 
     private static String formatBytes(long bytes) {

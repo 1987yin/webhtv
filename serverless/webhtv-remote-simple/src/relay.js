@@ -23,25 +23,55 @@ const CAPABILITIES = {
   deviceRevoke: false
 };
 
-const state = globalThis.__WEBHTV_REMOTE_RELAY_STATE || (globalThis.__WEBHTV_REMOTE_RELAY_STATE = {
-  devices: new Map(),
-  bindCodes: new Map(),
-  groupDevices: new Map(),
-  commands: new Map(),
-  queues: new Map(),
-  syncs: new Map(),
-  parts: new Map(),
-  lastCleanup: 0
-});
+export function createRelayState(snapshot = null) {
+  return {
+    devices: new Map(snapshot?.devices || []),
+    bindCodes: new Map(snapshot?.bindCodes || []),
+    groupDevices: new Map((snapshot?.groupDevices || []).map(([groupId, devices]) => [groupId, new Set(devices || [])])),
+    commands: new Map(snapshot?.commands || []),
+    queues: new Map((snapshot?.queues || []).map(([deviceId, queue]) => [deviceId, Array.isArray(queue) ? queue : []])),
+    syncs: new Map(snapshot?.syncs || []),
+    parts: new Map(),
+    lastCleanup: Number(snapshot?.lastCleanup || 0)
+  };
+}
+
+export function snapshotRelayState(input = state) {
+  return {
+    devices: [...input.devices],
+    bindCodes: [...input.bindCodes],
+    groupDevices: [...input.groupDevices].map(([groupId, devices]) => [groupId, [...devices]]),
+    commands: [...input.commands],
+    queues: [...input.queues].map(([deviceId, queue]) => [deviceId, [...queue]]),
+    syncs: [...input.syncs],
+    lastCleanup: input.lastCleanup
+  };
+}
+
+const defaultState = globalThis.__WEBHTV_REMOTE_RELAY_STATE || (globalThis.__WEBHTV_REMOTE_RELAY_STATE = createRelayState());
+
+let state = defaultState;
+
+function withStateAsync(nextState, run) {
+  const previous = state;
+  state = nextState || defaultState;
+  return Promise.resolve()
+    .then(run)
+    .finally(() => {
+      state = previous;
+    });
+}
 
 export async function handleRelayRequest(request, options = {}) {
-  if (request.method === 'OPTIONS') return cors(new Response(null, { status: 204 }));
-  try {
-    cleanup();
-    return cors(await route(request, options));
-  } catch (e) {
-    return cors(json({ ok: false, error: e && e.message ? e.message : String(e) }, e && e.status ? e.status : 500));
-  }
+  return withStateAsync(options.state, async () => {
+    if (request.method === 'OPTIONS') return cors(new Response(null, { status: 204 }));
+    try {
+      cleanup();
+      return cors(await route(request, options));
+    } catch (e) {
+      return cors(json({ ok: false, error: e && e.message ? e.message : String(e) }, e && e.status ? e.status : 500));
+    }
+  });
 }
 
 async function route(request, options) {
@@ -92,14 +122,18 @@ async function route(request, options) {
 }
 
 function capabilities(options) {
+  const persistentStorage = options.persistentStorage === true;
   return {
     ok: true,
     serverMode: SERVER_MODE,
     serverName: options.serverName || 'WebHTV Remote Relay',
-    relayMode: 'origin-token-memory',
+    relayMode: options.relayMode || 'origin-token-memory',
     time: Date.now(),
     maxSyncPartBytes: MAX_SYNC_PART_BYTES,
-    capabilities: CAPABILITIES
+    capabilities: {
+      ...CAPABILITIES,
+      persistentStorage
+    }
   };
 }
 

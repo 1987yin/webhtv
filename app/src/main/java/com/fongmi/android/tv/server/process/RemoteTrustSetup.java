@@ -4,13 +4,16 @@ import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.remote.RemoteAgent;
+import com.fongmi.android.tv.remote.RemoteModels.ServerCapabilities;
 import com.fongmi.android.tv.remote.RemoteModels.RemoteProfile;
 import com.fongmi.android.tv.remote.RemoteStore;
 import com.fongmi.android.tv.remote.RemoteTokens;
 import com.fongmi.android.tv.server.impl.Process;
 import com.fongmi.android.tv.ui.dialog.RemoteTrustDialog;
 import com.fongmi.android.tv.utils.Notify;
+import com.github.catvod.net.OkHttp;
 
+import java.io.IOException;
 import java.util.Map;
 
 import fi.iki.elonen.NanoHTTPD;
@@ -35,7 +38,12 @@ public class RemoteTrustSetup implements Process {
     private Response save(Map<String, String> params) {
         String serverUrl = params == null ? "" : params.get("serverUrl");
         String origin = RemoteTokens.normalizeOrigin(serverUrl);
-        if (TextUtils.isEmpty(origin)) return page("请输入有效的中转服务 URL");
+        if (TextUtils.isEmpty(origin)) return page("请输入有效的中转服务 URL", Response.Status.BAD_REQUEST);
+        try {
+            checkRelay(origin);
+        } catch (Throwable e) {
+            return page("无法连接中转服务：" + concise(e), Response.Status.SERVICE_UNAVAILABLE);
+        }
         RemoteProfile profile = RemoteStore.prepareProfile(serverUrl, true, true);
         profile.enabled = true;
         profile.keepOnline = true;
@@ -47,12 +55,35 @@ public class RemoteTrustSetup implements Process {
     }
 
     private Response page(String message) {
+        return page(message, Response.Status.OK);
+    }
+
+    private Response page(String message, Response.Status status) {
         RemoteProfile profile = RemoteStore.firstProfile();
         String current = profile == null ? "" : (TextUtils.isEmpty(profile.serverUrl) ? profile.serverOrigin : profile.serverUrl);
-        Response response = NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", html(current, message));
+        Response response = NanoHTTPD.newFixedLengthResponse(status, "text/html; charset=utf-8", html(current, message));
         response.addHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
         response.addHeader("Pragma", "no-cache");
         return response;
+    }
+
+    private void checkRelay(String origin) throws IOException {
+        okhttp3.Request request = new okhttp3.Request.Builder().url(origin + "/api/server/capabilities").get().build();
+        try (okhttp3.Response response = OkHttp.client(5000).newCall(request).execute()) {
+            okhttp3.ResponseBody body = response.body();
+            String text = body == null ? "" : body.string();
+            if (!response.isSuccessful()) throw new IOException("HTTP " + response.code() + (TextUtils.isEmpty(text) ? "" : ": " + text));
+            ServerCapabilities capabilities = App.gson().fromJson(text, ServerCapabilities.class);
+            if (capabilities == null || !capabilities.ok) throw new IOException("capabilities 返回异常");
+        }
+    }
+
+    private String concise(Throwable e) {
+        if (e == null || TextUtils.isEmpty(e.getMessage())) return "网络不可用或服务未响应";
+        String message = e.getMessage();
+        int line = message.indexOf('\n');
+        if (line >= 0) message = message.substring(0, line);
+        return message.length() > 120 ? message.substring(0, 120) + "..." : message;
     }
 
     private String html(String current, String message) {

@@ -221,6 +221,7 @@
     <string name="remote_trust_service_failed_with_reason">Reason: %1$s</string>
     <string name="remote_trust_service_connect_failed">Connection failed. Check the service URL, network, or deployment status.</string>
     <string name="remote_trust_service_request_failed">Check failed. Copy diagnostics for details.</string>
+    <string name="remote_trust_service_memory_warning">Memory relay mode may lose bind codes across devices. Update the Cloudflare Worker Durable Object config before production use.</string>
     <string name="remote_trust_bind_local_title">This device binding code</string>
     <string name="remote_trust_refresh_bind_code">Refresh</string>
     <string name="remote_trust_copy">Copy</string>
