@@ -69,13 +69,17 @@ public class Download {
         try (BufferedInputStream input = new BufferedInputStream(is); FileOutputStream os = new FileOutputStream(Path.create(file))) {
             byte[] buffer = new byte[16384];
             int readBytes;
+            int lastProgress = -1;
             long totalBytes = 0;
+            if (callback != null) App.post(() -> callback.progress(length > 0 ? 0 : -1));
             while ((readBytes = input.read(buffer)) != -1) {
                 if (Thread.interrupted()) return;
                 totalBytes += readBytes;
                 os.write(buffer, 0, readBytes);
                 if (length <= 0) continue;
                 int progress = (int) (totalBytes / length * 100.0);
+                if (progress == lastProgress) continue;
+                lastProgress = progress;
                 if (callback != null) App.post(() -> callback.progress(progress));
             }
         }

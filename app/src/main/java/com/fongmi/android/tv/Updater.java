@@ -84,6 +84,7 @@ public class Updater implements Download.Callback, UpdateListener {
     @Override
     public void onConfirm(View view) {
         view.setEnabled(false);
+        if (dialog != null) dialog.setProgress(0);
         download.start(this);
     }
 

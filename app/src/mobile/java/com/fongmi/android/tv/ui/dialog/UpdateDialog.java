@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import android.view.View;
+
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.FragmentActivity;
 import androidx.viewbinding.ViewBinding;
@@ -55,6 +57,7 @@ public class UpdateDialog extends BaseAlertDialog {
     @Override
     protected void initView() {
         binding.desc.setText(desc);
+        binding.progress.setMax(100);
     }
 
     @Override
@@ -66,7 +69,13 @@ public class UpdateDialog extends BaseAlertDialog {
     }
 
     public void setProgress(int progress) {
+        boolean indeterminate = progress < 0;
+        int value = Math.max(0, Math.min(100, progress));
+        binding.progressPanel.setVisibility(View.VISIBLE);
+        binding.progress.setIndeterminate(indeterminate);
+        if (!indeterminate) binding.progress.setProgress(value);
+        binding.progressText.setText(indeterminate ? getString(R.string.update_downloading_unknown) : getString(R.string.update_downloading, value));
         AlertDialog dialog = (AlertDialog) getDialog();
-        if (dialog != null) dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText(String.format(Locale.getDefault(), "%1$d%%", progress));
+        if (dialog != null) dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText(indeterminate ? getString(R.string.update_confirm) : String.format(Locale.getDefault(), "%1$d%%", value));
     }
 }

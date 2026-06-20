@@ -801,6 +801,8 @@
     <string name="update_check">正在檢查更新…</string>
     <string name="update_latest">已是最新版本</string>
     <string name="update_failed">檢查更新失敗</string>
+    <string name="update_downloading">正在下載 %1$d%%</string>
+    <string name="update_downloading_unknown">正在下載…</string>
     <string name="update_confirm">更新</string>
 
     <!-- Crash -->

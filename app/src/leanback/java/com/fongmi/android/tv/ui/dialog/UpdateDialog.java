@@ -56,6 +56,7 @@ public class UpdateDialog extends BaseAlertDialog {
     protected void initView() {
         binding.version.setText(title);
         binding.desc.setText(desc);
+        binding.progress.setMax(100);
     }
 
     @Override
@@ -65,7 +66,14 @@ public class UpdateDialog extends BaseAlertDialog {
     }
 
     public void setProgress(int progress) {
-        binding.confirm.setText(String.format(Locale.getDefault(), "%1$d%%", progress));
+        boolean indeterminate = progress < 0;
+        int value = Math.max(0, Math.min(100, progress));
+        binding.progressPanel.setVisibility(View.VISIBLE);
+        binding.progress.setIndeterminate(indeterminate);
+        if (!indeterminate) binding.progress.setProgress(value);
+        binding.progressText.setText(indeterminate ? getString(com.fongmi.android.tv.R.string.update_downloading_unknown) : getString(com.fongmi.android.tv.R.string.update_downloading, value));
+        if (indeterminate) binding.confirm.setText(com.fongmi.android.tv.R.string.update_confirm);
+        else binding.confirm.setText(String.format(Locale.getDefault(), "%1$d%%", value));
     }
 
     private void onConfirm(View view) {
