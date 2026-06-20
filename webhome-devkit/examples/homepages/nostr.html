@@ -4705,6 +4705,7 @@
       catalog: {},
       catalogPage: {},
       recent: { items: [], loading: false, loaded: false, error: "", refreshedAt: 0 },
+      pushArtwork: { loaded: false, items: {} },
       gridRender: {},
       gridColumnCache: {},
       fallback: [],
@@ -4992,6 +4993,7 @@
       if (type === "pan") return window.WEBHOME_CONFIG.pan.cacheKey || "fish2018_home_v1_pan_config";
       if (type === "ui") return "fish2018_home_v1_ui_snapshot";
       if (type === "uiPrefs") return "fish2018_home_v1_ui_prefs";
+      if (type === "pushArtwork") return "fish2018_home_v1_push_artwork";
       if (type === "deleteState") return "fish2018_home_v1_delete_state";
       if (type === "blockedRecommend") return "fish2018_home_v1_blocked_recommend";
       if (type === "autoBlockedMedia") return "fish2018_home_v1_auto_blocked_media";
@@ -6561,6 +6563,48 @@
       };
     }
 
+    function pushArtworkKey(url) {
+      let value = String(url || "").trim();
+      if (/^push:\/\//i.test(value)) value = value.replace(/^push:\/\//i, "");
+      return value;
+    }
+
+    function pushArtworkFor(url, title) {
+      const items = state.pushArtwork && state.pushArtwork.items || {};
+      const key = pushArtworkKey(url);
+      const exact = key && items[key];
+      if (exact) return exact;
+      const name = normalizeTitle(title || "");
+      if (!name) return null;
+      return Object.values(items).find((item) => item && normalizeTitle(item.title || "") === name) || null;
+    }
+
+    async function loadPushArtworkCache() {
+      if (state.pushArtwork && state.pushArtwork.loaded) return;
+      let saved = null;
+      try { saved = safeJson(await sdk().cache.get(cacheKey("pushArtwork")), null); } catch (e) { saved = null; }
+      state.pushArtwork = { loaded: true, items: saved && saved.items && typeof saved.items === "object" ? saved.items : {} };
+    }
+
+    async function savePushArtwork(payload) {
+      if (!payload || !payload.url) return;
+      await loadPushArtworkCache();
+      const key = pushArtworkKey(payload.url);
+      if (!key) return;
+      const items = Object.assign({}, state.pushArtwork.items || {});
+      items[key] = {
+        title: payload.title || "",
+        pic: payload.pic || "",
+        wallPic: payload.wallPic || "",
+        at: Date.now()
+      };
+      const keys = Object.keys(items).sort((a, b) => Number(items[b] && items[b].at || 0) - Number(items[a] && items[a].at || 0));
+      const limited = {};
+      keys.slice(0, 120).forEach((itemKey) => { limited[itemKey] = items[itemKey]; });
+      state.pushArtwork = { loaded: true, items: limited };
+      try { await sdk().cache.set(cacheKey("pushArtwork"), JSON.stringify({ version: 1, items: limited })); } catch (e) {}
+    }
+
     function validHistoryMs(value) {
       const ms = Number(value || 0);
       return Number.isFinite(ms) && ms > 0 && ms < 7 * 24 * 60 * 60 * 1000 ? ms : 0;
@@ -6569,7 +6613,8 @@
     function isRestorableHistory(history) {
       const parts = historyKeyParts(history);
       const title = String(history && (history.vodName || history.title || history.name) || "").trim();
-      const pic = String(history && (history.vodPic || history.pic || "") || "").trim();
+      const artwork = parts.siteKey === "push_agent" ? pushArtworkFor(parts.vodId, title) : null;
+      const pic = String(parts.siteKey === "push_agent" ? (artwork && artwork.pic || history && (history.vodPic || history.pic || "") || "") : (history && (history.vodPic || history.pic || "") || "")).trim();
       if (!parts.siteKey || !parts.vodId || !title) return false;
       if (parts.siteKey === "push_agent") return !!pic && !isExpiredPosterSource(pic, parts);
       if (/^(push|https?|file|magnet|ed2k|thunder|video):/i.test(parts.siteKey)) return false;
@@ -6625,9 +6670,10 @@
     function normalizeHistoryItem(history, index) {
       const parts = historyKeyParts(history);
       const title = String(history && (history.vodName || history.title || history.name) || "最近观看").trim();
-      const pic = history && (history.vodPic || history.pic || "") || "";
+      const artwork = parts.siteKey === "push_agent" ? pushArtworkFor(parts.vodId, title) : null;
+      const pic = parts.siteKey === "push_agent" ? (artwork && artwork.pic || history && (history.vodPic || history.pic || "") || "") : (history && (history.vodPic || history.pic || "") || "");
       const matched = findMediaByContent({ title, vodId: parts.vodId }) || null;
-      const wallPic = playbackWallPic(Object.assign({}, matched || {}, { title, pic }));
+      const wallPic = artwork && artwork.wallPic || playbackWallPic(Object.assign({}, matched || {}, { title, pic }));
       const badge = String(history && history.vodRemarks || "").trim();
       const progressText = historyProgressText(history);
       return {
@@ -6732,6 +6778,7 @@
       if (!opts.silent) setStatus("tmdb", "读取最近观看");
       if (state.activeList === "recent") renderActiveGrid();
       try {
+        await loadPushArtworkCache();
         const list = await sdk().history();
         state.recent.items = normalizeHistoryList(list);
         state.recent.loaded = true;
@@ -11144,6 +11191,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       try {
         const pan = sdk().pan || {};
         if (!pan.play) throw new Error("当前 App 不支持 pan.play");
+        try { await savePushArtwork(payload); } catch (cacheError) {}
         await pan.play(payload);
         toast("已交给原生播放");
       } catch (e) {
