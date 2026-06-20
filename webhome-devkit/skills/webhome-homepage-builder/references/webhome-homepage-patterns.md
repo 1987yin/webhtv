@@ -106,6 +106,17 @@ Recommended panel variables:
 }
 ```
 
+## Detail Artwork Blending
+
+For mobile detail pages that stack a clear still above a backdrop/background image:
+
+- Keep the upper still image as the sharp source of truth. Do not apply full-cover blur or liquid distortion to that layer.
+- Feather only a narrow bottom seam with `mask-image` and `-webkit-mask-image`, so the still is nearly transparent only at the edge where it meets the lower layer.
+- Put blur/liquid treatment on a separate lower strip or background layer. Use a clipped pseudo-element or child layer rather than `backdrop-filter` across the whole image.
+- Tune the feather height by pixels, not by the full card height; too tall a mask hides useful clear still content.
+- Disable or override masks in translucent/card detail modes, where a framed poster/still should remain crisp.
+- Synopsis text should occupy the available width. If a "more" button is below the paragraph, remove obsolete right padding and negative overlay margins.
+
 ## Routing And Restore
 
 Use History API for nested views:
@@ -154,6 +165,8 @@ Rules:
 - Direction keys stay inside an open local domain.
 - Back first handles local domain state, then WebView history, then `fm.back()`.
 - Dynamic lists use stable `data-*` keys and restore focus after patching.
+- Search results need an explicit close/clear focus path. Result card Up should focus close/clear, close/clear Down should restore the originating result card, close/clear Up may move to category tabs, and category-tab Down should still restore that remembered result instead of jumping to the first or last card.
+- Implement the same search-result rule in deterministic fast paths and in geometry-search fallback; otherwise TV App mode and browser-keyboard mode will diverge.
 - `focus({ preventScroll: true })`, then schedule scroll correction in `requestAnimationFrame`.
 
 ## PanSou Integration
@@ -187,10 +200,17 @@ Detection:
 Playback:
 
 ```js
-await fm.pan.play({ type: item.diskType, url: item.url, password: item.password, title: item.title });
+await fm.pan.play({
+  type: item.diskType,
+  url: item.url,
+  password: item.password,
+  title: item.title,
+  pic: detail.poster,
+  wallPic: detail.backdrop
+});
 ```
 
-Save playback return context before calling native playback.
+Save playback return context before calling native playback. If the homepage renders its own recent history, persist a small URL-to-artwork cache before `fm.pan.play()` and restore it after `fm.history()` for `push_agent` records; native history may not retain `wallPic`. Do not drop `push_agent` records or no-poster history solely because artwork is missing. Use cached or placeholder artwork and replay through the appropriate push/pan/native semantic path.
 
 ## Performance
 

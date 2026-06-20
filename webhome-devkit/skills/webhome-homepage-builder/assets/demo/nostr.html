@@ -2197,12 +2197,16 @@
     html.native-mobile-app #detailSheet:not(.detail-large)::before {
       bottom: 0;
       background:
-        linear-gradient(180deg, rgba(4, 8, 12, 0) 0%, rgba(4, 8, 12, 0) 54%, rgba(5, 10, 15, .3) 76%, #081016 100%),
+        radial-gradient(72% 34% at 22% 58%, rgba(96, 132, 150, .18) 0%, rgba(96, 132, 150, .08) 42%, transparent 72%),
+        radial-gradient(68% 32% at 78% 48%, rgba(178, 120, 86, .14) 0%, rgba(178, 120, 86, .06) 45%, transparent 74%),
         var(--detail-hero-bg, none);
-      background-size: cover;
-      background-position: center top;
-      filter: brightness(1) saturate(1.05);
-      opacity: 1;
+      background-size: cover, cover, cover;
+      background-position: center, center, center top;
+      background-repeat: no-repeat, no-repeat, no-repeat;
+      filter: blur(28px) saturate(1.32) contrast(1.06) brightness(.9);
+      opacity: .98;
+      transform: scale(1.12);
+      transform-origin: center top;
     }
 
     html.native-mobile-app #detailSheet:not(.detail-large)::after {
@@ -2252,15 +2256,31 @@
       pointer-events: none;
       overflow: hidden;
       background: transparent;
+      opacity: 1;
+      -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 84%, rgba(0, 0, 0, .9) 89%, rgba(0, 0, 0, .42) 96%, transparent 100%);
+      mask-image: linear-gradient(180deg, #000 0%, #000 84%, rgba(0, 0, 0, .9) 89%, rgba(0, 0, 0, .42) 96%, transparent 100%);
+      -webkit-mask-repeat: no-repeat;
+      mask-repeat: no-repeat;
+      -webkit-mask-size: 100% 100%;
+      mask-size: 100% 100%;
     }
 
     html.native-mobile-app #detailSheet:not(.detail-large) .detail-cover::after {
       content: "";
       position: absolute;
-      inset: 0;
+      top: 82%;
+      right: 0;
+      bottom: 0;
+      left: 0;
       z-index: 2;
       background:
-        linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0) 56%, rgba(5, 9, 13, .22) 72%, rgba(5, 9, 13, .72) 90%, #081016 100%);
+        radial-gradient(90% 72% at 28% 42%, rgba(98, 137, 154, .18) 0%, rgba(98, 137, 154, .07) 45%, transparent 78%),
+        radial-gradient(86% 70% at 76% 38%, rgba(190, 135, 92, .14) 0%, rgba(190, 135, 92, .05) 48%, transparent 80%),
+        linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(5, 9, 13, .08) 30%, rgba(5, 9, 13, .2) 72%, rgba(8, 16, 22, .34) 100%);
+      -webkit-backdrop-filter: blur(10px) saturate(1.16);
+      backdrop-filter: blur(10px) saturate(1.16);
+      -webkit-mask-image: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, .2) 18%, #000 46%, #000 100%);
+      mask-image: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, .2) 18%, #000 46%, #000 100%);
     }
 
     html.native-mobile-app #detailSheet:not(.detail-large) .detail-cover.poster-mode::after {
@@ -2277,6 +2297,12 @@
       object-fit: cover !important;
       object-position: center top;
       filter: brightness(1) saturate(1.05);
+      -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 84%, rgba(0, 0, 0, .88) 89%, rgba(0, 0, 0, .36) 96%, transparent 100%);
+      mask-image: linear-gradient(180deg, #000 0%, #000 84%, rgba(0, 0, 0, .88) 89%, rgba(0, 0, 0, .36) 96%, transparent 100%);
+      -webkit-mask-repeat: no-repeat;
+      mask-repeat: no-repeat;
+      -webkit-mask-size: 100% 100%;
+      mask-size: 100% 100%;
     }
 
     html.native-mobile-app #detailSheet:not(.detail-large) .detail-info {
@@ -2400,14 +2426,14 @@
 
     html.native-mobile-app #detailSheet:not(.detail-large) .detail-info p.clamped {
       max-height: var(--detail-text-max, 6.9em);
-      padding-right: 54px;
+      padding-right: 0;
       overflow: hidden;
       cursor: pointer;
     }
 
     html.native-mobile-app #detailSheet:not(.detail-large) #detailMoreBtn {
       min-height: 0;
-      margin: -1.72em 0 0 auto;
+      margin: 2px 0 0;
       padding: 0;
       border: 0;
       background: transparent;
@@ -2719,6 +2745,7 @@
       right: auto;
       left: auto;
       z-index: auto;
+      opacity: 1;
       width: 100%;
       max-width: 100%;
       height: 56.25vw;
@@ -2731,6 +2758,8 @@
       overflow: hidden;
       background: transparent;
       isolation: isolate;
+      -webkit-mask-image: none;
+      mask-image: none;
     }
 
     html.native-mobile-app.mobile-detail-translucent #detailSheet:not(.detail-large) .detail-cover::after {
@@ -2742,6 +2771,8 @@
       object-position: left center;
       filter: none;
       border-radius: inherit;
+      -webkit-mask-image: none;
+      mask-image: none;
     }
 
     html.native-mobile-app.mobile-detail-translucent #detailSheet:not(.detail-large) .detail-cover.poster-mode img {
@@ -2843,7 +2874,7 @@
 
     html.native-mobile-app.mobile-detail-translucent #detailSheet:not(.detail-large) #detailMoreBtn {
       min-height: 0;
-      margin: -1.62em 0 0 auto;
+      margin: 2px 0 0;
       padding: 0;
       border: 0;
       background: transparent;
@@ -4703,6 +4734,7 @@
       catalog: {},
       catalogPage: {},
       recent: { items: [], loading: false, loaded: false, error: "", refreshedAt: 0 },
+      pushArtwork: { loaded: false, items: {} },
       gridRender: {},
       gridColumnCache: {},
       fallback: [],
@@ -4711,6 +4743,7 @@
       chipFocusTimer: 0,
       railScroll: {},
       searchItems: [],
+      searchReturnCard: null,
       searchHold: { timer: 0, fired: false, suppressClickUntil: 0, pointer: null, target: null },
       suggestions: { keyword: "", items: [], loading: false, timer: 0, seq: 0, controller: null },
       hot: { db: null, dbPromise: null, idb: false, ready: false, items: [], media: new Map(), users: new Map(), ingestQueue: Promise.resolve(), refreshTimer: 0 },
@@ -4781,8 +4814,9 @@
     const HOT_REFRESH_BACKFILL_MS = 900;
     const HOT_PRUNE_BATCH = 1000;
     const HOT_RENDER_LIMIT = 1000;
-    const UI_SNAPSHOT_TTL_MS = 2 * 60 * 60 * 1000;
-    const PAN_PLAYBACK_RETURN_TTL_MS = 10 * 60 * 1000;
+    const RETURN_CONTEXT_TTL_MS = 12 * 60 * 60 * 1000;
+    const UI_SNAPSHOT_TTL_MS = RETURN_CONTEXT_TTL_MS;
+    const PAN_PLAYBACK_RETURN_TTL_MS = RETURN_CONTEXT_TTL_MS;
     const DELETE_REPUBLISH_BLOCK_MS = 24 * 60 * 60 * 1000;
     const DELETE_TOMBSTONE_TTL_MS = HOT_WINDOW_MS + HOT_DAY_SECONDS * 1000;
     const AUTO_BLOCK_SCAN_SCREENS = 3;
@@ -4989,6 +5023,7 @@
       if (type === "pan") return window.WEBHOME_CONFIG.pan.cacheKey || "fish2018_home_v1_pan_config";
       if (type === "ui") return "fish2018_home_v1_ui_snapshot";
       if (type === "uiPrefs") return "fish2018_home_v1_ui_prefs";
+      if (type === "pushArtwork") return "fish2018_home_v1_push_artwork";
       if (type === "deleteState") return "fish2018_home_v1_delete_state";
       if (type === "blockedRecommend") return "fish2018_home_v1_blocked_recommend";
       if (type === "autoBlockedMedia") return "fish2018_home_v1_auto_blocked_media";
@@ -6554,8 +6589,50 @@
       return {
         key,
         siteKey: history && history.siteKey || parts[0] || "",
-        vodId: history && history.vodId || parts.slice(1).join("@@@") || ""
+        vodId: history && history.vodId || parts[1] || ""
       };
+    }
+
+    function pushArtworkKey(url) {
+      let value = String(url || "").trim();
+      if (/^push:\/\//i.test(value)) value = value.replace(/^push:\/\//i, "");
+      return value;
+    }
+
+    function pushArtworkFor(url, title) {
+      const items = state.pushArtwork && state.pushArtwork.items || {};
+      const key = pushArtworkKey(url);
+      const exact = key && items[key];
+      if (exact) return exact;
+      const name = normalizeTitle(title || "");
+      if (!name) return null;
+      return Object.values(items).find((item) => item && normalizeTitle(item.title || "") === name) || null;
+    }
+
+    async function loadPushArtworkCache() {
+      if (state.pushArtwork && state.pushArtwork.loaded) return;
+      let saved = null;
+      try { saved = safeJson(await sdk().cache.get(cacheKey("pushArtwork")), null); } catch (e) { saved = null; }
+      state.pushArtwork = { loaded: true, items: saved && saved.items && typeof saved.items === "object" ? saved.items : {} };
+    }
+
+    async function savePushArtwork(payload) {
+      if (!payload || !payload.url) return;
+      await loadPushArtworkCache();
+      const key = pushArtworkKey(payload.url);
+      if (!key) return;
+      const items = Object.assign({}, state.pushArtwork.items || {});
+      items[key] = {
+        title: payload.title || "",
+        pic: payload.pic || "",
+        wallPic: payload.wallPic || "",
+        at: Date.now()
+      };
+      const keys = Object.keys(items).sort((a, b) => Number(items[b] && items[b].at || 0) - Number(items[a] && items[a].at || 0));
+      const limited = {};
+      keys.slice(0, 120).forEach((itemKey) => { limited[itemKey] = items[itemKey]; });
+      state.pushArtwork = { loaded: true, items: limited };
+      try { await sdk().cache.set(cacheKey("pushArtwork"), JSON.stringify({ version: 1, items: limited })); } catch (e) {}
     }
 
     function validHistoryMs(value) {
@@ -6566,8 +6643,10 @@
     function isRestorableHistory(history) {
       const parts = historyKeyParts(history);
       const title = String(history && (history.vodName || history.title || history.name) || "").trim();
+      const artwork = parts.siteKey === "push_agent" ? pushArtworkFor(parts.vodId, title) : null;
+      const pic = String(parts.siteKey === "push_agent" ? (artwork && artwork.pic || history && (history.vodPic || history.pic || "") || "") : (history && (history.vodPic || history.pic || "") || "")).trim();
       if (!parts.siteKey || !parts.vodId || !title) return false;
-      if (parts.siteKey === "push_agent") return false;
+      if (parts.siteKey === "push_agent") return !!pic && !isExpiredPosterSource(pic, parts);
       if (/^(push|https?|file|magnet|ed2k|thunder|video):/i.test(parts.siteKey)) return false;
       return true;
     }
@@ -6621,7 +6700,10 @@
     function normalizeHistoryItem(history, index) {
       const parts = historyKeyParts(history);
       const title = String(history && (history.vodName || history.title || history.name) || "最近观看").trim();
-      const pic = history && (history.vodPic || history.pic || "") || "";
+      const artwork = parts.siteKey === "push_agent" ? pushArtworkFor(parts.vodId, title) : null;
+      const pic = parts.siteKey === "push_agent" ? (artwork && artwork.pic || history && (history.vodPic || history.pic || "") || "") : (history && (history.vodPic || history.pic || "") || "");
+      const matched = findMediaByContent({ title, vodId: parts.vodId }) || null;
+      const wallPic = artwork && artwork.wallPic || playbackWallPic(Object.assign({}, matched || {}, { title, pic }));
       const badge = String(history && history.vodRemarks || "").trim();
       const progressText = historyProgressText(history);
       return {
@@ -6633,6 +6715,8 @@
         title,
         pic,
         image: pic,
+        landscape: wallPic || matched && matched.landscape || "",
+        wallPic,
         remark: progressText || (badge ? "继续观看" : ""),
         badge,
         progress: historyProgressPercent(history),
@@ -6724,6 +6808,7 @@
       if (!opts.silent) setStatus("tmdb", "读取最近观看");
       if (state.activeList === "recent") renderActiveGrid();
       try {
+        await loadPushArtworkCache();
         const list = await sdk().history();
         state.recent.items = normalizeHistoryList(list);
         state.recent.loaded = true;
@@ -7853,9 +7938,22 @@
       return Array.from(rail.querySelectorAll(".card")).filter(isVisibleFocusable);
     }
 
+    function searchClearButton() {
+      const section = $("searchSection");
+      const button = $("clearSearchBtn");
+      if (!section || section.style.display === "none") return null;
+      return isVisibleFocusable(button) ? button : null;
+    }
+
     function searchResultCardNear(source) {
       const cards = visibleSearchResultCards();
       return focusableCardNear(cards, source);
+    }
+
+    function searchReturnCard(source) {
+      const saved = state.searchReturnCard;
+      if (saved && saved.isConnected && saved.closest && saved.closest("#searchRail") && isVisibleFocusable(saved)) return saved;
+      return searchResultCardNear(source);
     }
 
     function activeGridCardNear(source) {
@@ -7893,6 +7991,7 @@
 
     function clearSearchResults() {
       state.searchItems = [];
+      state.searchReturnCard = null;
       if ($("searchInput")) $("searchInput").value = "";
       hideSearchSuggest();
       renderSearch();
@@ -8537,7 +8636,7 @@
       }
       try {
         rememberWatchIntent(item, "view");
-        await sdk().vod(item.siteKey, item.vodId, item.title, item.pic, vodPlaybackOptions(item));
+        await sdk().vod(item.siteKey, item.vodId, item.title, playbackPosterPic(item), vodPlaybackOptions(item));
         startWatchTracking(item);
       } catch (e) {
         toast("打开最近观看失败：" + (e.message || "unknown"));
@@ -8558,9 +8657,10 @@
         startWatchTracking(state.selected);
         const playbackItem = Object.assign({}, state.selected || {}, history || {}, {
           title: history.title || state.selected.title,
-          pic: state.selected.pic || history.pic || ""
+          pic: state.selected.pic || history.pic || "",
+          wallPic: history.wallPic || state.selected.wallPic || state.selected.landscape || ""
         });
-        await sdk().vod(history.siteKey, history.vodId, playbackItem.title, playbackItem.pic, vodPlaybackOptions(playbackItem));
+        await sdk().vod(history.siteKey, history.vodId, playbackItem.title, playbackPosterPic(playbackItem), vodPlaybackOptions(playbackItem));
       } catch (e) {
         stopWatchTracking(false);
         toast("继续观看失败：" + (e.message || "unknown"));
@@ -8587,7 +8687,7 @@
     function preloadPlaybackArtwork(item) {
       const api = sdk();
       if (!api || !api.preloadArtwork) return;
-      const pic = item && item.pic || "";
+      const pic = playbackPosterPic(item);
       const wallPic = playbackWallPic(item);
       if (!pic && !wallPic) return;
       const key = [mediaDomKey(item), pic, wallPic].join("\n");
@@ -8597,6 +8697,20 @@
         const result = api.preloadArtwork(pic, wallPic);
         if (result && result.catch) result.catch(() => {});
       } catch (e) {}
+    }
+
+    function playbackPosterPic(item) {
+      const source = item || {};
+      const matched = findMediaByContent(source) || null;
+      const selected = state.selected || null;
+      const selectedMatches = selected && (samePlaybackMedia(source, selected) || samePlaybackMedia(matched, selected));
+      return playbackImage(firstPlaybackWallPic([
+        source.pic,
+        source.poster,
+        source.vodPic,
+        selectedMatches && selected.pic,
+        matched && matched.pic
+      ]));
     }
 
     function playbackWallPic(item) {
@@ -8971,6 +9085,10 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       };
     }
 
+    function refreshHomeReturnTimestamp() {
+      if (state.homeReturn) state.homeReturn.at = Date.now();
+    }
+
     function findHomeReturnMediaTarget(saved, focus) {
       const key = focus.key || saved.mediaKey || "";
       const candidates = key ? Array.from(document.querySelectorAll(".app .card[data-media-key]"))
@@ -9024,7 +9142,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
     function restoreHomeReturn() {
       const saved = state.homeReturn;
       if (!saved) return false;
-      if (Date.now() - Number(saved.at || 0) > 10 * 60 * 1000) {
+      if (Date.now() - Number(saved.at || 0) > RETURN_CONTEXT_TTL_MS) {
         state.homeReturn = null;
         return false;
       }
@@ -9300,7 +9418,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       const image = $("detailImage");
       const land = String(landscape || "").trim();
       const post = String(poster || "").trim();
-      const allowPoster = opts.allowPoster !== false;
+      const allowPoster = opts.allowPoster === true;
       const usePoster = allowPoster && (!land || isSameImageSource(land, post));
       const src = usePoster ? post || land : land;
       const bgSrc = src ? displayImage(src, { size: usePoster ? "w780" : "w1280" }) : "";
@@ -9309,7 +9427,16 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       cover.dataset.coverMode = usePoster ? "poster" : "landscape";
       cover.style.setProperty("--detail-cover-bg", bgSrc ? `url("${cssUrl(bgSrc)}")` : "none");
       const sheet = $("detailSheet");
-      if (sheet) sheet.style.setProperty("--detail-hero-bg", bgSrc ? `url("${cssUrl(bgSrc)}")` : "none");
+      if (sheet) {
+        sheet.style.setProperty("--detail-hero-bg", bgSrc ? `url("${cssUrl(bgSrc)}")` : "none");
+        if (usePoster) {
+          sheet.style.setProperty("--detail-hero-size", "cover");
+          sheet.style.setProperty("--detail-hero-position", "center top");
+        } else {
+          sheet.style.setProperty("--detail-hero-size", "auto 62vh");
+          sheet.style.setProperty("--detail-hero-position", "center top");
+        }
+      }
       if (src) {
         const nextSrc = opts.preloadedSrc || bgSrc;
         const applyLoaded = () => {
@@ -9984,7 +10111,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
         item.landscape = detailLandscape;
         item.pic = item.pic || posterFallback;
         setDetailCoverCarousel(detailLandscapes, posterFallback, { allowPoster: false });
-      } else if (posterFallback) {
+      } else {
         item.landscape = "";
         item.pic = item.pic || posterFallback;
         setDetailCoverCarousel([], posterFallback, { allowPoster: true, keepLoading: false });
@@ -10888,6 +11015,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       const detail = $("detailSheet");
       const list = $("panResultList");
       const key = item && item.key || state.pan.focusKey || "";
+      refreshHomeReturnTimestamp();
       state.pan.playbackReturn = {
         key,
         activeType: state.pan.activeType || "",
@@ -11093,13 +11221,14 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       let url = String(item && (item.normalizedUrl || item.normalized_url || item.url) || "").trim();
       if (!url) return null;
       if (/^push:\/\//i.test(url)) url = url.replace(/^push:\/\//i, "");
-      const artworkSource = state.selected || item || {};
+      const artworkSource = Object.assign({}, item || {}, state.selected || {});
+      const title = artworkSource.title || state.pan.keyword || item && item.title || item && item.url || url;
       return {
         type: normalizePanDiskType(item && item.diskType),
         url,
         password: item && item.password || "",
-        title: item && (item.title || state.pan.keyword || item.url) || "",
-        pic: artworkSource && artworkSource.pic || "",
+        title,
+        pic: playbackPosterPic(artworkSource),
         wallPic: playbackWallPic(artworkSource)
       };
     }
@@ -11115,6 +11244,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       try {
         const pan = sdk().pan || {};
         if (!pan.play) throw new Error("当前 App 不支持 pan.play");
+        try { await savePushArtwork(payload); } catch (cacheError) {}
         await pan.play(payload);
         toast("已交给原生播放");
       } catch (e) {
@@ -11277,6 +11407,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
     function rememberDetailReturn(target) {
       const detail = $("detailSheet");
       if (!detail || !detail.classList.contains("active")) return;
+      refreshHomeReturnTimestamp();
       state.detailReturn = {
         scrollTop: Math.round(detail.scrollTop || 0),
         targetId: target && target.id || document.activeElement && document.activeElement.id || "detailSearchBtn",
@@ -11288,7 +11419,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
     function restoreDetailReturn() {
       const saved = state.detailReturn;
       if (!saved) return false;
-      if (Date.now() - Number(saved.at || 0) > 10 * 60 * 1000) {
+      if (Date.now() - Number(saved.at || 0) > RETURN_CONTEXT_TTL_MS) {
         state.detailReturn = null;
         return false;
       }
@@ -13510,7 +13641,8 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       if (isTextEditingElement(active)) return null;
       if ($("connectionDock") && $("connectionDock").contains(active)) return null;
       if ($("searchForm") && $("searchForm").contains(active)) return null;
-      return fastHomeChipTarget(key, active)
+      return fastHomeSearchControlTarget(key, active)
+        || fastHomeChipTarget(key, active)
         || fastHomeGridTarget(key, active)
         || fastHomeSearchRailTarget(key, active);
     }
@@ -13519,7 +13651,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       const chips = $("chips");
       if (!chips || !chips.contains(active)) return null;
       if (key === "ArrowLeft" || key === "ArrowRight") return fastHomeSibling(chips, active, key === "ArrowRight" ? 1 : -1, ".chip");
-      if (key === "ArrowDown" && active === activeHomeChip()) return firstSearchResultCard() || firstActiveGridCard();
+      if (key === "ArrowDown" && active === activeHomeChip()) return searchReturnCard(active) || firstActiveGridCard();
       return null;
     }
 
@@ -13553,8 +13685,22 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       const rail = active && active.closest && active.closest("#searchRail");
       if (!rail || !rail.contains(active)) return null;
       if (key === "ArrowLeft" || key === "ArrowRight") return fastHomeSibling(rail, active, key === "ArrowRight" ? 1 : -1, ".card");
-      if (key === "ArrowUp") return activeHomeChip();
+      if (key === "ArrowUp") {
+        const clear = searchClearButton();
+        if (clear) {
+          state.searchReturnCard = active;
+          return clear;
+        }
+        return activeHomeChip();
+      }
       if (key === "ArrowDown") return activeGridCardNear(active) || firstActiveGridCard();
+      return null;
+    }
+
+    function fastHomeSearchControlTarget(key, active) {
+      if (active !== searchClearButton()) return null;
+      if (key === "ArrowDown") return searchReturnCard(active) || firstActiveGridCard();
+      if (key === "ArrowUp") return activeHomeChip();
       return null;
     }
 
@@ -13653,7 +13799,7 @@ nsec: ${state.identity.nsec}` : "身份未就绪";
       const active = document.activeElement;
       const current = fromEl || (isVisibleFocusable(active) ? active : null);
       if (key === "ArrowDown" && current && current.closest && current.closest("#chips") && current === activeHomeChip()) {
-        const target = firstSearchResultCard() || firstActiveGridCard();
+        const target = searchReturnCard(current) || firstActiveGridCard();
         if (target) return target;
       }
       if (key === "ArrowUp" && current && current.classList && current.classList.contains("card")) {

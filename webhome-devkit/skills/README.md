@@ -17,7 +17,7 @@
 2. 不支持原生 skill 的客户端，用项目规则或自定义指令要求 AI 在相关任务前完整读取对应 `SKILL.md`。
 3. 让 AI 明确读取关联 reference。`SKILL.md` 里写了何时读取 `references/`、`assets/`、`scripts/`，不要只让 AI 看摘要。
 4. 做网站逆向时，如果 `curl`、probe、`fm.req` 异常，应切换 Playwright/CDP/Chrome DevTools/App WebView 调试做正常浏览器观察；不要做 WAF 绕过、验证码处理、clearance cookie 获取或隐私 token 提取。
-5. 生成 WebHome 播放入口时，尽量传 `pic` 和 `wallPic`；`pic` 是海报/默认 artwork，`wallPic` 是原生播放页背景图，推荐横屏剧照/backdrop。没有 `wallPic` 时播放页使用 App 默认背景/壁纸，不用 `pic` 兜底。
+5. 生成 WebHome 播放入口时，尽量传 `pic` 和 `wallPic`；`pic` 是海报/默认 artwork，`wallPic` 是原生播放页背景图，推荐横屏剧照/backdrop。没有 `wallPic` 时播放页使用 App 默认背景/壁纸，不用 `pic` 兜底。若页面自己渲染最近观看并支持 push 记录继续播放，应额外缓存 URL 到 `{ pic, wallPic }` 的映射，因为原生 push 历史不保证带回 `wallPic`。
 6. 遇到登录、验证或盾页时，可以启动浏览器或连接 App WebView 让用户人工完成交互，再基于授权会话观察 DOM/Network/Console；skill 应强调观察和诊断，不应生成自动绕过验证的代码。
 7. 移动端顶部有固定/粘性操作区时，只在 `edge`/`immersive`/fullscreen 等系统栏融合状态预留顶部安全区，退出全屏恢复普通 chrome 后要移除该预留。
 
@@ -121,7 +121,7 @@ WebHome 相关任务必须先读取本项目 `skills/`：
    - `skills/webhome-extension-builder/SKILL.md`
 2. 按 SKILL.md 的 Source Material 继续读取必要 references/templates/scripts。
 3. 保持旧 Android WebView 兼容，JS 语法基线 ES2017。
-4. 播放入口传 `pic`/`wallPic`，需要时调用 `fm.preloadArtwork(pic, wallPic)`。
+4. 播放入口传 `pic`/`wallPic`，需要时调用 `fm.preloadArtwork(pic, wallPic)`；对 `fm.pan.play()` 的最近观看恢复场景，用 `fm.cache` 保存并还原 push artwork。
 5. 网站逆向先做浏览器/Playwright/CDP 观察，不写 WAF 绕过逻辑。
 ```
 

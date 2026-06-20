@@ -403,7 +403,7 @@ await fm.play("https://example.com/video.m3u8", "影片名", {
 });
 ```
 
-进入 App 推送播放链路（`SiteApi.PUSH`）。`pic` 是海报/默认 artwork，`wallPic` 是播放页背景图；没有 `wallPic` 时播放页使用 App 默认背景/壁纸，不用 `pic` 兜底。传了 `headers` 或 `credentials: "include"` 时，播放 URL 自动转成 `/webResource` 网关地址。`url` 也可以是 App 可识别的特殊协议地址（主文档 26.12）。
+进入 App 推送播放链路（`SiteApi.PUSH`）。`pic` 是海报/默认 artwork，`wallPic` 是播放页背景图；没有 `wallPic` 时播放页使用 App 默认背景/壁纸，不用 `pic` 兜底。传了 `headers` 或 `credentials: "include"` 时，播放 URL 自动转成 `/webResource` 网关地址。`url` 也可以是 App 可识别的特殊协议地址（主文档 26.12）。如果页面要自己用 `fm.history()` 渲染 push 最近观看，应额外用 `fm.cache` 按 URL 保存并恢复 `pic/wallPic`，不要假设原生历史一定带回 `wallPic`。
 
 #### `fm.vod(siteKey, vodId, title, pic, { wallPic })` — 打开 CSP 站点影片
 
@@ -421,7 +421,7 @@ await fm.play("https://example.com/video.m3u8", "影片名", {
 
 #### `fm.pan.play({ type, url, password, title, pic, wallPic })`
 
-统一推送播放入口：网盘分享、`magnet:`、`ed2k:`、`thunder:`、`jianpian:`、普通 http 均可，内部走 `SiteApi.PUSH`/`push_agent`/`pvideo` 链路。`type` 只用于语义和日志，不参与路由。`pic`/`wallPic` 只影响原生播放页展示图，不参与解析。开头的 `push://` 会自动剥离。不受网盘检测开关影响。
+统一推送播放入口：网盘分享、`magnet:`、`ed2k:`、`thunder:`、`jianpian:`、普通 http 均可，内部走 `SiteApi.PUSH`/`push_agent`/`pvideo` 链路。`type` 只用于语义和日志，不参与路由。`pic`/`wallPic` 只影响原生播放页展示图，不参与解析。开头的 `push://` 会自动剥离。不受网盘检测开关影响。原生历史对 push 链路通常只可靠保留海报；WebHome 自建“最近观看”需要继续保留剧照时，应在播放前用 `fm.cache` 缓存 URL 到 `{ pic, wallPic }` 的映射，并在读取 `fm.history()` 后恢复。
 
 推荐 `type`：`quark` / `aliyun` / `baidu` / `uc` / `xunlei` / `tianyi` / `123` / `115` / `mobile` / `magnet` / `ed2k` / `thunder` / `jianpian` / `http`。
 

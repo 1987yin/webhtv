@@ -34,6 +34,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     private String[] caption;
     private String[] render;
     private String[] scale;
+    private String[] osd;
 
     public static SettingPlayerFragment newInstance() {
         return new SettingPlayerFragment();
@@ -60,6 +61,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.audioDecodeText.setText(getSwitch(PlayerSetting.isAudioPrefer()));
         mBinding.videoDecodeText.setText(getSwitch(PlayerSetting.isVideoPrefer()));
         mBinding.caption.setVisibility(PlayerSetting.hasCaption() ? View.VISIBLE : View.GONE);
+        mBinding.osdText.setText(getOsdText(osd = ResUtil.getStringArray(R.array.select_player_osd)));
         mBinding.scaleText.setText((scale = ResUtil.getStringArray(R.array.select_scale))[PlayerSetting.getScale()]);
         mBinding.renderText.setText((render = ResUtil.getStringArray(R.array.select_render))[PlayerSetting.getRender()]);
         mBinding.captionText.setText((caption = ResUtil.getStringArray(R.array.select_caption))[PlayerSetting.isCaption() ? 1 : 0]);
@@ -71,6 +73,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.ua.setOnClickListener(this::onUa);
         mBinding.aac.setOnClickListener(this::setAAC);
         mBinding.scale.setOnClickListener(this::onScale);
+        mBinding.osd.setOnClickListener(this::onOsd);
         mBinding.speed.setOnClickListener(this::onSpeed);
         mBinding.buffer.setOnClickListener(this::onBuffer);
         mBinding.render.setOnClickListener(this::setRender);
@@ -104,6 +107,37 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
             PlayerSetting.putScale(which);
             dialog.dismiss();
         }).show();
+    }
+
+    private void onOsd(View view) {
+        boolean[] checked = getOsdChecked();
+        new MaterialAlertDialogBuilder(requireActivity()).setTitle(R.string.player_osd).setNegativeButton(R.string.dialog_negative, null).setPositiveButton(R.string.dialog_positive, (dialog, which) -> {
+            setOsdChecked(checked);
+            mBinding.osdText.setText(getOsdText(osd));
+        }).setMultiChoiceItems(osd, checked, (dialog, which, isChecked) -> checked[which] = isChecked).show();
+    }
+
+    private boolean[] getOsdChecked() {
+        return new boolean[]{PlayerSetting.isOsdTitle(), PlayerSetting.isOsdTime(), PlayerSetting.isOsdProgress(), PlayerSetting.isOsdTraffic(), PlayerSetting.isOsdMini()};
+    }
+
+    private void setOsdChecked(boolean[] checked) {
+        PlayerSetting.putOsdTitle(checked[0]);
+        PlayerSetting.putOsdTime(checked[1]);
+        PlayerSetting.putOsdProgress(checked[2]);
+        PlayerSetting.putOsdTraffic(checked[3]);
+        PlayerSetting.putOsdMini(checked[4]);
+    }
+
+    private String getOsdText(String[] items) {
+        boolean[] checked = getOsdChecked();
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < checked.length; i++) {
+            if (!checked[i]) continue;
+            if (builder.length() > 0) builder.append(" / ");
+            builder.append(items[i]);
+        }
+        return builder.length() == 0 ? getString(R.string.setting_off) : builder.toString();
     }
 
     private void onSpeed(View view) {

@@ -752,6 +752,7 @@
     <string name="player_buffer">緩衝時間</string>
     <string name="player_speed">長按倍速</string>
     <string name="player_ua">User-Agent</string>
+    <string name="player_osd">屏顯設定</string>
 
     <!-- Danmaku -->
     <string name="danmaku_load">彈幕載入</string>
@@ -864,6 +865,14 @@
     <string-array name="select_caption">
         <item>預設</item>
         <item>系統</item>
+    </string-array>
+
+    <string-array name="select_player_osd">
+        <item>標題</item>
+        <item>時間</item>
+        <item>進度</item>
+        <item>網速</item>
+        <item>迷你</item>
     </string-array>
 
     <string-array name="select_track">

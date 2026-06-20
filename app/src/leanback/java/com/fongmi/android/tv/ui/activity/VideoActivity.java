@@ -71,6 +71,7 @@ import com.fongmi.android.tv.ui.adapter.QuickAdapter;
 import com.fongmi.android.tv.ui.custom.CustomKeyDownVod;
 import com.fongmi.android.tv.ui.custom.CustomMovement;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
+import com.fongmi.android.tv.ui.custom.PlayerOsdController;
 import com.fongmi.android.tv.ui.dialog.ContentDialog;
 import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
@@ -112,6 +113,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private QuickAdapter mQuickAdapter;
     private FlagAdapter mFlagAdapter;
     private PartAdapter mPartAdapter;
+    private PlayerOsdController mOsd;
     private CustomKeyDownVod mKeyDown;
     private SiteViewModel mViewModel;
     private List<String> mBroken;
@@ -248,6 +250,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         return mEpisodeAdapter.getActivated();
     }
 
+    private String getOsdTitle() {
+        String name = getName();
+        if (mEpisodeAdapter == null || mEpisodeAdapter.getItemCount() == 0) return name;
+        String episode = Objects.toString(getEpisode().getName(), "");
+        if (TextUtils.isEmpty(episode) || TextUtils.equals(name, episode)) return name;
+        return TextUtils.isEmpty(name) ? episode : name + " " + episode;
+    }
+
     private int getScale() {
         return mHistory != null && mHistory.getScale() != -1 ? mHistory.getScale() : PlayerSetting.getScale();
     }
@@ -342,6 +352,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         checkCast();
         SpiderDebug.log("video-flow", "initView preview ready cost=%dms", System.currentTimeMillis() - start);
         setRecyclerView();
+        mOsd = new PlayerOsdController(mBinding.osd.getRoot(), mBinding.osd.osdTopLeft, mBinding.osd.osdTopRight, mBinding.osd.osdBottomLeft, mBinding.osd.osdBottomRight, new PlayerOsdController.Source() {
+            @Override
+            public PlayerManager getPlayer() {
+                return service() == null ? null : player();
+            }
+
+            @Override
+            public String getTitle() {
+                return getOsdTitle();
+            }
+        }, 18f, 14f);
         SpiderDebug.log("video-flow", "initView recycler ready cost=%dms", System.currentTimeMillis() - start);
         setVideoView();
         SpiderDebug.log("video-flow", "initView video view ready cost=%dms", System.currentTimeMillis() - start);
@@ -600,7 +621,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         setUseParse(result.shouldUseParse());
         setQualityVisible(result.getUrl().isMulti());
         result.getUrl().set(mQualityAdapter.getPosition());
-        if (result.hasArtwork()) setArtwork(result.getArtwork());
+        if (result.hasArtwork() && !shouldKeepPushArtwork()) setArtwork(result.getArtwork());
         if (result.hasDesc()) mBinding.content.setTag(result.getDesc());
         if (result.hasPosition()) mHistory.setPosition(result.getPosition());
         mBinding.control.parse.setVisibility(isUseParse() ? View.VISIBLE : View.GONE);
@@ -1258,9 +1279,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.control.action.speed.setText(player().setSpeed(mHistory.getSpeed()));
         mHistory.setVodName(item.getName());
         PlaybackEventCollector.get().updateHistory(mHistory);
-        setArtwork(item.getPic());
+        setArtwork(getInitialArtwork(item));
         setScale(getScale());
         setPartAdapter();
+    }
+
+    private boolean shouldKeepPushArtwork() {
+        return SiteApi.PUSH.equals(getKey()) && !TextUtils.isEmpty(getPic());
+    }
+
+    private String getInitialArtwork(Vod item) {
+        return shouldKeepPushArtwork() ? getPic() : item.getPic();
     }
 
     private boolean hasInitialPreview() {
@@ -1782,11 +1811,13 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     protected void onStart() {
         super.onStart();
         mClock.stop().start();
+        if (mOsd != null) mOsd.start();
     }
 
     @Override
     protected void onStop() {
         super.onStop();
+        if (mOsd != null) mOsd.stop();
         if (PlayerSetting.isBackgroundOff()) mClock.stop();
     }
 
@@ -1812,6 +1843,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         DanmakuApi.cancel();
         RefreshEvent.keep();
         App.removeCallbacks(mR1, mR2, mR3, mR4);
+        if (mOsd != null) mOsd.release();
         mViewModel.getResult().removeObserver(mObserveDetail);
         mViewModel.getPlayer().removeObserver(mObservePlayer);
         mViewModel.getSearch().removeObserver(mObserveSearch);

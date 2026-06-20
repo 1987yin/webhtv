@@ -758,6 +758,7 @@
     <string name="player_buffer">Buffer time</string>
     <string name="player_speed">Press speed</string>
     <string name="player_ua">User-Agent</string>
+    <string name="player_osd">On-screen display</string>
 
     <!-- Danmaku -->
     <string name="danmaku_load">Danmaku load</string>
@@ -875,6 +876,14 @@
     <string-array name="select_caption">
         <item>Default</item>
         <item>System</item>
+    </string-array>
+
+    <string-array name="select_player_osd">
+        <item>Title</item>
+        <item>Clock</item>
+        <item>Progress</item>
+        <item>Network speed</item>
+        <item>Mini</item>
     </string-array>
 
     <string-array name="select_track">

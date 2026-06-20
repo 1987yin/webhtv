@@ -81,6 +81,7 @@ The demo separates fast paths and fallback:
 - Homepage grid uses `data-card-index` and cached `gridColumns()`.
 - Horizontal rails use previous/next siblings.
 - Tabs and search form use explicit directional rules.
+- Search result cards route Up to the clear/close button, and the clear/close button remembers the originating result so Down restores that same card. If the user goes Up from clear/close to category tabs, Down should still return to the remembered result instead of the first or last result.
 - PanSou tabs/results are a local focus domain.
 - Search suggestions are a local focus domain.
 - Connection/status panel is a local focus domain.
@@ -93,6 +94,17 @@ Use `focusRemoteTarget()` as the only focus entry point. It should:
 - maybe append more grid items when near the end,
 - schedule scroll correction through `requestAnimationFrame`,
 - avoid scrolling homepage top chips when the user has scrolled down.
+
+## Detail Visual Pattern
+
+The Nostr detail page should keep the content image clear while only blending the seam:
+
+- The visible hero/still layer remains sharp for most of its height.
+- Only the bottom edge uses a narrow `mask-image` / `-webkit-mask-image` feather.
+- The liquid or blurred look belongs to the lower background strip/layer, not the entire still.
+- If the feather range grows too tall, it will hide usable still content; tune the range down before changing the artwork source.
+- Translucent/card detail modes should override the masks and keep framed artwork crisp.
+- Synopsis paragraphs should not keep old right padding for an overlaid "more" control after the control is placed below the text.
 
 ## PanSou Pattern
 
@@ -138,6 +150,8 @@ The demo separates poster/default artwork from playback background:
 - `vodPlaybackOptions(item)` returns `{ wallPic }` for `fm.vod()` when a backdrop exists.
 - Detail search playback calls `fm.search(title, { direct: true, pic, wallPic })` so native search-result playback can retain the WebHome backdrop.
 - `buildPanPlayPayload(item)` passes `pic` and `wallPic` to `fm.pan.play()` so pan/push playback uses the same native artwork.
+- Before `fm.pan.play()`, the demo caches push URL artwork in `fm.cache`; when `fm.history()` returns `push_agent` records, it restores `pic/wallPic` from that cache so WebHome recent playback still opens native player with a backdrop.
+- WebHome recent should not filter out `push_agent` or no-poster history only because `vodPic`/`wallPic` is empty; use cached or placeholder artwork and route replay through the push/pan semantic path.
 - `preloadPlaybackArtwork(item)` calls `fm.preloadArtwork(pic, wallPic)` once per media/artwork pair and ignores preload failure.
 - Native playback backgrounds are not derived from `pic`; if `wallPic` is missing, the player uses the App default background/wallpaper.
 

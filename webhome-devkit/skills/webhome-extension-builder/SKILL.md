@@ -67,7 +67,7 @@ Resource routing rules:
 - Preserve copy buttons and normal site navigation unless the user explicitly asks to replace them.
 - Use capture-phase click handlers for resource routing and wrap async actions in `try/catch` or `.catch()`.
 - Use `fm.play(url, title, { headers: { Referer: ... }, credentials: "include" })` for direct media.
-- Use `fm.pan.play({ type, url, password, title })` for pan, magnet, ed2k, thunder, jianpian, and generic push links.
+- Use `fm.pan.play({ type, url, password, title, pic, wallPic })` for pan, magnet, ed2k, thunder, jianpian, and generic push links. Pass the best known poster as `pic` and backdrop/still as `wallPic`; do not expect `pic` to become a playback background.
 - Use `fm.req()` for JS/API reads that need native networking; use `fm.res()` for DOM media/image URLs that need the local resource gateway.
 
 UI and TV rules:

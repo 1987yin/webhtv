@@ -80,7 +80,7 @@ Use these WebHome SDK APIs instead of browser-only assumptions:
 - `fm.vod(siteKey, vodId, title, pic, options)` for native CSP detail/playback. Pass `options.wallPic` when the homepage knows a backdrop.
 - `fm.vodInline(payload)` for temporary multi-episode native playback. Include `vod_pic`/`pic` and `wallPic` in the payload.
 - `fm.preloadArtwork(pic, wallPic)` after detail artwork is known, so Native can prewarm the player images. Do not block the user click waiting for this preload.
-- `fm.pan.play({ type, url, password, title, pic, wallPic })` for pan shares, magnet, ed2k, thunder, jianpian, and push-style playback.
+- `fm.pan.play({ type, url, password, title, pic, wallPic })` for pan shares, magnet, ed2k, thunder, jianpian, and push-style playback. When the homepage renders its own recent history, cache push URL artwork with `fm.cache` before playback and restore `wallPic` after `fm.history()`, because native push history may not carry backdrops.
 - `fm.config()` before `fm.pan.check()`. If `driveCheck` is false, do not call detection.
 - `fm.history()` and `fm.stat()` to compensate watch progress after native playback.
 - `fm.ui.setChrome()`, `fm.ui.restoreChrome()`, and `fm.ui.getViewport()` for homepage chrome and safe-area integration.
@@ -99,6 +99,10 @@ Transparent WebView:
 - Provide a non-App fallback background via `html:not(.fm-native)`.
 - Put text on semi-transparent panels, buttons, chips, cards, or detail surfaces. Do not place body text directly on wallpaper.
 - For transparent full-screen overlays, hide the underlying WebHome layer while the overlay is active to avoid stacked content.
+- For mobile/detail artwork blending, keep the main still image sharp; feather only the bottom seam with `mask-image` and `-webkit-mask-image`.
+- Put liquid/blur effects on a separate lower strip or background layer, not over the full still image; full-cover `backdrop-filter` can make the entire still look soft.
+- Keep the feather strip narrow after tuning, and disable these masks in translucent/card detail modes where the artwork is already framed.
+- Synopsis text should use the available width; do not leave permanent right padding for a "more" button after the button moves below the paragraph.
 
 Safe area and chrome:
 
@@ -115,6 +119,8 @@ TV remote:
 - Trap directional keys inside active local domains such as search suggestions, settings/status panels, PanSou results, image viewers, and detail sheets.
 - Make text fields `readonly` by default on TV; OK/touch enters edit mode, blur/back exits edit mode.
 - Prefer deterministic grid/list navigation by index and cached column count. Use geometry search only as a fallback.
+- In search results, make the close/clear control part of the focus chain: result card Up -> close/clear; close/clear Down -> originating card; close/clear Up -> category tab; category tab Down -> remembered result card.
+- Keep search-result focus rules in both fast-path navigation and fallback geometry search, and store the originating result key/index when leaving a result card.
 - Focus style must not change layout dimensions. Use outline, existing border, background, or light transform.
 
 ## Performance Rules
@@ -138,7 +144,7 @@ For PanSou-like resource search:
 - Rank health states as playable first: `ok`, `locked`, pending/idle, unsupported/uncertain, then `bad`.
 - Before `fm.pan.play()`, save detail scroll, result scroll, active type, focus key, and selected result so native-playback return can restore context.
 - Before `fm.search()` from a detail page, pass `{ direct: true, pic, wallPic }` so native search-result playback can still use the WebHome backdrop.
-- Before `fm.play()`, `fm.vod()`, `fm.vodInline()`, or `fm.pan.play()`, pass the best known `pic` and `wallPic`. Use poster art for `pic` and landscape/backdrop/still art for `wallPic`; do not rely on `pic` as a playback background fallback.
+- Before `fm.play()`, `fm.vod()`, `fm.vodInline()`, or `fm.pan.play()`, pass the best known `pic` and `wallPic`. Use poster art for `pic` and landscape/backdrop/still art for `wallPic`; do not rely on `pic` as a playback background fallback. For `fm.pan.play()` entries that should reappear in WebHome recent history, persist a small URL-to-artwork cache so `push_agent` records can restore `wallPic` on replay.
 
 For watch preference or recommendation systems:
 
@@ -178,4 +184,6 @@ Also verify:
 - App requests use `fm.req`/`fm.res`; SDK promises catch failures.
 - No WAF/challenge bypass logic, stealth automation patching, CAPTCHA solving, clearance-cookie harvesting, account cookie embedding, or per-account token leakage.
 - TV can move focus, activate controls, edit text intentionally, and return from each local panel.
+- Search-result focus validates card Up, close/clear Down, close/clear Up, and category-tab Down paths.
+- Mobile detail keeps the upper still sharp, feathers only the bottom seam, and synopsis text has no unexplained right gutter or "more" overlap.
 - Debug logs show no `SyntaxError`, WebView render crash, or SDK call failures.

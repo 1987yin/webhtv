@@ -126,7 +126,7 @@ WebHome 页面会注入 `window.fongmi` 和简写 `window.fm`,网页可以直接
 | `fm.ui.setToolbar(visible)` | 控制 App 工具栏显示 |
 | `fm.back()` / `fm.reload()` | 处理网页返回和刷新 |
 
-播放页图片语义:`pic` 是海报/播放器默认图,`wallPic` 是播放页背景图。App 不会自动判断横竖屏,WebHome 应把竖版海报放在 `pic`,把横屏剧照/背景图放在 `wallPic`;播放背景只使用 `wallPic`,没有 `wallPic` 时显示 App 默认背景/壁纸,不会再用 `pic` 兜底。`fm.play`、`fm.vod`、`fm.vodInline`、`fm.pan.play` 共用这套语义;`fm.search(keyword, { direct: true, pic, wallPic })` 可把详情页图片带到原生搜索结果后续播放链路。详情页拿到图片后可先调用 `fm.preloadArtwork(pic, wallPic)` 预热原生 Glide 缓存,点击继续观看、搜索播放或播放时仍应直接调用对应入口,不要在点击后等待预热。
+播放页图片语义:`pic` 是海报/播放器默认图,`wallPic` 是播放页背景图。App 不会自动判断横竖屏,WebHome 应把竖版海报放在 `pic`,把横屏剧照/背景图放在 `wallPic`;播放背景只使用 `wallPic`,没有 `wallPic` 时显示 App 默认背景/壁纸,不会再用 `pic` 兜底。`fm.play`、`fm.vod`、`fm.vodInline`、`fm.pan.play` 共用这套语义;`fm.search(keyword, { direct: true, pic, wallPic })` 可把详情页图片带到原生搜索结果后续播放链路。详情页拿到图片后可先调用 `fm.preloadArtwork(pic, wallPic)` 预热原生 Glide 缓存,点击继续观看、搜索播放或播放时仍应直接调用对应入口,不要在点击后等待预热。WebHome 如果自己渲染最近观看并支持从 `push_agent` 记录继续播放,应在调用 `fm.pan.play()` 前用 `fm.cache` 按播放 URL 保存 `{ pic, wallPic }`,读取 `fm.history()` 后再恢复这些图片;原生历史通常只可靠保存海报,不能依赖它带回 `wallPic`。
 
 SDK 相关事件:
 
@@ -190,7 +190,7 @@ Content-Type: application/json
 
 检测接口支持批量提交,内部每批最多 10 条并发检测,超过 10 条自动分批。WebHome 开发时建议只检测用户当前可见范围内、且 App 支持的网盘类型,避免无意义请求和界面跳动。
 
-`fm.pan.play({ type, url, password, title, pic, wallPic })` 是 WebHome 的网盘播放语义入口,内部复用 App 已有的 `push_agent/pvideo` 播放链路。因为底层进入 `SiteApi.PUSH`,磁力、电驴、thunder、jianpian 等地址也可以走这个入口。性能与直接推送 `push://` 基本一致,但语义更清晰,也方便后续 App 内部调整播放策略。`password` 参数保留在 API 形态中,当前播放链路主要依赖 App/JAR/pvideo 自身处理。`pic`/`wallPic` 只影响原生播放页展示图,不参与网盘解析。
+`fm.pan.play({ type, url, password, title, pic, wallPic })` 是 WebHome 的网盘播放语义入口,内部复用 App 已有的 `push_agent/pvideo` 播放链路。因为底层进入 `SiteApi.PUSH`,磁力、电驴、thunder、jianpian 等地址也可以走这个入口。性能与直接推送 `push://` 基本一致,但语义更清晰,也方便后续 App 内部调整播放策略。`password` 参数保留在 API 形态中,当前播放链路主要依赖 App/JAR/pvideo 自身处理。`pic`/`wallPic` 只影响原生播放页展示图,不参与网盘解析。若后续从 WebHome 自己的“最近观看”再次打开同一个 push 记录,建议按 URL 缓存并恢复 `wallPic`,避免原生历史缺少剧照导致播放页没有背景。
 
 ### 6.1 调试日志
 
@@ -206,7 +206,7 @@ Content-Type: application/json
 
 - 自定义盘搜服务地址、账号密码认证、自定义 TG 频道。
 - 按网盘类型分 Tab 展示,对支持的类型调用 App 内置检测,只检测可见范围内的结果,检测结果用状态圆点表达。
-- 点击资源后调用 `fm.pan.play({ type, url, password, title, pic, wallPic })` 交给 App 播放，并把详情页海报/剧照带给原生播放页。
+- 点击资源前缓存 URL 对应的海报/剧照,再调用 `fm.pan.play({ type, url, password, title, pic, wallPic })` 交给 App 播放；这样原生播放页和 WebHome “最近观看”继续播放都能拿到同一组图片。
 
 PanSou 搜索结果可能是异步补充的,示例页会轮询合并新增结果。
 

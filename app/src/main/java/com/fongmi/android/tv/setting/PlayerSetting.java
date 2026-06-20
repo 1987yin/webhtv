@@ -127,4 +127,48 @@ public class PlayerSetting {
     public static void putSubtitlePosition(float value) {
         Prefers.put("subtitle_position", value);
     }
+
+    public static boolean isOsdTitle() {
+        return Prefers.getBoolean("player_osd_title");
+    }
+
+    public static void putOsdTitle(boolean value) {
+        Prefers.put("player_osd_title", value);
+    }
+
+    public static boolean isOsdTime() {
+        return Prefers.getBoolean("player_osd_time");
+    }
+
+    public static void putOsdTime(boolean value) {
+        Prefers.put("player_osd_time", value);
+    }
+
+    public static boolean isOsdProgress() {
+        return Prefers.getBoolean("player_osd_progress");
+    }
+
+    public static void putOsdProgress(boolean value) {
+        Prefers.put("player_osd_progress", value);
+    }
+
+    public static boolean isOsdTraffic() {
+        return Prefers.getBoolean("player_osd_traffic");
+    }
+
+    public static void putOsdTraffic(boolean value) {
+        Prefers.put("player_osd_traffic", value);
+    }
+
+    public static boolean isOsdMini() {
+        return Prefers.getBoolean("player_osd_mini");
+    }
+
+    public static void putOsdMini(boolean value) {
+        Prefers.put("player_osd_mini", value);
+    }
+
+    public static boolean isOsdEnabled() {
+        return isOsdTitle() || isOsdTime() || isOsdProgress() || isOsdTraffic();
+    }
 }
