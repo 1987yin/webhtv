@@ -28,6 +28,7 @@ import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Player;
 import androidx.media3.common.VideoSize;
 import androidx.media3.ui.PlayerView;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
@@ -118,6 +119,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private Observer<Result> mObservePlayer;
     private Observer<Result> mObserveSearch;
     private EpisodeAdapter mEpisodeAdapter;
+    private EpisodeAdapter mEpisodeGridAdapter;
     private QualityAdapter mQualityAdapter;
     private ArrayAdapter mArrayAdapter;
     private ParseAdapter mParseAdapter;
@@ -136,6 +138,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private boolean detailRequested;
     private boolean detailHealthRecorded;
     private boolean playHealthRecorded;
+    private boolean episodeGridMode;
     private Runnable mR1;
     private Runnable mR2;
     private Runnable mR3;
@@ -434,6 +437,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.control.action.next.setOnClickListener(view -> checkNext());
         mBinding.control.action.prev.setOnClickListener(view -> checkPrev());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
+        mBinding.episodeReverse.setOnClickListener(view -> onRevSort());
+        mBinding.episodeViewMode.setOnClickListener(view -> toggleEpisodeViewMode());
         mBinding.control.action.scale.setOnClickListener(view -> onScale());
         mBinding.control.action.speed.setOnClickListener(view -> onSpeed());
         mBinding.control.action.reset.setOnClickListener(view -> onReset());
@@ -465,6 +470,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             }
         });
         mBinding.episode.setOnKeyListener((view, keyCode, event) -> onEpisodeKey(event));
+        mBinding.episodeGrid.setOnKeyListener((view, keyCode, event) -> onEpisodeKey(event));
         mBinding.array.addOnChildViewHolderSelectedListener(new OnChildViewHolderSelectedListener() {
             @Override
             public void onChildViewHolderSelected(@NonNull RecyclerView parent, @Nullable RecyclerView.ViewHolder child, int position, int subposition) {
@@ -477,11 +483,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.flag.setHorizontalSpacing(ResUtil.dp2px(8));
         mBinding.flag.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.flag.setAdapter(mFlagAdapter = new FlagAdapter(this));
-        int episodeColumn = getEpisodeColumn();
         mBinding.episode.setHorizontalSpacing(ResUtil.dp2px(8));
+        mBinding.episode.setVerticalSpacing(ResUtil.dp2px(8));
         mBinding.episode.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.episode.setAdapter(mEpisodeAdapter = new EpisodeAdapter(this, this::onEpisodeLongClick));
         mEpisodeAdapter.setColumn(1); // 横向滚动，固定1列
+        int episodeGridSpan = getEpisodeGridSpanCount();
+        mBinding.episodeGrid.setItemAnimator(null);
+        mBinding.episodeGrid.setLayoutManager(new GridLayoutManager(this, episodeGridSpan));
+        mBinding.episodeGrid.setAdapter(mEpisodeGridAdapter = new EpisodeAdapter(this, this::onEpisodeLongClick));
+        mEpisodeGridAdapter.setGridMode(true);
+        mEpisodeGridAdapter.setVerticalGridMode(true);
+        mEpisodeGridAdapter.setColumn(episodeGridSpan);
         mBinding.quality.setHorizontalSpacing(ResUtil.dp2px(8));
         mBinding.quality.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.quality.setAdapter(mQualityAdapter = new QualityAdapter(this));
@@ -525,6 +538,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private int getEpisodeColumn() {
         return mEpisodeAdapter == null ? 8 : EpisodeAdapter.getColumn(mEpisodeAdapter.getItems());
+    }
+
+    private int getEpisodeGridSpanCount() {
+        int width = Math.max(ResUtil.dp2px(320), ResUtil.getScreenWidth() - ResUtil.dp2px(48));
+        return Math.max(2, Math.min(6, width / ResUtil.dp2px(280)));
     }
 
     private void setDecode() {
@@ -840,18 +858,24 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private void setEpisodeAdapter(List<Episode> items, boolean scrollToCurrent) {
         boolean isEmpty = items.isEmpty();
+        boolean hasMultiple = items.size() > 1;
         mBinding.episodeContainer.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
         mBinding.control.action.episodes.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
 
         // 先添加数据，让适配器检测是否有TMDB数据
         mEpisodeAdapter.addAll(items);
+        mEpisodeGridAdapter.addAll(items);
 
         // 根据设置决定是否使用TMDB卡片模式
         boolean useTmdbCard = isTmdbSourceEnabled();
+        if (!useTmdbCard || !hasMultiple) episodeGridMode = false;
+        mBinding.episodeHeader.setVisibility(useTmdbCard && !isEmpty ? View.VISIBLE : View.GONE);
+        mBinding.episodeReverse.setVisibility(useTmdbCard && hasMultiple ? View.VISIBLE : View.GONE);
+        mBinding.episodeViewMode.setVisibility(useTmdbCard && hasMultiple ? View.VISIBLE : View.GONE);
         mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
+        mEpisodeGridAdapter.setUseTmdbCard(useTmdbCard);
 
-        // 横向滚动，所有模式都使用1列
-        mEpisodeAdapter.setColumn(1);
+        applyEpisodeViewMode(false);
 
         // 如果是TMDB卡片模式，检查是否所有剧集都有TMDB数据
         boolean hasTmdbData = false;
@@ -863,13 +887,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (useTmdbCard && !hasTmdbData && !isEmpty) {
             // TMDB模式但数据未加载完成：显示加载中，隐藏列表
             mBinding.episodeLoadingIndicator.setVisibility(View.VISIBLE);
-            mBinding.episode.setVisibility(View.INVISIBLE);
-            mBinding.episode.setAlpha(0f);
+            setEpisodeContentVisible(false);
         } else {
             // 普通模式或TMDB数据已加载：隐藏加载中，显示列表
             mBinding.episodeLoadingIndicator.setVisibility(View.GONE);
-            mBinding.episode.setVisibility(View.VISIBLE);
-            mBinding.episode.setAlpha(1f);
+            setEpisodeContentVisible(true);
         }
 
         setArrayAdapter(items.size());
@@ -879,6 +901,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         // 延迟刷新一次，确保焦点状态正确初始化
         mBinding.episode.post(() -> {
             if (mEpisodeAdapter != null) mEpisodeAdapter.notifyDataSetChanged();
+            if (mEpisodeGridAdapter != null) mEpisodeGridAdapter.notifyDataSetChanged();
         });
     }
 
@@ -886,10 +909,12 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     // 隐藏指示器并以普通文本模式揭开选集列表，避免「正在加载剧集信息...」永久停留
     private void finishEpisodeLoading() {
         if (mBinding.episodeLoadingIndicator.getVisibility() != View.VISIBLE) return;
+        episodeGridMode = false;
+        applyEpisodeViewMode(false);
         mBinding.episodeLoadingIndicator.setVisibility(View.GONE);
-        mBinding.episode.setVisibility(View.VISIBLE);
-        mBinding.episode.setAlpha(1f);
+        setEpisodeContentVisible(true);
         if (mEpisodeAdapter != null) mEpisodeAdapter.notifyDataSetChanged();
+        if (mEpisodeGridAdapter != null) mEpisodeGridAdapter.notifyDataSetChanged();
         SpiderDebug.log("tmdb-tv", "episode loading finished without tmdb episodes, reveal plain list");
     }
 
@@ -916,8 +941,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         int newPosition = mEpisodeAdapter.indexOf(item);
         if (newPosition == RecyclerView.NO_POSITION) newPosition = mEpisodeAdapter.getSelectedPosition();
         mEpisodeAdapter.notifySelectionChanged(oldPosition, newPosition);
-        SpiderDebug.log("video-episode", "select old=%s new=%s focus=%s scroll=%s name=%s", oldPosition, newPosition, mBinding.episode.hasFocus(), scrollToEpisode, item.getName());
-        if (scrollToEpisode && !mBinding.episode.hasFocus()) scrollToEpisode(newPosition);
+        if (mEpisodeGridAdapter != null) mEpisodeGridAdapter.notifySelectionChanged(oldPosition, newPosition);
+        boolean episodeFocused = isEpisodeListFocused() || isEpisodeGridFocused();
+        SpiderDebug.log("video-episode", "select old=%s new=%s focus=%s scroll=%s name=%s", oldPosition, newPosition, episodeFocused, scrollToEpisode, item.getName());
+        if (scrollToEpisode && !episodeFocused) scrollToEpisode(newPosition);
         if (isFullscreen()) Notify.show(getString(R.string.play_ready, item.getName()));
         onRefresh();
     }
@@ -942,6 +969,61 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         else scrollToFirstEpisode();
     }
 
+    private void toggleEpisodeViewMode() {
+        episodeGridMode = !episodeGridMode;
+        applyEpisodeViewMode(true);
+    }
+
+    private void applyEpisodeViewMode(boolean scrollToCurrent) {
+        if (mEpisodeAdapter == null || mEpisodeGridAdapter == null) return;
+        int spanCount = getEpisodeGridSpanCount();
+        RecyclerView.LayoutManager layoutManager = mBinding.episodeGrid.getLayoutManager();
+        if (layoutManager instanceof GridLayoutManager gridLayoutManager && gridLayoutManager.getSpanCount() != spanCount) {
+            gridLayoutManager.setSpanCount(spanCount);
+        }
+        mBinding.episode.setHorizontalSpacing(ResUtil.dp2px(8));
+        mBinding.episode.setVerticalSpacing(ResUtil.dp2px(8));
+        mEpisodeAdapter.setGridMode(false);
+        mEpisodeAdapter.setVerticalGridMode(false);
+        mEpisodeAdapter.setColumn(1);
+        mEpisodeGridAdapter.setGridMode(true);
+        mEpisodeGridAdapter.setVerticalGridMode(true);
+        mEpisodeGridAdapter.setColumn(spanCount);
+        mBinding.episodeViewMode.setText(episodeGridMode ? R.string.detail_episode_view_list : R.string.detail_episode_view_grid);
+        updateEpisodeReverseText();
+        updateFocus();
+        setEpisodeContentVisible(mBinding.episodeLoadingIndicator.getVisibility() != View.VISIBLE);
+        if (scrollToCurrent) scrollToCurrentEpisode();
+    }
+
+    private void updateEpisodeReverseText() {
+        if (mHistory == null) return;
+        mBinding.episodeReverse.setText(mHistory.isRevSort() ? R.string.detail_episode_forward : R.string.detail_episode_reverse);
+    }
+
+    private void setEpisodeContentVisible(boolean visible) {
+        if (!visible) {
+            mBinding.episode.setVisibility(View.INVISIBLE);
+            mBinding.episode.setAlpha(0f);
+            mBinding.episodeGrid.setVisibility(View.GONE);
+            return;
+        }
+        if (episodeGridMode) {
+            mBinding.episode.setVisibility(View.GONE);
+            mBinding.episode.setAlpha(1f);
+            mBinding.episodeGrid.setVisibility(View.VISIBLE);
+            mBinding.episodeGrid.setAlpha(1f);
+        } else {
+            mBinding.episode.setVisibility(View.VISIBLE);
+            mBinding.episode.setAlpha(1f);
+            mBinding.episodeGrid.setVisibility(View.GONE);
+        }
+    }
+
+    private View getActiveEpisodeContentView() {
+        return episodeGridMode ? mBinding.episodeGrid : mBinding.episode;
+    }
+
     private void scrollToCurrentEpisode() {
         scrollToEpisode(mEpisodeAdapter.getPosition());
     }
@@ -956,14 +1038,33 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private void scrollToEpisode(int position, boolean requestFocus) {
         if (position < 0 || position >= mEpisodeAdapter.getItemCount()) return;
-        mBinding.episode.post(() -> {
-            updateEpisodeWindowNow();
-            mBinding.episode.post(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                mBinding.episode.setSelectedPosition(position);
-                if (requestFocus) mBinding.episode.requestFocus();
+        if (episodeGridMode) {
+            mBinding.episodeGrid.post(() -> {
+                updateEpisodeWindowNow();
+                RecyclerView.LayoutManager layoutManager = mBinding.episodeGrid.getLayoutManager();
+                if (layoutManager instanceof GridLayoutManager gridLayoutManager) {
+                    gridLayoutManager.scrollToPositionWithOffset(position, 0);
+                } else {
+                    mBinding.episodeGrid.scrollToPosition(position);
+                }
+                if (!requestFocus) return;
+                mBinding.episodeGrid.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    RecyclerView.ViewHolder holder = mBinding.episodeGrid.findViewHolderForAdapterPosition(position);
+                    if (holder != null) holder.itemView.requestFocus();
+                    else mBinding.episodeGrid.requestFocus();
+                });
             });
-        });
+        } else {
+            mBinding.episode.post(() -> {
+                updateEpisodeWindowNow();
+                mBinding.episode.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    mBinding.episode.setSelectedPosition(position);
+                    if (requestFocus) mBinding.episode.requestFocus();
+                });
+            });
+        }
     }
 
     private void updateEpisodeWindow() {
@@ -1034,32 +1135,77 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private int findFocusDown(int index) {
-        List<Integer> orders = Arrays.asList(R.id.flag, R.id.quality, R.id.array, R.id.episode);
+        List<Integer> orders = getEpisodeFocusOrders();
         for (int i = 0; i < orders.size(); i++) if (i > index) if (isVisible(findViewById(orders.get(i)))) return orders.get(i);
         return 0;
     }
 
     private int findFocusUp(int index) {
-        List<Integer> orders = Arrays.asList(R.id.flag, R.id.quality, R.id.array, R.id.episode);
+        List<Integer> orders = getEpisodeFocusOrders();
         for (int i = orders.size() - 1; i >= 0; i--) if (i < index) if (isVisible(findViewById(orders.get(i)))) return orders.get(i);
         return 0;
     }
 
+    private List<Integer> getEpisodeFocusOrders() {
+        return Arrays.asList(R.id.flag, R.id.quality, R.id.array, R.id.episodeReverse, R.id.episodeViewMode, R.id.episode, R.id.episodeGrid);
+    }
+
     private void updateFocus() {
         mArrayAdapter.setNextFocus(findFocusUp(2), findFocusDown(2));
-        mEpisodeAdapter.setNextFocusUp(findFocusUp(3));
+        mEpisodeAdapter.setNextFocusUp(findFocusUp(5));
         mFlagAdapter.setNextFocusDown(findFocusDown(0));
-        mEpisodeAdapter.setNextFocusDown(findFocusDown(3));
+        mEpisodeAdapter.setNextFocusDown(findFocusDown(5));
+        if (mEpisodeGridAdapter != null) {
+            mEpisodeGridAdapter.setNextFocusUp(findFocusUp(6));
+            mEpisodeGridAdapter.setNextFocusDown(findFocusDown(6));
+        }
+        updateEpisodeHeaderFocus();
+    }
+
+    private void updateEpisodeHeaderFocus() {
+        int up = findFocusUp(3);
+        int down = findFocusDown(4);
+        mBinding.episodeReverse.setNextFocusUpId(up == 0 ? View.NO_ID : up);
+        mBinding.episodeReverse.setNextFocusDownId(down == 0 ? View.NO_ID : down);
+        mBinding.episodeReverse.setNextFocusRightId(R.id.episodeViewMode);
+        mBinding.episodeViewMode.setNextFocusUpId(up == 0 ? View.NO_ID : up);
+        mBinding.episodeViewMode.setNextFocusDownId(down == 0 ? View.NO_ID : down);
+        mBinding.episodeViewMode.setNextFocusLeftId(R.id.episodeReverse);
+    }
+
+    private boolean isEpisodeListFocused() {
+        return isFocusInside(mBinding.episode);
+    }
+
+    private boolean isEpisodeGridFocused() {
+        return isFocusInside(mBinding.episodeGrid);
+    }
+
+    private boolean isFocusInside(View view) {
+        View focus = getCurrentFocus();
+        while (focus != null) {
+            if (focus == view) return true;
+            ViewParent parent = focus.getParent();
+            focus = parent instanceof View ? (View) parent : null;
+        }
+        return false;
     }
 
     private boolean onEpisodeKey(KeyEvent event) {
         if (!KeyUtil.isActionDown(event) || !KeyUtil.isUpKey(event)) return false;
-        RecyclerView.ViewHolder holder = mBinding.episode.findContainingViewHolder(getCurrentFocus());
+        RecyclerView episodeView = episodeGridMode ? mBinding.episodeGrid : mBinding.episode;
+        RecyclerView.ViewHolder holder = episodeView.findContainingViewHolder(getCurrentFocus());
         if (holder == null) return false;
         int position = holder.getBindingAdapterPosition();
-        int column = Math.max(1, EpisodeAdapter.getColumn(mEpisodeAdapter.getItems()));
-        if (position == RecyclerView.NO_POSITION || position >= column) return false;
-        int target = findFocusUp(3);
+        if (position == RecyclerView.NO_POSITION) return false;
+        if (episodeGridMode) {
+            RecyclerView.LayoutManager layoutManager = mBinding.episodeGrid.getLayoutManager();
+            int spanCount = layoutManager instanceof GridLayoutManager gridLayoutManager ? gridLayoutManager.getSpanCount() : getEpisodeGridSpanCount();
+            if (position >= spanCount) return false;
+        } else if (position != 0) {
+            return false;
+        }
+        int target = findFocusUp(episodeGridMode ? 6 : 5);
         if (target == 0) return false;
         View view = findViewById(target);
         if (view == null || view.getVisibility() != View.VISIBLE) return false;
@@ -1678,8 +1824,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                             // TMDB数据加载完成，执行淡入动画
                             setEpisodeAdapter(target.getEpisodes());
                             mBinding.episodeLoadingIndicator.setVisibility(View.GONE);
-                            mBinding.episode.setVisibility(View.VISIBLE);
-                            mBinding.episode.animate()
+                            setEpisodeContentVisible(true);
+                            View episodeView = getActiveEpisodeContentView();
+                            episodeView.setAlpha(0f);
+                            episodeView.animate()
                                     .alpha(1f)
                                     .setDuration(300)
                                     .start();
@@ -2618,28 +2766,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (focused == null) return false;
         // 检查焦点是否在选集卡片上
         if (focused.getId() != R.id.cardContainer) return false;
-        ViewParent parent = focused.getParent();
-        if (parent instanceof ViewGroup) {
-            ViewGroup parentGroup = (ViewGroup) parent;
-            ViewGroup grandParent = parentGroup.getParent() instanceof ViewGroup ? (ViewGroup) parentGroup.getParent() : null;
-            if (grandParent != null) {
-                int pos = mBinding.episode.getChildAdapterPosition(grandParent);
-                if (pos >= 0 && pos < mEpisodeAdapter.getItemCount()) {
-                    Episode item = mEpisodeAdapter.getItems().get(pos);
-                    onEpisodeLongClick(item);
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private boolean isDescendantOf(View child, ViewGroup parent) {
-        if (child == parent) return true;
-        View current = child;
-        while (current != null) {
-            if (current.getParent() == parent) return true;
-            current = current.getParent() instanceof View ? (View) current.getParent() : null;
+        RecyclerView episodeView = episodeGridMode ? mBinding.episodeGrid : mBinding.episode;
+        RecyclerView.ViewHolder holder = episodeView.findContainingViewHolder(focused);
+        if (holder == null) return false;
+        int pos = holder.getBindingAdapterPosition();
+        if (pos >= 0 && pos < mEpisodeAdapter.getItemCount()) {
+            Episode item = mEpisodeAdapter.getItems().get(pos);
+            onEpisodeLongClick(item);
+            return true;
         }
         return false;
     }

@@ -4,82 +4,115 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/cardContainer"
-    android:layout_width="220dp"
-    android:layout_height="wrap_content"
+    android:layout_width="280dp"
+    android:layout_height="160dp"
     android:layout_marginEnd="12dp"
+    android:defaultFocusHighlightEnabled="false"
     android:focusable="true"
     android:focusableInTouchMode="true"
     android:foreground="@drawable/selector_episode_card"
     android:stateListAnimator="@null"
-    android:defaultFocusHighlightEnabled="false"
+    app:cardBackgroundColor="#141A20"
     app:cardCornerRadius="8dp"
-    app:cardElevation="3dp">
+    app:cardElevation="0dp">
 
-    <LinearLayout
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="#2A2A2A"
-        android:orientation="vertical">
+        android:layout_height="match_parent">
 
-        <!-- 剧照 -->
         <ImageView
             android:id="@+id/still"
             android:layout_width="match_parent"
-            android:layout_height="124dp"
-            android:background="#1A1A1A"
+            android:layout_height="match_parent"
+            android:background="#141A20"
             android:contentDescription="@null"
             android:scaleType="centerCrop" />
 
-        <!-- 标题和简介 -->
+        <View
+            android:id="@+id/scrim"
+            android:layout_width="match_parent"
+            android:layout_height="116dp"
+            android:layout_gravity="bottom"
+            android:background="@drawable/shape_episode_card_overlay" />
+
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/dateBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="28dp"
+            android:layout_gravity="top|start"
+            android:layout_margin="10dp"
+            android:background="@drawable/shape_episode_card_badge"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:minWidth="92dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:textColor="@color/white"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:text="2026-06-02"
+            tools:visibility="visible" />
+
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/runtimeBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="28dp"
+            android:layout_gravity="top|end"
+            android:layout_margin="10dp"
+            android:background="@drawable/shape_episode_card_badge"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:minWidth="52dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:textColor="@color/white"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:text="47m"
+            tools:visibility="visible" />
+
         <LinearLayout
+            android:id="@+id/textPanel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
             android:orientation="vertical"
-            android:padding="8dp">
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="12dp">
 
-            <LinearLayout
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/cardTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <com.google.android.material.textview.MaterialTextView
-                    android:id="@+id/cardTitle"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:textColor="@color/white"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    tools:text="第1集" />
-
-                <com.google.android.material.textview.MaterialTextView
-                    android:id="@+id/rating"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:textColor="#FFD700"
-                    android:textSize="12sp"
-                    android:visibility="gone"
-                    tools:text="★8.5" />
-
-            </LinearLayout>
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/white"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                tools:text="1. 楚朝遭灭门傅九舍命" />
 
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/overview"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="8dp"
                 android:ellipsize="end"
+                android:lineSpacingExtra="2dp"
                 android:maxLines="2"
-                android:textColor="#CCCCCC"
-                android:textSize="12sp"
-                tools:text="简介..." />
+                android:textColor="#E6FFFFFF"
+                android:textSize="15sp"
+                android:visibility="gone"
+                tools:text="楚朝是大将军楚岑之女，跟着父亲在大楚边境的云中郡长大。"
+                tools:visibility="visible" />
 
         </LinearLayout>
 
-    </LinearLayout>
+    </FrameLayout>
 
 </androidx.cardview.widget.CardView>

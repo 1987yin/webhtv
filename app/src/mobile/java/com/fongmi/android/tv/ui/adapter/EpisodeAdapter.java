@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.adapter;
 
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.ViewGroup;
 
@@ -7,6 +8,7 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.bean.Episode;
+import com.fongmi.android.tv.bean.TmdbEpisode;
 import com.fongmi.android.tv.databinding.AdapterEpisodeGridBinding;
 import com.fongmi.android.tv.databinding.AdapterEpisodeHoriBinding;
 import com.fongmi.android.tv.ui.base.BaseEpisodeHolder;
@@ -84,7 +86,20 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
      * 绑定标题和长按事件（供 Holder 调用）
      */
     public static String getTitle(Episode item) {
-        return item.getDesc().concat(item.getDisplayName());
+        if (item == null) return "";
+        TmdbEpisode tmdbEpisode = item.getTmdbEpisode();
+        if (tmdbEpisode != null) return getTmdbTitle(item, tmdbEpisode);
+        String title = TextUtils.isEmpty(item.getDisplayName()) ? item.getName() : item.getDisplayName();
+        if (TextUtils.isEmpty(item.getDesc()) || title.startsWith(item.getDesc())) return title;
+        return item.getDesc().concat(title);
+    }
+
+    private static String getTmdbTitle(Episode item, TmdbEpisode tmdbEpisode) {
+        if (!TextUtils.isEmpty(tmdbEpisode.getTitle())) {
+            return tmdbEpisode.getNumber() > 0 ? tmdbEpisode.getNumber() + ". " + tmdbEpisode.getTitle() : tmdbEpisode.getTitle();
+        }
+        if (tmdbEpisode.getNumber() > 0) return "第" + tmdbEpisode.getNumber() + "集";
+        return TextUtils.isEmpty(item.getName()) ? item.getDisplayName() : item.getName();
     }
 
     public static void bindTitle(MaterialTextView text, Episode item) {

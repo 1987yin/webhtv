@@ -41,7 +41,7 @@ public class EpisodeHoriHolder extends BaseEpisodeHolder {
             // 长按显示详细信息对话框
             binding.card.setOnLongClickListener(v -> {
                 // 手机版暂不支持详细信息对话框,使用简单弹窗
-                String title = item.getDesc().concat(item.getDisplayName());
+                String title = EpisodeAdapter.getTitle(item);
                 return com.fongmi.android.tv.ui.custom.EpisodeTitlePopup.show(v, title);
 
                 /* TV版才有EpisodeDetailDialog,手机版暂不支持
@@ -60,7 +60,7 @@ public class EpisodeHoriHolder extends BaseEpisodeHolder {
             });
 
             // 标题
-            binding.cardTitle.setText(item.getDesc().concat(item.getDisplayName()));
+            binding.cardTitle.setText(EpisodeAdapter.getTitle(item));
             binding.cardTitle.setSelected(item.isSelected());
 
             // 剧照
@@ -95,7 +95,7 @@ public class EpisodeHoriHolder extends BaseEpisodeHolder {
 
             binding.text.setMaxWidth(maxWidth);
             binding.text.setSelected(item.isSelected());
-            binding.text.setText(item.getDesc().concat(item.getName()));
+            binding.text.setText(EpisodeAdapter.getTitle(item));
             binding.text.setOnClickListener(v -> listener.onItemClick(item));
         }
     }

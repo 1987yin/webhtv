@@ -18,6 +18,7 @@ import com.fongmi.android.tv.utils.ResUtil;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.ViewHolder> {
 
@@ -33,6 +34,8 @@ public class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.ViewHold
     private int nextFocusUp;
     private int column;
     private boolean useTmdbCard = false;
+    private boolean gridMode = false;
+    private boolean verticalGridMode = false;
 
     public EpisodeAdapter(OnClickListener listener) {
         this(listener, null);
@@ -63,6 +66,18 @@ public class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.ViewHold
 
     public boolean isUsingTmdbCard() {
         return useTmdbCard;
+    }
+
+    public void setGridMode(boolean gridMode) {
+        if (this.gridMode == gridMode) return;
+        this.gridMode = gridMode;
+        notifyDataSetChanged();
+    }
+
+    public void setVerticalGridMode(boolean verticalGridMode) {
+        if (this.verticalGridMode == verticalGridMode) return;
+        this.verticalGridMode = verticalGridMode;
+        notifyDataSetChanged();
     }
 
     public void clear() {
@@ -197,8 +212,8 @@ public class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.ViewHold
         if (textView == null) return;
 
         textView.getLayoutParams().width = getWidth();
-        textView.setNextFocusUpId(position < column && nextFocusUp != 0 ? nextFocusUp : View.NO_ID);
-        textView.setNextFocusDownId(position >= getItemCount() - column && nextFocusDown != 0 ? nextFocusDown : View.NO_ID);
+        textView.setNextFocusUpId(isTopEdge(position) && nextFocusUp != 0 ? nextFocusUp : View.NO_ID);
+        textView.setNextFocusDownId(isBottomEdge(position) && nextFocusDown != 0 ? nextFocusDown : View.NO_ID);
         textView.setSelected(item.isSelected());
         textView.setText(getTitle(item));
         textView.setOnClickListener(v -> mListener.onItemClick(item));
@@ -217,8 +232,12 @@ public class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.ViewHold
         TmdbEpisode tmdbEpisode = item.getTmdbEpisode();
         if (tmdbEpisode == null) return;
 
+        applyCardSize(binding);
+
         // 设置选中状态（用于边框颜色）
         binding.cardContainer.setSelected(item.isSelected());
+        binding.cardContainer.setNextFocusUpId(isTopEdge(position) && nextFocusUp != 0 ? nextFocusUp : View.NO_ID);
+        binding.cardContainer.setNextFocusDownId(isBottomEdge(position) && nextFocusDown != 0 ? nextFocusDown : View.NO_ID);
 
         // 设置焦点边框效果
         binding.cardContainer.setForeground(binding.cardContainer.getContext().getDrawable(R.drawable.selector_episode_card));
@@ -235,18 +254,24 @@ public class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.ViewHold
         }
 
         // 设置标题
-        binding.cardTitle.setText(tmdbEpisode.getDisplayTitle());
+        binding.cardTitle.setText(getCardTitle(tmdbEpisode));
 
-        // 设置评分
-        if (tmdbEpisode.getVoteAverage() > 0) {
-            binding.rating.setText(String.format("★%.1f", tmdbEpisode.getVoteAverage()));
-            binding.rating.setVisibility(View.VISIBLE);
+        // 网格模式展示更多元信息，列表模式保持干净的横向剧照条
+        if (gridMode && !tmdbEpisode.getDate().isEmpty()) {
+            binding.dateBadge.setText(tmdbEpisode.getDate());
+            binding.dateBadge.setVisibility(View.VISIBLE);
         } else {
-            binding.rating.setVisibility(View.GONE);
+            binding.dateBadge.setVisibility(View.GONE);
+        }
+        if (gridMode && tmdbEpisode.getRuntime() > 0) {
+            binding.runtimeBadge.setText(String.format(Locale.US, "%dm", tmdbEpisode.getRuntime()));
+            binding.runtimeBadge.setVisibility(View.VISIBLE);
+        } else {
+            binding.runtimeBadge.setVisibility(View.GONE);
         }
 
         // 设置简介
-        if (!tmdbEpisode.getOverview().isEmpty()) {
+        if (gridMode && !tmdbEpisode.getOverview().isEmpty()) {
             binding.overview.setText(tmdbEpisode.getOverview());
             binding.overview.setVisibility(View.VISIBLE);
         } else {
@@ -261,6 +286,47 @@ public class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.ViewHold
                 return true;
             });
         }
+    }
+
+    private void applyCardSize(AdapterEpisodeCardBinding binding) {
+        ViewGroup.LayoutParams cardParams = binding.cardContainer.getLayoutParams();
+        cardParams.width = gridMode ? ViewGroup.LayoutParams.MATCH_PARENT : ResUtil.dp2px(280);
+        cardParams.height = ResUtil.dp2px(gridMode ? 248 : 160);
+        binding.cardContainer.setLayoutParams(cardParams);
+        if (cardParams instanceof ViewGroup.MarginLayoutParams marginParams) {
+            marginParams.setMarginEnd(ResUtil.dp2px(12));
+            marginParams.bottomMargin = gridMode ? ResUtil.dp2px(16) : 0;
+            binding.cardContainer.setLayoutParams(marginParams);
+        }
+
+        ViewGroup.LayoutParams scrimParams = binding.scrim.getLayoutParams();
+        scrimParams.height = ResUtil.dp2px(gridMode ? 148 : 104);
+        binding.scrim.setLayoutParams(scrimParams);
+        binding.textPanel.setPadding(
+                ResUtil.dp2px(12),
+                0,
+                ResUtil.dp2px(12),
+                ResUtil.dp2px(gridMode ? 14 : 12));
+        binding.cardTitle.setTextSize(gridMode ? 18 : 18);
+    }
+
+    private String getCardTitle(TmdbEpisode tmdbEpisode) {
+        return tmdbEpisode.getTitle().isEmpty() ? tmdbEpisode.getDisplayTitle() : tmdbEpisode.getNumber() + ". " + tmdbEpisode.getTitle();
+    }
+
+    private boolean isTopEdge(int position) {
+        if (column <= 1) return position == 0;
+        if (verticalGridMode) return position < column;
+        return position % column == 0;
+    }
+
+    private boolean isBottomEdge(int position) {
+        if (column <= 1) return position == getItemCount() - 1;
+        if (verticalGridMode) {
+            int lastRowCount = (getItemCount() - 1) % column + 1;
+            return position >= getItemCount() - lastRowCount;
+        }
+        return position % column == column - 1 || position == getItemCount() - 1;
     }
 
     public interface OnClickListener {

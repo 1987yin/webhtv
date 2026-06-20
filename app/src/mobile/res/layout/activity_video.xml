@@ -252,10 +252,14 @@
 
                         <androidx.appcompat.widget.AppCompatImageView
                             android:id="@+id/reverse"
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
                             android:layout_marginStart="8dp"
                             android:background="?attr/selectableItemBackgroundBorderless"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:padding="8dp"
+                            android:scaleType="center"
                             android:src="@drawable/ic_action_reverse"
                             
                             tools:visibility="visible" />
@@ -266,10 +270,27 @@
                             android:layout_weight="1" />
 
                         <androidx.appcompat.widget.AppCompatImageView
-                            android:id="@+id/more"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
+                            android:id="@+id/episodeViewMode"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:layout_marginEnd="12dp"
                             android:background="?attr/selectableItemBackgroundBorderless"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:padding="8dp"
+                            android:scaleType="center"
+                            android:src="@drawable/ic_site_grid"
+                            tools:visibility="visible" />
+
+                        <androidx.appcompat.widget.AppCompatImageView
+                            android:id="@+id/more"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:padding="8dp"
+                            android:scaleType="center"
                             android:src="@drawable/ic_action_more"
                             
                             tools:visibility="visible" />

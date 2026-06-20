@@ -33,6 +33,8 @@ import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Player;
 import androidx.media3.common.VideoSize;
 import androidx.media3.ui.PlayerView;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.transition.ChangeBounds;
 import androidx.transition.TransitionManager;
@@ -140,6 +142,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private boolean rotate;
     private boolean detailHealthRecorded;
     private boolean playHealthRecorded;
+    private boolean episodeGridMode;
     private Runnable mR1;
     private Runnable mR2;
     private Runnable mR3;
@@ -416,6 +419,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.actor.setOnClickListener(view -> onActor());
         mBinding.content.setOnClickListener(view -> onContent());
         mBinding.reverse.setOnClickListener(view -> onReverse());
+        mBinding.episodeViewMode.setOnClickListener(view -> toggleEpisodeViewMode());
         mBinding.director.setOnClickListener(view -> onDirector());
         mBinding.name.setOnLongClickListener(view -> onChange());
         mBinding.content.setOnLongClickListener(view -> onCopy());
@@ -473,7 +477,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.episode.setHasFixedSize(true);
         mBinding.episode.setItemAnimator(null);
         mBinding.episode.addItemDecoration(new SpaceItemDecoration(8));
-        mBinding.episode.setAdapter(mEpisodeAdapter = new EpisodeAdapter(this, ViewType.HORI));
+        setEpisodeViewMode(false, false);
         mBinding.quality.setHasFixedSize(true);
         mBinding.quality.setItemAnimator(null);
         mBinding.quality.addItemDecoration(new SpaceItemDecoration(8));
@@ -482,6 +486,23 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.parse.setItemAnimator(null);
         mBinding.control.parse.addItemDecoration(new SpaceItemDecoration(8));
         mBinding.control.parse.setAdapter(mParseAdapter = new ParseAdapter(this, ViewType.DARK));
+    }
+
+    private void setEpisodeViewMode(boolean gridMode, boolean keepPosition) {
+        List<Episode> items = mEpisodeAdapter == null ? new ArrayList<>() : new ArrayList<>(mEpisodeAdapter.getItems());
+        int position = mEpisodeAdapter == null ? 0 : mEpisodeAdapter.getPosition();
+        episodeGridMode = gridMode;
+        mBinding.episode.setLayoutManager(gridMode ? new GridLayoutManager(this, getEpisodeGridSpanCount()) : new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+        mBinding.episode.setAdapter(mEpisodeAdapter = new EpisodeAdapter(this, gridMode ? ViewType.GRID : ViewType.HORI));
+        mEpisodeAdapter.addAll(items);
+        mBinding.episodeViewMode.setImageResource(gridMode ? R.drawable.ic_site_list : R.drawable.ic_site_grid);
+        mBinding.episodeViewMode.setContentDescription(getString(gridMode ? R.string.detail_episode_view_list : R.string.detail_episode_view_grid));
+        if (keepPosition && !items.isEmpty()) scrollToPosition(mBinding.episode, Math.min(position, items.size() - 1));
+    }
+
+    private int getEpisodeGridSpanCount() {
+        if (ResUtil.isPad()) return ResUtil.isLand(this) ? 4 : 3;
+        return ResUtil.isLand(this) ? 3 : 2;
     }
 
     private void setVideoView() {
@@ -849,10 +870,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setEpisodeAdapter(List<Episode> items) {
+        if (items.size() < 2 && episodeGridMode) setEpisodeViewMode(false, false);
         mBinding.control.action.episodes.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
         mBinding.control.next.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
         mBinding.control.prev.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
         mBinding.reverse.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
+        mBinding.episodeViewMode.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
         mBinding.episode.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
         mBinding.more.setVisibility(items.size() < 10 ? View.GONE : View.VISIBLE);
         mEpisodeAdapter.addAll(items);
@@ -902,6 +925,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void onReverse() {
         mHistory.setRevSort(!mHistory.isRevSort());
         reverseEpisode(false);
+    }
+
+    private void toggleEpisodeViewMode() {
+        setEpisodeViewMode(!episodeGridMode, true);
     }
 
     private boolean onChange() {

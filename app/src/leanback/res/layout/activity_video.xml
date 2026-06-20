@@ -331,6 +331,56 @@
                 android:paddingEnd="24dp"
                 android:visibility="gone" />
 
+            <LinearLayout
+                android:id="@+id/episodeHeader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp"
+                android:visibility="gone">
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/episodeTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/detail_episode"
+                    android:textColor="@color/white"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/episodeReverse"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/selector_button"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:gravity="center"
+                    android:minWidth="76dp"
+                    android:text="@string/detail_episode_reverse"
+                    android:textColor="@color/white"
+                    android:textSize="16sp" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/episodeViewMode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:background="@drawable/selector_button"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:gravity="center"
+                    android:minWidth="76dp"
+                    android:text="@string/detail_episode_view_grid"
+                    android:textColor="@color/white"
+                    android:textSize="16sp" />
+
+            </LinearLayout>
+
             <!-- 选集列表容器 - 支持TMDB加载动画 -->
             <FrameLayout
                 android:id="@+id/episodeContainer"
@@ -348,6 +398,17 @@
                     android:clipToPadding="false"
                     android:paddingStart="24dp"
                     android:paddingEnd="24dp" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/episodeGrid"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:clipChildren="false"
+                    android:clipToPadding="false"
+                    android:nestedScrollingEnabled="false"
+                    android:paddingStart="24dp"
+                    android:paddingEnd="24dp"
+                    android:visibility="gone" />
 
                 <!-- TMDB加载指示器 -->
                 <LinearLayout

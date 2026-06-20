@@ -19,6 +19,10 @@
     <string name="detail_content">简介：<xliff:g name="name">%s</xliff:g></string>
     <string name="detail_desc">简介</string>
     <string name="detail_episode">选集</string>
+    <string name="detail_episode_reverse">倒序</string>
+    <string name="detail_episode_forward">正序</string>
+    <string name="detail_episode_view_grid">网格</string>
+    <string name="detail_episode_view_list">列表</string>
 
     <!-- Keep -->
     <string name="keep">收藏</string>

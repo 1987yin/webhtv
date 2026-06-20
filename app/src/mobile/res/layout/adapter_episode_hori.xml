@@ -32,7 +32,7 @@
         app:cardBackgroundColor="@color/selector_card"
         app:cardCornerRadius="8dp"
         app:cardElevation="2dp"
-        app:strokeColor="@color/selector_stroke"
+        app:strokeColor="@color/selector_episode_card_stroke"
         app:strokeWidth="1dp">
 
         <LinearLayout
@@ -71,7 +71,7 @@
                         android:layout_weight="1"
                         android:ellipsize="end"
                         android:maxLines="1"
-                        android:textColor="@color/selector_text"
+                        android:textColor="@color/white"
                         android:textSize="14sp"
                         android:textStyle="bold"
                         tools:text="1. 去有鳳凰的地方" />
