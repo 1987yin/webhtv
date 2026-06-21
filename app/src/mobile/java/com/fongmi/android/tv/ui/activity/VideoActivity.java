@@ -1325,6 +1325,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void showControl() {
         if (service() == null || isInPictureInPictureMode()) return;
+        setOsdSuppressed(true);
         boolean shortDrama = isShortDramaSource();
         mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() ? View.GONE : View.VISIBLE);
         mBinding.control.setting.setVisibility(mHistory == null || isFullscreen() ? View.GONE : View.VISIBLE);
@@ -1350,6 +1351,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void hideControl() {
         mBinding.control.getRoot().setVisibility(View.GONE);
         App.removeCallbacks(mR1);
+        setOsdSuppressed(false);
+    }
+
+    private void setOsdSuppressed(boolean suppressed) {
+        if (mOsd != null) mOsd.setSuppressed(suppressed);
     }
 
     private void hideSheet() {

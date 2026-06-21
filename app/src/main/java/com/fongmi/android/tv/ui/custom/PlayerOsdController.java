@@ -38,6 +38,7 @@ public class PlayerOsdController {
     private final float normalSp;
     private final float miniSp;
 
+    private boolean suppressed;
     private long lastTotalRxBytes;
     private long lastTimeStamp;
 
@@ -55,19 +56,34 @@ public class PlayerOsdController {
     }
 
     public void start() {
+        suppressed = false;
         resetSpeed();
+        App.removeCallbacks(update);
         App.post(update, 0);
     }
 
     public void stop() {
         App.removeCallbacks(update);
+        root.setVisibility(View.GONE);
     }
 
     public void release() {
         stop();
     }
 
+    public void setSuppressed(boolean suppressed) {
+        if (this.suppressed == suppressed) return;
+        this.suppressed = suppressed;
+        App.removeCallbacks(update);
+        if (suppressed) root.setVisibility(View.GONE);
+        else start();
+    }
+
     private void update() {
+        if (suppressed) {
+            root.setVisibility(View.GONE);
+            return;
+        }
         boolean enabled = PlayerSetting.isOsdEnabled();
         root.setVisibility(enabled ? View.VISIBLE : View.GONE);
         if (!enabled) return;
