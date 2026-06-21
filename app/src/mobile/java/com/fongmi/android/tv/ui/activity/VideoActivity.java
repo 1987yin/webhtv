@@ -1163,7 +1163,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private String getContextWall() {
-        return getWallPic();
+        if (!TextUtils.isEmpty(getWallPic())) return getWallPic();
+        return mHistory == null ? "" : mHistory.getWallPic();
     }
 
     private String lockContextWall(String url) {
@@ -1284,6 +1285,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         history.setKey(getHistoryKey());
         history.setCid(VodConfig.getCid());
         history.setVodName(item.getName());
+        history.setVodPic(getInitialArtwork(item));
         history.setWallPic(getWallPic());
         history.findEpisode(item.getFlags());
         return history;
