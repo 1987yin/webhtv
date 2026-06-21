@@ -27,7 +27,7 @@ public class SplitColorLutEffect implements GlEffect {
 
     @Override
     public GlShaderProgram toGlShaderProgram(Context context, boolean useHdr) throws VideoFrameProcessingException {
-        return new SplitColorLutShaderProgram(colorLut, holdMs, useHdr);
+        return new SplitColorLutShaderProgram(context, colorLut, holdMs, useHdr);
     }
 
     private static class SplitColorLutShaderProgram extends BaseGlShaderProgram {
@@ -77,22 +77,25 @@ public class SplitColorLutEffect implements GlEffect {
         private final ColorLut colorLut;
         private final GlProgram glProgram;
         private final int holdMs;
+        private GlShaderProgram lutShaderProgram;
         private int width;
         private long startMs;
 
-        private SplitColorLutShaderProgram(ColorLut colorLut, int holdMs, boolean useHdr) throws VideoFrameProcessingException {
+        private SplitColorLutShaderProgram(Context context, ColorLut colorLut, int holdMs, boolean useHdr) throws VideoFrameProcessingException {
             super(useHdr, 1);
             if (useHdr) throw new VideoFrameProcessingException("SplitColorLutEffect does not support HDR colors.");
             this.colorLut = colorLut;
             this.holdMs = holdMs;
             this.startMs = -1;
             try {
+                this.lutShaderProgram = colorLut.toGlShaderProgram(context, false);
                 this.glProgram = new GlProgram(VERTEX_SHADER, FRAGMENT_SHADER);
                 float[] identity = GlUtil.create4x4IdentityMatrix();
                 glProgram.setBufferAttribute("aFramePosition", GlUtil.getNormalizedCoordinateBounds(), 4);
                 glProgram.setFloatsUniform("uTransformationMatrix", identity);
                 glProgram.setFloatsUniform("uTexTransformationMatrix", identity);
             } catch (GlUtil.GlException e) {
+                releaseLutShaderProgram();
                 throw new VideoFrameProcessingException(e);
             }
         }
@@ -115,7 +118,7 @@ public class SplitColorLutEffect implements GlEffect {
                 glProgram.setFloatUniform("uLineWidth", width > 0 ? Math.max(1.2f / width, 0.0015f) : 0.002f);
                 glProgram.bindAttributesAndUniforms();
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-            } catch (GlUtil.GlException e) {
+            } catch (RuntimeException | GlUtil.GlException e) {
                 throw new VideoFrameProcessingException(e);
             }
         }
@@ -124,10 +127,23 @@ public class SplitColorLutEffect implements GlEffect {
         public void release() throws VideoFrameProcessingException {
             try {
                 super.release();
-                colorLut.release();
+                releaseLutShaderProgram();
                 glProgram.delete();
             } catch (GlUtil.GlException e) {
                 throw new VideoFrameProcessingException(e);
+            }
+        }
+
+        private void releaseLutShaderProgram() throws VideoFrameProcessingException {
+            if (lutShaderProgram != null) {
+                lutShaderProgram.release();
+                lutShaderProgram = null;
+            } else {
+                try {
+                    colorLut.release();
+                } catch (GlUtil.GlException e) {
+                    throw new VideoFrameProcessingException(e);
+                }
             }
         }
 

@@ -92,6 +92,7 @@ import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
+import com.fongmi.android.tv.ui.dialog.LutPanelDialog;
 import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
@@ -918,6 +919,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void onLut() {
         mBinding.lutQuick.toggle(player(), mBinding.exo, this::setLut, this::onLutImport);
         setR1Callback();
+    }
+
+    @Override
+    public void onLutPanel() {
+        if (isFullscreen()) onLut();
+        else LutPanelDialog.create().player(player()).show(this);
     }
 
     @Override

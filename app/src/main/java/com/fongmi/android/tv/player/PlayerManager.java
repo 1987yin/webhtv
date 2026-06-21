@@ -693,6 +693,7 @@ public class PlayerManager implements ParseCallback {
             PlayerEngine.ErrorAction action = engine.handleError(e);
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "error code=%d message=%s action=%s retry=%d spec=%s cause=%s", e.errorCode, e.getMessage(), action, retry, debugSpec(), causeChain(e));
             LocalProxyDebug.dumpIfLocalFailure(spec == null ? null : spec.getUrl(), e);
+            if (retryLutFailure(e)) return;
             if (action == PlayerEngine.ErrorAction.FATAL && retryLocalProxy(e)) return;
             if (action == PlayerEngine.ErrorAction.FATAL && retryExoFallback(e)) return;
             if (action == PlayerEngine.ErrorAction.RECOVERED) {
@@ -708,6 +709,18 @@ public class PlayerManager implements ParseCallback {
             }
         }
     };
+
+    private boolean retryLutFailure(PlaybackException e) {
+        if (!LutSetting.isEnabled()) return false;
+        if (e.errorCode != PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED && e.errorCode != PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED) return false;
+        App.removeCallbacks(runnable);
+        LutSetting.select(null);
+        safeSetVideoEffects(Collections.emptyList(), "lut_error_retry");
+        Notify.show(R.string.lut_apply_failed);
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "disable and retry after frame processing error code=%d spec=%s cause=%s", e.errorCode, debugSpec(), causeChain(e));
+        if (spec != null) setMediaItem();
+        return true;
+    }
 
     private boolean retryLocalProxy(PlaybackException e) {
         if (spec == null || !LocalProxyDebug.isLocalProxyUrl(spec.getUrl())) return false;
