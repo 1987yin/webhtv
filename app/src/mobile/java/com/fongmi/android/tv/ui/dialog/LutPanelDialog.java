@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import android.content.DialogInterface;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -7,6 +8,7 @@ import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -23,12 +25,14 @@ import com.fongmi.android.tv.player.lut.LutPreset;
 import com.fongmi.android.tv.player.lut.LutSetting;
 import com.fongmi.android.tv.player.lut.LutStore;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.textview.MaterialTextView;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class LutPanelDialog extends BaseSideSheetDialog {
+public class LutPanelDialog extends BaseBottomSheetDialog {
 
     private MaterialTextView title;
     private MaterialTextView delay;
@@ -52,14 +56,14 @@ public class LutPanelDialog extends BaseSideSheetDialog {
     }
 
     @Override
-    protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
-        return new SimpleBinding(createContent());
+    public void onDismiss(@NonNull DialogInterface dialog) {
+        super.onDismiss(dialog);
+        restartPreview();
     }
 
     @Override
-    protected int getWidth() {
-        int screen = ResUtil.getScreenWidth();
-        return Math.max(ResUtil.dp2px(260), Math.min(ResUtil.dp2px(360), Math.round(screen * 0.72f)));
+    protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
+        return new SimpleBinding(createContent());
     }
 
     @Override
@@ -117,6 +121,25 @@ public class LutPanelDialog extends BaseSideSheetDialog {
         return root;
     }
 
+    @Override
+    protected void setBehavior(BottomSheetDialog dialog) {
+        FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+        if (sheet == null) return;
+        int height = getPanelHeight();
+        ViewGroup.LayoutParams params = sheet.getLayoutParams();
+        params.height = height;
+        sheet.setLayoutParams(params);
+        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+        behavior.setPeekHeight(height);
+        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+        behavior.setSkipCollapsed(true);
+    }
+
+    private int getPanelHeight() {
+        int screen = ResUtil.getScreenHeight(requireContext());
+        return Math.max(dp(320), Math.min(dp(480), Math.round(screen * 0.52f)));
+    }
+
     private void refreshList() {
         List<Entry> items = new ArrayList<>();
         items.add(Entry.original());
@@ -147,6 +170,10 @@ public class LutPanelDialog extends BaseSideSheetDialog {
         int next = current < 2 ? 2 : current < 3 ? 3 : current < 5 ? 5 : current < 8 ? 8 : 1;
         LutSetting.putPreviewSeconds(next);
         delay.setText(ResUtil.getString(R.string.lut_preview_delay_value, next));
+        if (LutSetting.isEnabled() && player != null) player.applyLutPreview(false);
+    }
+
+    private void restartPreview() {
         if (LutSetting.isEnabled() && player != null) player.applyLutPreview(false);
     }
 
