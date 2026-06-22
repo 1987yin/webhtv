@@ -34,6 +34,18 @@ public interface PlayerEngine {
 
     void start(PlaySpec spec);
 
+    default void start(PlaySpec spec, boolean playWhenReady) {
+        start(spec);
+    }
+
+    default void start(PlaySpec spec, long position, boolean playWhenReady) {
+        start(spec, playWhenReady);
+    }
+
+    default void restart(PlaySpec spec, long position, boolean playWhenReady) {
+        start(spec, position, playWhenReady);
+    }
+
     void setMetadata(MediaMetadata data);
 
     boolean isLive();

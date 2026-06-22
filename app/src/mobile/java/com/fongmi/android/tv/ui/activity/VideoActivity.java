@@ -169,7 +169,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 LutPreset preset = LutStore.importFile(path);
                 App.post(() -> {
                     Notify.show(R.string.lut_imported);
-                    if (isFullscreen() && hasLutQuick()) mBinding.lutQuick.selectImported(preset, player(), mBinding.exo, this::setLut);
+                    if (isFullscreen() && hasLutQuick()) mBinding.lutQuick.selectImported(preset, player(), mBinding.exo, this::onLutChanged);
                     else onLutSelected(preset);
                 });
             } catch (Exception e) {
@@ -917,7 +917,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onLut() {
-        if (hasLutQuick()) mBinding.lutQuick.toggle(player(), mBinding.exo, this::setLut, this::onLutImport);
+        if (hasLutQuick()) mBinding.lutQuick.toggle(player(), mBinding.exo, this::onLutChanged, this::onLutImport);
         else LutPanelDialog.create().player(player()).show(this);
         setR1Callback();
     }
@@ -932,6 +932,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         return mBinding.lutQuick != null;
     }
 
+    private void onLutChanged() {
+        setLut();
+    }
+
     @Override
     public void onLutImport() {
         FileChooser.from(mLutFile).show("*/*", new String[]{"application/octet-stream", "text/*", "image/*", "*/*"});
@@ -939,6 +943,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     public void onLutSelected(LutPreset preset) {
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-ui", "activity select preset=%s enabledBefore=%s current=%s", preset == null ? "original" : preset.getId(), LutSetting.isEnabled(), LutSetting.getPresetId());
         LutSetting.select(preset);
         if (preset == null) player().applyLut(true);
         else player().applyLutPreview(true);

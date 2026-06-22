@@ -24,6 +24,7 @@ import com.fongmi.android.tv.player.lut.LutPreset;
 import com.fongmi.android.tv.player.lut.LutSetting;
 import com.fongmi.android.tv.player.lut.LutStore;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.github.catvod.crawler.SpiderDebug;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.textview.MaterialTextView;
@@ -153,6 +154,7 @@ public class LutPanelDialog extends BaseBottomSheetDialog {
     }
 
     private void select(LutPreset preset) {
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-ui", "panel select preset=%s enabledBefore=%s current=%s", preset == null ? "original" : preset.getId(), LutSetting.isEnabled(), LutSetting.getPresetId());
         ((ControlDialog.Listener) requireActivity()).onLutSelected(preset);
         refreshList();
         recycler.requestFocus();

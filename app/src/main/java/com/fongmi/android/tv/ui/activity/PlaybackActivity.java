@@ -242,6 +242,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         int targetRender = getRender();
         syncShutter(true);
         if (render != targetRender) {
+            SpiderDebug.log("playback-flow", "switch render from=%d to=%d", render, targetRender);
             if (getExoView().getPlayer() != null) getExoView().setPlayer(null);
             getExoView().setRender(targetRender);
             render = targetRender;
@@ -275,14 +276,15 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         getExoView().setPlayer(null);
     }
 
-    private void setRender() {
+    protected void setRender() {
         render = -1;
         detachSurface();
         attachSurface();
     }
 
     private int getRender() {
-        return mService != null && player().isIjk() ? 0 : PlayerSetting.getRender();
+        if (mService != null && player().isIjk()) return 0;
+        return PlayerSetting.getRender();
     }
 
     private void releasePlaybackService() {

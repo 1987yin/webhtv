@@ -157,7 +157,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                 LutPreset preset = LutStore.importFile(path);
                 App.post(() -> {
                     Notify.show(R.string.lut_imported);
-                    mBinding.lutQuick.selectImported(preset, player(), mBinding.exo, this::setLut);
+                    mBinding.lutQuick.selectImported(preset, player(), mBinding.exo, this::onLutChanged);
                 });
             } catch (Exception e) {
                 if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "import failed path=%s error=%s", path, e.getMessage());
@@ -521,6 +521,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private void setLut() {
         mBinding.control.action.lut.setText(player().getLutText());
+    }
+
+    private void onLutChanged() {
+        setLut();
     }
 
     private void setViewModel() {
@@ -1017,7 +1021,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void onLut() {
-        mBinding.lutQuick.toggle(player(), mBinding.exo, this::setLut, this::onLutImport);
+        mBinding.lutQuick.toggle(player(), mBinding.exo, this::onLutChanged, this::onLutImport);
     }
 
     private void onLutImport() {

@@ -92,7 +92,7 @@ public class LutEffectFactory {
         return width > 1 && width <= MAX_BITMAP_LUT_SIZE && height == width * width;
     }
 
-    private static ColorLut createColorLut(LutPreset preset, int strength) throws IOException {
+    public static ColorLut createColorLut(LutPreset preset, int strength) throws IOException {
         return switch (preset.getFormat()) {
             case CUBE -> SingleColorLut.createFromCube(mixCube(loadCube(preset), strength));
             case BITMAP -> SingleColorLut.createFromBitmap(mixBitmap(loadBitmap(preset), strength));

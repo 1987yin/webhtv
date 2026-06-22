@@ -18,6 +18,7 @@ import com.fongmi.android.tv.player.lut.LutPreset;
 import com.fongmi.android.tv.player.lut.LutSetting;
 import com.fongmi.android.tv.player.lut.LutStore;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.github.catvod.crawler.SpiderDebug;
 import com.google.android.material.textview.MaterialTextView;
 
 import java.util.ArrayList;
@@ -103,6 +104,7 @@ public class LutQuickPanel extends FrameLayout {
     private void select(LutPreset preset) {
         if (player == null) return;
         int seq = ++selectSeq;
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-ui", "quick select preset=%s enabledBefore=%s current=%s", preset == null ? "original" : preset.getId(), LutSetting.isEnabled(), LutSetting.getPresetId());
         if (preset == null) {
             LutSetting.select(null);
             player.applyLut(true);
