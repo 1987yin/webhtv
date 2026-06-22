@@ -237,7 +237,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private void setScale(int scale) {
         LiveSetting.putScale(scale);
-        mBinding.exo.setResizeMode(scale);
+        applyResizeMode(scale);
         mBinding.control.action.scale.setText(ResUtil.getStringArray(R.array.select_scale)[scale]);
     }
 
@@ -814,7 +814,13 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     protected void onSizeChanged(VideoSize size) {
+        applyResizeMode(LiveSetting.getScale());
         setSizeText();
+    }
+
+    @Override
+    protected void onSurfaceAttached() {
+        applyResizeMode(LiveSetting.getScale());
     }
 
     @Override

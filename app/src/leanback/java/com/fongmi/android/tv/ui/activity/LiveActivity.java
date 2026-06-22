@@ -233,7 +233,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     private void setScale(int scale) {
         LiveSetting.putScale(scale);
-        mBinding.exo.setResizeMode(scale);
+        applyResizeMode(scale);
         mBinding.control.action.scale.setText(ResUtil.getStringArray(R.array.select_scale)[scale]);
     }
 
@@ -537,7 +537,13 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Override
     protected void onSizeChanged(VideoSize size) {
+        applyResizeMode(LiveSetting.getScale());
         mBinding.widget.size.setText(player().getSizeText());
+    }
+
+    @Override
+    protected void onSurfaceAttached() {
+        applyResizeMode(LiveSetting.getScale());
     }
 
     @Override

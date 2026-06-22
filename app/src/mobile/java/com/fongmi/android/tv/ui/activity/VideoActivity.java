@@ -508,8 +508,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setScale(int scale) {
-        mHistory.setScale(scale);
-        mBinding.exo.setResizeMode(scale);
+        if (mHistory != null) mHistory.setScale(scale);
+        applyResizeMode(scale);
         mBinding.control.action.scale.setText(ResUtil.getStringArray(R.array.select_scale)[scale]);
     }
 
@@ -1567,7 +1567,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     protected void onSizeChanged(VideoSize size) {
         setSizeText();
         changeHeight();
+        applyResizeMode(getScale());
         checkOrientation();
+    }
+
+    @Override
+    protected void onSurfaceAttached() {
+        applyResizeMode(getScale());
     }
 
     @Override

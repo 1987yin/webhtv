@@ -152,6 +152,17 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     protected void onSizeChanged(VideoSize size) {
     }
 
+    protected void onSurfaceAttached() {
+    }
+
+    protected void applyResizeMode(int resizeMode) {
+        PlayerView view = getExoView();
+        view.setResizeMode(resizeMode);
+        view.requestLayout();
+        View surface = view.getVideoSurfaceView();
+        if (surface != null) surface.requestLayout();
+    }
+
     protected void onReclaim() {
     }
 
@@ -253,6 +264,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             syncShutter();
             if (player().isIjk()) getExoView().post(this::syncShutter);
         }
+        onSurfaceAttached();
     }
 
     private void syncShutter() {
