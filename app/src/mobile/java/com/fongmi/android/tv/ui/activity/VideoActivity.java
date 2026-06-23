@@ -763,7 +763,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (shouldEnterFullscreen(item)) return;
         mFlagAdapter.toggle(item);
         setEpisodeAdapter(getFlag().getEpisodes());
-        scrollToPosition(mBinding.episode, mEpisodeAdapter.getPosition());
         if (isFullscreen()) Notify.show(getString(R.string.play_ready, item.getName()));
         onRefresh();
     }

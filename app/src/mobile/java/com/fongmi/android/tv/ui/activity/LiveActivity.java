@@ -1028,11 +1028,12 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public void onLivePiPPanel() {
-        if (service() != null && player().haveTrack(C.TRACK_TYPE_VIDEO)) mPiP.enter(this, player().getVideoWidth(), player().getVideoHeight(), LiveSetting.getScale());
+        enterPiP();
     }
 
     @Override
     public void onLiveBackgroundPanel() {
+        dismissLiveControlDialog();
         moveTaskToBack(true);
         setAudioOnly(true);
     }
@@ -1449,13 +1450,14 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         super.onUserLeaveHint();
         if (isRedirect()) return;
         if (isLock()) App.post(this::onLock, 500);
-        if (service() != null && player().haveTrack(C.TRACK_TYPE_VIDEO)) mPiP.enter(this, player().getVideoWidth(), player().getVideoHeight(), LiveSetting.getScale());
+        enterPiP();
     }
 
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, @NonNull Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
         if (isInPictureInPictureMode) {
+            dismissLiveControlDialog();
             hideControl();
             hideInfo();
             hideUI();
@@ -1463,6 +1465,18 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             hideInfo();
             if (isStop()) finish();
         }
+    }
+
+    private void enterPiP() {
+        dismissLiveControlDialog();
+        if (service() != null && player().haveTrack(C.TRACK_TYPE_VIDEO)) mPiP.enter(this, player().getVideoWidth(), player().getVideoHeight(), LiveSetting.getScale());
+    }
+
+    private void dismissLiveControlDialog() {
+        for (Fragment fragment : getSupportFragmentManager().getFragments()) {
+            if (fragment instanceof LiveControlDialog dialog) dialog.dismissAllowingStateLoss();
+        }
+        getSupportFragmentManager().executePendingTransactions();
     }
 
     @Override
