@@ -31,6 +31,7 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
     private final OnClickListener listener;
     private final List<Episode> mItems;
     private final int viewType;
+    private boolean useTmdbCard;
 
     public EpisodeAdapter(OnClickListener listener, int viewType) {
         this(listener, viewType, new ArrayList<>());
@@ -51,6 +52,16 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
         mItems.clear();
         mItems.addAll(items);
         notifyDataSetChanged();
+    }
+
+    public void setUseTmdbCard(boolean useTmdbCard) {
+        if (this.useTmdbCard == useTmdbCard) return;
+        this.useTmdbCard = useTmdbCard;
+        notifyDataSetChanged();
+    }
+
+    public boolean isUsingTmdbCard() {
+        return useTmdbCard;
     }
 
     public int getPosition() {
@@ -94,6 +105,11 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
         if (item == null) return "";
         TmdbEpisode tmdbEpisode = item.getTmdbEpisode();
         if (tmdbEpisode != null) return getTmdbTitle(item, tmdbEpisode);
+        return getNativeTitle(item);
+    }
+
+    public static String getNativeTitle(Episode item) {
+        if (item == null) return "";
         String title = TextUtils.isEmpty(item.getDisplayName()) ? item.getName() : item.getDisplayName();
         if (TextUtils.isEmpty(item.getDesc()) || title.startsWith(item.getDesc())) return title;
         return item.getDesc().concat(title);
@@ -116,15 +132,23 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
     }
 
     public static void bindTitlePopup(View view, Episode item) {
+        bindTitlePopup(view, item, true);
+    }
+
+    public static void bindNativeTitlePopup(View view, Episode item) {
+        bindTitlePopup(view, item, false);
+    }
+
+    private static void bindTitlePopup(View view, Episode item, boolean tmdbTitle) {
         if (view == null) return;
-        view.setOnLongClickListener(anchor -> showTitlePopup(anchor, item));
+        view.setOnLongClickListener(anchor -> showTitlePopup(anchor, item, tmdbTitle));
         view.setOnTouchListener(new View.OnTouchListener() {
             private final Handler handler = new Handler(Looper.getMainLooper());
             private final int slop = ViewConfiguration.get(view.getContext()).getScaledTouchSlop();
             private float downX;
             private float downY;
             private boolean shown;
-            private final Runnable show = () -> shown = showTitlePopup(view, item);
+            private final Runnable show = () -> shown = showTitlePopup(view, item, tmdbTitle);
 
             @Override
             public boolean onTouch(View v, MotionEvent event) {
@@ -150,7 +174,11 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
     }
 
     public static boolean showTitlePopup(View anchor, Episode item) {
-        return EpisodeTitlePopup.show(anchor, getTitle(item));
+        return showTitlePopup(anchor, item, true);
+    }
+
+    private static boolean showTitlePopup(View anchor, Episode item, boolean tmdbTitle) {
+        return EpisodeTitlePopup.show(anchor, tmdbTitle ? getTitle(item) : getNativeTitle(item));
     }
 
     public static void dismissTitlePopup() {
@@ -173,6 +201,7 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
 
     @Override
     public void onBindViewHolder(@NonNull BaseEpisodeHolder holder, int position) {
+        holder.setUseTmdbCard(useTmdbCard);
         holder.initView(mItems.get(position));
     }
 

@@ -22,6 +22,7 @@ public class EpisodeListDialog extends BaseSideSheetDialog implements EpisodeAda
     private DialogEpisodeListBinding binding;
     private EpisodeAdapter adapter;
     private List<Episode> episodes;
+    private boolean tmdbCard;
 
     public static EpisodeListDialog create() {
         return new EpisodeListDialog();
@@ -29,6 +30,11 @@ public class EpisodeListDialog extends BaseSideSheetDialog implements EpisodeAda
 
     public EpisodeListDialog episodes(List<Episode> episodes) {
         this.episodes = episodes;
+        return this;
+    }
+
+    public EpisodeListDialog tmdbCard(boolean tmdbCard) {
+        this.tmdbCard = tmdbCard;
         return this;
     }
 
@@ -61,6 +67,7 @@ public class EpisodeListDialog extends BaseSideSheetDialog implements EpisodeAda
         binding.recycler.setHasFixedSize(true);
         binding.recycler.setItemAnimator(null);
         binding.recycler.setAdapter(adapter = new EpisodeAdapter(this, ViewType.GRID));
+        adapter.setUseTmdbCard(tmdbCard);
     }
 
     @Override

@@ -113,6 +113,7 @@ import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
+import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
 import com.fongmi.android.tv.utils.AudioUtil;
 import com.fongmi.android.tv.utils.Clock;
@@ -434,6 +435,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         return Setting.isTmdbSiteEnabled(site == null ? getKey() : site.getKey(), site == null ? "" : site.getName());
     }
 
+    private boolean shouldUseTmdbEpisodeCards(List<Episode> items) {
+        return EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(isTmdbSourceEnabled(), items);
+    }
+
     private boolean hasTmdbDetailAdapter() {
         return isTmdbSourceEnabled() && mTmdbHeaderView != null && mTmdbUIAdapter != null && mTmdbUIAdapter.isReady();
     }
@@ -728,9 +733,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void setEpisodeViewMode(boolean gridMode, boolean keepPosition) {
         List<Episode> items = mEpisodeAdapter == null ? new ArrayList<>() : new ArrayList<>(mEpisodeAdapter.getItems());
         int position = mEpisodeAdapter == null ? 0 : mEpisodeAdapter.getPosition();
+        boolean useTmdbCard = shouldUseTmdbEpisodeCards(items);
+        if (gridMode && !useTmdbCard) gridMode = false;
         episodeGridMode = gridMode;
         mBinding.episode.setLayoutManager(gridMode ? new GridLayoutManager(this, getEpisodeGridSpanCount()) : new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         mBinding.episode.setAdapter(mEpisodeAdapter = new EpisodeAdapter(this, gridMode ? ViewType.GRID : ViewType.HORI));
+        mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
         mEpisodeAdapter.addAll(items);
         if (mBinding.episodeViewMode != null) {
             mBinding.episodeViewMode.setImageResource(gridMode ? R.drawable.ic_site_list : R.drawable.ic_site_grid);
@@ -1128,14 +1136,16 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setEpisodeAdapter(List<Episode> items) {
-        if (items.size() < 2 && episodeGridMode) setEpisodeViewMode(false, false);
+        boolean useTmdbCard = shouldUseTmdbEpisodeCards(items);
+        if ((!useTmdbCard || items.size() < 2) && episodeGridMode) setEpisodeViewMode(false, false);
+        mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
         mBinding.control.action.episodes.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
         mBinding.control.action.next.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
         mBinding.control.action.prev.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
         mBinding.control.next.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
         mBinding.control.prev.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
         mBinding.reverse.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
-        if (mBinding.episodeViewMode != null) mBinding.episodeViewMode.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
+        if (mBinding.episodeViewMode != null) mBinding.episodeViewMode.setVisibility(useTmdbCard && items.size() >= 2 ? View.VISIBLE : View.GONE);
         mBinding.episode.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
         mBinding.more.setVisibility(items.size() < 10 ? View.GONE : View.VISIBLE);
         mEpisodeAdapter.addAll(items);
@@ -1171,7 +1181,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onMore() {
-        EpisodeGridDialog.create().reverse(mHistory.isRevSort()).episodes(mEpisodeAdapter.getItems()).show(this);
+        EpisodeGridDialog.create().reverse(mHistory.isRevSort()).episodes(mEpisodeAdapter.getItems()).tmdbCard(shouldUseTmdbEpisodeCards(mEpisodeAdapter.getItems())).show(this);
     }
 
     private void onActor() {
@@ -1440,7 +1450,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onEpisodes() {
-        EpisodeListDialog.create().episodes(mEpisodeAdapter.getItems()).show(this);
+        EpisodeListDialog.create().episodes(mEpisodeAdapter.getItems()).tmdbCard(shouldUseTmdbEpisodeCards(mEpisodeAdapter.getItems())).show(this);
     }
 
     private void onChoose() {

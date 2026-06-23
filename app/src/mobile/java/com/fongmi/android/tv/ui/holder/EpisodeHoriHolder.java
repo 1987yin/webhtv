@@ -18,6 +18,7 @@ public class EpisodeHoriHolder extends BaseEpisodeHolder {
     private final EpisodeAdapter.OnClickListener listener;
     private final AdapterEpisodeHoriBinding binding;
     private final int maxWidth;
+    private boolean useTmdbCard;
 
     public EpisodeHoriHolder(@NonNull AdapterEpisodeHoriBinding binding, EpisodeAdapter.OnClickListener listener) {
         super(binding.getRoot());
@@ -27,11 +28,16 @@ public class EpisodeHoriHolder extends BaseEpisodeHolder {
     }
 
     @Override
+    public void setUseTmdbCard(boolean useTmdbCard) {
+        this.useTmdbCard = useTmdbCard;
+    }
+
+    @Override
     public void initView(Episode item) {
         TmdbEpisode tmdbEpisode = item.getTmdbEpisode();
         EpisodeAdapter.bindTitlePopup(binding.getRoot(), item);
 
-        if (tmdbEpisode != null) {
+        if (useTmdbCard && tmdbEpisode != null) {
             // TMDB 模式：显示卡片，隐藏文本
             binding.text.setVisibility(View.GONE);
             binding.card.setVisibility(View.VISIBLE);
@@ -80,9 +86,9 @@ public class EpisodeHoriHolder extends BaseEpisodeHolder {
 
             binding.text.setMaxWidth(maxWidth);
             binding.text.setSelected(item.isSelected());
-            binding.text.setText(EpisodeAdapter.getTitle(item));
+            binding.text.setText(EpisodeAdapter.getNativeTitle(item));
             binding.text.setOnClickListener(v -> listener.onItemClick(item));
-            EpisodeAdapter.bindTitlePopup(binding.text, item);
+            EpisodeAdapter.bindNativeTitlePopup(binding.text, item);
         }
     }
 

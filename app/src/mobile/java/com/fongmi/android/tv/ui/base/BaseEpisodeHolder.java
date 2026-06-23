@@ -13,5 +13,8 @@ public abstract class BaseEpisodeHolder extends RecyclerView.ViewHolder {
         super(itemView);
     }
 
+    public void setUseTmdbCard(boolean useTmdbCard) {
+    }
+
     public abstract void initView(Episode item);
 }

@@ -26,6 +26,7 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
     private DialogEpisodeGridBinding binding;
     private List<Episode> episodes;
     private boolean reverse;
+    private boolean tmdbCard;
     private int spanCount;
     private int itemCount;
 
@@ -45,6 +46,11 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
 
     public EpisodeGridDialog episodes(List<Episode> episodes) {
         this.episodes = episodes;
+        return this;
+    }
+
+    public EpisodeGridDialog tmdbCard(boolean tmdbCard) {
+        this.tmdbCard = tmdbCard;
         return this;
     }
 
@@ -111,7 +117,7 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
         @NonNull
         @Override
         public Fragment createFragment(int position) {
-            return EpisodeFragment.newInstance(spanCount, episodes.subList(position * itemCount, Math.min(position * itemCount + itemCount, episodes.size())));
+            return EpisodeFragment.newInstance(spanCount, episodes.subList(position * itemCount, Math.min(position * itemCount + itemCount, episodes.size())), tmdbCard);
         }
 
         @Override

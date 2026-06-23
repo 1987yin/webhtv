@@ -94,6 +94,7 @@ import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
+import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
 import com.fongmi.android.tv.utils.AudioUtil;
 import com.fongmi.android.tv.utils.Clock;
@@ -1150,23 +1151,23 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private void setEpisodeAdapter(List<Episode> items, boolean scrollToCurrent) {
         boolean isEmpty = items.isEmpty();
         boolean hasMultiple = items.size() > 1;
+        boolean tmdbMode = isTmdbSourceEnabled();
+        boolean tmdbAdapterReady = mTmdbUIAdapter != null && mTmdbUIAdapter.isReady();
+        boolean tmdbAdapterLoaded = mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded();
+        boolean waitTmdbEpisodes = EpisodeDisplayPolicy.shouldWaitForTmdbEpisodes(tmdbMode, mTmdbDetailLoading, tmdbAdapterReady, tmdbAdapterLoaded, items);
+        boolean showTmdbEpisodeChrome = EpisodeDisplayPolicy.shouldShowTmdbEpisodeChrome(tmdbMode, waitTmdbEpisodes, items);
+        boolean useTmdbCards = EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(tmdbMode, items);
         mBinding.episodeContainer.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
         mBinding.control.action.episodes.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
 
-        // 先添加数据，让适配器检测是否有TMDB数据
-        mEpisodeAdapter.addAll(items);
-        mEpisodeGridAdapter.addAll(items);
-
-        boolean tmdbMode = isTmdbSourceEnabled();
-        boolean hasTmdbData = tmdbMode && hasTmdbEpisodeData(items);
-        boolean waitTmdbEpisodes = tmdbMode && !hasTmdbData && !isEmpty && shouldWaitForTmdbEpisodes();
-        boolean showTmdbEpisodeChrome = hasTmdbData || waitTmdbEpisodes;
         if (!showTmdbEpisodeChrome || !hasMultiple) episodeGridMode = false;
         mBinding.episodeHeader.setVisibility(showTmdbEpisodeChrome && !isEmpty ? View.VISIBLE : View.GONE);
         mBinding.episodeReverse.setVisibility(showTmdbEpisodeChrome && hasMultiple ? View.VISIBLE : View.GONE);
         mBinding.episodeViewMode.setVisibility(showTmdbEpisodeChrome && hasMultiple ? View.VISIBLE : View.GONE);
-        mEpisodeAdapter.setUseTmdbCard(hasTmdbData);
-        mEpisodeGridAdapter.setUseTmdbCard(hasTmdbData);
+        mEpisodeAdapter.setUseTmdbCard(useTmdbCards);
+        mEpisodeGridAdapter.setUseTmdbCard(useTmdbCards);
+        mEpisodeAdapter.addAll(items);
+        mEpisodeGridAdapter.addAll(items);
 
         applyEpisodeViewMode(false);
 
@@ -1188,17 +1189,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             if (mEpisodeAdapter != null) mEpisodeAdapter.notifyDataSetChanged();
             if (mEpisodeGridAdapter != null) mEpisodeGridAdapter.notifyDataSetChanged();
         });
-    }
-
-    private boolean hasTmdbEpisodeData(List<Episode> items) {
-        for (Episode item : items) {
-            if (item.getTmdbEpisode() != null) return true;
-        }
-        return false;
-    }
-
-    private boolean shouldWaitForTmdbEpisodes() {
-        return mTmdbDetailLoading && mTmdbUIAdapter != null && mTmdbUIAdapter.isReady() && !mTmdbUIAdapter.isLoaded();
     }
 
     // TMDB 加载结束后兜底：若仍卡在剧集加载指示器（电影无集数、未匹配到、获取失败等），
@@ -2129,11 +2119,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                 .filter(item::equals).findFirst().ifPresentOrElse(target -> {
                     target.mergeEpisodes(item.getEpisodes(), mHistory.isRevSort());
                     if (target.equals(activated)) {
-                        // 检查是否是TMDB数据更新
-                        boolean useTmdbCard = isTmdbSourceEnabled();
-                        boolean hasTmdbData = useTmdbCard && item.getEpisodes().stream().anyMatch(ep -> ep.getTmdbEpisode() != null);
+                        boolean useTmdbCard = EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(isTmdbSourceEnabled(), item.getEpisodes());
 
-                        if (useTmdbCard && hasTmdbData && mBinding.episodeLoadingIndicator.getVisibility() == View.VISIBLE) {
+                        if (useTmdbCard && mBinding.episodeLoadingIndicator.getVisibility() == View.VISIBLE) {
                             // TMDB数据加载完成，执行淡入动画
                             setEpisodeAdapter(target.getEpisodes());
                             mBinding.episodeLoadingIndicator.setVisibility(View.GONE);

@@ -21,6 +21,7 @@ public class EpisodeGridHolder extends BaseEpisodeHolder {
 
     private final EpisodeAdapter.OnClickListener listener;
     private final AdapterEpisodeGridBinding binding;
+    private boolean useTmdbCard;
 
     public EpisodeGridHolder(@NonNull AdapterEpisodeGridBinding binding, EpisodeAdapter.OnClickListener listener) {
         super(binding.getRoot());
@@ -29,8 +30,25 @@ public class EpisodeGridHolder extends BaseEpisodeHolder {
     }
 
     @Override
+    public void setUseTmdbCard(boolean useTmdbCard) {
+        this.useTmdbCard = useTmdbCard;
+    }
+
+    @Override
     public void initView(Episode item) {
-        bindCard(item, item.getTmdbEpisode());
+        TmdbEpisode episode = item.getTmdbEpisode();
+        if (useTmdbCard && episode != null) bindCard(item, episode);
+        else bindText(item);
+    }
+
+    private void bindText(Episode item) {
+        binding.card.setVisibility(View.GONE);
+        binding.text.setVisibility(View.VISIBLE);
+        binding.text.setSelected(item.isSelected());
+        binding.text.setText(EpisodeAdapter.getNativeTitle(item));
+        binding.text.setOnClickListener(v -> listener.onItemClick(item));
+        EpisodeAdapter.bindNativeTitlePopup(binding.getRoot(), item);
+        EpisodeAdapter.bindNativeTitlePopup(binding.text, item);
     }
 
     private void bindCard(Episode item, TmdbEpisode episode) {
