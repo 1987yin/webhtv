@@ -6,9 +6,11 @@ import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.bumptech.glide.Glide;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.databinding.AdapterQuickBinding;
 import com.fongmi.android.tv.setting.SiteHealthStore;
+import com.fongmi.android.tv.utils.ImgUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -41,6 +43,10 @@ public class QuickAdapter extends RecyclerView.Adapter<QuickAdapter.ViewHolder> 
 
     public Vod get(int position) {
         return mItems.get(position);
+    }
+
+    public List<Vod> getItems() {
+        return new ArrayList<>(mItems);
     }
 
     public int getBestPosition() {
@@ -77,7 +83,15 @@ public class QuickAdapter extends RecyclerView.Adapter<QuickAdapter.ViewHolder> 
         holder.binding.name.setText(item.getName());
         holder.binding.site.setText(item.getSiteName());
         holder.binding.remark.setText(item.getRemarks());
+        holder.binding.site.setVisibility(item.getSiteVisible());
+        holder.binding.remark.setVisibility(item.getRemarkVisible());
         holder.binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
+        ImgUtil.load(item.getName(), item.getPic(), holder.binding.image);
+    }
+
+    @Override
+    public void onViewRecycled(@NonNull ViewHolder holder) {
+        Glide.with(holder.binding.image).clear(holder.binding.image);
     }
 
     public class ViewHolder extends RecyclerView.ViewHolder {

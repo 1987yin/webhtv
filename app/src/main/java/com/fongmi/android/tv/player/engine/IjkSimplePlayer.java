@@ -3,6 +3,7 @@ package com.fongmi.android.tv.player.engine;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.text.TextUtils;
 import android.view.Surface;
 import android.view.SurfaceHolder;
@@ -312,6 +313,7 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             loading = true;
             playerError = null;
             ijk.reset();
+            ijk.setWakeMode(App.get(), PowerManager.PARTIAL_WAKE_LOCK);
             configureOptions(mediaItem.localConfiguration.uri);
             bindVideoOutput();
             ijk.setDataSource(App.get(), mediaItem.localConfiguration.uri, ExoUtil.extractHeaders(mediaItem));

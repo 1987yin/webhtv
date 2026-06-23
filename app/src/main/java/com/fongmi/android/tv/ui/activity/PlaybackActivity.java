@@ -456,7 +456,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     protected void onStop() {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity stop backgroundOff=%s %s", PlayerSetting.isBackgroundOff(), lifecycleState());
         super.onStop();
-        if (isOwner() && PlayerSetting.isBackgroundOff() && mController != null) mController.pause();
+        if (isOwner() && !isAudioOnly() && PlayerSetting.isBackgroundOff() && mController != null) mController.pause();
     }
 
     @Override

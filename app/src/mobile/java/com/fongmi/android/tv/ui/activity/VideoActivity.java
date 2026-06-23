@@ -92,10 +92,12 @@ import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
 import com.fongmi.android.tv.ui.dialog.LutPanelDialog;
+import com.fongmi.android.tv.ui.dialog.QuickSearchDialog;
 import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
+import com.fongmi.android.tv.ui.dialog.VideoContentDialog;
 import com.fongmi.android.tv.utils.Clock;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -109,7 +111,6 @@ import com.fongmi.android.tv.utils.Traffic;
 import com.fongmi.android.tv.utils.Util;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
@@ -130,6 +131,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private EpisodeAdapter mEpisodeAdapter;
     private QualityAdapter mQualityAdapter;
     private QuickAdapter mQuickAdapter;
+    private QuickSearchDialog mQuickSearchDialog;
     private ParseAdapter mParseAdapter;
     private SiteViewModel mViewModel;
     private FlagAdapter mFlagAdapter;
@@ -777,6 +779,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void onName() {
         String name = mBinding.name.getText().toString();
         Notify.show(getString(R.string.detail_search, name));
+        showQuickSearch(name);
         initSearch(name, false);
     }
 
@@ -799,11 +802,15 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void onContent() {
         CharSequence content = mBinding.content.getText();
         if (TextUtils.isEmpty(content)) return;
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.detail_content)
-                .setMessage(content)
-                .setPositiveButton(R.string.dialog_positive, null)
-                .show();
+        VideoContentDialog.create().content(content).show(this);
+    }
+
+    private void showQuickSearch(String keyword) {
+        mQuickSearchDialog = QuickSearchDialog.create()
+                .title(getString(R.string.detail_search, keyword))
+                .listener(this)
+                .items(mQuickAdapter.getItems());
+        mQuickSearchDialog.show(this);
     }
 
     private void onReverse() {
@@ -1540,8 +1547,14 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     protected void onTracksChanged() {
+        updateAudioOnlyState();
         setTrackVisible();
         mClock.setCallback(this);
+    }
+
+    private void updateAudioOnlyState() {
+        if (service() == null) return;
+        setAudioOnly(player().haveTrack(C.TRACK_TYPE_AUDIO) && !player().haveTrack(C.TRACK_TYPE_VIDEO));
     }
 
     @Override
@@ -1763,6 +1776,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void startSearch(String keyword) {
         mQuickAdapter.clear();
+        mBinding.quick.setVisibility(View.GONE);
+        if (isQuickSearchVisible()) mQuickSearchDialog.clear();
         List<Site> sites = new ArrayList<>();
         for (Site item : VodConfig.get().getSites()) if (isPass(item)) sites.add(item);
         SiteHealthStore.sortSites(sites);
@@ -1772,12 +1787,17 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void setSearch(Result result) {
         List<Vod> items = result.getList();
         items.removeIf(this::mismatch);
-        mBinding.quick.setVisibility(View.VISIBLE);
+        mBinding.quick.setVisibility(View.GONE);
         mQuickAdapter.addAll(items);
+        if (isQuickSearchVisible()) mQuickSearchDialog.addAll(items);
         if (revealManualSearch && !items.isEmpty()) revealManualSearch = false;
         if (isInitAuto() && PlayerSetting.isAutoChange()) nextSite();
         if (items.isEmpty()) return;
         App.removeCallbacks(mR4);
+    }
+
+    private boolean isQuickSearchVisible() {
+        return mQuickSearchDialog != null && mQuickSearchDialog.isActive();
     }
 
     private boolean mismatch(Vod item) {

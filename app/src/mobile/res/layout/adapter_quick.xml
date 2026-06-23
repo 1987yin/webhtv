@@ -1,40 +1,66 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.appcompat.widget.LinearLayoutCompat xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:layout_margin="8dp"
+    android:layout_height="96dp"
+    android:layout_marginHorizontal="16dp"
+    android:layout_marginVertical="5dp"
     android:background="@drawable/shape_video_item"
-    android:orientation="vertical">
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:padding="8dp">
+
+    <com.google.android.material.imageview.ShapeableImageView
+        android:id="@+id/image"
+        android:layout_width="64dp"
+        android:layout_height="80dp"
+        android:background="@color/black_10"
+        android:scaleType="centerCrop"
+        app:shapeAppearanceOverlay="@style/Vod.Grid.Large" />
 
     <com.google.android.material.textview.MaterialTextView
         android:id="@+id/name"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:singleLine="true"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:gravity="center_vertical"
+        android:maxLines="2"
         android:textColor="@color/white"
-        android:textSize="14sp"
-        tools:text="蜘蛛人" />
+        android:textSize="15sp"
+        tools:text="南部档案 2026-06-16" />
 
-    <com.google.android.material.textview.MaterialTextView
-        android:id="@+id/site"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:singleLine="true"
-        android:textColor="@color/white_90"
-        android:textSize="12sp"
-        tools:text="泥巴"
-        tools:visibility="visible" />
+    <androidx.appcompat.widget.LinearLayoutCompat
+        android:layout_width="96dp"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical|end"
+        android:orientation="vertical">
 
-    <com.google.android.material.textview.MaterialTextView
-        android:id="@+id/remark"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:singleLine="true"
-        android:textColor="@color/white_80"
-        android:textSize="12sp"
-        tools:text="1080p" />
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/site"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxWidth="96dp"
+            android:singleLine="true"
+            android:textColor="@color/white_70"
+            android:textSize="12sp"
+            tools:text="糯米" />
+
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/remark"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:ellipsize="end"
+            android:maxWidth="96dp"
+            android:singleLine="true"
+            android:textColor="@color/white_80"
+            android:textSize="12sp"
+            tools:text="更新至12集" />
+
+    </androidx.appcompat.widget.LinearLayoutCompat>
 
 </androidx.appcompat.widget.LinearLayoutCompat>

@@ -1,6 +1,8 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import android.content.res.ColorStateList;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.CompoundButton;
 import android.widget.TextView;
 
@@ -10,7 +12,9 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.DialogDanmakuSettingBinding;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.setting.DanmakuSetting;
+import com.fongmi.android.tv.utils.ResUtil;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.slider.Slider;
 
@@ -39,6 +43,7 @@ final class DanmakuSettingPanel {
         bindDensity();
         bindDisplay();
         bindTabs();
+        applySheetColors();
         showTab(0);
         binding.tabAppearance.requestFocus();
         binding.reset.setOnClickListener(this::onReset);
@@ -93,11 +98,51 @@ final class DanmakuSettingPanel {
 
     private void bindTabs() {
         MaterialButton[] tabs = {binding.tabAppearance, binding.tabTiming, binding.tabDensity, binding.tabDisplay};
-        for (MaterialButton tab : tabs) checkOnFocus(tab);
+        for (MaterialButton tab : tabs) {
+            checkOnFocus(tab);
+            tintTab(tab);
+        }
         binding.tabGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
             if (!isChecked) return;
             for (int i = 0; i < tabs.length; i++) if (checkedId == tabs[i].getId()) showTab(i);
         });
+    }
+
+    private void applySheetColors() {
+        tintText(binding.getRoot());
+        tintChip(binding.appearance.styleNone);
+        tintChip(binding.appearance.styleShadow);
+        tintChip(binding.appearance.styleStroke);
+        tintChip(binding.appearance.styleProjection);
+        tintChip(binding.appearance.colorDefault);
+        tintChip(binding.appearance.colorColorful);
+        tintChip(binding.appearance.colorGradient);
+    }
+
+    private void tintText(View view) {
+        if (view instanceof MaterialButton || view instanceof Chip) return;
+        if (view instanceof TextView) ((TextView) view).setTextColor(ResUtil.getColor(R.color.white_90));
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) tintText(group.getChildAt(i));
+        }
+    }
+
+    private void tintTab(MaterialButton tab) {
+        tab.setTextColor(stateList(0xFF202124, ResUtil.getColor(R.color.white_90)));
+        tab.setBackgroundTintList(stateList(ResUtil.getColor(R.color.white_90), ResUtil.getColor(R.color.transparent)));
+        tab.setStrokeColor(stateList(ResUtil.getColor(R.color.white_90), ResUtil.getColor(R.color.white_30)));
+    }
+
+    private void tintChip(Chip chip) {
+        chip.setTextColor(stateList(0xFF202124, ResUtil.getColor(R.color.white_90)));
+        chip.setChipBackgroundColor(stateList(ResUtil.getColor(R.color.white_90), ResUtil.getColor(R.color.transparent)));
+        chip.setChipStrokeColor(stateList(ResUtil.getColor(R.color.white_90), ResUtil.getColor(R.color.white_30)));
+        chip.setChipStrokeWidth(ResUtil.dp2px(1));
+    }
+
+    private ColorStateList stateList(int checked, int normal) {
+        return new ColorStateList(new int[][]{{android.R.attr.state_checked}, {android.R.attr.state_selected}, {}}, new int[]{checked, checked, normal});
     }
 
     private void checkOnFocus(MaterialButton button) {
