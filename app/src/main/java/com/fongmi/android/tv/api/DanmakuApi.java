@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.api;
 
+import android.net.Uri;
 import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
@@ -22,26 +23,33 @@ public class DanmakuApi {
     private static final String TAG = DanmakuApi.class.getSimpleName();
 
     public static boolean canSearch() {
-        return DanmakuSetting.isLoad() && DanmakuSetting.isAuto() && !TextUtils.isEmpty(DanmakuSetting.getEffectiveApiUrl());
+        return DanmakuSetting.isLoad() && DanmakuSetting.isAuto() && DanmakuSetting.hasValidApiUrl();
     }
 
     public static Call newCall(String name, String episode) {
+        String url = DanmakuSetting.getValidApiUrl();
+        if (TextUtils.isEmpty(url)) return null;
         OkHttp.cancel(TAG);
         name = Trans.t2s(name);
         episode = Trans.t2s(episode);
-        String url = DanmakuSetting.getEffectiveApiUrl();
-        if (url.contains("{name}") || url.contains("{episode}")) {
-            return OkHttp.newCall(url.replace("{name}", name).replace("{episode}", episode), TAG);
-        } else {
-            ArrayMap<String, String> params = new ArrayMap<>();
-            params.put("name", name);
-            params.put("episode", episode);
-            return OkHttp.newCall(url, OkHttp.toBody(params), TAG);
+        try {
+            if (url.contains("{name}") || url.contains("{episode}")) {
+                return OkHttp.newCall(url.replace("{name}", Uri.encode(name)).replace("{episode}", Uri.encode(episode)), TAG);
+            } else {
+                ArrayMap<String, String> params = new ArrayMap<>();
+                params.put("name", name);
+                params.put("episode", episode);
+                return OkHttp.newCall(url, OkHttp.toBody(params), TAG);
+            }
+        } catch (IllegalArgumentException e) {
+            return null;
         }
     }
 
     public static void search(String name, String episode, Consumer<Danmaku> found) {
-        newCall(name, episode).enqueue(new Callback() {
+        Call call = newCall(name, episode);
+        if (call == null) return;
+        call.enqueue(new Callback() {
             @Override
             public void onResponse(@NonNull Call call, @NonNull Response response) {
                 try {

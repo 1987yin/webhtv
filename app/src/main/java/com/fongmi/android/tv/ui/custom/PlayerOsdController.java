@@ -32,23 +32,25 @@ public class PlayerOsdController {
     private final TextView topRight;
     private final TextView bottomLeft;
     private final TextView bottomRight;
+    private final MiniProgressView miniProgress;
     private final Runnable update;
     private final Source source;
     private final View root;
-    private final float normalSp;
     private final float miniSp;
 
     private boolean suppressed;
     private long lastTotalRxBytes;
     private long lastTimeStamp;
+    private boolean controlsVisible;
+    private boolean started;
 
-    public PlayerOsdController(View root, TextView topLeft, TextView topRight, TextView bottomLeft, TextView bottomRight, Source source, float normalSp, float miniSp) {
+    public PlayerOsdController(View root, TextView topLeft, TextView topRight, TextView bottomLeft, TextView bottomRight, MiniProgressView miniProgress, Source source, float miniSp) {
         this.timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
+        this.miniProgress = miniProgress;
         this.bottomRight = bottomRight;
         this.bottomLeft = bottomLeft;
         this.topRight = topRight;
         this.topLeft = topLeft;
-        this.normalSp = normalSp;
         this.miniSp = miniSp;
         this.source = source;
         this.root = root;
@@ -56,13 +58,18 @@ public class PlayerOsdController {
     }
 
     public void start() {
-        suppressed = false;
+        started = true;
+        if (suppressed || !PlayerSetting.isOsdEnabled()) {
+            root.setVisibility(View.GONE);
+            return;
+        }
         resetSpeed();
         App.removeCallbacks(update);
         App.post(update, 0);
     }
 
     public void stop() {
+        started = false;
         App.removeCallbacks(update);
         root.setVisibility(View.GONE);
     }
@@ -76,24 +83,35 @@ public class PlayerOsdController {
         this.suppressed = suppressed;
         App.removeCallbacks(update);
         if (suppressed) root.setVisibility(View.GONE);
-        else start();
+        else if (started) start();
+    }
+
+    public void setControlsVisible(boolean controlsVisible) {
+        if (this.controlsVisible == controlsVisible) return;
+        this.controlsVisible = controlsVisible;
+        if (started) render();
     }
 
     private void update() {
+        if (render()) App.post(update, 1000);
+    }
+
+    private boolean render() {
         if (suppressed) {
             root.setVisibility(View.GONE);
-            return;
+            return false;
         }
         boolean enabled = PlayerSetting.isOsdEnabled();
         root.setVisibility(enabled ? View.VISIBLE : View.GONE);
-        if (!enabled) return;
-        setTextSize(PlayerSetting.isOsdMini() ? miniSp : normalSp);
+        if (!enabled) return false;
+        setTextSize(miniSp);
         PlayerManager player = source.getPlayer();
         setTopLeft(player);
         setTopRight();
         setBottomLeft(player);
         setBottomRight();
-        App.post(update, 1000);
+        setMiniProgress(player);
+        return true;
     }
 
     private void setTopLeft(PlayerManager player) {
@@ -115,7 +133,7 @@ public class PlayerOsdController {
     }
 
     private void setBottomLeft(PlayerManager player) {
-        if (!PlayerSetting.isOsdProgress() || player == null || player.isLive()) {
+        if (controlsVisible || !PlayerSetting.isOsdProgress() || player == null || player.isLive()) {
             bottomLeft.setVisibility(View.GONE);
             return;
         }
@@ -131,6 +149,20 @@ public class PlayerOsdController {
         String speed = getSpeed();
         bottomRight.setText(speed);
         bottomRight.setVisibility(TextUtils.isEmpty(speed) ? View.GONE : View.VISIBLE);
+    }
+
+    private void setMiniProgress(PlayerManager player) {
+        if (controlsVisible || !PlayerSetting.isOsdMini() || player == null || player.isLive()) {
+            miniProgress.setVisibility(View.GONE);
+            return;
+        }
+        long duration = Math.max(0, player.getDuration());
+        if (duration <= 0) {
+            miniProgress.setVisibility(View.GONE);
+            return;
+        }
+        miniProgress.setProgress(player.getPosition(), duration);
+        miniProgress.setVisibility(View.VISIBLE);
     }
 
     private void setTextSize(float sp) {

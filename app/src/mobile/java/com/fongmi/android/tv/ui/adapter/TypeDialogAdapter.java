@@ -40,7 +40,7 @@ public class TypeDialogAdapter extends RecyclerView.Adapter<TypeDialogAdapter.Vi
         holder.binding.text.setOnClickListener(v -> listener.onItemClick(position, item));
     }
 
-    public class ViewHolder extends RecyclerView.ViewHolder {
+    public static class ViewHolder extends RecyclerView.ViewHolder {
 
         private final AdapterTypeDialogBinding binding;
 

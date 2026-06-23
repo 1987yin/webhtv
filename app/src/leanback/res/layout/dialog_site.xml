@@ -8,24 +8,40 @@
     android:orientation="vertical"
     android:padding="16dp">
 
-    <androidx.appcompat.widget.AppCompatEditText
-        android:id="@+id/keyword"
+    <androidx.appcompat.widget.LinearLayoutCompat
         android:layout_width="match_parent"
-        android:layout_height="40dp"
+        android:layout_height="wrap_content"
         android:layout_marginBottom="16dp"
-        android:background="@drawable/selector_chip_round"
-        android:drawablePadding="8dp"
-        android:ellipsize="end"
-        android:hint="@string/site_search_hint"
-        android:imeOptions="actionDone"
-        android:inputType="text"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:singleLine="true"
-        android:textColor="@color/white"
-        android:textColorHint="@color/text"
-        android:textSize="16sp"
-        app:drawableStartCompat="@drawable/ic_site_search" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <androidx.appcompat.widget.AppCompatEditText
+            android:id="@+id/keyword"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:background="@drawable/selector_chip_round"
+            android:drawablePadding="8dp"
+            android:ellipsize="end"
+            android:hint="@string/site_search_hint"
+            android:imeOptions="actionDone"
+            android:inputType="text"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:singleLine="true"
+            android:textColor="@color/white"
+            android:textColorHint="@color/text"
+            android:textSize="16sp"
+            app:drawableStartCompat="@drawable/ic_site_search" />
+
+        <View
+            android:id="@+id/actionGap"
+            android:layout_width="56dp"
+            android:layout_height="40dp"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+    </androidx.appcompat.widget.LinearLayoutCompat>
 
     <HorizontalScrollView
         android:id="@+id/groupScroll"
@@ -58,6 +74,8 @@
             android:clipChildren="false"
             android:clipToPadding="false"
             android:overScrollMode="never"
+            android:paddingTop="6dp"
+            android:paddingBottom="4dp"
             app:maxHeight="344dp"
             tools:itemCount="5"
             tools:listitem="@layout/adapter_site" />

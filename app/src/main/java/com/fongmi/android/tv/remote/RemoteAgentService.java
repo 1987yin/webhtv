@@ -13,6 +13,7 @@ import android.os.PowerManager;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 
 import com.fongmi.android.tv.BuildConfig;
@@ -24,6 +25,7 @@ public class RemoteAgentService extends Service {
 
     private static final String ACTION_START = BuildConfig.APPLICATION_ID + ".remote.START";
     private static final String ACTION_STOP = BuildConfig.APPLICATION_ID + ".remote.STOP";
+    private static final int NOTIFICATION_ID = Notify.ID + 5;
     private static volatile boolean running;
 
     private PowerManager.WakeLock wakeLock;
@@ -36,8 +38,8 @@ public class RemoteAgentService extends Service {
     }
 
     public static void stop(Context context) {
-        if (!running) return;
         context.stopService(new Intent(context, RemoteAgentService.class));
+        NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID);
     }
 
     public static boolean isRunning() {
@@ -66,6 +68,7 @@ public class RemoteAgentService extends Service {
     @Override
     public void onDestroy() {
         releaseLocks();
+        stopForegroundCompat();
         running = false;
         SpiderDebug.log("remote", "agent service stopped");
         super.onDestroy();
@@ -79,10 +82,19 @@ public class RemoteAgentService extends Service {
 
     private void startForegroundCompat(Notification notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(Notify.ID + 5, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC | ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC | ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
         } else {
-            startForeground(Notify.ID + 5, notification);
+            startForeground(NOTIFICATION_ID, notification);
         }
+    }
+
+    private void stopForegroundCompat() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(Service.STOP_FOREGROUND_REMOVE);
+        } else {
+            stopForeground(true);
+        }
+        NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID);
     }
 
     private Notification notification() {

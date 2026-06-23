@@ -109,7 +109,13 @@ public final class DanmakuSearchDialog extends BaseBottomSheetDialog implements 
         showProgress();
         adapter.clear();
         Util.hideKeyboard(binding.keyword);
-        DanmakuApi.newCall(binding.keyword.getText().toString().trim(), player.getMetadata().artist.toString().trim()).enqueue(this);
+        Call call = DanmakuApi.newCall(binding.keyword.getText().toString().trim(), player.getMetadata().artist.toString().trim());
+        if (call == null) {
+            hideProgress(true);
+            Notify.show(R.string.danmaku_api_invalid);
+            return;
+        }
+        call.enqueue(this);
     }
 
     private void onSuccess(List<Danmaku> items) {

@@ -58,6 +58,7 @@ import org.greenrobot.eventbus.ThreadMode;
 
 public class HomeActivity extends BaseActivity implements NavigationBarView.OnItemSelectedListener, WebHomeChromeController.Host {
 
+    public static final String EXTRA_NAV_POSITION = "nav_position";
     private static final String STATE_RETURN_VOD_FROM_ENHANCE = "returnVodFromEnhance";
 
     private FragmentStateManager mManager;
@@ -109,7 +110,10 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     }
 
     private void checkAction(Intent intent) {
-        if (Intent.ACTION_SEND.equals(intent.getAction())) {
+        if (intent.hasExtra(EXTRA_NAV_POSITION)) {
+            change(intent.getIntExtra(EXTRA_NAV_POSITION, 0));
+            intent.removeExtra(EXTRA_NAV_POSITION);
+        } else if (Intent.ACTION_SEND.equals(intent.getAction())) {
             VideoActivity.push(this, intent.getStringExtra(Intent.EXTRA_TEXT));
         } else if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
             PermissionUtil.requestFile(this, allGranted -> checkType(intent));

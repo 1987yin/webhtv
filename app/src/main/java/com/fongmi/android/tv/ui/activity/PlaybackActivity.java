@@ -156,6 +156,17 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     protected void onSizeChanged(VideoSize size) {
     }
 
+    protected void onSurfaceAttached() {
+    }
+
+    protected void applyResizeMode(int resizeMode) {
+        PlayerView view = getExoView();
+        view.setResizeMode(resizeMode);
+        view.requestLayout();
+        View surface = view.getVideoSurfaceView();
+        if (surface != null) surface.requestLayout();
+    }
+
     protected void onReclaim() {
     }
 
@@ -191,12 +202,12 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private void bindPlaybackService() {
         if (bound) return;
         long start = System.currentTimeMillis();
-        SpiderDebug.log("playback-flow", "bind service start key=%s", getPlaybackKey());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "bind service start key=%s", getPlaybackKey());
         startService(new Intent(this, PlaybackService.class));
         bindService(new Intent(this, PlaybackService.class).setAction(PlaybackService.LOCAL_BIND_ACTION), this, BIND_AUTO_CREATE);
         buildControllerAsync();
         bound = true;
-        SpiderDebug.log("playback-flow", "bind service requested cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "bind service requested cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
     }
 
     private void bindPlaybackServiceAfterFirstFrame() {
@@ -218,7 +229,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         SessionToken token = new SessionToken(this, new ComponentName(this, PlaybackService.class));
         mControllerFuture = new MediaController.Builder(this, token).setListener(this).buildAsync();
         mControllerFuture.addListener(this::onControllerConnected, ContextCompat.getMainExecutor(this));
-        SpiderDebug.log("playback-flow", "controller build requested cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "controller build requested cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
     }
 
     private void onControllerConnected() {
@@ -229,7 +240,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             mController.addListener(this);
         } catch (Exception ignored) {
         }
-        SpiderDebug.log("playback-flow", "controller connected cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "controller connected cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
     }
 
     private PendingIntent buildSessionIntent() {
@@ -254,6 +265,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         int targetRender = getRender();
         syncShutter(true);
         if (render != targetRender) {
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "switch render from=%d to=%d", render, targetRender);
             if (getExoView().getPlayer() != null) getExoView().setPlayer(null);
             getExoView().setRender(targetRender);
             render = targetRender;
@@ -264,6 +276,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             syncShutter();
             if (player().isIjk()) getExoView().post(this::syncShutter);
         }
+        onSurfaceAttached();
     }
 
     private void syncShutter() {
@@ -287,14 +300,15 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         getExoView().setPlayer(null);
     }
 
-    private void setRender() {
+    protected void setRender() {
         render = -1;
         detachSurface();
         attachSurface();
     }
 
     private int getRender() {
-        return mService != null && player().isIjk() ? 0 : PlayerSetting.getRender();
+        if (mService != null && player().isIjk()) return 0;
+        return PlayerSetting.getRender();
     }
 
     private void releasePlaybackService() {
@@ -396,7 +410,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         ExoUtil.setPlayerView(getExoView());
         if (deferPlaybackServiceBinding()) bindPlaybackServiceAfterFirstFrame();
         else bindPlaybackService();
-        SpiderDebug.log("playback-flow", "initView cost=%dms key=%s deferred=%s", System.currentTimeMillis() - start, getPlaybackKey(), deferPlaybackServiceBinding());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "initView cost=%dms key=%s deferred=%s", System.currentTimeMillis() - start, getPlaybackKey(), deferPlaybackServiceBinding());
     }
 
     @Override
@@ -405,13 +419,13 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         syncShutter();
         if (isPlaying) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else if (!isBuffering()) getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        SpiderDebug.log("playback-lifecycle", "playing changed isPlaying=%s state=%d %s", isPlaying, mController == null ? -1 : mController.getPlaybackState(), lifecycleState());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "playing changed isPlaying=%s state=%d %s", isPlaying, mController == null ? -1 : mController.getPlaybackState(), lifecycleState());
         onPlayingChanged(isPlaying);
     }
 
     @Override
     public void onPlaybackStateChanged(int state) {
-        SpiderDebug.log("playback-lifecycle", "state changed state=%d %s", state, lifecycleState());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "state changed state=%d %s", state, lifecycleState());
         if (!isOwner()) return;
         syncShutter();
         onStateChanged(state);
@@ -432,21 +446,21 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         mService.setSessionActivity(buildSessionIntent());
         mService.setNavigationCallback(getNavigationCallback(), getPlaybackKey());
         mService.addPlayerCallback(mPlayerCallback);
-        SpiderDebug.log("playback-flow", "service connected cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
-        SpiderDebug.log("playback-lifecycle", "service connected %s", lifecycleState());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "service connected cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service connected %s", lifecycleState());
         onServiceConnected();
     }
 
     @Override
     public void onServiceDisconnected(ComponentName name) {
-        SpiderDebug.log("playback-lifecycle", "service disconnected name=%s %s", name, lifecycleState());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service disconnected name=%s %s", name, lifecycleState());
         mService = null;
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        SpiderDebug.log("playback-lifecycle", "activity resume %s", lifecycleState());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity resume %s", lifecycleState());
         setRedirect(false);
         if (shouldReclaim()) {
             detachSurface();
@@ -456,29 +470,29 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     @Override
     protected void onPause() {
-        SpiderDebug.log("playback-lifecycle", "activity pause %s", lifecycleState());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity pause %s", lifecycleState());
         super.onPause();
         if (isRedirect() && mController != null) mController.pause();
     }
 
     @Override
     protected void onStop() {
-        SpiderDebug.log("playback-lifecycle", "activity stop backgroundOff=%s %s", PlayerSetting.isBackgroundOff(), lifecycleState());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity stop backgroundOff=%s %s", PlayerSetting.isBackgroundOff(), lifecycleState());
         super.onStop();
         if (isOwner() && shouldPauseOnBackground() && mController != null) mController.pause();
     }
 
     @Override
     public void onTrimMemory(int level) {
-        SpiderDebug.log("playback-lifecycle", "activity trimMemory level=%d %s", level, lifecycleState());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity trimMemory level=%d %s", level, lifecycleState());
         super.onTrimMemory(level);
     }
 
     @Override
     protected void onDestroy() {
-        SpiderDebug.log("playback-lifecycle", "activity destroy beforeRelease %s", lifecycleState());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity destroy beforeRelease %s", lifecycleState());
         super.onDestroy();
         releasePlaybackService();
-        SpiderDebug.log("playback-lifecycle", "activity destroy afterRelease activity=%s key=%s", getClass().getSimpleName(), getPlaybackKey());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity destroy afterRelease activity=%s key=%s", getClass().getSimpleName(), getPlaybackKey());
     }
 }

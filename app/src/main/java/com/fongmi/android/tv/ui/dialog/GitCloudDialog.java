@@ -51,6 +51,7 @@ import com.fongmi.android.tv.gitcloud.GitFile;
 import com.fongmi.android.tv.gitcloud.GitFileContent;
 import com.fongmi.android.tv.gitcloud.GitProviderType;
 import com.fongmi.android.tv.gitcloud.GitRepo;
+import com.fongmi.android.tv.gitcloud.GitRepoStore;
 import com.fongmi.android.tv.gitcloud.ProviderCapabilities;
 import com.fongmi.android.tv.gitcloud.SaveOptions;
 import com.fongmi.android.tv.gitcloud.drive.CommitResult;
@@ -101,6 +102,9 @@ public class GitCloudDialog extends BaseAlertDialog {
     private static final String FOCUS_TREE_TOGGLE = "git_cloud_tree_toggle:";
     private static final String FOCUS_TREE_CHECK = "git_cloud_tree_check:";
     private static final String FOCUS_TREE_INFO = "git_cloud_tree_info:";
+    private static final int REPO_MODE_MINE = 0;
+    private static final int REPO_MODE_FAVORITE = 1;
+    private static final int REPO_MODE_SEARCH = 2;
 
     private final JGitDriveEngine driveEngine = new JGitDriveEngine();
     private final ActivityResultLauncher<Intent> filePicker = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -130,6 +134,8 @@ public class GitCloudDialog extends BaseAlertDialog {
     private String progressMessage = "";
     private int progressValue;
     private boolean progressIndeterminate;
+    private int repoMode = REPO_MODE_MINE;
+    private String repoSearchOwner = "";
     private String reposAccountId;
     private String pendingTreeFocusTag;
     private GitFile pendingDownloadFile;
@@ -138,6 +144,7 @@ public class GitCloudDialog extends BaseAlertDialog {
     private MaterialTextView downloadDirPath;
     private SettingClipboardOverlay clipboardOverlay;
     private final List<GitRepo> repos = new ArrayList<>();
+    private final List<GitRepo> searchResults = new ArrayList<>();
     private final Map<String, List<GitFile>> fileTree = new HashMap<>();
     private final Map<String, GitFile> selectedFiles = new HashMap<>();
     private final Set<String> expandedPaths = new HashSet<>();
@@ -206,13 +213,15 @@ public class GitCloudDialog extends BaseAlertDialog {
         binding.tokenLink.setOnClickListener(view -> open(tokenUrl()));
         binding.helpLink.setOnClickListener(view -> open(helpUrl()));
         binding.save.setOnClickListener(view -> saveAccount(true));
-        binding.refresh.setOnClickListener(view -> refreshRepos());
+        binding.repoMine.setOnClickListener(view -> switchRepoMode(REPO_MODE_MINE));
+        binding.repoFavorite.setOnClickListener(view -> switchRepoMode(REPO_MODE_FAVORITE));
+        binding.createRepo.setOnClickListener(view -> showCreateRepoDialog());
+        binding.refresh.setOnClickListener(view -> refreshRepoMode());
+        binding.searchRemote.setOnClickListener(view -> handleRepoSearch());
         binding.removeAccount.setOnClickListener(view -> removeAccount());
         binding.repoBack.setOnClickListener(view -> changeRepo());
         binding.changeRepo.setOnClickListener(view -> changeRepo());
         binding.refreshTree.setOnClickListener(view -> reloadTree());
-        binding.createPrivate.setOnClickListener(view -> createRepo(true));
-        binding.createPublic.setOnClickListener(view -> createRepo(false));
         binding.uploadText.setOnClickListener(view -> showUploadText());
         binding.uploadFile.setOnClickListener(view -> showUploadChooser());
         binding.editFile.setOnClickListener(view -> editSelectedFile());
@@ -329,24 +338,32 @@ public class GitCloudDialog extends BaseAlertDialog {
         binding.loginForm.addView(accountActions);
         content.addView(binding.loginForm);
 
-        binding.createPanel = list();
-        binding.createPanel.addView(section("创建仓库"));
-        LinearLayoutCompat repoActions = row();
-        binding.createPrivate = tonal("私有");
-        binding.createPublic = outline("公开");
-        repoActions.addView(binding.createPrivate, new LinearLayoutCompat.LayoutParams(0, dp(34), 1));
-        LinearLayoutCompat.LayoutParams publicParams = new LinearLayoutCompat.LayoutParams(0, dp(34), 1);
-        publicParams.leftMargin = dp(6);
-        repoActions.addView(binding.createPublic, publicParams);
-        binding.createPanel.addView(repoActions);
-        content.addView(binding.createPanel);
-
         binding.repoPanel = list();
-        binding.repoPanel.addView(section("选择仓库"));
-        binding.repoSearch = input("搜索仓库", false);
-        binding.repoPanel.addView(binding.repoSearch.layout);
+        LinearLayoutCompat repoHeader = row();
+        repoHeader.addView(section("选择仓库"), new LinearLayoutCompat.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        binding.repoMine = segment("我的");
+        binding.repoFavorite = segment("收藏");
+        binding.createRepo = tonal("创建");
+        repoHeader.addView(binding.repoMine, new LinearLayoutCompat.LayoutParams(dp(58), dp(34)));
+        LinearLayoutCompat.LayoutParams favoriteParams = new LinearLayoutCompat.LayoutParams(dp(58), dp(34));
+        favoriteParams.leftMargin = dp(6);
+        repoHeader.addView(binding.repoFavorite, favoriteParams);
+        LinearLayoutCompat.LayoutParams createParams = new LinearLayoutCompat.LayoutParams(dp(58), dp(34));
+        createParams.leftMargin = dp(6);
+        repoHeader.addView(binding.createRepo, createParams);
+        binding.repoPanel.addView(repoHeader);
+        LinearLayoutCompat searchRow = row();
+        binding.repoSearch = input("搜索仓库或 Git 地址", false);
+        searchRow.addView(binding.repoSearch.layout, new LinearLayoutCompat.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        binding.repoPanel.addView(searchRow);
+        LinearLayoutCompat repoTools = row();
         binding.refresh = tonal("刷新");
-        binding.repoPanel.addView(binding.refresh, new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
+        repoTools.addView(binding.refresh, new LinearLayoutCompat.LayoutParams(0, dp(34), 1));
+        binding.searchRemote = outline("全网搜索");
+        LinearLayoutCompat.LayoutParams searchButtonParams = new LinearLayoutCompat.LayoutParams(0, dp(34), 1);
+        searchButtonParams.leftMargin = dp(6);
+        repoTools.addView(binding.searchRemote, searchButtonParams);
+        binding.repoPanel.addView(repoTools);
         binding.repoList = list();
         binding.repoPanel.addView(binding.repoList);
         content.addView(binding.repoPanel);
@@ -425,11 +442,15 @@ public class GitCloudDialog extends BaseAlertDialog {
         binding.accountCard.setVisibility(connected && editingAccount ? View.VISIBLE : View.GONE);
         binding.loginForm.setVisibility(!connected ? View.VISIBLE : View.GONE);
         binding.repoPanel.setVisibility(mainVisible && repo == null ? View.VISIBLE : View.GONE);
-        binding.createPanel.setVisibility(mainVisible && repo == null ? View.VISIBLE : View.GONE);
         binding.filePanel.setVisibility(mainVisible && repo != null ? View.VISIBLE : View.GONE);
+        binding.repoMine.setChecked(repoMode == REPO_MODE_MINE);
+        binding.repoFavorite.setChecked(repoMode == REPO_MODE_FAVORITE);
+        binding.refresh.setText("刷新");
         binding.refresh.setEnabled(mainVisible && !busy);
-        binding.createPrivate.setEnabled(mainVisible && !busy);
-        binding.createPublic.setEnabled(mainVisible && !busy);
+        binding.searchRemote.setEnabled(mainVisible && !busy);
+        binding.repoMine.setEnabled(mainVisible && !busy);
+        binding.repoFavorite.setEnabled(mainVisible && !busy);
+        binding.createRepo.setEnabled(mainVisible && !busy);
         binding.uploadText.setEnabled(repo != null && !busy);
         binding.uploadFile.setEnabled(repo != null && !busy);
         binding.editFile.setEnabled(repo != null && !busy && selectedEditableFile() != null);
@@ -470,8 +491,11 @@ public class GitCloudDialog extends BaseAlertDialog {
         providerType = type;
         account = GitCloudAccountStore.first(type);
         repo = null;
+        repoMode = REPO_MODE_MINE;
+        repoSearchOwner = "";
         currentPath = "";
         repos.clear();
+        searchResults.clear();
         fileTree.clear();
         selectedFiles.clear();
         expandedPaths.clear();
@@ -516,8 +540,11 @@ public class GitCloudDialog extends BaseAlertDialog {
             App.post(() -> {
                 editingAccount = false;
                 repo = null;
+                repoMode = REPO_MODE_MINE;
+                repoSearchOwner = "";
                 currentPath = "";
                 repos.clear();
+                searchResults.clear();
                 fileTree.clear();
                 selectedFiles.clear();
                 expandedPaths.clear();
@@ -539,6 +566,19 @@ public class GitCloudDialog extends BaseAlertDialog {
         });
     }
 
+    private void refreshRepoMode() {
+        if (repoMode == REPO_MODE_SEARCH && !TextUtils.isEmpty(repoSearchOwner)) loadUserRepos(repoSearchOwner);
+        else if (repoMode == REPO_MODE_SEARCH) renderRepoList();
+        else if (repoMode == REPO_MODE_MINE) refreshRepos();
+        else renderRepoList();
+    }
+
+    private void switchRepoMode(int mode) {
+        repoMode = mode;
+        if (mode != REPO_MODE_SEARCH) repoSearchOwner = "";
+        renderRepoList();
+    }
+
     private void showRepos(List<GitRepo> items) {
         repos.clear();
         selectedFiles.clear();
@@ -551,22 +591,40 @@ public class GitCloudDialog extends BaseAlertDialog {
         if (binding == null || binding.repoList == null) return;
         binding.repoList.removeAllViews();
         String keyword = binding.repoSearch == null ? "" : value(binding.repoSearch.edit).toLowerCase();
-        List<GitRepo> visible = new ArrayList<>();
-        for (GitRepo item : repos) {
-            if (TextUtils.isEmpty(keyword) || item.displayName().toLowerCase().contains(keyword)) visible.add(item);
-        }
-        if (repos.isEmpty()) {
+        int count = 0;
+        if (repoMode == REPO_MODE_FAVORITE) count += renderRepoSection("收藏仓库", GitRepoStore.list(providerType), keyword);
+        else if (repoMode == REPO_MODE_SEARCH) count += renderRepoSection(TextUtils.isEmpty(repoSearchOwner) ? "全网结果" : repoSearchOwner + " 的仓库", searchResults, keyword);
+        else count += renderRepoSection("我的仓库", repos, keyword);
+        if (count == 0 && currentRepoSource().isEmpty()) {
             binding.repoList.addView(empty("暂无仓库"));
             render();
             return;
         }
-        if (visible.isEmpty()) {
+        if (count == 0) {
             binding.repoList.addView(empty("无匹配仓库"));
             render();
             return;
         }
-        for (GitRepo item : visible) binding.repoList.addView(repoRow(item));
         render();
+    }
+
+    private List<GitRepo> currentRepoSource() {
+        if (repoMode == REPO_MODE_FAVORITE) return GitRepoStore.list(providerType);
+        if (repoMode == REPO_MODE_SEARCH) return searchResults;
+        return repos;
+    }
+
+    private int renderRepoSection(String title, List<GitRepo> source, String keyword) {
+        List<GitRepo> visible = new ArrayList<>();
+        for (GitRepo item : source) {
+            if (!TextUtils.isEmpty(keyword) && !item.displayName().toLowerCase().contains(keyword)) continue;
+            if (containsRepo(visible, item)) continue;
+            visible.add(item);
+        }
+        if (visible.isEmpty()) return 0;
+        binding.repoList.addView(section(title));
+        for (GitRepo item : visible) binding.repoList.addView(repoRow(item));
+        return visible.size();
     }
 
     private View repoRow(GitRepo item) {
@@ -576,22 +634,196 @@ public class GitCloudDialog extends BaseAlertDialog {
         root.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         root.setBackground(ContextCompat.getDrawable(requireContext(), R.drawable.selector_git_cloud_card));
         LinearLayoutCompat top = row();
-        top.addView(text(item.displayName(), 15, Color.BLACK, true), new LinearLayoutCompat.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        top.addView(repoTitle(item), new LinearLayoutCompat.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        if (GitRepoStore.contains(item)) top.addView(pill("已收藏"));
         top.addView(pill(item.privateRepo ? "私有" : "公开"));
         root.addView(top);
-        root.addView(detail((TextUtils.isEmpty(item.defaultBranch) ? "main" : item.defaultBranch) + " · " + size(item.sizeKb * 1024)));
+        root.addView(detail((TextUtils.isEmpty(item.defaultBranch) ? "main" : item.defaultBranch) + " · " + size(item.sizeKb * 1024) + repoMetaSuffix(item)));
         LinearLayoutCompat actions = row();
         MaterialButton open = compact("打开");
         open.setOnClickListener(view -> openRepo(item));
         actions.addView(open, new LinearLayoutCompat.LayoutParams(0, dp(34), 1));
-        MaterialButton delete = outline("删");
-        delete.setOnClickListener(view -> confirmDeleteRepo(item));
-        LinearLayoutCompat.LayoutParams deleteParams = new LinearLayoutCompat.LayoutParams(dp(52), dp(34));
-        deleteParams.leftMargin = dp(6);
-        actions.addView(delete, deleteParams);
+        MaterialButton favorite = outline(GitRepoStore.contains(item) ? "取消收藏" : "收藏");
+        favorite.setOnClickListener(view -> toggleFavorite(item));
+        LinearLayoutCompat.LayoutParams favoriteParams = new LinearLayoutCompat.LayoutParams(0, dp(34), 1);
+        favoriteParams.leftMargin = dp(6);
+        actions.addView(favorite, favoriteParams);
+        if (providerType == GitProviderType.GITHUB && !isOwnRepo(item)) {
+            MaterialButton fork = outline("Fork");
+            fork.setOnClickListener(view -> forkRepo(item));
+            LinearLayoutCompat.LayoutParams forkParams = new LinearLayoutCompat.LayoutParams(dp(66), dp(34));
+            forkParams.leftMargin = dp(6);
+            actions.addView(fork, forkParams);
+        }
+        if (containsRepo(repos, item)) {
+            MaterialButton delete = outline("删");
+            delete.setOnClickListener(view -> confirmDeleteRepo(item));
+            LinearLayoutCompat.LayoutParams deleteParams = new LinearLayoutCompat.LayoutParams(dp(52), dp(34));
+            deleteParams.leftMargin = dp(6);
+            actions.addView(delete, deleteParams);
+        }
         root.addView(actions);
         root.setOnClickListener(view -> openRepo(item));
         return root;
+    }
+
+    private View repoTitle(GitRepo item) {
+        if (!shouldLinkOwner(item)) return text(item.displayName(), 15, Color.BLACK, true);
+        String owner = repoOwner(item);
+        String displayName = item.displayName();
+        String suffix = displayName.startsWith(owner) ? displayName.substring(owner.length()) : "/" + item.name;
+        LinearLayoutCompat title = row();
+        title.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        MaterialButton ownerLink = ownerLink(owner);
+        ownerLink.setOnClickListener(view -> loadUserRepos(owner));
+        title.addView(ownerLink, new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)));
+        MaterialTextView repoName = text(suffix, 15, Color.BLACK, true);
+        repoName.setSingleLine(true);
+        repoName.setEllipsize(TextUtils.TruncateAt.END);
+        title.addView(repoName, new LinearLayoutCompat.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        return title;
+    }
+
+    private boolean shouldLinkOwner(GitRepo item) {
+        boolean linkableMode = repoMode == REPO_MODE_SEARCH || repoMode == REPO_MODE_FAVORITE;
+        return linkableMode && providerType == GitProviderType.GITHUB && !TextUtils.isEmpty(repoOwner(item)) && !isOwnOwner(repoOwner(item));
+    }
+
+    private String repoOwner(GitRepo item) {
+        if (item == null) return "";
+        if (!TextUtils.isEmpty(item.owner)) return item.owner;
+        if (TextUtils.isEmpty(item.fullName)) return "";
+        int split = item.fullName.indexOf('/');
+        return split > 0 ? item.fullName.substring(0, split) : "";
+    }
+
+    private String repoMetaSuffix(GitRepo item) {
+        return TextUtils.isEmpty(item.webUrl) ? "" : " · " + item.webUrl;
+    }
+
+    private void toggleFavorite(GitRepo item) {
+        if (GitRepoStore.contains(item)) {
+            GitRepoStore.remove(item);
+            Notify.show("已取消收藏");
+        } else {
+            GitRepoStore.add(item);
+            Notify.show("已收藏仓库");
+        }
+        renderRepoList();
+    }
+
+    private void handleRepoSearch() {
+        String keyword = value(binding.repoSearch.edit);
+        if (TextUtils.isEmpty(keyword)) {
+            Notify.show("请输入搜索关键词或 Git 地址");
+            return;
+        }
+        String fullName = parseRepoFullName(keyword);
+        if (isRepoAddress(keyword, fullName)) {
+            openRepoByFullName(fullName);
+            return;
+        }
+        repoMode = REPO_MODE_SEARCH;
+        repoSearchOwner = "";
+        run("搜索仓库中", () -> {
+            List<GitRepo> items = provider().searchRepos(account, token(), keyword);
+            App.post(() -> {
+                searchResults.clear();
+                searchResults.addAll(items);
+                renderRepoList();
+            });
+        });
+    }
+
+    private void openRepoByFullName(String fullName) {
+        if (TextUtils.isEmpty(fullName)) {
+            Notify.show("仓库地址格式不正确");
+            return;
+        }
+        repoMode = REPO_MODE_SEARCH;
+        repoSearchOwner = "";
+        run("读取仓库中", () -> {
+            GitRepo found = provider().getRepo(account, token(), fullName);
+            GitRepo result = found;
+            App.post(() -> {
+                openRepo(result);
+            });
+        });
+    }
+
+    private void loadUserRepos(String owner) {
+        if (TextUtils.isEmpty(owner)) return;
+        repoMode = REPO_MODE_SEARCH;
+        repoSearchOwner = owner;
+        run("读取用户仓库中", () -> {
+            List<GitRepo> items = provider().listUserRepos(account, token(), owner);
+            App.post(() -> {
+                searchResults.clear();
+                searchResults.addAll(items);
+                binding.repoSearch.edit.setText(owner);
+                renderRepoList();
+            });
+        });
+    }
+
+    private void forkRepo(GitRepo item) {
+        run("Fork 仓库中", () -> {
+            GitRepo forked = provider().forkRepo(account, token(), item);
+            GitRepoStore.add(forked);
+            App.post(() -> {
+                if (!containsRepo(repos, forked)) repos.add(0, forked);
+                Notify.show("Fork 已提交并收藏");
+                renderRepoList();
+                openRepo(forked);
+            });
+        });
+    }
+
+    private boolean containsRepo(List<GitRepo> source, GitRepo repo) {
+        if (repo == null || TextUtils.isEmpty(repo.fullName)) return false;
+        for (GitRepo item : source) if (item.providerType == repo.providerType && TextUtils.equals(item.fullName, repo.fullName)) return true;
+        return false;
+    }
+
+    private boolean isOwnRepo(GitRepo item) {
+        return containsRepo(repos, item) || isOwnOwner(item == null ? "" : item.owner);
+    }
+
+    private boolean isOwnOwner(String owner) {
+        return account != null && !TextUtils.isEmpty(owner) && !TextUtils.isEmpty(account.username) && owner.equalsIgnoreCase(account.username);
+    }
+
+    private boolean isRepoAddress(String value, String fullName) {
+        if (TextUtils.isEmpty(fullName) || !fullName.contains("/")) return false;
+        String text = value == null ? "" : value.trim();
+        if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("git@")) return true;
+        return !text.contains(" ") && text.contains("/");
+    }
+
+    private String parseRepoFullName(String value) {
+        if (TextUtils.isEmpty(value)) return "";
+        String text = value.trim();
+        if (text.startsWith("git@")) {
+            int colon = text.indexOf(':');
+            if (colon >= 0) text = text.substring(colon + 1);
+        } else if (text.startsWith("http://") || text.startsWith("https://")) {
+            Uri uri = Uri.parse(text);
+            text = uri.getPath();
+        }
+        text = text.replaceAll("^/+", "").replaceAll("/+$", "");
+        int query = text.indexOf('?');
+        if (query >= 0) text = text.substring(0, query);
+        int hash = text.indexOf('#');
+        if (hash >= 0) text = text.substring(0, hash);
+        if (text.endsWith(".git")) text = text.substring(0, text.length() - 4);
+        String[] raw = text.split("/");
+        List<String> parts = new ArrayList<>();
+        for (String part : raw) {
+            if (TextUtils.isEmpty(part) || "-".equals(part) || "tree".equals(part) || "blob".equals(part)) break;
+            parts.add(part);
+            if (providerType == GitProviderType.GITHUB && parts.size() == 2) break;
+        }
+        return TextUtils.join("/", parts);
     }
 
     private void confirmDeleteRepo(GitRepo item) {
@@ -832,39 +1064,94 @@ public class GitCloudDialog extends BaseAlertDialog {
         }
     }
 
-    private void createRepo(boolean privateRepo) {
-        TextInputEditText input = new TextInputEditText(requireContext());
-        input.setSingleLine(true);
-        input.setText(privateRepo ? "webhtv-backup" : "webhtv-public");
-        new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_LightDialog)
-                .setTitle(privateRepo ? "创建私有备份库" : "创建公开资源库")
-                .setView(input)
-                .setNegativeButton(R.string.dialog_negative, null)
-                .setPositiveButton(R.string.dialog_positive, (dialog, which) -> {
-                    String name = value(input);
-                    if (TextUtils.isEmpty(name)) return;
-                    run("创建仓库中", () -> {
-                        GitRepo created = provider().createRepo(account, token(), new CreateRepoRequest(name, "WebHTV Git 云盘", privateRepo));
-                        List<GitFile> files;
-                        try {
-                            files = provider().listFiles(account, token(), created, created.defaultBranch, "");
-                        } catch (Throwable ignored) {
-                            files = new ArrayList<>();
-                        }
-                        final List<GitFile> createdFiles = files;
-                        App.post(() -> {
-                            repo = created;
-                            repos.add(0, created);
-                            fileTree.clear();
-                            selectedFiles.clear();
-                            expandedPaths.clear();
-                            expandedPaths.add("");
-                            render();
-                            showFiles("", createdFiles);
-                        });
-                    });
-                })
+    private void showCreateRepoDialog() {
+        LinearLayoutCompat root = list();
+        root.setPadding(dp(18), dp(16), dp(18), dp(14));
+        root.setBackground(round(Color.WHITE, 14, Color.TRANSPARENT));
+
+        MaterialTextView title = text("创建仓库", 20, Color.BLACK, true);
+        root.addView(title);
+
+        TextInput input = input("仓库名", false);
+        input.edit.setSingleLine(true);
+        input.edit.setText("webhtv-backup");
+        root.addView(input.layout);
+
+        MaterialTextView modeLabel = text("可见性", 12, Color.parseColor("#5F6368"), true);
+        modeLabel.setPadding(0, dp(12), 0, dp(6));
+        root.addView(modeLabel);
+
+        final boolean[] privateRepo = {true};
+        LinearLayoutCompat modeRow = row();
+        MaterialButton publicMode = segment("公开");
+        MaterialButton privateMode = segment("私有");
+        publicMode.setChecked(false);
+        privateMode.setChecked(true);
+        modeRow.addView(publicMode, new LinearLayoutCompat.LayoutParams(0, dp(36), 1));
+        LinearLayoutCompat.LayoutParams privateModeParams = new LinearLayoutCompat.LayoutParams(0, dp(36), 1);
+        privateModeParams.leftMargin = dp(8);
+        modeRow.addView(privateMode, privateModeParams);
+        root.addView(modeRow);
+
+        LinearLayoutCompat actions = row();
+        actions.setPadding(0, dp(16), 0, 0);
+        MaterialButton cancel = outline("取消");
+        MaterialButton create = primary("创建");
+        actions.addView(cancel, new LinearLayoutCompat.LayoutParams(0, dp(38), 1));
+        LinearLayoutCompat.LayoutParams createParams = new LinearLayoutCompat.LayoutParams(0, dp(38), 1);
+        createParams.leftMargin = dp(8);
+        actions.addView(create, createParams);
+        root.addView(actions);
+
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_LightDialog)
+                .setView(root)
                 .show();
+        Window window = dialog.getWindow();
+        if (window != null) window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+
+        publicMode.setOnClickListener(view -> {
+            privateRepo[0] = false;
+            publicMode.setChecked(true);
+            privateMode.setChecked(false);
+        });
+        privateMode.setOnClickListener(view -> {
+            privateRepo[0] = true;
+            publicMode.setChecked(false);
+            privateMode.setChecked(true);
+        });
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        create.setOnClickListener(view -> {
+            String name = value(input.edit);
+            if (TextUtils.isEmpty(name)) {
+                input.layout.setError("请输入仓库名");
+                return;
+            }
+            dialog.dismiss();
+            createRepo(name, privateRepo[0]);
+        });
+    }
+
+    private void createRepo(String name, boolean privateRepo) {
+        run("创建仓库中", () -> {
+            GitRepo created = provider().createRepo(account, token(), new CreateRepoRequest(name, "WebHTV Git 云盘", privateRepo));
+            List<GitFile> files;
+            try {
+                files = provider().listFiles(account, token(), created, created.defaultBranch, "");
+            } catch (Throwable ignored) {
+                files = new ArrayList<>();
+            }
+            final List<GitFile> createdFiles = files;
+            App.post(() -> {
+                repo = created;
+                if (!containsRepo(repos, created)) repos.add(0, created);
+                fileTree.clear();
+                selectedFiles.clear();
+                expandedPaths.clear();
+                expandedPaths.add("");
+                render();
+                showFiles("", createdFiles);
+            });
+        });
     }
 
     private void showUploadText() {
@@ -1604,8 +1891,10 @@ public class GitCloudDialog extends BaseAlertDialog {
         GitCloudAccountStore.remove(account);
         account = null;
         repo = null;
+        repoSearchOwner = "";
         currentPath = "";
         repos.clear();
+        searchResults.clear();
         fileTree.clear();
         selectedFiles.clear();
         expandedPaths.clear();
@@ -1882,6 +2171,20 @@ public class GitCloudDialog extends BaseAlertDialog {
     private MaterialButton compact(String text) {
         MaterialButton button = tonal(text);
         button.setTextSize(12);
+        return button;
+    }
+
+    private MaterialButton ownerLink(String text) {
+        MaterialButton button = baseButton(text);
+        button.setTextSize(15);
+        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setSingleLine(true);
+        button.setEllipsize(TextUtils.TruncateAt.END);
+        button.setTextColor(Color.parseColor("#1967D2"));
+        button.setBackground(ContextCompat.getDrawable(requireContext(), R.drawable.selector_git_cloud_inline_focus));
+        button.setMinHeight(dp(28));
+        button.setMinimumHeight(dp(28));
+        button.setPadding(dp(2), 0, dp(2), 0);
         return button;
     }
 
@@ -2444,12 +2747,14 @@ public class GitCloudDialog extends BaseAlertDialog {
         MaterialButton helpLink;
         MaterialButton save;
         MaterialButton refresh;
+        MaterialButton searchRemote;
         MaterialButton removeAccount;
         MaterialButton repoBack;
         MaterialButton changeRepo;
         MaterialButton refreshTree;
-        MaterialButton createPrivate;
-        MaterialButton createPublic;
+        MaterialButton repoMine;
+        MaterialButton repoFavorite;
+        MaterialButton createRepo;
         MaterialButton uploadText;
         MaterialButton uploadFile;
         MaterialButton editFile;
@@ -2471,7 +2776,6 @@ public class GitCloudDialog extends BaseAlertDialog {
         LinearLayoutCompat accountCard;
         LinearLayoutCompat loginForm;
         LinearLayoutCompat repoPanel;
-        LinearLayoutCompat createPanel;
         LinearLayoutCompat filePanel;
         LinearLayoutCompat repoList;
         LinearLayoutCompat fileList;

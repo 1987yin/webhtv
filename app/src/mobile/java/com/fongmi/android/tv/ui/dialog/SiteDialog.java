@@ -96,6 +96,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             @Override
             public void afterTextChanged(Editable s) {
                 filter();
+                binding.recycler.scrollToPosition(0);
             }
         });
         binding.search.setOnClickListener(this::onColumnToggle);
@@ -103,18 +104,19 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
 
     private void onColumnToggle(View view) {
         Util.hideKeyboard(binding.keyword);
-        int newColumn = columnCount == 1 ? 2 : 1;
-        setColumnCount(newColumn);
-        Setting.putSiteColumn(newColumn);
+        int nextColumn = columnCount == 1 ? 2 : 1;
+        Setting.putSiteColumn(nextColumn);
+        setColumnCount(nextColumn);
     }
 
     private void setColumnCount(int count) {
-        columnCount = count;
+        columnCount = count == 2 ? 2 : 1;
         if (itemDecoration != null) binding.recycler.removeItemDecoration(itemDecoration);
         itemDecoration = new SpaceItemDecoration(columnCount, 8);
         binding.recycler.addItemDecoration(itemDecoration);
         binding.recycler.setLayoutManager(columnCount == 1 ? new LinearLayoutManager(requireContext()) : new GridLayoutManager(requireContext(), columnCount));
-        binding.search.setImageResource(columnCount == 1 ? R.drawable.ic_site_single_column : R.drawable.ic_site_double_column);
+        binding.search.setImageResource(columnCount == 1 ? R.drawable.ic_site_double_column : R.drawable.ic_site_single_column);
+        binding.actionSpacer.setVisibility(search && change && columnCount == 1 ? View.VISIBLE : View.GONE);
         if (adapter != null) adapter.column(columnCount);
     }
 

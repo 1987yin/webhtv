@@ -337,7 +337,7 @@ public class Site implements Parcelable {
     public static List<String> getGroups(List<Site> sites) {
         LinkedHashSet<String> groups = new LinkedHashSet<>();
         for (Site site : sites) {
-            if (site.isHide()) continue;
+            if (site == null || site.isHide()) continue;
             groups.addAll(site.getGroups());
         }
         return new ArrayList<>(groups);

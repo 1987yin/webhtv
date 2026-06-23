@@ -152,7 +152,8 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         long start = System.currentTimeMillis();
         setRootWidth();
         setRecyclerHeight(INITIAL_BATCH);
-        binding.keyword.setVisibility(View.GONE);
+        binding.keyword.setVisibility(View.VISIBLE);
+        binding.actionGap.setVisibility(action ? View.VISIBLE : View.GONE);
         binding.action.setVisibility(action ? View.VISIBLE : View.GONE);
         binding.search.setVisibility(action ? View.VISIBLE : View.GONE);
         binding.change.setVisibility(action ? View.VISIBLE : View.GONE);
@@ -238,7 +239,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
 
     private void setRecyclerHeight(int count) {
         int rows = Math.max(1, (int) Math.ceil((double) Math.max(1, count) / getCount()));
-        int height = rows * ResUtil.dp2px(ITEM_HEIGHT) + Math.max(0, rows - 1) * ResUtil.dp2px(ITEM_SPACE);
+        int height = rows * ResUtil.dp2px(ITEM_HEIGHT) + Math.max(0, rows - 1) * ResUtil.dp2px(ITEM_SPACE) + binding.recycler.getPaddingTop() + binding.recycler.getPaddingBottom();
         ViewGroup.LayoutParams params = binding.recycler.getLayoutParams();
         params.height = Math.min(height, ResUtil.dp2px(MAX_HEIGHT));
         binding.recycler.setLayoutParams(params);

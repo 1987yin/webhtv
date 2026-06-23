@@ -26,6 +26,8 @@ import android.view.animation.DecelerateInterpolator;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.widget.LinearLayoutCompat;
@@ -77,6 +79,9 @@ import com.fongmi.android.tv.playback.PlaybackEventCollector;
 import com.fongmi.android.tv.player.IntroSkipPlayback;
 import com.fongmi.android.tv.player.PlayerHelper;
 import com.fongmi.android.tv.player.PlayerManager;
+import com.fongmi.android.tv.player.lut.LutPreset;
+import com.fongmi.android.tv.player.lut.LutSetting;
+import com.fongmi.android.tv.player.lut.LutStore;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.service.IntroSkipService;
@@ -102,6 +107,7 @@ import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
+import com.fongmi.android.tv.ui.dialog.LutPanelDialog;
 import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
@@ -144,6 +150,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private ActivityVideoBinding mBinding;
     private ViewGroup.LayoutParams mFrameParams;
+    private int mFrameHeight;
     private Observer<Result> mObserveDetail;
     private Observer<Result> mObservePlayer;
     private Observer<Result> mObserveSearch;
@@ -203,6 +210,28 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private int mTmdbDialogGeneration;
     private int mPersonalRecommendationGeneration;
     private final List<TmdbMovedView> mTmdbMovedViews = new ArrayList<>();
+
+    private final ActivityResultLauncher<Intent> mLutFile = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) return;
+        String path = FileChooser.getPathFromUri(result.getData().getData());
+        if (TextUtils.isEmpty(path)) {
+            Notify.show(R.string.lut_import_failed);
+            return;
+        }
+        Task.execute(() -> {
+            try {
+                LutPreset preset = LutStore.importFile(path);
+                App.post(() -> {
+                    Notify.show(R.string.lut_imported);
+                    if (isFullscreen() && hasLutQuick()) mBinding.lutQuick.selectImported(preset, player(), mBinding.exo, this::onLutChanged);
+                    else onLutSelected(preset);
+                });
+            } catch (Exception e) {
+                if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "import failed path=%s error=%s", path, e.getMessage());
+                App.post(() -> Notify.show(Notify.getError(R.string.lut_import_failed, e)));
+            }
+        });
+    });
 
     public static void push(FragmentActivity activity, String text) {
         if (FileChooser.isValid(activity, Uri.parse(text))) file(activity, FileChooser.getPathFromUri(Uri.parse(text)));
@@ -475,6 +504,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         player().setDanmakuEnabled(DanmakuSetting.isShow());
         setPlayerKernel();
         setDecode();
+        setLut();
         checkLand();
         checkId();
     }
@@ -498,6 +528,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         ViewCompat.setOnApplyWindowInsetsListener(mBinding.getRoot(), (v, insets) -> setStatusBar(insets));
         mKeyDown = CustomKeyDown.create(this, mBinding.exo);
         mFrameParams = mBinding.video.getLayoutParams();
+        mFrameHeight = mFrameParams.height;
         mBinding.swipeLayout.setEnabled(false);
         mObserveDetail = this::setDetail;
         mObservePlayer = this::setPlayer;
@@ -513,7 +544,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mPiP = new PiP();
         checkDanmakuImg();
         setRecyclerView();
-        mOsd = new PlayerOsdController(mBinding.osd.getRoot(), mBinding.osd.osdTopLeft, mBinding.osd.osdTopRight, mBinding.osd.osdBottomLeft, mBinding.osd.osdBottomRight, new PlayerOsdController.Source() {
+        mOsd = new PlayerOsdController(mBinding.osd.getRoot(), mBinding.osd.osdTopLeft, mBinding.osd.osdTopRight, mBinding.osd.osdBottomLeft, mBinding.osd.osdBottomRight, mBinding.osd.osdMiniProgress, new PlayerOsdController.Source() {
             @Override
             public PlayerManager getPlayer() {
                 return service() == null ? null : player();
@@ -523,7 +554,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             public String getTitle() {
                 return getOsdTitle();
             }
-        }, 14f, 12f);
+        }, 12f);
         setVideoView();
         setViewModel();
         initTmdbMode();
@@ -568,6 +599,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.audio.setOnClickListener(this::onTrack);
         mBinding.control.action.video.setOnClickListener(this::onTrack);
         mBinding.control.action.scale.setOnClickListener(view -> onScale());
+        mBinding.control.action.lut.setOnClickListener(view -> onLut());
         mBinding.control.action.speed.setOnClickListener(view -> onSpeed());
         mBinding.control.action.reset.setOnClickListener(view -> onReset());
         mBinding.control.action.title.setOnClickListener(view -> onTitle());
@@ -750,9 +782,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setScale(int scale) {
-        mHistory.setScale(scale);
-        mBinding.exo.setResizeMode(scale);
+        if (mHistory != null) mHistory.setScale(scale);
+        applyResizeMode(scale);
         mBinding.control.action.scale.setText(ResUtil.getStringArray(R.array.select_scale)[scale]);
+    }
+
+    private void setLut() {
+        mBinding.control.action.lut.setText(player().getLutText());
     }
 
     private void setViewModel() {
@@ -1280,6 +1316,41 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setR1Callback();
     }
 
+    private void onLut() {
+        if (hasLutQuick()) mBinding.lutQuick.toggle(player(), mBinding.exo, this::onLutChanged, this::onLutImport);
+        else LutPanelDialog.create().player(player()).show(this);
+        setR1Callback();
+    }
+
+    @Override
+    public void onLutPanel() {
+        if (isFullscreen() && hasLutQuick()) onLut();
+        else LutPanelDialog.create().player(player()).show(this);
+    }
+
+    private boolean hasLutQuick() {
+        return mBinding.lutQuick != null;
+    }
+
+    private void onLutChanged() {
+        setLut();
+    }
+
+    @Override
+    public void onLutImport() {
+        FileChooser.from(mLutFile).show("*/*", new String[]{"application/octet-stream", "text/*", "image/*", "*/*"});
+    }
+
+    @Override
+    public void onLutSelected(LutPreset preset) {
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-ui", "activity select preset=%s enabledBefore=%s current=%s", preset == null ? "original" : preset.getId(), LutSetting.isEnabled(), LutSetting.getPresetId());
+        LutSetting.select(preset);
+        if (preset == null) player().applyLut(true);
+        else player().applyLutPreview(true);
+        setLut();
+        setR1Callback();
+    }
+
     private void onSpeed() {
         mBinding.control.action.speed.setText(player().addSpeed());
         saveDefaultSpeed();
@@ -1523,12 +1594,14 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.top.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         syncShortDramaControlLayout(shortDrama);
         mBinding.control.getRoot().setVisibility(View.VISIBLE);
+        if (mOsd != null) mOsd.setControlsVisible(true);
         checkFullscreenImg();
         setR1Callback();
     }
 
     private void hideControl() {
         mBinding.control.getRoot().setVisibility(View.GONE);
+        if (mOsd != null) mOsd.setControlsVisible(false);
         App.removeCallbacks(mR1);
         setOsdSuppressed(false);
     }
@@ -1718,7 +1791,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             " canSave=" + (mHistory != null ? mHistory.canSave() : "null") +
             " incognito=" + Setting.isIncognito());
         if (mHistory == null || Setting.isIncognito()) return;
-        if (exit && isOwner()) updatePlaybackHistoryPosition();
+        if (exit && isOwner()) {
+            updatePlaybackHistoryPosition();
+            mHistory.setCreateTime(System.currentTimeMillis());
+        }
         if (exit && service() != null) PlaybackEventCollector.get().onStop(player());
         if (!mHistory.canSave()) return;
         History history = mHistory.copy();
@@ -1878,6 +1954,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         android.util.Log.d("VideoActivity", "onPrepare: setting Clock callback");
         setPlayerKernel();
         setDecode();
+        setLut();
         setPosition();
         mClock.setCallback(this);
         requestIntroSkipPlan();
@@ -1963,8 +2040,14 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     protected void onSizeChanged(VideoSize size) {
         setSizeText();
-        changeHeight();
+        updateVideoHeight();
+        applyResizeMode(getScale());
         checkOrientation();
+    }
+
+    @Override
+    protected void onSurfaceAttached() {
+        applyResizeMode(getScale());
     }
 
     @Override
@@ -2073,21 +2156,18 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         }
     }
 
-    private void changeHeight() {
+    private void updateVideoHeight() {
         if (isLand() || isFullscreen() || isInPictureInPictureMode()) return;
         int videoWidth = player().getVideoWidth();
         int videoHeight = player().getVideoHeight();
-        if (videoWidth == 0 || videoHeight == 0) return;
-        int viewWidth = ResUtil.getScreenWidth();
-        int minHeight = ResUtil.dp2px(150);
-        int maxHeight = ResUtil.getScreenHeight() / 2;
-        int calculated = (int) (viewWidth * ((float) videoHeight / videoWidth));
-        int finalHeight = Math.max(minHeight, Math.min(maxHeight, calculated));
-        if (finalHeight == mBinding.video.getHeight()) return;
-        if (mAnimator.isRunning()) mAnimator.cancel();
-        mAnimator.setIntValues(mBinding.video.getHeight(), finalHeight);
-        mAnimator.setDuration(300);
-        mAnimator.start();
+        int targetHeight = mFrameHeight;
+        if (videoWidth > 0 && videoHeight > videoWidth) {
+            int calculated = (int) (ResUtil.getScreenWidth() * ((float) videoHeight / videoWidth));
+            targetHeight = Math.min(ResUtil.getScreenHeight() / 2, Math.max(mFrameHeight, calculated));
+        }
+        if (targetHeight <= 0 || mFrameParams.height == targetHeight) return;
+        mFrameParams.height = targetHeight;
+        mBinding.video.setLayoutParams(mFrameParams);
     }
 
     private void checkEnded(boolean notify) {
@@ -3020,7 +3100,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     protected void onBackInvoked() {
-        if (isVisible(mBinding.control.getRoot())) {
+        if (hasLutQuick() && mBinding.lutQuick.hideIfVisible()) {
+            return;
+        } else if (isVisible(mBinding.control.getRoot())) {
             hideControl();
         } else if (isFullscreen() && isShortDramaSource()) {
             finishShortDrama();

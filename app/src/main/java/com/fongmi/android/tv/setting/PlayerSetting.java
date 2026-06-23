@@ -340,6 +340,6 @@ public class PlayerSetting {
     }
 
     public static boolean isOsdEnabled() {
-        return isOsdTitle() || isOsdTime() || isOsdProgress() || isOsdTraffic();
+        return isOsdTitle() || isOsdTime() || isOsdProgress() || isOsdTraffic() || isOsdMini();
     }
 }

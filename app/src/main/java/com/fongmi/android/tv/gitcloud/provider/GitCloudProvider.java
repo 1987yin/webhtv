@@ -26,6 +26,22 @@ public interface GitCloudProvider {
 
     List<GitRepo> listRepos(GitAccount account, String token) throws GitCloudException;
 
+    default List<GitRepo> searchRepos(GitAccount account, String token, String keyword) throws GitCloudException {
+        throw new GitCloudException("当前平台不支持全局搜索仓库");
+    }
+
+    default GitRepo getRepo(GitAccount account, String token, String fullName) throws GitCloudException {
+        throw new GitCloudException("当前平台不支持读取指定仓库");
+    }
+
+    default List<GitRepo> listUserRepos(GitAccount account, String token, String owner) throws GitCloudException {
+        throw new GitCloudException("当前平台不支持查看用户仓库");
+    }
+
+    default GitRepo forkRepo(GitAccount account, String token, GitRepo repo) throws GitCloudException {
+        throw new GitCloudException("当前平台不支持 Fork 仓库");
+    }
+
     GitRepo createRepo(GitAccount account, String token, CreateRepoRequest request) throws GitCloudException;
 
     void deleteRepo(GitAccount account, String token, GitRepo repo) throws GitCloudException;

@@ -50,9 +50,15 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
     private ExoPlayer player;
     private final Runnable refreshRunnable = this::refresh;
     private boolean observerAdded;
+    private boolean motionEnabled = true;
 
     public CustomWallView(@NonNull Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
+    }
+
+    public CustomWallView setMotionEnabled(boolean motionEnabled) {
+        this.motionEnabled = motionEnabled;
+        return this;
     }
 
     @Override
@@ -115,8 +121,8 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
         int wall = Setting.getWall();
         int type = Setting.getWallType();
         if (isBuiltIn(wall, type)) loadRes(WALL_PAPERS[wall]);
-        else if (type == TYPE_VIDEO) loadVideo(FileUtil.getWall(wall));
-        else if (type == TYPE_GIF) loadGif(FileUtil.getWall(wall));
+        else if (motionEnabled && type == TYPE_VIDEO) loadVideo(FileUtil.getWall(wall));
+        else if (motionEnabled && type == TYPE_GIF) loadGif(FileUtil.getWall(wall));
         else loadImage();
     }
 

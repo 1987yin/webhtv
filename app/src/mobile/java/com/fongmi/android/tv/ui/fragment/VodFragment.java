@@ -4,6 +4,7 @@ import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -120,6 +121,8 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         mBinding.typeMore.setOnClickListener(this::onTypeMore);
         mBinding.title.setOnClickListener(this::onSite);
         mBinding.title.setOnLongClickListener(this::reloadConfig);
+        mBinding.typeMore.setOnTouchListener(this::onTypeMoreTouch);
+        mBinding.typeMore.setOnClickListener(this::onTypeMore);
         mBinding.filter.setOnClickListener(this::onFilter);
         mBinding.filter.setOnLongClickListener(this::onLink);
         mBinding.toolbar.setOnMenuItemClickListener(this::onMenuItemClick);
@@ -179,10 +182,6 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         showContent();
     }
 
-    private void setTypeMoreVisible() {
-        updateTypeMoreVisible();
-    }
-
     private void setFabVisible(int position) {
         if (isNativeChromeHidden()) {
             mBinding.top.setVisibility(View.GONE);
@@ -225,6 +224,17 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
 
     private void onTypeMore(View view) {
         if (mAdapter.getItemCount() > 0) TypeDialog.create().items(mAdapter.getItems()).show(this);
+    }
+
+    private boolean onTypeMoreTouch(View view, MotionEvent event) {
+        if (event.getAction() == MotionEvent.ACTION_DOWN) {
+            view.animate().cancel();
+            view.animate().scaleX(1.06f).scaleY(1.06f).setDuration(80).start();
+        } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+            view.animate().cancel();
+            view.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start();
+        }
+        return false;
     }
 
     private void onLogo(View view) {
@@ -317,7 +327,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
 
     private void showContent() {
         mBinding.type.setVisibility(View.VISIBLE);
-        setTypeMoreVisible();
+        updateTypeMoreVisible();
         mBinding.pager.setVisibility(View.VISIBLE);
     }
 
@@ -577,7 +587,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
     private void showNativeContent() {
         requestNormalChrome();
         mBinding.type.setVisibility(View.VISIBLE);
-        setTypeMoreVisible();
+        updateTypeMoreVisible();
         mBinding.pager.setVisibility(View.VISIBLE);
         mBinding.homeWeb.setVisibility(View.GONE);
         updateToolbarMenu();

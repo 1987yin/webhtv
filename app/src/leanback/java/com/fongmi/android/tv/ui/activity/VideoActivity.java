@@ -15,6 +15,8 @@ import android.view.ViewParent;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.leanback.widget.ArrayObjectAdapter;
@@ -64,6 +66,8 @@ import com.fongmi.android.tv.playback.PlaybackEventCollector;
 import com.fongmi.android.tv.player.IntroSkipPlayback;
 import com.fongmi.android.tv.player.PlayerHelper;
 import com.fongmi.android.tv.player.PlayerManager;
+import com.fongmi.android.tv.player.lut.LutPreset;
+import com.fongmi.android.tv.player.lut.LutStore;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.service.IntroSkipService;
 import com.fongmi.android.tv.service.PersonalRecommendationService;
@@ -198,6 +202,27 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private String playHealthKey;
     private long detailStartTime;
     private long playerStartTime;
+
+    private final ActivityResultLauncher<Intent> mLutFile = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) return;
+        String path = FileChooser.getPathFromUri(result.getData().getData());
+        if (TextUtils.isEmpty(path)) {
+            Notify.show(R.string.lut_import_failed);
+            return;
+        }
+        Task.execute(() -> {
+            try {
+                LutPreset preset = LutStore.importFile(path);
+                App.post(() -> {
+                    Notify.show(R.string.lut_imported);
+                    mBinding.lutQuick.selectImported(preset, player(), mBinding.exo, this::onLutChanged);
+                });
+            } catch (Exception e) {
+                if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "import failed path=%s error=%s", path, e.getMessage());
+                App.post(() -> Notify.show(Notify.getError(R.string.lut_import_failed, e)));
+            }
+        });
+    });
 
     public static void push(FragmentActivity activity, String text) {
         if (FileChooser.isValid(activity, Uri.parse(text))) file(activity, FileChooser.getPathFromUri(Uri.parse(text)));
@@ -476,6 +501,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         player().setDanmakuController(mBinding.exo.getDanmakuController());
         setPlayerKernel();
         setDecode();
+        setLut();
         if (!detailRequested) checkId();
         if (mPendingDetail != null) {
             Result result = mPendingDetail;
@@ -526,7 +552,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         checkCast();
         SpiderDebug.log("video-flow", "initView preview ready cost=%dms", System.currentTimeMillis() - start);
         setRecyclerView();
-        mOsd = new PlayerOsdController(mBinding.osd.getRoot(), mBinding.osd.osdTopLeft, mBinding.osd.osdTopRight, mBinding.osd.osdBottomLeft, mBinding.osd.osdBottomRight, new PlayerOsdController.Source() {
+        mOsd = new PlayerOsdController(mBinding.osd.getRoot(), mBinding.osd.osdTopLeft, mBinding.osd.osdTopRight, mBinding.osd.osdBottomLeft, mBinding.osd.osdBottomRight, mBinding.osd.osdMiniProgress, new PlayerOsdController.Source() {
             @Override
             public PlayerManager getPlayer() {
                 return service() == null ? null : player();
@@ -536,7 +562,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             public String getTitle() {
                 return getOsdTitle();
             }
-        }, 18f, 14f);
+        }, 14f);
         SpiderDebug.log("video-flow", "initView recycler ready cost=%dms", System.currentTimeMillis() - start);
         setVideoView();
         SpiderDebug.log("video-flow", "initView video view ready cost=%dms", System.currentTimeMillis() - start);
@@ -571,6 +597,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.episodeReverse.setOnClickListener(view -> onRevSort());
         mBinding.episodeViewMode.setOnClickListener(view -> toggleEpisodeViewMode());
         mBinding.control.action.scale.setOnClickListener(view -> onScale());
+        mBinding.control.action.lut.setOnClickListener(view -> onLut());
         mBinding.control.action.speed.setOnClickListener(view -> onSpeed());
         mBinding.control.action.reset.setOnClickListener(view -> onReset());
         mBinding.control.action.title.setOnClickListener(view -> onTitle());
@@ -692,9 +719,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void setScale(int scale) {
-        mHistory.setScale(scale);
-        mBinding.exo.setResizeMode(scale);
+        if (mHistory != null) mHistory.setScale(scale);
+        applyResizeMode(scale);
         mBinding.control.action.scale.setText(ResUtil.getStringArray(R.array.select_scale)[scale]);
+    }
+
+    private void setLut() {
+        mBinding.control.action.lut.setText(player().getLutText());
+    }
+
+    private void onLutChanged() {
+        setLut();
     }
 
     private void setViewModel() {
@@ -1594,6 +1629,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         setScale(index == array.length - 1 ? 0 : ++index);
     }
 
+    private void onLut() {
+        mBinding.lutQuick.toggle(player(), mBinding.exo, this::onLutChanged, this::onLutImport);
+    }
+
+    private void onLutImport() {
+        FileChooser.from(mLutFile).show("*/*", new String[]{"application/octet-stream", "text/*", "image/*", "*/*"});
+    }
+
     private void onSpeed() {
         mBinding.control.action.speed.setText(player().addSpeed());
         saveDefaultSpeed();
@@ -1793,12 +1836,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private void showControl(View view) {
         showTopInfo();
         mBinding.control.getRoot().setVisibility(View.VISIBLE);
+        if (mOsd != null) mOsd.setControlsVisible(true);
         view.requestFocus();
         setR1Callback();
     }
 
     private void hideControl() {
         mBinding.control.getRoot().setVisibility(View.GONE);
+        if (mOsd != null) mOsd.setControlsVisible(false);
         if (player().isPlaying()) mBinding.widget.top.setVisibility(View.GONE);
         App.removeCallbacks(mR1);
     }
@@ -1987,7 +2032,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             " canSave=" + (mHistory != null ? mHistory.canSave() : "null") +
             " incognito=" + Setting.isIncognito());
         if (mHistory == null || Setting.isIncognito()) return;
-        if (exit && isOwner()) updatePlaybackHistoryPosition();
+        if (exit && isOwner()) {
+            updatePlaybackHistoryPosition();
+            mHistory.setCreateTime(System.currentTimeMillis());
+        }
         if (exit && service() != null) PlaybackEventCollector.get().onStop(player());
         if (!mHistory.canSave()) return;
         History history = mHistory.copy();
@@ -2136,6 +2184,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         android.util.Log.d("VideoActivity", "onPrepare: setting Clock callback");
         setPlayerKernel();
         setDecode();
+        setLut();
         setPosition();
         mClock.setCallback(this);
         requestIntroSkipPlan();
@@ -2209,7 +2258,13 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onSizeChanged(VideoSize size) {
+        applyResizeMode(getScale());
         mBinding.widget.size.setText(player().getSizeText());
+    }
+
+    @Override
+    protected void onSurfaceAttached() {
+        applyResizeMode(getScale());
     }
 
     @Override
@@ -3369,6 +3424,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (KeyUtil.isActionUp(event) && KeyUtil.isBackKey(event) && mBinding.lutQuick.hideIfVisible()) return true;
         if (isFullscreen() && KeyUtil.isMenuKey(event)) {
             if (Setting.getFullscreenMenuKey() == 1) onEpisodes();
             else onToggle();
@@ -3492,7 +3548,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onBackInvoked() {
-        if (isVisible(mBinding.control.getRoot())) {
+        if (mBinding.lutQuick.hideIfVisible()) {
+            return;
+        } else if (isVisible(mBinding.control.getRoot())) {
             hideControl();
         } else if (isVisible(mBinding.widget.center)) {
             hideCenter();

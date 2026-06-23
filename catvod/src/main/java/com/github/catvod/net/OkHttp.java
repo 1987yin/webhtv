@@ -138,6 +138,7 @@ public class OkHttp {
         try (Response res = newCall(client(timeout), url).execute()) {
             return res.body().string();
         } catch (Exception e) {
+            e.printStackTrace();
             return "";
         }
     }
@@ -145,6 +146,16 @@ public class OkHttp {
     public static String string(String url, Map<String, String> headers) {
         if (!url.startsWith("http")) return "";
         try (Response res = newCall(url, headers).execute()) {
+            return res.body().string();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "";
+        }
+    }
+
+    public static String string(String url, Map<String, String> headers, long timeout) {
+        if (!url.startsWith("http")) return "";
+        try (Response res = newCall(client(timeout), url, headers).execute()) {
             return res.body().string();
         } catch (Exception e) {
             e.printStackTrace();
@@ -170,6 +181,10 @@ public class OkHttp {
 
     public static Call newCall(String url, Map<String, String> headers) {
         return client().newCall(new Request.Builder().url(url).headers(Headers.of(headers)).build());
+    }
+
+    public static Call newCall(OkHttpClient client, String url, Map<String, String> headers) {
+        return client.newCall(new Request.Builder().url(url).headers(Headers.of(headers)).build());
     }
 
     public static Call newCall(String url, Map<String, String> headers, ArrayMap<String, String> params) {

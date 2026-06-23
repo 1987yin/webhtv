@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.appcompat.widget.LinearLayoutCompat xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:keepScreenOn="true">
+    android:background="@color/transparent"
+    android:keepScreenOn="true"
+    android:orientation="vertical">
 
     <FrameLayout
         android:id="@+id/video"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="9"
         android:background="@color/black"
         android:clickable="true"
         android:focusable="true">
@@ -44,20 +47,26 @@
 
     <androidx.appcompat.widget.LinearLayoutCompat
         android:id="@+id/recycler"
-        android:layout_width="wrap_content"
-        android:layout_height="match_parent"
-        android:background="@drawable/shape_live_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="14"
+        android:background="@color/transparent"
         android:orientation="horizontal"
-        android:visibility="gone"
+        android:paddingStart="4dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="4dp"
+        android:paddingBottom="6dp"
         tools:visibility="visible">
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/group"
             android:layout_width="0dp"
             android:layout_height="match_parent"
+            android:layout_weight="32"
             android:clipChildren="false"
             android:clipToPadding="false"
-            android:padding="8dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="5dp"
             app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
             tools:itemCount="5"
             tools:listitem="@layout/adapter_group" />
@@ -66,10 +75,11 @@
             android:id="@+id/channel"
             android:layout_width="0dp"
             android:layout_height="match_parent"
+            android:layout_weight="68"
             android:clipChildren="false"
             android:clipToPadding="false"
-            android:padding="8dp"
-            android:translationX="-16dp"
+            android:paddingStart="5dp"
+            android:paddingEnd="0dp"
             app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
             tools:itemCount="5"
             tools:listitem="@layout/adapter_channel" />
@@ -78,13 +88,25 @@
             android:id="@+id/epgData"
             android:layout_width="0dp"
             android:layout_height="match_parent"
+            android:layout_weight="0"
             android:clipChildren="false"
             android:clipToPadding="false"
-            android:padding="8dp"
+            android:paddingStart="4dp"
+            android:visibility="gone"
             app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
             tools:itemCount="5"
             tools:listitem="@layout/adapter_epg_data" />
 
     </androidx.appcompat.widget.LinearLayoutCompat>
-</FrameLayout>
 
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/navigation"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="@color/transparent"
+        app:elevation="0dp"
+        app:itemIconTint="@color/selector_nav"
+        app:itemTextColor="@color/selector_nav"
+        app:labelVisibilityMode="labeled"
+        app:menu="@menu/menu_nav" />
+</androidx.appcompat.widget.LinearLayoutCompat>

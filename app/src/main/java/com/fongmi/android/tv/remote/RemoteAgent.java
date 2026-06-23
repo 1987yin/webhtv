@@ -76,7 +76,7 @@ public final class RemoteAgent {
             for (RemoteProfile profile : store.profiles) {
                 if (!RemoteStore.shouldStart(profile)) continue;
                 active.add(profile.serverOrigin);
-                keepOnline |= profile.keepOnline;
+                keepOnline |= profile.enabled && profile.keepOnline;
                 Session session = sessions.get(profile.serverOrigin);
                 if (session == null) {
                     session = new Session(profile.serverOrigin);

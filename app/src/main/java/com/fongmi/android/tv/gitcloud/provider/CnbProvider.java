@@ -73,6 +73,36 @@ public class CnbProvider extends BaseGitProvider {
     }
 
     @Override
+    public List<GitRepo> searchRepos(GitAccount account, String token, String keyword) throws GitCloudException {
+        if (TextUtils.isEmpty(keyword)) throw new GitCloudException("搜索关键词为空");
+        List<GitRepo> result = new ArrayList<>();
+        String needle = keyword.toLowerCase();
+        for (GitRepo item : listRepos(account, token)) {
+            if (item.displayName().toLowerCase().contains(needle)) result.add(item);
+        }
+        return result;
+    }
+
+    @Override
+    public GitRepo getRepo(GitAccount account, String token, String fullName) throws GitCloudException {
+        if (TextUtils.isEmpty(fullName)) throw new GitCloudException("仓库地址为空");
+        GitRepo request = new GitRepo();
+        request.providerType = GitProviderType.CNB;
+        request.fullName = fullName.replaceAll("^/+", "").replaceAll("/+$", "");
+        int split = request.fullName.indexOf('/');
+        request.owner = split > 0 ? request.fullName.substring(0, split) : account.username;
+        request.name = split > 0 ? request.fullName.substring(request.fullName.lastIndexOf('/') + 1) : request.fullName;
+        try {
+            return repo(account, get(repoApi(request), token));
+        } catch (GitCloudException e) {
+            request.cloneUrl = web(account) + "/" + request.fullName + ".git";
+            request.webUrl = web(account) + "/" + request.fullName;
+            request.defaultBranch = "main";
+            return request;
+        }
+    }
+
+    @Override
     public GitRepo createRepo(GitAccount account, String token, CreateRepoRequest request) throws GitCloudException {
         JsonObject payload = new JsonObject();
         payload.addProperty("name", request.name);

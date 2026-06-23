@@ -59,7 +59,7 @@ public final class DanmakuDialog extends BaseBottomSheetDialog implements Danmak
         binding.recycler.addItemDecoration(new SpaceItemDecoration(1, 16));
         binding.recycler.post(() -> binding.recycler.scrollToPosition(adapter.getSelected()));
         binding.recycler.setVisibility(adapter.getItemCount() == 0 ? View.GONE : View.VISIBLE);
-        binding.search.setVisibility(player.getMetadata() == null || DanmakuSetting.getEffectiveApiUrl().isEmpty() ? View.GONE : View.VISIBLE);
+        binding.search.setVisibility(player.getMetadata() == null || !DanmakuSetting.hasValidApiUrl() ? View.GONE : View.VISIBLE);
     }
 
     @Override

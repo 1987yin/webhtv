@@ -1,6 +1,5 @@
 package com.fongmi.android.tv.ui.fragment;
 
-import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -29,7 +28,7 @@ public class SettingDanmakuFragment extends BaseFragment implements DanmakuListe
     }
 
     private String getApiStatus() {
-        return getString(TextUtils.isEmpty(DanmakuSetting.getEffectiveApiUrl()) ? R.string.none : R.string.yes);
+        return getString(DanmakuSetting.hasValidApiUrl() ? R.string.yes : R.string.none);
     }
 
     @Override
@@ -67,13 +66,13 @@ public class SettingDanmakuFragment extends BaseFragment implements DanmakuListe
     }
 
     private void updateAutoVisibility() {
-        boolean show = DanmakuSetting.isLoad() && !TextUtils.isEmpty(DanmakuSetting.getEffectiveApiUrl());
+        boolean show = DanmakuSetting.isLoad() && DanmakuSetting.hasValidApiUrl();
         mBinding.danmakuAuto.setVisibility(show ? View.VISIBLE : View.GONE);
         updateSpiderVisibility();
     }
 
     private void updateSpiderVisibility() {
-        boolean show = DanmakuSetting.isLoad() && !TextUtils.isEmpty(DanmakuSetting.getEffectiveApiUrl()) && DanmakuSetting.isAuto();
+        boolean show = DanmakuSetting.isLoad() && DanmakuSetting.hasValidApiUrl() && DanmakuSetting.isAuto();
         mBinding.danmakuSpider.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 

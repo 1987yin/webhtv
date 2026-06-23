@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.setting;
 
+import android.net.Uri;
 import android.text.TextUtils;
 
 import androidx.media3.ui.danmaku.DanmakuConfig;
@@ -38,7 +39,7 @@ public class DanmakuSetting {
     }
 
     public static void putApiUrl(String url) {
-        Prefers.put("danmaku_api_url", url);
+        Prefers.put("danmaku_api_url", url == null ? "" : url.trim());
     }
 
     public static boolean isShow() {
@@ -267,8 +268,29 @@ public class DanmakuSetting {
 
     public static String getEffectiveApiUrl() {
         String userUrl = getApiUrl();
-        if (!TextUtils.isEmpty(userUrl)) return userUrl;
-        return VodConfig.get().getConfig().getDanmaku();
+        if (!TextUtils.isEmpty(userUrl)) return userUrl.trim();
+        String configUrl = VodConfig.get().getConfig().getDanmaku();
+        return configUrl == null ? "" : configUrl.trim();
+    }
+
+    public static String getValidApiUrl() {
+        String url = getEffectiveApiUrl();
+        return isValidApiUrl(url) ? url : "";
+    }
+
+    public static boolean hasValidApiUrl() {
+        return !TextUtils.isEmpty(getValidApiUrl());
+    }
+
+    public static boolean isValidApiUrl(String url) {
+        if (TextUtils.isEmpty(url)) return false;
+        try {
+            Uri uri = Uri.parse(url.trim());
+            String scheme = uri.getScheme();
+            return ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) && !TextUtils.isEmpty(uri.getHost());
+        } catch (Throwable e) {
+            return false;
+        }
     }
 
     public static void resetAppearance() {

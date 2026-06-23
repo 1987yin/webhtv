@@ -36,6 +36,8 @@ import tv.danmaku.ijk.media.player.IjkTimedText;
 @UnstableApi
 class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener {
 
+    private static final long STATE_REFRESH_INTERVAL_MS = 1000;
+
     private static final Commands COMMANDS = new Commands.Builder()
             .add(COMMAND_PLAY_PAUSE)
             .add(COMMAND_PREPARE)
@@ -57,6 +59,7 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             .build();
 
     private final IjkMediaPlayer ijk;
+    private final Runnable stateRefreshRunnable;
     private MediaItem mediaItem;
     private SurfaceHolder surfaceHolder;
     private Surface surface;
@@ -79,6 +82,7 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         this.decode = decode;
         ijk = new IjkMediaPlayer();
         ijk.setListener(this);
+        stateRefreshRunnable = this::refreshPlaybackState;
         playbackParameters = PlaybackParameters.DEFAULT;
         videoSize = VideoSize.UNKNOWN;
         playbackState = Player.STATE_IDLE;
@@ -244,12 +248,14 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         }
         if (playWhenReady) ijk.start();
         invalidateState();
+        startStateRefresh();
     }
 
     @Override
     public void onCompletion(IMediaPlayer mp) {
         playbackState = Player.STATE_ENDED;
         loading = false;
+        stopStateRefresh();
         invalidateState();
     }
 
@@ -257,6 +263,7 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
     public boolean onError(IMediaPlayer mp, int what, int extra) {
         playbackState = Player.STATE_IDLE;
         loading = false;
+        stopStateRefresh();
         playerError = new PlaybackException("IJK error: " + what + ", " + extra, null, errorCode(what));
         SpiderDebug.log("ijk", "error what=%d extra=%d mapped=%d decode=%d state=%d loading=%s uri=%s", what, extra, playerError.errorCode, decode, playbackState, loading, summarizeUri());
         invalidateState();
@@ -268,9 +275,11 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         if (what == IMediaPlayer.MEDIA_INFO_BUFFERING_START) {
             loading = true;
             playbackState = Player.STATE_BUFFERING;
+            startStateRefresh();
         } else if (what == IMediaPlayer.MEDIA_INFO_BUFFERING_END || what == IMediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
             loading = false;
             playbackState = Player.STATE_READY;
+            startStateRefresh();
         }
         invalidateState();
     }
@@ -312,11 +321,13 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             ijk.setSpeed(playbackParameters.speed);
             ijk.prepareAsync();
             invalidateState();
+            startStateRefresh();
         } catch (Throwable e) {
             playerError = new PlaybackException(e.getMessage(), e, PlaybackException.ERROR_CODE_IO_UNSPECIFIED);
             SpiderDebug.log("ijk", "open failed uri=%s error=%s", summarizeUri(), e.getMessage());
             playbackState = Player.STATE_IDLE;
             loading = false;
+            stopStateRefresh();
             invalidateState();
         }
     }
@@ -331,6 +342,21 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         bufferingPercent = 0;
         videoSize = VideoSize.UNKNOWN;
         if (resetState) playbackState = Player.STATE_IDLE;
+        stopStateRefresh();
+    }
+
+    private void startStateRefresh() {
+        App.post(stateRefreshRunnable, STATE_REFRESH_INTERVAL_MS);
+    }
+
+    private void stopStateRefresh() {
+        App.removeCallbacks(stateRefreshRunnable);
+    }
+
+    private void refreshPlaybackState() {
+        if (mediaItem == null || playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED || playerError != null) return;
+        invalidateState();
+        startStateRefresh();
     }
 
     private void setVideoOutput(Object output) {

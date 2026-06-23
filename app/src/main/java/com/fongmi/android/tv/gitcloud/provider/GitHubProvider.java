@@ -75,6 +75,37 @@ public class GitHubProvider extends BaseGitProvider {
     }
 
     @Override
+    public List<GitRepo> searchRepos(GitAccount account, String token, String keyword) throws GitCloudException {
+        if (TextUtils.isEmpty(keyword)) throw new GitCloudException("搜索关键词为空");
+        JsonObject object = get(API + "/search/repositories?q=" + enc(keyword) + "&sort=updated&per_page=30", token);
+        JsonArray array = array(object, "items");
+        List<GitRepo> repos = new ArrayList<>();
+        for (JsonElement element : array) if (element.isJsonObject()) repos.add(repo(element.getAsJsonObject()));
+        return repos;
+    }
+
+    @Override
+    public GitRepo getRepo(GitAccount account, String token, String fullName) throws GitCloudException {
+        if (TextUtils.isEmpty(fullName)) throw new GitCloudException("仓库地址为空");
+        return repo(get(API + "/repos/" + encPath(fullName), token));
+    }
+
+    @Override
+    public List<GitRepo> listUserRepos(GitAccount account, String token, String owner) throws GitCloudException {
+        if (TextUtils.isEmpty(owner)) throw new GitCloudException("用户名为空");
+        JsonArray array = getArray(API + "/users/" + enc(owner) + "/repos?per_page=60&sort=updated&type=owner", token);
+        List<GitRepo> repos = new ArrayList<>();
+        for (JsonElement element : array) if (element.isJsonObject()) repos.add(repo(element.getAsJsonObject()));
+        return repos;
+    }
+
+    @Override
+    public GitRepo forkRepo(GitAccount account, String token, GitRepo repo) throws GitCloudException {
+        if (repo == null || TextUtils.isEmpty(repo.fullName)) throw new GitCloudException("仓库地址为空");
+        return repo(post(API + "/repos/" + encPath(repo.fullName) + "/forks", token, new JsonObject()));
+    }
+
+    @Override
     public GitRepo createRepo(GitAccount account, String token, CreateRepoRequest request) throws GitCloudException {
         JsonObject payload = new JsonObject();
         payload.addProperty("name", request.name);

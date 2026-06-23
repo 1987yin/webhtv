@@ -28,7 +28,7 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
     private String group;
     private boolean search;
     private boolean change;
-    private int column;
+    private int column = 1;
 
     public SiteAdapter(OnClickListener listener) {
         this.listener = listener;
@@ -63,7 +63,9 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
     }
 
     public void column(int column) {
-        this.column = Math.max(1, column);
+        int value = Math.max(1, column);
+        if (this.column == value) return;
+        this.column = value;
         notifyDataSetChanged();
     }
 
@@ -88,13 +90,16 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
 
     public void filter(String group, String keyword) {
         this.group = group;
-        mItems.clear();
-        String filter = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
+        String text = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
         String tag = group == null ? "" : group.trim();
+        mItems.clear();
         for (Site site : mAllItems) {
             String name = site.getName();
+            String key = site.getKey();
             boolean matchGroup = TextUtils.isEmpty(tag) || name.contains(tag);
-            boolean matchKeyword = TextUtils.isEmpty(filter) || name.toLowerCase(Locale.ROOT).contains(filter);
+            boolean matchName = !TextUtils.isEmpty(name) && name.toLowerCase(Locale.ROOT).contains(text);
+            boolean matchKey = !TextUtils.isEmpty(key) && key.toLowerCase(Locale.ROOT).contains(text);
+            boolean matchKeyword = TextUtils.isEmpty(text) || matchName || matchKey;
             if (matchGroup && matchKeyword) mItems.add(site);
         }
         notifyDataSetChanged();

@@ -1,7 +1,12 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import android.app.Dialog;
+import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
+import android.widget.FrameLayout;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -12,6 +17,8 @@ import com.fongmi.android.tv.bean.Class;
 import com.fongmi.android.tv.databinding.DialogTypeBinding;
 import com.fongmi.android.tv.ui.adapter.TypeAdapter;
 import com.fongmi.android.tv.ui.adapter.TypeDialogAdapter;
+import com.fongmi.android.tv.utils.ResUtil;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.flexbox.FlexDirection;
 import com.google.android.flexbox.FlexWrap;
 import com.google.android.flexbox.FlexboxLayoutManager;
@@ -34,7 +41,7 @@ public class TypeDialog extends BaseBottomSheetDialog implements TypeAdapter.OnC
     }
 
     public void show(Fragment fragment) {
-        for (Fragment f : fragment.getChildFragmentManager().getFragments()) if (f instanceof TypeDialog) return;
+        for (Fragment child : fragment.getChildFragmentManager().getFragments()) if (child instanceof TypeDialog) return;
         this.listener = (TypeAdapter.OnClickListener) fragment;
         show(fragment.getChildFragmentManager(), null);
     }
@@ -44,8 +51,31 @@ public class TypeDialog extends BaseBottomSheetDialog implements TypeAdapter.OnC
         return binding = DialogTypeBinding.inflate(inflater, container, false);
     }
 
+    @NonNull
+    @Override
+    public Dialog onCreateDialog(Bundle savedInstanceState) {
+        Dialog dialog = super.onCreateDialog(savedInstanceState);
+        clearDim(dialog.getWindow());
+        return dialog;
+    }
+
+    @Override
+    protected boolean transparent() {
+        return true;
+    }
+
+    @Override
+    protected void setBehavior(BottomSheetDialog dialog) {
+        super.setBehavior(dialog);
+        clearDim(dialog.getWindow());
+        FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+        if (sheet != null) sheet.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
+    }
+
     @Override
     protected void initView() {
+        int ratio = ResUtil.isLand(requireContext()) ? 46 : 58;
+        binding.recycler.setMaxHeight(ResUtil.getScreenHeight(requireContext()) * ratio / 100);
         binding.recycler.setHasFixedSize(false);
         binding.recycler.setItemAnimator(null);
         FlexboxLayoutManager manager = new FlexboxLayoutManager(requireContext(), FlexDirection.ROW);
@@ -58,5 +88,13 @@ public class TypeDialog extends BaseBottomSheetDialog implements TypeAdapter.OnC
     public void onItemClick(int position, Class item) {
         dismiss();
         listener.onItemClick(position, item);
+    }
+
+    private void clearDim(Window window) {
+        if (window == null) return;
+        window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+        WindowManager.LayoutParams params = window.getAttributes();
+        params.dimAmount = 0f;
+        window.setAttributes(params);
     }
 }

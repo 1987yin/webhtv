@@ -179,7 +179,7 @@ public class CastActivity extends PlaybackActivity implements CustomKeyDownVod.L
     }
 
     private void setScale(int scale) {
-        mBinding.exo.setResizeMode(scale);
+        applyResizeMode(scale);
         mBinding.control.action.scale.setText(ResUtil.getStringArray(R.array.select_scale)[scale]);
     }
 
@@ -426,7 +426,13 @@ public class CastActivity extends PlaybackActivity implements CustomKeyDownVod.L
 
     @Override
     protected void onSizeChanged(VideoSize size) {
+        applyResizeMode(scale);
         mBinding.widget.size.setText(player().getSizeText());
+    }
+
+    @Override
+    protected void onSurfaceAttached() {
+        applyResizeMode(scale);
     }
 
     @Override
