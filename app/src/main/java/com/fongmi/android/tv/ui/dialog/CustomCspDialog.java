@@ -48,6 +48,7 @@ import com.fongmi.android.tv.databinding.DialogCustomCspBinding;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.setting.CustomCspSetting;
 import com.fongmi.android.tv.ui.custom.CustomTextListener;
+import com.fongmi.android.tv.ui.custom.SafeScrollEditText;
 import com.fongmi.android.tv.ui.custom.SettingClipboardOverlay;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.Notify;
@@ -231,8 +232,10 @@ public class CustomCspDialog extends BaseAlertDialog {
     private void setupScrollableText(EditText input, boolean horizontal) {
         input.setSelectAllOnFocus(false);
         input.setHorizontallyScrolling(horizontal);
-        input.setHorizontalScrollBarEnabled(horizontal);
-        input.setVerticalScrollBarEnabled(true);
+        if (!(input instanceof SafeScrollEditText)) {
+            input.setHorizontalScrollBarEnabled(horizontal);
+            input.setVerticalScrollBarEnabled(true);
+        }
         input.setOnTouchListener((view, event) -> {
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
