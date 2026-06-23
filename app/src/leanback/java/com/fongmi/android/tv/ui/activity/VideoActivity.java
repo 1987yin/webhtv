@@ -391,7 +391,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             public String getTitle() {
                 return getOsdTitle();
             }
-        }, 18f, 14f);
+        }, 14f);
         SpiderDebug.log("video-flow", "initView recycler ready cost=%dms", System.currentTimeMillis() - start);
         setVideoView();
         SpiderDebug.log("video-flow", "initView video view ready cost=%dms", System.currentTimeMillis() - start);
@@ -1216,12 +1216,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private void showControl(View view) {
         showTopInfo();
         mBinding.control.getRoot().setVisibility(View.VISIBLE);
+        if (mOsd != null) mOsd.setControlsVisible(true);
         view.requestFocus();
         setR1Callback();
     }
 
     private void hideControl() {
         mBinding.control.getRoot().setVisibility(View.GONE);
+        if (mOsd != null) mOsd.setControlsVisible(false);
         if (player().isPlaying()) mBinding.widget.top.setVisibility(View.GONE);
         App.removeCallbacks(mR1);
     }

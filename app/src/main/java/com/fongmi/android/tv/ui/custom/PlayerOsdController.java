@@ -36,20 +36,20 @@ public class PlayerOsdController {
     private final Runnable update;
     private final Source source;
     private final View root;
-    private final float normalSp;
     private final float miniSp;
 
     private long lastTotalRxBytes;
     private long lastTimeStamp;
+    private boolean controlsVisible;
+    private boolean started;
 
-    public PlayerOsdController(View root, TextView topLeft, TextView topRight, TextView bottomLeft, TextView bottomRight, MiniProgressView miniProgress, Source source, float normalSp, float miniSp) {
+    public PlayerOsdController(View root, TextView topLeft, TextView topRight, TextView bottomLeft, TextView bottomRight, MiniProgressView miniProgress, Source source, float miniSp) {
         this.timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
         this.miniProgress = miniProgress;
         this.bottomRight = bottomRight;
         this.bottomLeft = bottomLeft;
         this.topRight = topRight;
         this.topLeft = topLeft;
-        this.normalSp = normalSp;
         this.miniSp = miniSp;
         this.source = source;
         this.root = root;
@@ -57,6 +57,7 @@ public class PlayerOsdController {
     }
 
     public void start() {
+        started = true;
         if (!PlayerSetting.isOsdEnabled()) {
             root.setVisibility(View.GONE);
             return;
@@ -66,6 +67,7 @@ public class PlayerOsdController {
     }
 
     public void stop() {
+        started = false;
         App.removeCallbacks(update);
     }
 
@@ -73,18 +75,28 @@ public class PlayerOsdController {
         stop();
     }
 
+    public void setControlsVisible(boolean controlsVisible) {
+        if (this.controlsVisible == controlsVisible) return;
+        this.controlsVisible = controlsVisible;
+        if (started) render();
+    }
+
     private void update() {
+        if (render()) App.post(update, 1000);
+    }
+
+    private boolean render() {
         boolean enabled = PlayerSetting.isOsdEnabled();
         root.setVisibility(enabled ? View.VISIBLE : View.GONE);
-        if (!enabled) return;
-        setTextSize(PlayerSetting.isOsdMini() ? miniSp : normalSp);
+        if (!enabled) return false;
+        setTextSize(miniSp);
         PlayerManager player = source.getPlayer();
         setTopLeft(player);
         setTopRight();
         setBottomLeft(player);
         setBottomRight();
         setMiniProgress(player);
-        App.post(update, 1000);
+        return true;
     }
 
     private void setTopLeft(PlayerManager player) {
@@ -106,7 +118,7 @@ public class PlayerOsdController {
     }
 
     private void setBottomLeft(PlayerManager player) {
-        if (!PlayerSetting.isOsdProgress() || player == null || player.isLive()) {
+        if (controlsVisible || !PlayerSetting.isOsdProgress() || player == null || player.isLive()) {
             bottomLeft.setVisibility(View.GONE);
             return;
         }
@@ -125,7 +137,7 @@ public class PlayerOsdController {
     }
 
     private void setMiniProgress(PlayerManager player) {
-        if (!PlayerSetting.isOsdProgress() || player == null || player.isLive()) {
+        if (controlsVisible || !PlayerSetting.isOsdMini() || player == null || player.isLive()) {
             miniProgress.setVisibility(View.GONE);
             return;
         }

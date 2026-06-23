@@ -384,7 +384,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             public String getTitle() {
                 return getOsdTitle();
             }
-        }, 14f, 12f);
+        }, 12f);
         setVideoView();
         setViewModel();
         if (hasInitialPreview()) showInitialPreview();
@@ -1167,12 +1167,14 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.back.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.top.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.getRoot().setVisibility(View.VISIBLE);
+        if (mOsd != null) mOsd.setControlsVisible(true);
         checkFullscreenImg();
         setR1Callback();
     }
 
     private void hideControl() {
         mBinding.control.getRoot().setVisibility(View.GONE);
+        if (mOsd != null) mOsd.setControlsVisible(false);
         App.removeCallbacks(mR1);
     }
 
