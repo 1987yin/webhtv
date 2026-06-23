@@ -27,7 +27,7 @@ public class Setting {
     public static final int WALL_CINEMA_CLAY = 9;
     public static final int WALL_GREEN = 1;
 
-    private static final int[] DEFAULT_WALLS = {WALL_CINEMA, WALL_CINEMA_WARM, WALL_CINEMA_MOSS, WALL_CINEMA_BLUE, WALL_CINEMA_CLAY, WALL_GREEN};
+    private static final int[] DEFAULT_WALLS = {WALL_CINEMA, WALL_CINEMA_WARM, WALL_CINEMA_MOSS, WALL_CINEMA_BLUE, WALL_CINEMA_CLAY};
 
     public static String getDoh() {
         return Prefers.getString("doh");
@@ -62,7 +62,8 @@ public class Setting {
     }
 
     public static int getWall() {
-        return Prefers.getInt("wall", WALL_CINEMA);
+        int wall = Prefers.getInt("wall", WALL_CINEMA);
+        return wall == WALL_GREEN ? WALL_CINEMA : wall;
     }
 
     public static void putWall(int wall) {
@@ -107,7 +108,7 @@ public class Setting {
     }
 
     public static String getWallDesc(String desc) {
-        return getWallType() == 0 && (isBuiltInColorWall(getWall()) || getWall() == WALL_GREEN) ? getBuiltInWallName(getWall()) : desc;
+        return getWallType() == 0 && isBuiltInColorWall(getWall()) ? getBuiltInWallName(getWall()) : desc;
     }
 
     public static int getReset() {
