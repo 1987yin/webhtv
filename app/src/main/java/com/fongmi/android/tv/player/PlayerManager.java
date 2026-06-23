@@ -948,6 +948,8 @@ public class PlayerManager implements ParseCallback {
 
         void onError(String msg);
 
+        void onReload(String msg);
+
         void onPlayerRebuild(Player newPlayer);
     }
 
@@ -955,7 +957,7 @@ public class PlayerManager implements ParseCallback {
 
         @Override
         public void onPlaybackStateChanged(int state) {
-            if (state == Player.STATE_READY || state == Player.STATE_ENDED) App.removeCallbacks(runnable);
+            if (state != Player.STATE_IDLE) App.removeCallbacks(runnable);
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "state=%s spec=%s", stateName(state), debugSpec());
             if (state == Player.STATE_READY) applyLutForCurrentItem();
         }
@@ -990,6 +992,10 @@ public class PlayerManager implements ParseCallback {
             if (retryLutFailure(e)) return;
             if (action == PlayerEngine.ErrorAction.FATAL && retryLocalProxy(e)) return;
             if (action == PlayerEngine.ErrorAction.FATAL && retryExoFallback(e)) return;
+            if (action == PlayerEngine.ErrorAction.RELOAD) {
+                callback.onReload(engine.getErrorMessage(e));
+                return;
+            }
             if (action == PlayerEngine.ErrorAction.RECOVERED) {
                 if (spec != null) setDanmakus(spec.getDanmakus());
                 return;

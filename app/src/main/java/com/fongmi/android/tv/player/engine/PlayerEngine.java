@@ -92,6 +92,7 @@ public interface PlayerEngine {
 
     enum ErrorAction {
         RECOVERED,
+        RELOAD,
         DECODE,
         FATAL
     }

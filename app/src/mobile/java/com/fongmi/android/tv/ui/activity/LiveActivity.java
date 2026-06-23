@@ -8,6 +8,7 @@ import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -105,6 +106,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private PlayerOsdController mOsd;
     private List<Group> mHides;
     private String mPlaybackKey;
+    private String mPendingReloadUrl;
+    private String mPendingReloadMsg;
     private Channel mChannel;
     private Group mGroup;
     private Runnable mR1;
@@ -961,9 +964,34 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void start(Result result) {
-        mPlaybackKey = result.getRealUrl();
+        String realUrl = result.getRealUrl();
+        if (isSameReloadUrl(realUrl)) {
+            String msg = mPendingReloadMsg;
+            clearPendingReload();
+            handleSameReloadUrl(msg);
+            return;
+        }
+        clearPendingReload();
+        mPlaybackKey = realUrl;
         startPlayer(mPlaybackKey, result, false, getHome().getTimeout(), buildMetadata());
         mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getDefaultSpeed()));
+    }
+
+    private boolean isSameReloadUrl(String realUrl) {
+        return !TextUtils.isEmpty(mPendingReloadUrl) && TextUtils.equals(mPendingReloadUrl, realUrl);
+    }
+
+    private void clearPendingReload() {
+        mPendingReloadUrl = null;
+        mPendingReloadMsg = null;
+    }
+
+    private void handleSameReloadUrl(String msg) {
+        if (mChannel != null && !mChannel.isOnly()) {
+            nextLine(true);
+        } else {
+            onError(msg);
+        }
     }
 
     private void checkControl() {
@@ -1092,6 +1120,20 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         player().stop();
         showError(msg);
         startFlow();
+    }
+
+    @Override
+    protected void onReload(String msg) {
+        if (mChannel == null) {
+            onError(msg);
+            return;
+        }
+        mPendingReloadUrl = mPlaybackKey != null ? mPlaybackKey : player().getUrl();
+        mPendingReloadMsg = msg;
+        player().resetTrack();
+        player().reset();
+        player().stop();
+        fetch();
     }
 
     @Override
