@@ -103,75 +103,62 @@
         android:text="@string/danmaku_style_mode"
         android:textAppearance="?attr/textAppearanceBodyLarge" />
 
-    <com.google.android.material.chip.ChipGroup
+    <androidx.appcompat.widget.LinearLayoutCompat
         android:id="@+id/styleChipGroup"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="40dp"
+        android:layout_marginTop="8dp"
         android:paddingHorizontal="24dp"
-        app:selectionRequired="true"
-        app:singleSelection="true">
+        android:orientation="horizontal">
 
-        <com.google.android.material.chip.Chip
+        <com.google.android.material.textview.MaterialTextView
             android:id="@+id/styleNone"
-            style="@style/Widget.Material3.Chip.Filter"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/selector_control_sheet_button"
+            android:gravity="center"
             android:text="@string/danmaku_style_none"
-            android:textColor="@color/danmaku_choice_text"
-            app:checkedIconTint="@color/danmaku_choice_text"
-            app:chipBackgroundColor="@color/danmaku_choice_bg"
-            app:chipMinHeight="40dp"
-            app:chipStrokeColor="@color/danmaku_choice_stroke"
-            app:chipStrokeWidth="1dp"
-            app:ensureMinTouchTargetSize="false"
-            app:rippleColor="#22FFFFFF" />
+            android:textColor="@color/selector_control_sheet_text"
+            android:textSize="14sp" />
 
-        <com.google.android.material.chip.Chip
+        <com.google.android.material.textview.MaterialTextView
             android:id="@+id/styleShadow"
-            style="@style/Widget.Material3.Chip.Filter"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/selector_control_sheet_button"
+            android:gravity="center"
             android:text="@string/danmaku_style_shadow"
-            android:textColor="@color/danmaku_choice_text"
-            app:checkedIconTint="@color/danmaku_choice_text"
-            app:chipBackgroundColor="@color/danmaku_choice_bg"
-            app:chipMinHeight="40dp"
-            app:chipStrokeColor="@color/danmaku_choice_stroke"
-            app:chipStrokeWidth="1dp"
-            app:ensureMinTouchTargetSize="false"
-            app:rippleColor="#22FFFFFF" />
+            android:textColor="@color/selector_control_sheet_text"
+            android:textSize="14sp" />
 
-        <com.google.android.material.chip.Chip
+        <com.google.android.material.textview.MaterialTextView
             android:id="@+id/styleStroke"
-            style="@style/Widget.Material3.Chip.Filter"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/selector_control_sheet_button"
+            android:gravity="center"
             android:text="@string/danmaku_style_stroke"
-            android:textColor="@color/danmaku_choice_text"
-            app:checkedIconTint="@color/danmaku_choice_text"
-            app:chipBackgroundColor="@color/danmaku_choice_bg"
-            app:chipMinHeight="40dp"
-            app:chipStrokeColor="@color/danmaku_choice_stroke"
-            app:chipStrokeWidth="1dp"
-            app:ensureMinTouchTargetSize="false"
-            app:rippleColor="#22FFFFFF" />
+            android:textColor="@color/selector_control_sheet_text"
+            android:textSize="14sp" />
 
-        <com.google.android.material.chip.Chip
+        <com.google.android.material.textview.MaterialTextView
             android:id="@+id/styleProjection"
-            style="@style/Widget.Material3.Chip.Filter"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@drawable/selector_control_sheet_button"
+            android:gravity="center"
             android:text="@string/danmaku_style_projection"
-            android:textColor="@color/danmaku_choice_text"
-            app:checkedIconTint="@color/danmaku_choice_text"
-            app:chipBackgroundColor="@color/danmaku_choice_bg"
-            app:chipMinHeight="40dp"
-            app:chipStrokeColor="@color/danmaku_choice_stroke"
-            app:chipStrokeWidth="1dp"
-            app:ensureMinTouchTargetSize="false"
-            app:rippleColor="#22FFFFFF" />
+            android:textColor="@color/selector_control_sheet_text"
+            android:textSize="14sp" />
 
-    </com.google.android.material.chip.ChipGroup>
+    </androidx.appcompat.widget.LinearLayoutCompat>
 
     <androidx.appcompat.widget.LinearLayoutCompat
         android:id="@+id/shadowAlphaRow"
@@ -366,60 +353,50 @@
         android:text="@string/danmaku_color_mode"
         android:textAppearance="?attr/textAppearanceBodyLarge" />
 
-    <com.google.android.material.chip.ChipGroup
+    <androidx.appcompat.widget.LinearLayoutCompat
         android:id="@+id/colorChipGroup"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="40dp"
+        android:layout_marginTop="8dp"
         android:paddingHorizontal="24dp"
-        app:selectionRequired="true"
-        app:singleSelection="true">
+        android:orientation="horizontal">
 
-        <com.google.android.material.chip.Chip
+        <com.google.android.material.textview.MaterialTextView
             android:id="@+id/colorDefault"
-            style="@style/Widget.Material3.Chip.Filter"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/selector_control_sheet_button"
+            android:gravity="center"
             android:text="@string/danmaku_color_default"
-            android:textColor="@color/danmaku_choice_text"
-            app:checkedIconTint="@color/danmaku_choice_text"
-            app:chipBackgroundColor="@color/danmaku_choice_bg"
-            app:chipMinHeight="40dp"
-            app:chipStrokeColor="@color/danmaku_choice_stroke"
-            app:chipStrokeWidth="1dp"
-            app:ensureMinTouchTargetSize="false"
-            app:rippleColor="#22FFFFFF" />
+            android:textColor="@color/selector_control_sheet_text"
+            android:textSize="14sp" />
 
-        <com.google.android.material.chip.Chip
+        <com.google.android.material.textview.MaterialTextView
             android:id="@+id/colorColorful"
-            style="@style/Widget.Material3.Chip.Filter"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/selector_control_sheet_button"
+            android:gravity="center"
             android:text="@string/danmaku_color_colorful"
-            android:textColor="@color/danmaku_choice_text"
-            app:checkedIconTint="@color/danmaku_choice_text"
-            app:chipBackgroundColor="@color/danmaku_choice_bg"
-            app:chipMinHeight="40dp"
-            app:chipStrokeColor="@color/danmaku_choice_stroke"
-            app:chipStrokeWidth="1dp"
-            app:ensureMinTouchTargetSize="false"
-            app:rippleColor="#22FFFFFF" />
+            android:textColor="@color/selector_control_sheet_text"
+            android:textSize="14sp" />
 
-        <com.google.android.material.chip.Chip
+        <com.google.android.material.textview.MaterialTextView
             android:id="@+id/colorGradient"
-            style="@style/Widget.Material3.Chip.Filter"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@drawable/selector_control_sheet_button"
+            android:gravity="center"
             android:text="@string/danmaku_color_gradient"
-            android:textColor="@color/danmaku_choice_text"
-            app:checkedIconTint="@color/danmaku_choice_text"
-            app:chipBackgroundColor="@color/danmaku_choice_bg"
-            app:chipMinHeight="40dp"
-            app:chipStrokeColor="@color/danmaku_choice_stroke"
-            app:chipStrokeWidth="1dp"
-            app:ensureMinTouchTargetSize="false"
-            app:rippleColor="#22FFFFFF" />
+            android:textColor="@color/selector_control_sheet_text"
+            android:textSize="14sp" />
 
-    </com.google.android.material.chip.ChipGroup>
+    </androidx.appcompat.widget.LinearLayoutCompat>
 
     <com.google.android.material.textview.MaterialTextView
         android:id="@+id/colorOverrideHint"

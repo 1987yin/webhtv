@@ -14,8 +14,6 @@ import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.chip.Chip;
-import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.slider.Slider;
 
 import java.util.Locale;
@@ -59,8 +57,8 @@ final class DanmakuSettingPanel {
         setupFloat(appearance.projectionOffsetXSlider, appearance.projectionOffsetXValue, DanmakuSetting.getProjectionOffsetX(), "%.2f", DanmakuSetting::putProjectionOffsetX);
         setupFloat(appearance.projectionOffsetYSlider, appearance.projectionOffsetYValue, DanmakuSetting.getProjectionOffsetY(), "%.2f", DanmakuSetting::putProjectionOffsetY);
         setupFloat(appearance.projectionAlphaSlider, appearance.projectionAlphaValue, DanmakuSetting.getProjectionTransparency(), "%.2f", DanmakuSetting::putProjectionTransparency);
-        setupChip(appearance.styleChipGroup, DanmakuSetting.getStyleMode(), this::styleChipForMode, this::styleModeForChip, this::onStyleModeChanged);
-        setupChip(appearance.colorChipGroup, DanmakuSetting.getColorMode(), this::colorChipForMode, this::colorModeForChip, this::onColorModeChanged);
+        setupChoice(DanmakuSetting.getStyleMode(), this::styleChipForMode, this::styleModeForChip, this::onStyleModeChanged, appearance.styleNone, appearance.styleShadow, appearance.styleStroke, appearance.styleProjection);
+        setupChoice(DanmakuSetting.getColorMode(), this::colorChipForMode, this::colorModeForChip, this::onColorModeChanged, appearance.colorDefault, appearance.colorColorful, appearance.colorGradient);
         updateStyleSubSettings(DanmakuSetting.getStyleMode());
         updateColorOverrideHint(DanmakuSetting.getColorMode());
     }
@@ -108,13 +106,6 @@ final class DanmakuSettingPanel {
 
     private void applySheetColors() {
         tintText(binding.getRoot());
-        tintChip(binding.appearance.styleNone);
-        tintChip(binding.appearance.styleShadow);
-        tintChip(binding.appearance.styleStroke);
-        tintChip(binding.appearance.styleProjection);
-        tintChip(binding.appearance.colorDefault);
-        tintChip(binding.appearance.colorColorful);
-        tintChip(binding.appearance.colorGradient);
         tintSlider(binding.appearance.textSizeSlider);
         tintSlider(binding.appearance.alphaSlider);
         tintSlider(binding.appearance.shadowAlphaSlider);
@@ -136,21 +127,12 @@ final class DanmakuSettingPanel {
 
     private void tintText(View view) {
         if (view == binding.reset || view == binding.tabAppearance || view == binding.tabTiming || view == binding.tabDensity || view == binding.tabDisplay) return;
-        if (view instanceof MaterialButton || view instanceof Chip) return;
+        if (view instanceof MaterialButton) return;
         if (view instanceof TextView) ((TextView) view).setTextColor(ResUtil.getColor(R.color.white_90));
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) tintText(group.getChildAt(i));
         }
-    }
-
-    private void tintChip(Chip chip) {
-        chip.setTextColor(stateList(ResUtil.getColor(R.color.white), ResUtil.getColor(R.color.white_90)));
-        chip.setChipBackgroundColor(stateList(0x2EFFFFFF, 0x1AFFFFFF));
-        chip.setChipStrokeColor(stateList(0x40FFFFFF, 0x18FFFFFF));
-        chip.setRippleColor(ColorStateList.valueOf(0x22FFFFFF));
-        chip.setCheckedIconTint(ColorStateList.valueOf(ResUtil.getColor(R.color.white)));
-        chip.setChipStrokeWidth(ResUtil.dp2px(1));
     }
 
     private void tintSlider(Slider slider) {
@@ -159,10 +141,6 @@ final class DanmakuSettingPanel {
         slider.setTrackInactiveTintList(ColorStateList.valueOf(0x24FFFFFF));
         slider.setThumbTintList(active);
         slider.setHaloTintList(ColorStateList.valueOf(0x226F86E8));
-    }
-
-    private ColorStateList stateList(int checked, int normal) {
-        return new ColorStateList(new int[][]{{android.R.attr.state_checked}, {android.R.attr.state_selected}, {}}, new int[]{checked, checked, normal});
     }
 
     private void checkOnFocus(TextView button) {
@@ -321,14 +299,16 @@ final class DanmakuSettingPanel {
         setupSwitch(button, value, setter, null);
     }
 
-    private void setupChip(ChipGroup group, int initialMode, IntUnaryOperator chipForMode, IntUnaryOperator modeForChip, IntConsumer onChange) {
-        group.setOnCheckedStateChangeListener(null);
-        group.check(chipForMode.applyAsInt(initialMode));
-        group.setOnCheckedStateChangeListener((source, checkedIds) -> {
-            if (checkedIds.isEmpty()) return;
-            onChange.accept(modeForChip.applyAsInt(checkedIds.get(0)));
-            applyConfig();
-        });
+    private void setupChoice(int initialMode, IntUnaryOperator viewForMode, IntUnaryOperator modeForView, IntConsumer onChange, TextView... choices) {
+        int selectedId = viewForMode.applyAsInt(initialMode);
+        for (TextView choice : choices) {
+            choice.setSelected(choice.getId() == selectedId);
+            choice.setOnClickListener(view -> {
+                for (TextView item : choices) item.setSelected(item == view);
+                onChange.accept(modeForView.applyAsInt(view.getId()));
+                applyConfig();
+            });
+        }
     }
 
     private String linesText(int value) {
