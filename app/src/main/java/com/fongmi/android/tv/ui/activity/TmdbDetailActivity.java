@@ -980,6 +980,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.overviewToggle.setTextColor(colors.accent);
         binding.episodeEmpty.setTextColor(colors.secondary);
         binding.tmdbStatus.setTextColor(colors.secondary);
+        tintTmdbSectionTitles(colors);
         binding.themeModeTop.setText(themeModeLabel());
         binding.themeMode.setText(themeModeLabel());
         binding.themeModeDetail.setText(themeModeLabel());
@@ -997,6 +998,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         }
         if (episodePhotoAdapter != null) episodePhotoAdapter.setLight(lightTheme);
         setDetailAdaptersLight(lightTheme);
+        if (isCinemaMode()) scheduleBackdropSlide(BACKDROP_SLIDE_DELAY_MS);
     }
 
     private void setDetailAdaptersLight(boolean light) {
@@ -1005,6 +1007,23 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (relatedAdapter != null) relatedAdapter.setLight(light);
         if (personalTmdbAdapter != null) personalTmdbAdapter.setLight(light);
         if (personalDoubanAdapter != null) personalDoubanAdapter.setLight(light);
+    }
+
+    private void tintTmdbSectionTitles(ThemeColors colors) {
+        TextView[] titles = {
+                binding.episodePhotoTitle,
+                binding.castTitle,
+                binding.creatorTitle,
+                binding.relatedTitle,
+                binding.personalTmdbTitle,
+                binding.personalDoubanTitle
+        };
+        int color = isCinemaMode() ? 0xFFFFFFFF : colors.primary;
+        for (TextView title : titles) {
+            title.setTextColor(color);
+            if (isCinemaMode()) title.setShadowLayer(3f, 0f, 1.5f, 0xCC000000);
+            else title.setShadowLayer(0f, 0f, 0f, 0x00000000);
+        }
     }
 
     private void updateDetailThemeButtonVisibility() {
@@ -1223,6 +1242,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private int themeModeLabel() {
+        if (isCinemaMode()) return lightTheme ? R.string.detail_theme_light : R.string.detail_theme_dark;
         if (detailThemeMode == 1) return R.string.detail_theme_dark;
         if (detailThemeMode == 2) return R.string.detail_theme_light;
         return R.string.detail_theme_auto;
