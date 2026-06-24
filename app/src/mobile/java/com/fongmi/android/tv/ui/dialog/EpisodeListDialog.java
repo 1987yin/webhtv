@@ -4,9 +4,11 @@ import android.app.Dialog;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.view.MotionEvent;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
@@ -43,6 +45,9 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
     private FlagAdapter flagAdapter;
     private List<Flag> flags;
     private int episodeSpanCount = 4;
+    private int episodeTouchSlop;
+    private float episodeDownY;
+    private boolean episodeGroupSwitched;
     private boolean reverse;
 
     public static EpisodeListDialog create() {
@@ -117,6 +122,7 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
     }
 
     private void initView() {
+        episodeTouchSlop = ViewConfiguration.get(requireContext()).getScaledTouchSlop() * 2;
         setRecyclerView();
         flagAdapter.addAll(flags == null ? new ArrayList<>() : flags);
         setGroups(getSelectedFlag());
@@ -135,6 +141,7 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
         binding.episode.setLayoutManager(new GridLayoutManager(requireContext(), episodeSpanCount));
         binding.episode.addItemDecoration(episodeDecoration = new SpaceItemDecoration(episodeSpanCount, 8));
         binding.episode.setAdapter(episodeAdapter = new EpisodeAdapter(this, ViewType.GRID));
+        binding.episode.setOnTouchListener(this::onEpisodeTouch);
     }
 
     private Flag getSelectedFlag() {
@@ -201,6 +208,45 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
         Flag flag = getSelectedFlag();
         if (flag != null) setEpisodes(flag.getEpisodes(), item);
         binding.group.scrollToPosition(groupAdapter.getPosition());
+    }
+
+    private boolean onEpisodeTouch(View v, MotionEvent e) {
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                episodeDownY = e.getY();
+                episodeGroupSwitched = false;
+                break;
+            case MotionEvent.ACTION_MOVE:
+                switchEpisodeGroupByDrag(e.getY() - episodeDownY);
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                episodeDownY = 0;
+                episodeGroupSwitched = false;
+                break;
+        }
+        return false;
+    }
+
+    private void switchEpisodeGroupByDrag(float dy) {
+        if (episodeGroupSwitched || groupAdapter == null || groupAdapter.getItemCount() < 2) return;
+        if (Math.abs(dy) < episodeTouchSlop) return;
+        if (dy < 0 && !binding.episode.canScrollVertically(1)) switchEpisodeGroup(1, false);
+        else if (dy > 0 && !binding.episode.canScrollVertically(-1)) switchEpisodeGroup(-1, true);
+    }
+
+    private void switchEpisodeGroup(int offset, boolean scrollToEnd) {
+        int position = groupAdapter.getPosition();
+        int target = position + offset;
+        if (target < 0 || target >= groupAdapter.getItemCount()) return;
+        Flag flag = getSelectedFlag();
+        if (flag == null) return;
+        episodeGroupSwitched = true;
+        EpisodeGroupAdapter.Group group = groupAdapter.getItems().get(target);
+        groupAdapter.setSelected(group);
+        setEpisodes(flag.getEpisodes(), group);
+        binding.group.scrollToPosition(target);
+        binding.episode.post(() -> binding.episode.scrollToPosition(scrollToEnd ? Math.max(0, episodeAdapter.getItemCount() - 1) : 0));
     }
 
     @Override

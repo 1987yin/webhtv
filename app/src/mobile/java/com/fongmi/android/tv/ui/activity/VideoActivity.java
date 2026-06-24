@@ -14,6 +14,7 @@ import android.text.TextUtils;
 import android.text.style.ClickableSpan;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
@@ -154,6 +155,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private int mEpisodeSpanCount;
     private int mEpisodeBottomInset;
     private int mEpisodeMaxHeight;
+    private int mEpisodeTouchSlop;
+    private float mEpisodeDownY;
+    private boolean mEpisodeGroupSwitched;
     private Runnable mR1;
     private Runnable mR2;
     private Runnable mR3;
@@ -397,6 +401,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mObserveSearch = this::setSearch;
         mBroken = new ArrayList<>();
         mClock = Clock.create();
+        mEpisodeTouchSlop = ViewConfiguration.get(this).getScaledTouchSlop() * 2;
         mR1 = this::hideControl;
         mR2 = this::setTraffic;
         mR3 = this::setOrient;
@@ -474,6 +479,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.opening.setOnLongClickListener(view -> onOpeningReset());
         mBinding.video.setOnTouchListener((view, event) -> mKeyDown.onTouchEvent(event));
         mBinding.control.action.getRoot().setOnTouchListener(this::onActionTouch);
+        mBinding.episode.setOnTouchListener(this::onEpisodeTouch);
         mBinding.swipeLayout.setOnRefreshListener(this::onSwipeRefresh);
     }
 
@@ -1221,6 +1227,43 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private boolean onActionTouch(View v, MotionEvent e) {
         setR1Callback();
         return false;
+    }
+
+    private boolean onEpisodeTouch(View v, MotionEvent e) {
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                mEpisodeDownY = e.getY();
+                mEpisodeGroupSwitched = false;
+                break;
+            case MotionEvent.ACTION_MOVE:
+                switchEpisodeGroupByDrag(e.getY() - mEpisodeDownY);
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                mEpisodeDownY = 0;
+                mEpisodeGroupSwitched = false;
+                break;
+        }
+        return false;
+    }
+
+    private void switchEpisodeGroupByDrag(float dy) {
+        if (mEpisodeGroupSwitched || mEpisodeGroupAdapter == null || mEpisodeGroupAdapter.getItemCount() < 2) return;
+        if (Math.abs(dy) < mEpisodeTouchSlop) return;
+        if (dy < 0 && !mBinding.episode.canScrollVertically(1)) switchEpisodeGroup(1, false);
+        else if (dy > 0 && !mBinding.episode.canScrollVertically(-1)) switchEpisodeGroup(-1, true);
+    }
+
+    private void switchEpisodeGroup(int offset, boolean scrollToEnd) {
+        int position = mEpisodeGroupAdapter.getPosition();
+        int target = position + offset;
+        if (target < 0 || target >= mEpisodeGroupAdapter.getItemCount()) return;
+        mEpisodeGroupSwitched = true;
+        EpisodeGroupAdapter.Group group = mEpisodeGroupAdapter.getItems().get(target);
+        mEpisodeGroupAdapter.setSelected(group);
+        setVisibleEpisodeAdapter(getFlag().getEpisodes(), group);
+        scrollToPosition(mBinding.episodeGroup, target);
+        mBinding.episode.post(() -> mBinding.episode.scrollToPosition(scrollToEnd ? Math.max(0, mEpisodeAdapter.getItemCount() - 1) : 0));
     }
 
     private void onSwipeRefresh() {
