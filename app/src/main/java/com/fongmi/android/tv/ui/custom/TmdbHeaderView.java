@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.bumptech.glide.Glide;
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.TmdbItem;
 import com.fongmi.android.tv.setting.Setting;
@@ -22,6 +23,7 @@ import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.ui.adapter.TmdbCastAdapter;
 import com.fongmi.android.tv.ui.helper.TmdbUIAdapter;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
+import com.fongmi.android.tv.ui.helper.TmdbCinemaTheme;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.TmdbImageSelector;
 import com.google.android.flexbox.FlexboxLayout;
@@ -137,7 +139,11 @@ public class TmdbHeaderView {
     }
 
     public static int getThemeBackgroundColor() {
-        return Setting.isTmdbNativeStyle() || Setting.isTmdbCinemaStyle() ? COLOR_NATIVE_BACKGROUND : COLOR_PROFILE_BACKGROUND;
+        if (Setting.isTmdbCinemaStyle()) {
+            boolean systemNight = (App.get().getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+            return TmdbCinemaTheme.palette(TmdbCinemaTheme.resolveLight(Setting.getTmdbDetailTheme(), systemNight)).background();
+        }
+        return Setting.isTmdbNativeStyle() ? COLOR_NATIVE_BACKGROUND : COLOR_PROFILE_BACKGROUND;
     }
 
     /**
@@ -744,8 +750,9 @@ public class TmdbHeaderView {
 
         // 设置圆角背景
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(0x30FFFFFF);  // 更明显的半透明白色
+        background.setColor(isLightDetailChrome() ? 0xD9FFFFFF : 0x30FFFFFF);
         background.setCornerRadius(ResUtil.dp2px(6));  // 圆角
+        background.setStroke(ResUtil.dp2px(1), isLightDetailChrome() ? 0x33424B57 : 0x24FFFFFF);
         chip.setBackground(background);
 
         com.google.android.flexbox.FlexboxLayout.LayoutParams params =
@@ -1197,9 +1204,11 @@ public class TmdbHeaderView {
             applyFusionTheme(style);
             return;
         }
-        boolean dark = style == Setting.DETAIL_STYLE_NATIVE || style == Setting.DETAIL_STYLE_CINEMA;
-        setCinemaRows(style == Setting.DETAIL_STYLE_CINEMA, style == Setting.DETAIL_STYLE_CINEMA);
-        int background = style == Setting.DETAIL_STYLE_CINEMA ? COLOR_CINEMA_BACKGROUND : dark ? COLOR_NATIVE_BACKGROUND : COLOR_PROFILE_BACKGROUND;
+        boolean cinema = style == Setting.DETAIL_STYLE_CINEMA;
+        boolean light = cinema ? TmdbCinemaTheme.resolveLight(Setting.getTmdbDetailTheme(), isSystemNight()) : style == Setting.DETAIL_STYLE_PROFILE;
+        boolean dark = style == Setting.DETAIL_STYLE_NATIVE || (cinema && !light);
+        setCinemaRows(cinema, cinema, light);
+        int background = cinema ? TmdbCinemaTheme.palette(light).background() : dark ? COLOR_NATIVE_BACKGROUND : COLOR_PROFILE_BACKGROUND;
         int primary = dark ? 0xFFFFFFFF : 0xFF15222B;
         int secondary = dark ? 0xFFC8D2DC : 0xFF40555E;
         int watermark = dark ? 0xFF6B7785 : 0xFF7E938A;
@@ -1231,7 +1240,8 @@ public class TmdbHeaderView {
         styleFusionActions();
 
         boolean cinema = style == Setting.DETAIL_STYLE_CINEMA;
-        boolean dark = cinema || isDarkDetailTheme();
+        boolean light = cinema ? TmdbCinemaTheme.resolveLight(Setting.getTmdbDetailTheme(), isSystemNight()) : !isDarkDetailTheme();
+        boolean dark = !light;
         int panel = dark ? 0xC914171C : 0xAFFFFFFF;
         int line = dark ? 0x42FFFFFF : 0x33424B57;
         int primary = dark ? 0xFFFFFFFF : 0xFF12202D;
@@ -1240,9 +1250,15 @@ public class TmdbHeaderView {
         int body = dark ? 0xE6FFFFFF : 0xE612202D;
 
         boolean cinemaRows = cinema;
-        if (castAdapter != null) castAdapter.setCinema(dark);
-        if (crewAdapter != null) crewAdapter.setCinema(dark);
-        setRecommendationCinema(cinemaRows);
+        if (castAdapter != null) {
+            castAdapter.setCinema(cinemaRows);
+            castAdapter.setLight(light);
+        }
+        if (crewAdapter != null) {
+            crewAdapter.setCinema(cinemaRows);
+            crewAdapter.setLight(light);
+        }
+        setRecommendationCinema(cinemaRows, light);
 
         MaterialCardView card = headerRoot.findViewById(R.id.tmdbFusionInfoCard);
         if (card != null) {
@@ -1254,8 +1270,8 @@ public class TmdbHeaderView {
         setTextColor(R.id.tmdbFusionSubtitle, secondary);
         setTextColor(R.id.tmdbFusionSource, muted);
         setTextColor(R.id.tmdbFusionOverview, body);
-        styleFusionBackdropLabels();
-        styleFusionExternalLinks();
+        styleFusionBackdropLabels(dark);
+        styleFusionExternalLinks(dark);
         styleFusionMetaChips(dark);
         styleFusionPlaybackControls(panel, line, primary);
         styleFusionSpacing();
@@ -1272,16 +1288,31 @@ public class TmdbHeaderView {
         return (activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
     }
 
-    private void setCinemaRows(boolean peopleCinema, boolean recommendationCinema) {
-        if (castAdapter != null) castAdapter.setCinema(peopleCinema);
-        if (crewAdapter != null) crewAdapter.setCinema(peopleCinema);
-        setRecommendationCinema(recommendationCinema);
+    private void setCinemaRows(boolean peopleCinema, boolean recommendationCinema, boolean light) {
+        if (castAdapter != null) {
+            castAdapter.setCinema(peopleCinema);
+            castAdapter.setLight(light);
+        }
+        if (crewAdapter != null) {
+            crewAdapter.setCinema(peopleCinema);
+            crewAdapter.setLight(light);
+        }
+        setRecommendationCinema(recommendationCinema, light);
     }
 
-    private void setRecommendationCinema(boolean cinema) {
-        if (recommendationAdapter != null) recommendationAdapter.setCinema(cinema);
-        if (personalTmdbRecommendationAdapter != null) personalTmdbRecommendationAdapter.setCinema(cinema);
-        if (personalDoubanRecommendationAdapter != null) personalDoubanRecommendationAdapter.setCinema(cinema);
+    private void setRecommendationCinema(boolean cinema, boolean light) {
+        if (recommendationAdapter != null) {
+            recommendationAdapter.setCinema(cinema);
+            recommendationAdapter.setLight(light);
+        }
+        if (personalTmdbRecommendationAdapter != null) {
+            personalTmdbRecommendationAdapter.setCinema(cinema);
+            personalTmdbRecommendationAdapter.setLight(light);
+        }
+        if (personalDoubanRecommendationAdapter != null) {
+            personalDoubanRecommendationAdapter.setCinema(cinema);
+            personalDoubanRecommendationAdapter.setLight(light);
+        }
     }
 
     private void setVisibility(int id, int visibility) {
@@ -1366,28 +1397,32 @@ public class TmdbHeaderView {
         }
     }
 
-    private void styleFusionBackdropLabels() {
-        for (int id : BACKDROP_SECTION_LABELS) styleFusionBackdropText(id, COLOR_FUSION_BACKDROP_TEXT);
+    private void styleFusionBackdropLabels(boolean dark) {
+        for (int id : BACKDROP_SECTION_LABELS) styleFusionBackdropText(id, dark ? COLOR_FUSION_BACKDROP_TEXT : 0xFF12202D, dark);
     }
 
-    private void styleFusionExternalLinks() {
+    private void styleFusionExternalLinks(boolean dark) {
         ViewGroup container = headerRoot.findViewById(R.id.tmdbExternalLinks);
         if (container == null) return;
-        for (int i = 0; i < container.getChildCount(); i++) styleFusionExternalLink(container.getChildAt(i));
+        for (int i = 0; i < container.getChildCount(); i++) styleFusionExternalLink(container.getChildAt(i), dark);
     }
 
-    private void styleFusionExternalLink(View view) {
+    private void styleFusionExternalLink(View view, boolean dark) {
         if (view instanceof TextView textView) {
-            styleFusionBackdropText(textView, isExternalRatingText(textView) ? COLOR_FUSION_LINK_RATING : COLOR_FUSION_BACKDROP_TEXT);
+            styleFusionBackdropText(textView, isExternalRatingText(textView) ? (dark ? COLOR_FUSION_LINK_RATING : 0xFF1D8F5A) : (dark ? COLOR_FUSION_BACKDROP_TEXT : 0xFF12202D), dark);
         } else if (view instanceof ImageView imageView) {
-            styleFusionLinkIcon(imageView);
+            styleFusionLinkIcon(imageView, dark);
         }
         if (!(view instanceof ViewGroup group)) return;
-        for (int i = 0; i < group.getChildCount(); i++) styleFusionExternalLink(group.getChildAt(i));
+        for (int i = 0; i < group.getChildCount(); i++) styleFusionExternalLink(group.getChildAt(i), dark);
     }
 
     private void styleFusionLinkIcon(ImageView imageView) {
-        imageView.setColorFilter(COLOR_FUSION_LINK_ICON);
+        styleFusionLinkIcon(imageView, true);
+    }
+
+    private void styleFusionLinkIcon(ImageView imageView, boolean dark) {
+        imageView.setColorFilter(dark ? COLOR_FUSION_LINK_ICON : 0xCC12202D);
         int size = ResUtil.dp2px(22);
         ViewGroup.LayoutParams params = imageView.getLayoutParams();
         if (params != null) {
@@ -1397,7 +1432,7 @@ public class TmdbHeaderView {
         }
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
         background.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        background.setColor(COLOR_FUSION_LINK_ICON_BACKGROUND);
+        background.setColor(dark ? COLOR_FUSION_LINK_ICON_BACKGROUND : 0x1A12202D);
         imageView.setBackground(background);
         int padding = ResUtil.dp2px(4);
         imageView.setPadding(padding, padding, padding, padding);
@@ -1413,10 +1448,20 @@ public class TmdbHeaderView {
         styleFusionBackdropText(view, color);
     }
 
+    private void styleFusionBackdropText(int id, int color, boolean shadow) {
+        TextView view = headerRoot.findViewById(id);
+        styleFusionBackdropText(view, color, shadow);
+    }
+
     private void styleFusionBackdropText(TextView view, int color) {
+        styleFusionBackdropText(view, color, true);
+    }
+
+    private void styleFusionBackdropText(TextView view, int color, boolean shadow) {
         if (view == null) return;
         view.setTextColor(color);
-        applyFusionTextShadow(view);
+        if (shadow) applyFusionTextShadow(view);
+        else clearTextShadow(view);
     }
 
     private void applyFusionTextShadow(TextView view) {
@@ -1449,6 +1494,12 @@ public class TmdbHeaderView {
 
     private void clearTextShadow(TextView view) {
         if (view != null) view.setShadowLayer(0, 0, 0, 0);
+    }
+
+    private boolean isLightDetailChrome() {
+        int style = Setting.getTmdbDetailStyle();
+        if (style == Setting.DETAIL_STYLE_CINEMA) return TmdbCinemaTheme.resolveLight(Setting.getTmdbDetailTheme(), isSystemNight());
+        return style == Setting.DETAIL_STYLE_PROFILE && !Setting.isFusionDetailPage();
     }
 
     private void setTopMargin(int id, int topDp) {
@@ -1760,6 +1811,7 @@ public class TmdbHeaderView {
      */
     private com.google.android.material.textview.MaterialTextView addExternalLink(ViewGroup container, String name, String url, String rating) {
         // 创建链接项布局
+        boolean lightChrome = isLightDetailChrome();
         androidx.appcompat.widget.LinearLayoutCompat linkItem = new androidx.appcompat.widget.LinearLayoutCompat(activity);
         linkItem.setOrientation(androidx.appcompat.widget.LinearLayoutCompat.HORIZONTAL);
         linkItem.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -1767,7 +1819,7 @@ public class TmdbHeaderView {
         linkItem.setClickable(true);
         linkItem.setFocusable(true);
         android.graphics.drawable.Drawable background = new android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf(0x33FFFFFF),
+                android.content.res.ColorStateList.valueOf(lightChrome ? 0x1A12202D : 0x33FFFFFF),
                 null,
                 null
         );
@@ -1776,19 +1828,19 @@ public class TmdbHeaderView {
         // 平台名称
         com.google.android.material.textview.MaterialTextView nameView = new com.google.android.material.textview.MaterialTextView(activity);
         nameView.setText(name);
-        nameView.setTextColor(0xFFFFFFFF);
+        nameView.setTextColor(lightChrome ? 0xFF12202D : 0xFFFFFFFF);
         nameView.setTextSize(14);
-        if (Setting.isFusionDetailPage()) styleFusionBackdropText(nameView, COLOR_FUSION_BACKDROP_TEXT);
+        if (Setting.isFusionDetailPage()) styleFusionBackdropText(nameView, lightChrome ? 0xFF12202D : COLOR_FUSION_BACKDROP_TEXT, !lightChrome);
         androidx.appcompat.widget.LinearLayoutCompat.LayoutParams nameParams =
                 new androidx.appcompat.widget.LinearLayoutCompat.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         linkItem.addView(nameView, nameParams);
 
         // 评分视图（始终创建，初始可能为空）
         com.google.android.material.textview.MaterialTextView ratingView = new com.google.android.material.textview.MaterialTextView(activity);
-        ratingView.setTextColor(Setting.isFusionDetailPage() ? COLOR_FUSION_LINK_RATING : 0xFFFFC107);
+        ratingView.setTextColor(lightChrome ? 0xFF1D8F5A : Setting.isFusionDetailPage() ? COLOR_FUSION_LINK_RATING : 0xFFFFC107);
         ratingView.setTextSize(13);
         ratingView.setGravity(android.view.Gravity.END);
-        if (Setting.isFusionDetailPage()) applyFusionTextShadow(ratingView);
+        if (Setting.isFusionDetailPage() && !lightChrome) applyFusionTextShadow(ratingView);
         androidx.appcompat.widget.LinearLayoutCompat.LayoutParams ratingParams =
                 new androidx.appcompat.widget.LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         ratingParams.setMarginEnd(12);
@@ -1805,11 +1857,11 @@ public class TmdbHeaderView {
         // 打开图标
         ImageView iconView = new ImageView(activity);
         iconView.setImageResource(R.drawable.ic_open);
-        iconView.setColorFilter(0xFF9E9E9E);
+        iconView.setColorFilter(lightChrome ? 0xCC12202D : 0xFF9E9E9E);
         androidx.appcompat.widget.LinearLayoutCompat.LayoutParams iconParams =
                 new androidx.appcompat.widget.LinearLayoutCompat.LayoutParams(ResUtil.dp2px(22), ResUtil.dp2px(22));
         linkItem.addView(iconView, iconParams);
-        if (Setting.isFusionDetailPage()) styleFusionLinkIcon(iconView);
+        if (Setting.isFusionDetailPage()) styleFusionLinkIcon(iconView, !lightChrome);
 
         // 点击事件
         linkItem.setOnClickListener(v -> {

@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.bean.TmdbPerson;
 import com.fongmi.android.tv.databinding.AdapterTmdbPersonBinding;
+import com.fongmi.android.tv.ui.helper.TmdbCinemaTheme;
 import com.fongmi.android.tv.utils.ImgUtil;
 
 import java.util.ArrayList;
@@ -57,11 +58,12 @@ public class TmdbPersonAdapter extends RecyclerView.Adapter<TmdbPersonAdapter.Vi
         TmdbPerson item = items.get(position);
         holder.binding.name.setText(item.getName());
         holder.binding.subtitle.setText(item.getSubtitle());
-        boolean darkChrome = cinema || !light;
-        holder.binding.name.setTextColor(darkChrome ? 0xFFFFFFFF : 0xFF12202D);
-        holder.binding.subtitle.setTextColor(darkChrome ? (cinema ? 0xB3FFFFFF : 0x99FFFFFF) : 0x9912202D);
+        TmdbCinemaTheme.Palette palette = TmdbCinemaTheme.palette(light);
+        boolean darkChrome = !light;
+        holder.binding.name.setTextColor(cinema ? palette.primary() : darkChrome ? 0xFFFFFFFF : 0xFF12202D);
+        holder.binding.subtitle.setTextColor(cinema ? palette.secondary() : darkChrome ? 0x99FFFFFF : 0x9912202D);
         applyCardStyle(holder);
-        TmdbCardFocusHelper.bind(holder.binding.getRoot(), cinema ? 0x00000000 : (light ? 0xFFFFFFFF : 0xFF16202A), cinema ? 0x00FFFFFF : (light ? 0x33424B57 : 0x33FFFFFF), cinema ? 0 : 1);
+        TmdbCardFocusHelper.bind(holder.binding.getRoot(), cinema ? palette.card() : (light ? 0xFFFFFFFF : 0xFF16202A), cinema ? palette.cardStroke() : (light ? 0x33424B57 : 0x33FFFFFF), 1);
         ImgUtil.load(item.getName(), item.getProfileUrl(), holder.binding.photo);
         holder.binding.getRoot().setOnClickListener(view -> listener.onItemClick(item));
     }
@@ -92,7 +94,7 @@ public class TmdbPersonAdapter extends RecyclerView.Adapter<TmdbPersonAdapter.Vi
         holder.binding.subtitle.setTextSize(cinema ? 13f : 10f);
         holder.binding.subtitle.setMaxLines(cinema ? 1 : 2);
         holder.binding.photo.setClipToOutline(true);
-        if (cinema) holder.binding.photo.setBackgroundColor(0x26FFFFFF);
+        if (cinema) holder.binding.photo.setBackgroundColor(TmdbCinemaTheme.palette(light).imagePlaceholder());
     }
 
     private int dp(View view, int value) {

@@ -12,7 +12,9 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.TmdbItem;
+import com.fongmi.android.tv.ui.helper.TmdbCinemaTheme;
 import com.fongmi.android.tv.utils.Util;
+import com.google.android.material.card.MaterialCardView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,6 +28,7 @@ public class TmdbRecommendationAdapter extends RecyclerView.Adapter<TmdbRecommen
     private final List<TmdbItem> items = new ArrayList<>();
     private OnItemClickListener listener;
     private boolean cinema;
+    private boolean light;
 
     public interface OnItemClickListener {
         void onItemClick(TmdbItem item);
@@ -44,6 +47,12 @@ public class TmdbRecommendationAdapter extends RecyclerView.Adapter<TmdbRecommen
     public void setCinema(boolean cinema) {
         if (this.cinema == cinema) return;
         this.cinema = cinema;
+        notifyDataSetChanged();
+    }
+
+    public void setLight(boolean light) {
+        if (this.light == light) return;
+        this.light = light;
         notifyDataSetChanged();
     }
 
@@ -90,7 +99,7 @@ public class TmdbRecommendationAdapter extends RecyclerView.Adapter<TmdbRecommen
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        holder.bind(items.get(position), listener, cinema);
+        holder.bind(items.get(position), listener, cinema, light);
     }
 
     @Override
@@ -122,11 +131,14 @@ public class TmdbRecommendationAdapter extends RecyclerView.Adapter<TmdbRecommen
             rating = itemView.findViewById(R.id.rating);
         }
 
-        void bind(TmdbItem item, OnItemClickListener listener, boolean cinema) {
+        void bind(TmdbItem item, OnItemClickListener listener, boolean cinema, boolean light) {
+            TmdbCinemaTheme.Palette palette = TmdbCinemaTheme.palette(light);
             title.setText(item.getTitle());
+            title.setTextColor(0xFFFFFFFF);
             if (subtitle != null) {
                 String value = recommendationSubtitle(item.getSubtitle());
                 subtitle.setText(value);
+                subtitle.setTextColor(0xB3FFFFFF);
                 subtitle.setVisibility(value.isEmpty() ? View.GONE : View.VISIBLE);
             }
 
@@ -145,9 +157,14 @@ public class TmdbRecommendationAdapter extends RecyclerView.Adapter<TmdbRecommen
             double vote = item.getRating();
             if (vote > 0) {
                 rating.setText(String.format(Locale.US, "★ %.1f", vote));
+                rating.setTextColor(cinema ? 0xFFFFFFFF : 0xFFF5C518);
                 rating.setVisibility(View.VISIBLE);
             } else {
                 rating.setVisibility(View.GONE);
+            }
+
+            if (itemView instanceof MaterialCardView card) {
+                TmdbCardFocusHelper.bind(card, 0xB314202A, cinema ? palette.cardStroke() : 0x33FFFFFF);
             }
 
             if (listener != null) {

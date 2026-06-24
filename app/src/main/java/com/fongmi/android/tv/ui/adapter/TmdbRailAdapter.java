@@ -12,6 +12,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.TmdbItem;
+import com.fongmi.android.tv.ui.helper.TmdbCinemaTheme;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.google.android.material.card.MaterialCardView;
 
@@ -28,6 +29,7 @@ public class TmdbRailAdapter extends RecyclerView.Adapter<TmdbRailAdapter.ViewHo
     private final Listener listener;
     private final List<TmdbItem> items = new ArrayList<>();
     private boolean cinema;
+    private boolean light;
 
     public TmdbRailAdapter(Listener listener) {
         this.listener = listener;
@@ -41,6 +43,11 @@ public class TmdbRailAdapter extends RecyclerView.Adapter<TmdbRailAdapter.ViewHo
 
     public void setCinema(boolean cinema) {
         this.cinema = cinema;
+        notifyDataSetChanged();
+    }
+
+    public void setLight(boolean light) {
+        this.light = light;
         notifyDataSetChanged();
     }
 
@@ -65,10 +72,11 @@ public class TmdbRailAdapter extends RecyclerView.Adapter<TmdbRailAdapter.ViewHo
         holder.subtitle.setVisibility(TextUtils.isEmpty(meta.subtitle) ? View.GONE : View.VISIBLE);
         holder.rating.setText(meta.rating);
         holder.rating.setVisibility(TextUtils.isEmpty(meta.rating) ? View.GONE : View.VISIBLE);
+        TmdbCinemaTheme.Palette palette = TmdbCinemaTheme.palette(light);
         holder.title.setTextColor(0xFFFFFFFF);
         holder.subtitle.setTextColor(cinema ? 0xB3FFFFFF : 0x99FFFFFF);
         holder.rating.setTextColor(0xFFFFFFFF);
-        TmdbCardFocusHelper.bind(holder.root, cinema ? 0xB314202A : 0xFF16202A, cinema ? 0x33FFFFFF : 0x33FFFFFF);
+        TmdbCardFocusHelper.bind(holder.root, cinema ? 0xB314202A : 0xFF16202A, cinema ? palette.cardStroke() : 0x33FFFFFF);
         String image = cinema && !TextUtils.isEmpty(item.getBackdropUrl()) ? item.getBackdropUrl() : item.getPosterUrl();
         ImgUtil.load(item.getTitle(), image, holder.poster);
         holder.root.setOnClickListener(view -> listener.onItemClick(item));

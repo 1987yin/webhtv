@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.TmdbPerson;
+import com.fongmi.android.tv.ui.helper.TmdbCinemaTheme;
 import com.fongmi.android.tv.utils.Util;
 import com.google.android.material.card.MaterialCardView;
 
@@ -28,6 +29,7 @@ public class TmdbCastAdapter extends RecyclerView.Adapter<TmdbCastAdapter.ViewHo
     private final List<TmdbPerson> items = new ArrayList<>();
     private OnItemClickListener listener;
     private boolean cinema;
+    private boolean light;
 
     public interface OnItemClickListener {
         void onItemClick(TmdbPerson person);
@@ -49,6 +51,12 @@ public class TmdbCastAdapter extends RecyclerView.Adapter<TmdbCastAdapter.ViewHo
         notifyDataSetChanged();
     }
 
+    public void setLight(boolean light) {
+        if (this.light == light) return;
+        this.light = light;
+        notifyDataSetChanged();
+    }
+
     @NonNull
     @Override
     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
@@ -57,7 +65,7 @@ public class TmdbCastAdapter extends RecyclerView.Adapter<TmdbCastAdapter.ViewHo
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        holder.bind(items.get(position), listener, cinema);
+        holder.bind(items.get(position), listener, cinema, light);
     }
 
     @Override
@@ -90,8 +98,8 @@ public class TmdbCastAdapter extends RecyclerView.Adapter<TmdbCastAdapter.ViewHo
             role = itemView.findViewById(R.id.role);
         }
 
-        void bind(TmdbPerson person, OnItemClickListener listener, boolean cinema) {
-            applyStyle(cinema);
+        void bind(TmdbPerson person, OnItemClickListener listener, boolean cinema, boolean light) {
+            applyStyle(cinema, light);
             name.setText(person.getName());
             role.setText(person.getSubtitle());
             if (person.getProfileUrl() != null && !person.getProfileUrl().isEmpty()) {
@@ -99,14 +107,15 @@ public class TmdbCastAdapter extends RecyclerView.Adapter<TmdbCastAdapter.ViewHo
             } else {
                 profile.setImageResource(R.color.black);
             }
-            bindFocusChrome(cinema);
+            bindFocusChrome(cinema, light);
 
             if (listener != null) {
                 itemView.setOnClickListener(v -> listener.onItemClick(person));
             }
         }
 
-        private void applyStyle(boolean cinema) {
+        private void applyStyle(boolean cinema, boolean light) {
+            TmdbCinemaTheme.Palette palette = TmdbCinemaTheme.palette(light);
             ViewGroup.LayoutParams itemParams = itemView.getLayoutParams();
             itemParams.width = dp(cinema ? 250 : 90);
             itemView.setLayoutParams(itemParams);
@@ -132,24 +141,25 @@ public class TmdbCastAdapter extends RecyclerView.Adapter<TmdbCastAdapter.ViewHo
             textBlock.setLayoutParams(textParams);
             textBlock.setPadding(dp(cinema ? 0 : 8), dp(cinema ? 0 : 8), dp(cinema ? 0 : 8), dp(cinema ? 0 : 8));
 
-            name.setTextColor(0xFFFFFFFF);
-            role.setTextColor(cinema ? 0xB3FFFFFF : 0x99FFFFFF);
+            name.setTextColor(cinema ? palette.primary() : 0xFFFFFFFF);
+            role.setTextColor(cinema ? palette.secondary() : 0x99FFFFFF);
             name.setTextSize(cinema ? 17f : 12f);
             role.setTextSize(cinema ? 13f : 10f);
             role.setMaxLines(cinema ? 1 : 2);
-            profile.setBackgroundColor(cinema ? 0x26FFFFFF : 0xFF1C2530);
+            profile.setBackgroundColor(cinema ? palette.imagePlaceholder() : 0xFF1C2530);
         }
 
-        private void bindFocusChrome(boolean cinema) {
+        private void bindFocusChrome(boolean cinema, boolean light) {
             itemView.setOnFocusChangeListener(null);
-            applyCardChrome(cinema, itemView.hasFocus());
-            itemView.setOnFocusChangeListener((view, focused) -> applyCardChrome(cinema, focused));
+            applyCardChrome(cinema, light, itemView.hasFocus());
+            itemView.setOnFocusChangeListener((view, focused) -> applyCardChrome(cinema, light, focused));
         }
 
-        private void applyCardChrome(boolean cinema, boolean focused) {
-            card.setCardBackgroundColor(cinema ? 0x00000000 : 0xFF16202A);
-            card.setStrokeColor(focused ? FOCUS_STROKE : (cinema ? 0x00FFFFFF : 0x33FFFFFF));
-            card.setStrokeWidth(dp(focused ? 3 : (cinema ? 0 : 1)));
+        private void applyCardChrome(boolean cinema, boolean light, boolean focused) {
+            TmdbCinemaTheme.Palette palette = TmdbCinemaTheme.palette(light);
+            card.setCardBackgroundColor(cinema ? palette.card() : 0xFF16202A);
+            card.setStrokeColor(focused ? FOCUS_STROKE : (cinema ? palette.cardStroke() : 0x33FFFFFF));
+            card.setStrokeWidth(dp(focused ? 3 : 1));
             card.setCardElevation(dp(focused ? FOCUS_ELEVATION_DP : 0));
             card.setTranslationZ(dp(focused ? FOCUS_ELEVATION_DP : 0));
         }

@@ -93,6 +93,7 @@ import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.helper.DetailThemeVisibility;
+import com.fongmi.android.tv.ui.helper.TmdbCinemaTheme;
 import com.fongmi.android.tv.ui.helper.TmdbRecommendationRows;
 import com.fongmi.android.tv.utils.BatteryUtil;
 import com.fongmi.android.tv.utils.Formatters;
@@ -517,6 +518,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         relatedAdapter.setCinema(isCinemaMode());
         personalTmdbAdapter.setCinema(isCinemaMode());
         personalDoubanAdapter.setCinema(isCinemaMode());
+        setDetailAdaptersLight(resolveLightTheme());
         updateEpisodeLayoutManager();
         binding.episodeContainer.setNestedScrollingEnabled(false);
         binding.episodeContainer.setAdapter(episodeAdapter);
@@ -942,7 +944,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void applyDetailTheme() {
         lightTheme = resolveLightTheme();
         ThemeColors colors = lightTheme ? ThemeColors.light() : ThemeColors.dark();
-        if (isCinemaMode()) colors = ThemeColors.cinema();
+        if (isCinemaMode()) colors = ThemeColors.cinema(lightTheme);
         int backdropBackground = backdropFallbackBackground(colors);
         binding.root.setBackgroundColor(backdropBackground);
         binding.hero.setBackgroundColor(backdropBackground);
@@ -994,6 +996,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             episodeAdapter.setActiveStrokeColor(colors.accent);
         }
         if (episodePhotoAdapter != null) episodePhotoAdapter.setLight(lightTheme);
+        setDetailAdaptersLight(lightTheme);
+    }
+
+    private void setDetailAdaptersLight(boolean light) {
+        if (castAdapter != null) castAdapter.setLight(light);
+        if (creatorAdapter != null) creatorAdapter.setLight(light);
+        if (relatedAdapter != null) relatedAdapter.setLight(light);
+        if (personalTmdbAdapter != null) personalTmdbAdapter.setLight(light);
+        if (personalDoubanAdapter != null) personalDoubanAdapter.setLight(light);
     }
 
     private void updateDetailThemeButtonVisibility() {
@@ -1149,6 +1160,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private Drawable cinemaBackdropShade() {
+        if (lightTheme) return cinemaLightBackdropShade();
         boolean compact = isCompactWidth();
         GradientDrawable horizontal = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, compact ? new int[]{
                 0xEC090B0F, 0xD6090B0F, 0x78090B0F, 0x42090B0F, 0x96090B0F
@@ -1159,6 +1171,21 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 0x10090B0F, 0x26090B0F, 0xA6090B0F, 0xE6090B0F
         } : new int[]{
                 0x12090B0F, 0x2D090B0F, 0xB8090B0F, 0xF0090B0F
+        });
+        return new LayerDrawable(new Drawable[]{horizontal, vertical});
+    }
+
+    private Drawable cinemaLightBackdropShade() {
+        boolean compact = isCompactWidth();
+        GradientDrawable horizontal = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, compact ? new int[]{
+                0xF2F4F7FA, 0xE0F4F7FA, 0x99F4F7FA, 0x66F4F7FA, 0xCCF4F7FA
+        } : new int[]{
+                0xF7F4F7FA, 0xE6F4F7FA, 0xA6F4F7FA, 0x70F4F7FA, 0xD9F4F7FA
+        });
+        GradientDrawable vertical = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, compact ? new int[]{
+                0x24F4F7FA, 0x40F4F7FA, 0xBFF4F7FA, 0xF2F4F7FA
+        } : new int[]{
+                0x1AF4F7FA, 0x3DF4F7FA, 0xCFF4F7FA, 0xFAF4F7FA
         });
         return new LayerDrawable(new Drawable[]{horizontal, vertical});
     }
@@ -2026,7 +2053,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         chip.setPadding(ResUtil.dp2px(10), ResUtil.dp2px(7), ResUtil.dp2px(10), ResUtil.dp2px(7));
         ThemeColors colors = lightTheme ? ThemeColors.light() : ThemeColors.dark();
         GradientDrawable background = new GradientDrawable();
-        background.setColor(isCinemaMode() ? 0x40000000 : colors.chip);
+        background.setColor(isCinemaMode() ? TmdbCinemaTheme.palette(lightTheme).ratingChip() : colors.chip);
         background.setCornerRadius(ResUtil.dp2px(8));
         background.setStroke(ResUtil.dp2px(1), colors.line);
         chip.setBackground(background);
@@ -6658,22 +6685,23 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             );
         }
 
-        static ThemeColors cinema() {
+        static ThemeColors cinema(boolean light) {
+            TmdbCinemaTheme.Palette palette = TmdbCinemaTheme.palette(light);
             return new ThemeColors(
-                    0xFF090B0F,
-                    0xC914171C,
-                    0xFF252A32,
-                    0x40252A32,
-                    0x664B8F72,
-                    0x24FFFFFF,
-                    0x42FFFFFF,
-                    0xFFFFFFFF,
-                    0xD9FFFFFF,
-                    0x99FFFFFF,
-                    0xE6FFFFFF,
-                    0xFF8FE7B6,
-                    0xFF2DBA76,
-                    0xB3090B0F
+                    palette.background(),
+                    palette.panel(),
+                    palette.control(),
+                    palette.chip(),
+                    palette.chipActive(),
+                    palette.line(),
+                    palette.lineStrong(),
+                    palette.primary(),
+                    palette.secondary(),
+                    palette.muted(),
+                    palette.body(),
+                    palette.accent(),
+                    palette.play(),
+                    palette.backdropShade()
             );
         }
     }
