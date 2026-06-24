@@ -25,9 +25,15 @@ public class Setting {
     public static final int WALL_CINEMA_MOSS = 7;
     public static final int WALL_CINEMA_BLUE = 8;
     public static final int WALL_CINEMA_CLAY = 9;
+    public static final int WALL_AURORA_GLASS = 10;
+    public static final int WALL_SUNSET_PRISM = 11;
+    public static final int WALL_MINT_GLACIER = 12;
+    public static final int WALL_LIQUID_CHROME = 13;
+    public static final int WALL_NEON_BERRY = 14;
+    public static final int WALL_CHAMPAGNE_MIST = 15;
     public static final int WALL_GREEN = 1;
 
-    private static final int[] DEFAULT_WALLS = {WALL_CINEMA, WALL_CINEMA_WARM, WALL_CINEMA_MOSS, WALL_CINEMA_BLUE, WALL_CINEMA_CLAY};
+    private static final int[] DEFAULT_WALLS = {WALL_CINEMA, WALL_AURORA_GLASS, WALL_SUNSET_PRISM, WALL_MINT_GLACIER, WALL_LIQUID_CHROME, WALL_NEON_BERRY, WALL_CHAMPAGNE_MIST, WALL_CINEMA_WARM, WALL_CINEMA_MOSS, WALL_CINEMA_BLUE, WALL_CINEMA_CLAY};
 
     public static String getDoh() {
         return Prefers.getString("doh");
@@ -110,11 +116,36 @@ public class Setting {
         return WALL_CINEMA;
     }
 
+    public static int[] getDefaultWalls() {
+        return DEFAULT_WALLS.clone();
+    }
+
+    public static int getDefaultWallIndex(int wall) {
+        for (int i = 0; i < DEFAULT_WALLS.length; i++) {
+            if (DEFAULT_WALLS[i] == wall) return i;
+        }
+        return -1;
+    }
+
+    public static boolean isBuiltInWall(int wall) {
+        return isBuiltInColorWall(wall) || isBuiltInDesignWall(wall);
+    }
+
     public static boolean isBuiltInColorWall(int wall) {
         return wall == WALL_CINEMA || wall == WALL_CINEMA_WARM || wall == WALL_CINEMA_MOSS || wall == WALL_CINEMA_BLUE || wall == WALL_CINEMA_CLAY;
     }
 
+    public static boolean isBuiltInDesignWall(int wall) {
+        return wall == WALL_AURORA_GLASS || wall == WALL_SUNSET_PRISM || wall == WALL_MINT_GLACIER || wall == WALL_LIQUID_CHROME || wall == WALL_NEON_BERRY || wall == WALL_CHAMPAGNE_MIST;
+    }
+
     public static int getBuiltInWallColor(int wall) {
+        if (wall == WALL_AURORA_GLASS) return 0xFF315A70;
+        if (wall == WALL_SUNSET_PRISM) return 0xFF82435B;
+        if (wall == WALL_MINT_GLACIER) return 0xFF3F7067;
+        if (wall == WALL_LIQUID_CHROME) return 0xFF3D4354;
+        if (wall == WALL_NEON_BERRY) return 0xFF573B74;
+        if (wall == WALL_CHAMPAGNE_MIST) return 0xFF705566;
         if (wall == WALL_CINEMA_WARM) return 0xFF3E4742;
         if (wall == WALL_CINEMA_MOSS) return 0xFF414A3E;
         if (wall == WALL_CINEMA_BLUE) return 0xFF424C57;
@@ -123,6 +154,12 @@ public class Setting {
     }
 
     public static String getBuiltInWallName(int wall) {
+        if (wall == WALL_AURORA_GLASS) return "极光玻璃";
+        if (wall == WALL_SUNSET_PRISM) return "日落棱镜";
+        if (wall == WALL_MINT_GLACIER) return "薄荷冰川";
+        if (wall == WALL_LIQUID_CHROME) return "液态铬彩";
+        if (wall == WALL_NEON_BERRY) return "霓虹莓果";
+        if (wall == WALL_CHAMPAGNE_MIST) return "香槟雾光";
         if (wall == WALL_CINEMA_WARM) return "雾松灰";
         if (wall == WALL_CINEMA_MOSS) return "苔原绿灰";
         if (wall == WALL_CINEMA_BLUE) return "暮蓝灰";
@@ -132,7 +169,7 @@ public class Setting {
     }
 
     public static String getWallDesc(String desc) {
-        return getWallType() == 0 && isBuiltInColorWall(getWall()) ? getBuiltInWallName(getWall()) : desc;
+        return getWallType() == 0 && isBuiltInWall(getWall()) ? getBuiltInWallName(getWall()) : desc;
     }
 
     public static int getReset() {
