@@ -574,6 +574,11 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
     }
 
     @Override
+    public void onReload(String msg) {
+        playerCallbacks.forEach(callback -> callback.onReload(msg));
+    }
+
+    @Override
     public void onPlayerRebuild(Player newPlayer) {
         exoPlayer.removeListener(listener);
         exoPlayer = newPlayer;
@@ -669,6 +674,9 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
         }
 
         default void onError(String msg) {
+        }
+
+        default void onReload(String msg) {
         }
 
         default void onPlayerRebuild(Player player) {

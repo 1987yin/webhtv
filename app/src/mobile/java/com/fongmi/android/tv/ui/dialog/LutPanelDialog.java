@@ -193,8 +193,15 @@ public class LutPanelDialog extends BaseBottomSheetDialog {
     private void select(LutPreset preset) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-ui", "panel select preset=%s enabledBefore=%s current=%s", preset == null ? "original" : preset.getId(), LutSetting.isEnabled(), LutSetting.getPresetId());
         ((ControlDialog.Listener) requireActivity()).onLutSelected(preset);
+        refreshControlDialog();
         refreshList();
         recycler.requestFocus();
+    }
+
+    private void refreshControlDialog() {
+        for (Fragment fragment : requireActivity().getSupportFragmentManager().getFragments()) {
+            if (fragment instanceof ControlDialog dialog) dialog.setLut();
+        }
     }
 
     private void cycleDelay() {

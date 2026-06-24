@@ -36,10 +36,12 @@ public class LiveDialog extends BaseBottomSheetDialog implements LiveAdapter.OnC
     private LiveAdapter adapter;
 
     public static void show(FragmentActivity activity) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed() || activity.getSupportFragmentManager().isStateSaved()) return;
         new LiveDialog().show(activity.getSupportFragmentManager(), null);
     }
 
     public static void show(Fragment fragment) {
+        if (fragment == null || !fragment.isAdded() || fragment.isStateSaved() || fragment.getActivity() == null || fragment.getChildFragmentManager().isStateSaved()) return;
         new LiveDialog().show(fragment.getChildFragmentManager(), null);
     }
 

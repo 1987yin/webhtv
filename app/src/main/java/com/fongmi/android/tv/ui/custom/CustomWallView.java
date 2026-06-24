@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.custom;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.util.AttributeSet;
@@ -39,8 +40,8 @@ import pl.droidsonroids.gif.GifDrawable;
 
 public class CustomWallView extends FrameLayout implements DefaultLifecycleObserver {
 
-    private static final int[] WALL_PAPERS = {0, R.drawable.wallpaper_1, R.drawable.wallpaper_2, R.drawable.wallpaper_3, R.drawable.wallpaper_4};
-    private static final int[] WALL_COLORS = {0, 0xFF40C090, 0xFF4870E0, 0xFF48B0C0, 0xFF404040};
+    private static final int DEFAULT_WALL_COLOR = Setting.getBuiltInWallColor(Setting.WALL_CINEMA);
+    private static final int GREEN_WALL_COLOR = 0xFF40C090;
     private static final int TYPE_RES = 0;
     private static final int TYPE_GIF = 1;
     private static final int TYPE_VIDEO = 2;
@@ -120,7 +121,8 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
     private void load() {
         int wall = Setting.getWall();
         int type = Setting.getWallType();
-        if (isBuiltIn(wall, type)) loadRes(WALL_PAPERS[wall]);
+        if (isBuiltInColor(wall, type)) loadColor(Setting.getBuiltInWallColor(wall));
+        else if (isGreen(wall, type)) loadRes(R.drawable.wallpaper_1);
         else if (motionEnabled && type == TYPE_VIDEO) loadVideo(FileUtil.getWall(wall));
         else if (motionEnabled && type == TYPE_GIF) loadGif(FileUtil.getWall(wall));
         else loadImage();
@@ -139,6 +141,11 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
         binding.image.setImageResource(resId);
     }
 
+    private void loadColor(int color) {
+        if (!isReady()) return;
+        binding.image.setImageDrawable(new ColorDrawable(color));
+    }
+
     private void loadImage() {
         if (!isReady()) return;
         Drawable cache = cache();
@@ -151,9 +158,10 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
         int wall = Setting.getWall();
         int type = Setting.getWallType();
         Drawable cache = cache();
-        if (!isBuiltIn(wall, type) && cache != null) binding.image.setImageDrawable(cache);
-        else if (isBuiltIn(wall, type)) binding.image.setImageResource(WALL_PAPERS[wall]);
-        else binding.image.setImageResource(R.drawable.wallpaper_1);
+        if (isBuiltInColor(wall, type)) binding.image.setImageDrawable(new ColorDrawable(Setting.getBuiltInWallColor(wall)));
+        else if (isGreen(wall, type)) binding.image.setImageResource(R.drawable.wallpaper_1);
+        else if (cache != null) binding.image.setImageDrawable(cache);
+        else binding.image.setImageDrawable(new ColorDrawable(DEFAULT_WALL_COLOR));
     }
 
     private void loadVideo(File file) {
@@ -208,14 +216,15 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
     private int getWallColor() {
         int wall = Setting.getWall();
         int type = Setting.getWallType();
-        if (isBuiltIn(wall, type)) return WALL_COLORS[wall];
+        if (isBuiltInColor(wall, type)) return Setting.getBuiltInWallColor(wall);
+        if (isGreen(wall, type)) return GREEN_WALL_COLOR;
         File file = FileUtil.getWallCache();
-        return file.exists() ? paletteColor(file) : WALL_COLORS[1];
+        return file.exists() ? paletteColor(file) : DEFAULT_WALL_COLOR;
     }
 
     private int paletteColor(File file) {
         Bitmap bitmap = decodeBitmap(file);
-        if (bitmap == null) return WALL_COLORS[1];
+        if (bitmap == null) return DEFAULT_WALL_COLOR;
         Palette palette = Palette.from(bitmap).maximumColorCount(8).generate();
         bitmap.recycle();
         return swatchColor(palette);
@@ -230,11 +239,15 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
     private int swatchColor(Palette palette) {
         Palette.Swatch swatch = palette.getVibrantSwatch();
         if (swatch == null) swatch = palette.getDominantSwatch();
-        return swatch != null ? swatch.getRgb() : WALL_COLORS[1];
+        return swatch != null ? swatch.getRgb() : DEFAULT_WALL_COLOR;
     }
 
-    private boolean isBuiltIn(int wall, int type) {
-        return type == TYPE_RES && wall > 0 && wall < WALL_PAPERS.length;
+    private boolean isBuiltInColor(int wall, int type) {
+        return type == TYPE_RES && Setting.isBuiltInColorWall(wall);
+    }
+
+    private boolean isGreen(int wall, int type) {
+        return type == TYPE_RES && wall == Setting.WALL_GREEN;
     }
 
     @Override

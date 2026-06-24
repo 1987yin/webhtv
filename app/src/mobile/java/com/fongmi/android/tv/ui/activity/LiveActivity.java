@@ -8,6 +8,7 @@ import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -18,6 +19,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.widget.LinearLayoutCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.fragment.app.Fragment;
 import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.media3.common.C;
@@ -104,6 +106,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private PlayerOsdController mOsd;
     private List<Group> mHides;
     private String mPlaybackKey;
+    private String mPendingReloadUrl;
+    private String mPendingReloadMsg;
     private Channel mChannel;
     private Group mGroup;
     private Runnable mR1;
@@ -181,6 +185,19 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     @Override
+    protected void onPlayerRebuilt() {
+        setPlayerKernel();
+        setDecode();
+        refreshControlDialog();
+    }
+
+    private void refreshControlDialog() {
+        for (Fragment fragment : getSupportFragmentManager().getFragments()) {
+            if (fragment instanceof LiveControlDialog dialog) dialog.setPlayer();
+        }
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         updateSystemUI();
@@ -244,6 +261,10 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         mBinding.control.action.text.setOnLongClickListener(view -> onTextLong());
         mBinding.control.action.speed.setOnLongClickListener(view -> onSpeedLong());
         mBinding.control.action.getRoot().setOnTouchListener(this::onActionTouch);
+        if (mBinding.liveSource != null) {
+            mBinding.liveSource.setOnClickListener(view -> onLiveSource());
+            mBinding.liveSource.setOnTouchListener(this::onLiveSettingTouch);
+        }
         if (mBinding.liveSetting != null) {
             mBinding.liveSetting.setOnClickListener(view -> onLiveSetting());
             mBinding.liveSetting.setOnTouchListener(this::onLiveSettingTouch);
@@ -469,6 +490,13 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         if (LiveConfig.isOnly()) setLive(getHome());
         else LiveDialog.show(this);
         hideControl();
+    }
+
+    private void onLiveSource() {
+        refreshInjectedLives();
+        LiveDialog.show(this);
+        hideControl();
+        hideInfo();
     }
 
     private void refreshInjectedLives() {
@@ -947,9 +975,34 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void start(Result result) {
-        mPlaybackKey = result.getRealUrl();
+        String realUrl = result.getRealUrl();
+        if (isSameReloadUrl(realUrl)) {
+            String msg = mPendingReloadMsg;
+            clearPendingReload();
+            handleSameReloadUrl(msg);
+            return;
+        }
+        clearPendingReload();
+        mPlaybackKey = realUrl;
         startPlayer(mPlaybackKey, result, false, getHome().getTimeout(), buildMetadata());
         mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getDefaultSpeed()));
+    }
+
+    private boolean isSameReloadUrl(String realUrl) {
+        return !TextUtils.isEmpty(mPendingReloadUrl) && TextUtils.equals(mPendingReloadUrl, realUrl);
+    }
+
+    private void clearPendingReload() {
+        mPendingReloadUrl = null;
+        mPendingReloadMsg = null;
+    }
+
+    private void handleSameReloadUrl(String msg) {
+        if (mChannel != null && !mChannel.isOnly()) {
+            nextLine(true);
+        } else {
+            onError(msg);
+        }
     }
 
     private void checkControl() {
@@ -1014,11 +1067,12 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public void onLivePiPPanel() {
-        if (service() != null && player().haveTrack(C.TRACK_TYPE_VIDEO)) mPiP.enter(this, player().getVideoWidth(), player().getVideoHeight(), LiveSetting.getScale());
+        enterPiP();
     }
 
     @Override
     public void onLiveBackgroundPanel() {
+        dismissLiveControlDialog();
         moveTaskToBack(true);
         setAudioOnly(true);
     }
@@ -1065,12 +1119,6 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     @Override
-    protected void onPlayerRebuilt() {
-        setPlayerKernel();
-        setDecode();
-    }
-
-    @Override
     protected void onTracksChanged() {
         setTrackVisible();
     }
@@ -1083,6 +1131,20 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         player().stop();
         showError(msg);
         startFlow();
+    }
+
+    @Override
+    protected void onReload(String msg) {
+        if (mChannel == null) {
+            onError(msg);
+            return;
+        }
+        mPendingReloadUrl = mPlaybackKey != null ? mPlaybackKey : player().getUrl();
+        mPendingReloadMsg = msg;
+        player().resetTrack();
+        player().reset();
+        player().stop();
+        fetch();
     }
 
     @Override
@@ -1402,6 +1464,12 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public void onSingleTap() {
+        if (!isEmbeddedLiveUi()) {
+            if (isVisible(mBinding.control.getRoot())) hideControl();
+            else showControl();
+            hideInfo();
+            return;
+        }
         onToggle();
     }
 
@@ -1435,13 +1503,14 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         super.onUserLeaveHint();
         if (isRedirect()) return;
         if (isLock()) App.post(this::onLock, 500);
-        if (service() != null && player().haveTrack(C.TRACK_TYPE_VIDEO)) mPiP.enter(this, player().getVideoWidth(), player().getVideoHeight(), LiveSetting.getScale());
+        enterPiP();
     }
 
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, @NonNull Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
         if (isInPictureInPictureMode) {
+            dismissLiveControlDialog();
             hideControl();
             hideInfo();
             hideUI();
@@ -1449,6 +1518,18 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             hideInfo();
             if (isStop()) finish();
         }
+    }
+
+    private void enterPiP() {
+        dismissLiveControlDialog();
+        if (service() != null && player().haveTrack(C.TRACK_TYPE_VIDEO)) mPiP.enter(this, player().getVideoWidth(), player().getVideoHeight(), LiveSetting.getScale());
+    }
+
+    private void dismissLiveControlDialog() {
+        for (Fragment fragment : getSupportFragmentManager().getFragments()) {
+            if (fragment instanceof LiveControlDialog dialog) dialog.dismissAllowingStateLoss();
+        }
+        getSupportFragmentManager().executePendingTransactions();
     }
 
     @Override
@@ -1482,7 +1563,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private void updateEmbeddedUiMode() {
         boolean embedded = isEmbeddedLiveUi();
-        mBinding.navigation.setVisibility(embedded ? View.VISIBLE : View.GONE);
+        mBinding.navigation.setVisibility(View.GONE);
         if (embeddedUiMode != null && embeddedUiMode && !embedded) {
             hideControl();
             hideUI();

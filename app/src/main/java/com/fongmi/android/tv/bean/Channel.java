@@ -31,6 +31,8 @@ import java.util.Objects;
 
 public class Channel {
 
+    private static final String DEFAULT_LIVE_UA = "Lavf/59.27.100";
+
     @SerializedName("urls")
     private List<String> urls;
     @SerializedName("number")
@@ -363,6 +365,7 @@ public class Channel {
     public Map<String, String> getHeaders() {
         Map<String, String> headers = new HashMap<>(getHeader());
         if (!getUa().isEmpty()) headers.put(HttpHeaders.USER_AGENT, getUa());
+        else if (headers.keySet().stream().noneMatch(HttpHeaders.USER_AGENT::equalsIgnoreCase)) headers.put(HttpHeaders.USER_AGENT, DEFAULT_LIVE_UA);
         if (!getOrigin().isEmpty()) headers.put(HttpHeaders.ORIGIN, getOrigin());
         if (!getReferer().isEmpty()) headers.put(HttpHeaders.REFERER, getReferer());
         return headers;

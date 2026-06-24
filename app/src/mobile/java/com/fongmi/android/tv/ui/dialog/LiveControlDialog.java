@@ -140,6 +140,13 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
         }
     }
 
+    public void setPlayer() {
+        if (binding == null || parent == null) return;
+        binding.player.setText(parent.control.action.player.getText());
+        binding.decode.setText(parent.control.action.decode.getText());
+        setTrackVisible();
+    }
+
     private void setScale(View view) {
         for (TextView textView : scales) textView.setSelected(false);
         listener().onLiveScalePanel(Integer.parseInt(view.getTag().toString()));

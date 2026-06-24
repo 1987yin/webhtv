@@ -94,7 +94,7 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
         EventBus.getDefault().register(this);
         mBinding.vodUrl.setText(VodConfig.getDesc());
         mBinding.liveUrl.setText(LiveConfig.getDesc());
-        mBinding.wallUrl.setText(WallConfig.getDesc());
+        setWallText();
         mBinding.versionText.setText(BuildConfig.VERSION_NAME);
         setOtherText();
         setCacheText();
@@ -275,8 +275,9 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
     }
 
     private void setWallDefault(View view) {
-        Setting.putWall(Setting.getWall() == 4 ? 1 : Setting.getWall() + 1);
+        Setting.putWall(Setting.nextDefaultWall());
         Setting.putWallType(0);
+        setWallText();
         ConfigEvent.wall();
     }
 
@@ -364,10 +365,18 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onConfigEvent(ConfigEvent event) {
+        if (event.type() == ConfigEvent.Type.WALL) {
+            setWallText();
+            return;
+        }
         if (event.type() != ConfigEvent.Type.COMMON) return;
         mBinding.vodUrl.setText(VodConfig.getDesc());
         mBinding.liveUrl.setText(LiveConfig.getDesc());
-        mBinding.wallUrl.setText(WallConfig.getDesc());
+        setWallText();
+    }
+
+    private void setWallText() {
+        mBinding.wallUrl.setText(Setting.getWallDesc(WallConfig.getDesc()));
     }
 
     @Override

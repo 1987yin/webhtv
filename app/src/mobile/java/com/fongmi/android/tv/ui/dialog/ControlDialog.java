@@ -13,6 +13,8 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.view.WindowCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.viewbinding.ViewBinding;
@@ -48,6 +50,7 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     private PlayerManager player;
     private History history;
     private boolean parse;
+    private int scrollBasePaddingBottom;
 
     public ControlDialog() {
         this.scale = ResUtil.getStringArray(R.array.select_scale);
@@ -116,9 +119,11 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
 
     @Override
     protected void initView() {
+        scrollBasePaddingBottom = binding.controlScroll.getPaddingBottom();
+        setControlPadding();
         setSheetBackground();
         binding.decode.setText(parent.control.action.decode.getText());
-        binding.lut.setText(parent.control.action.lut.getText());
+        setLut();
         binding.ending.setText(parent.control.action.ending.getText());
         binding.opening.setText(parent.control.action.opening.getText());
         binding.repeat.setSelected(parent.control.action.repeat.isSelected());
@@ -126,9 +131,15 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         setTrackVisible();
         setTitleVisible();
         setScaleText();
+        setEpisodeColumn();
         setPlayer();
         setParse();
         binding.controlScroll.post(() -> binding.controlScroll.scrollTo(0, 0));
+    }
+
+    private void setControlPadding() {
+        int bottom = scrollBasePaddingBottom + getNavigationBottomInset();
+        binding.controlScroll.setPaddingRelative(binding.controlScroll.getPaddingStart(), binding.controlScroll.getPaddingTop(), binding.controlScroll.getPaddingEnd(), bottom);
     }
 
     @Override
@@ -142,6 +153,8 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         binding.text.setOnClickListener(v -> onTrack(binding.text));
         binding.audio.setOnClickListener(v -> onTrack(binding.audio));
         binding.video.setOnClickListener(v -> onTrack(binding.video));
+        binding.episodeColumn1.setOnClickListener(v -> setEpisodeColumn(1));
+        binding.episodeColumn2.setOnClickListener(v -> setEpisodeColumn(2));
         binding.title.setOnClickListener(v -> ((Listener) requireActivity()).onTitlePanel());
         binding.player.setOnClickListener(v -> click(binding.player, parent.control.action.player));
         binding.danmaku.setOnClickListener(v -> ((Listener) requireActivity()).onDanmakuPanel());
@@ -210,6 +223,20 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         view.setSelected(true);
     }
 
+    private void setEpisodeColumn(int column) {
+        ((Listener) requireActivity()).onEpisodeColumn(column);
+        setEpisodeColumn();
+    }
+
+    private void setEpisodeColumn() {
+        int column = PlayerSetting.getEpisodeColumn();
+        binding.episodeColumn1.setSelected(column == 1);
+        binding.episodeColumn2.setSelected(column == 2);
+        boolean visible = parent.control.action.episodes.getVisibility() == View.VISIBLE;
+        binding.episodeColumnText.setVisibility(visible ? View.VISIBLE : View.GONE);
+        binding.episodeColumnRow.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
     private void active(View view, TextView target) {
         target.performClick();
         view.setSelected(target.isSelected());
@@ -236,13 +263,21 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     public void setPlayer() {
+        if (binding == null || parent == null) return;
         binding.speed.setValue(Math.max(player.getSpeed(), 0.5f));
         setSpeedPresets();
         binding.player.setText(parent.control.action.player.getText());
         binding.reset.setText(parent.control.action.reset.getText());
+        setLut();
+        setEpisodeColumn();
         binding.decode.setVisibility(parent.control.action.decode.getVisibility());
         binding.danmaku.setVisibility(parent.control.action.danmaku.getVisibility());
         setTrackVisible();
+    }
+
+    public void setLut() {
+        if (binding == null || parent == null) return;
+        binding.lut.setText(parent.control.action.lut.getText());
     }
 
     public void setParseVisible(boolean visible) {
@@ -269,21 +304,60 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
         if (sheet == null) return;
         sheet.setBackgroundColor(ResUtil.getColor(R.color.transparent));
-        int height = getPanelHeight();
+        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+        behavior.setFitToContents(false);
+        behavior.setDraggable(false);
+        setSheetHeight(sheet, behavior);
+        sheet.post(() -> setSheetHeight(sheet, behavior));
+    }
+
+    private void setSheetHeight(FrameLayout sheet, BottomSheetBehavior<FrameLayout> behavior) {
+        int height = Math.min(getPanelMaxHeight(), getContentHeight(sheet));
         ViewGroup.LayoutParams params = sheet.getLayoutParams();
         params.height = height;
         sheet.setLayoutParams(params);
-        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
         behavior.setPeekHeight(height);
-        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+        behavior.setExpandedOffset(Math.max(0, ResUtil.getScreenHeight(requireContext()) - height));
         behavior.setSkipCollapsed(true);
-        behavior.setDraggable(false);
+        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
     }
 
-    private int getPanelHeight() {
+    private int getContentHeight(FrameLayout sheet) {
+        if (binding == null || binding.controlScroll.getChildCount() == 0) return getPanelMaxHeight();
+        setControlPadding();
+        View content = binding.controlScroll.getChildAt(0);
+        int width = sheet.getWidth() > 0 ? sheet.getWidth() : ResUtil.getScreenWidth(requireContext());
+        int contentWidth = Math.max(0, width - binding.controlScroll.getPaddingStart() - binding.controlScroll.getPaddingEnd());
+        content.measure(View.MeasureSpec.makeMeasureSpec(contentWidth, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        return content.getMeasuredHeight() + binding.controlScroll.getPaddingTop() + binding.controlScroll.getPaddingBottom() + ResUtil.dp2px(8);
+    }
+
+    private int getPanelMaxHeight() {
         int screen = ResUtil.getScreenHeight(requireContext());
         if (ResUtil.isLand(requireContext())) return Math.max(ResUtil.dp2px(260), Math.min(ResUtil.dp2px(420), Math.round(screen * 0.82f)));
-        return Math.max(ResUtil.dp2px(330), Math.min(ResUtil.dp2px(520), Math.round(screen * 0.52f)));
+        int available = getPortAvailableHeight(screen);
+        int desired = Math.min(ResUtil.dp2px(640), Math.round(screen * 0.68f));
+        int min = ResUtil.dp2px(330);
+        if (available <= min) return available;
+        return Math.min(available, Math.max(min, desired));
+    }
+
+    private int getPortAvailableHeight(int fallback) {
+        if (parent == null || parent.video.getHeight() <= 0) return Math.round(fallback * 0.58f);
+        int[] video = new int[2];
+        int[] root = new int[2];
+        parent.video.getLocationOnScreen(video);
+        parent.getRoot().getLocationOnScreen(root);
+        int rootBottom = root[1] + parent.getRoot().getHeight();
+        int videoBottom = video[1] + parent.video.getHeight();
+        return Math.max(ResUtil.dp2px(260), rootBottom - videoBottom - getNavigationBottomInset());
+    }
+
+    private int getNavigationBottomInset() {
+        if (ResUtil.isLand(requireContext())) return 0;
+        WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(requireActivity().getWindow().getDecorView());
+        int bottom = insets == null ? 0 : insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+        return Math.max(bottom, ResUtil.dp2px(48));
     }
 
     public void setTitleVisible() {
@@ -300,6 +374,8 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     public interface Listener {
 
         void onScale(int tag);
+
+        void onEpisodeColumn(int column);
 
         void onParse(Parse item);
 

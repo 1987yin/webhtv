@@ -41,6 +41,14 @@ public class Setting {
     public static final int DETAIL_INTERACTION_SYSTEM = 0;
     public static final int DETAIL_INTERACTION_ORIGINAL = 1;
     public static final int DETAIL_THEME_CURRENT = DETAIL_STYLE_NATIVE;
+    public static final int WALL_CINEMA = 5;
+    public static final int WALL_CINEMA_WARM = 6;
+    public static final int WALL_CINEMA_MOSS = 7;
+    public static final int WALL_CINEMA_BLUE = 8;
+    public static final int WALL_CINEMA_CLAY = 9;
+    public static final int WALL_GREEN = 1;
+
+    private static final int[] DEFAULT_WALLS = {WALL_CINEMA, WALL_CINEMA_WARM, WALL_CINEMA_MOSS, WALL_CINEMA_BLUE, WALL_CINEMA_CLAY};
 
     public static String getDoh() {
         return Prefers.getString("doh");
@@ -75,7 +83,8 @@ public class Setting {
     }
 
     public static int getWall() {
-        return Prefers.getInt("wall", 1);
+        int wall = Prefers.getInt("wall", WALL_CINEMA);
+        return wall == WALL_GREEN ? WALL_CINEMA : wall;
     }
 
     public static void putWall(int wall) {
@@ -88,6 +97,39 @@ public class Setting {
 
     public static void putWallType(int type) {
         Prefers.put("wall_type", type);
+    }
+
+    public static int nextDefaultWall() {
+        int wall = getWall();
+        for (int i = 0; i < DEFAULT_WALLS.length; i++) {
+            if (DEFAULT_WALLS[i] == wall) return DEFAULT_WALLS[(i + 1) % DEFAULT_WALLS.length];
+        }
+        return WALL_CINEMA;
+    }
+
+    public static boolean isBuiltInColorWall(int wall) {
+        return wall == WALL_CINEMA || wall == WALL_CINEMA_WARM || wall == WALL_CINEMA_MOSS || wall == WALL_CINEMA_BLUE || wall == WALL_CINEMA_CLAY;
+    }
+
+    public static int getBuiltInWallColor(int wall) {
+        if (wall == WALL_CINEMA_WARM) return 0xFF3E4742;
+        if (wall == WALL_CINEMA_MOSS) return 0xFF414A3E;
+        if (wall == WALL_CINEMA_BLUE) return 0xFF424C57;
+        if (wall == WALL_CINEMA_CLAY) return 0xFF554740;
+        return 0xFF4A4740;
+    }
+
+    public static String getBuiltInWallName(int wall) {
+        if (wall == WALL_CINEMA_WARM) return "雾松灰";
+        if (wall == WALL_CINEMA_MOSS) return "苔原绿灰";
+        if (wall == WALL_CINEMA_BLUE) return "暮蓝灰";
+        if (wall == WALL_CINEMA_CLAY) return "陶土灰";
+        if (wall == WALL_GREEN) return "默认绿色";
+        return "影院暖灰";
+    }
+
+    public static String getWallDesc(String desc) {
+        return getWallType() == 0 && isBuiltInColorWall(getWall()) ? getBuiltInWallName(getWall()) : desc;
     }
 
     public static int getReset() {

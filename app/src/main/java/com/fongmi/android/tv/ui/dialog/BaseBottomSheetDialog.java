@@ -29,7 +29,10 @@ public abstract class BaseBottomSheetDialog extends BottomSheetDialogFragment {
     @Override
     public Dialog onCreateDialog(Bundle savedInstanceState) {
         BottomSheetDialog dialog = (BottomSheetDialog) super.onCreateDialog(savedInstanceState);
-        dialog.setOnShowListener(d -> setBehavior(dialog));
+        dialog.setOnShowListener(d -> {
+            if (!isAdded() || getContext() == null) return;
+            setBehavior(dialog);
+        });
         Window window = dialog.getWindow();
         if (window == null) return dialog;
         if (stableOverlay()) {

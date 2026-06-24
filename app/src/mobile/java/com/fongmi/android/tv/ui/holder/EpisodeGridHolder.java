@@ -45,11 +45,12 @@ public class EpisodeGridHolder extends BaseEpisodeHolder {
         binding.card.setVisibility(View.GONE);
         binding.text.setVisibility(View.VISIBLE);
         binding.text.setActivated(item.isSelected());
-        binding.text.setSelected(false);
-        binding.text.setEllipsize(TextUtils.TruncateAt.START);
+        binding.text.setHorizontallyScrolling(true);
         binding.text.setText(EpisodeAdapter.getNativeTitle(item));
-        binding.text.setOnFocusChangeListener((view, hasFocus) -> binding.text.setEllipsize(hasFocus ? TextUtils.TruncateAt.MARQUEE : TextUtils.TruncateAt.START));
+        setMarquee(binding.text.hasFocus() || item.isSelected());
+        binding.text.setOnFocusChangeListener((view, hasFocus) -> setMarquee(hasFocus || binding.text.isActivated()));
         binding.text.setOnClickListener(v -> listener.onItemClick(item));
+        binding.text.post(() -> setMarquee(binding.text.hasFocus() || binding.text.isActivated()));
         EpisodeAdapter.bindNativeTitlePopup(binding.getRoot(), item);
         EpisodeAdapter.bindNativeTitlePopup(binding.text, item);
     }
@@ -104,5 +105,10 @@ public class EpisodeGridHolder extends BaseEpisodeHolder {
         if (!TextUtils.isEmpty(episode.getDate())) values.add(episode.getDate());
         if (episode.getRuntime() > 0) values.add(episode.getRuntime() + "m");
         return TextUtils.join(" / ", values);
+    }
+
+    private void setMarquee(boolean focused) {
+        binding.text.setEllipsize(focused ? TextUtils.TruncateAt.MARQUEE : TextUtils.TruncateAt.START);
+        binding.text.setSelected(focused);
     }
 }
