@@ -10,6 +10,7 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.exception.ExtractException;
+import com.fongmi.android.tv.setting.SiteBlockSetting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.utils.Task;
 import com.google.common.util.concurrent.FluentFuture;
@@ -98,6 +99,7 @@ public class SiteViewModel extends ViewModel {
     }
 
     public void searchContent(Site site, String keyword, boolean quick, String page) {
+        if (SiteBlockSetting.isBlocked(site)) return;
         long start = System.currentTimeMillis();
         execute(TaskType.RESULT, result, SearchTask.create(site, keyword, quick, page),
                 result -> SiteHealthStore.recordSearch(site, true, result.getList().size(), System.currentTimeMillis() - start, ""),
@@ -107,6 +109,7 @@ public class SiteViewModel extends ViewModel {
     public void searchContent(List<Site> sites, String keyword, boolean quick) {
         int epoch = stopSearch();
         for (Site site : sites) {
+            if (SiteBlockSetting.isBlocked(site)) continue;
             if (quick && !site.isQuickSearch()) continue;
             long start = System.currentTimeMillis();
             FluentFuture<Result> future = FluentFuture.from(Task.largeExecutor().submit(SearchTask.create(site, keyword, quick))).withTimeout(Constant.TIMEOUT_SEARCH, TimeUnit.MILLISECONDS, Task.scheduler());
