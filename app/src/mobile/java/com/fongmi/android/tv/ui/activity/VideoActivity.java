@@ -489,8 +489,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void setEpisodeBottomInset(int bottom) {
         mEpisodeBottomInset = bottom;
-        int padding = bottom + ResUtil.dp2px(12);
-        padding = Math.max(padding, ResUtil.dp2px(28));
+        int padding = ResUtil.dp2px(12);
         mBinding.episode.setPaddingRelative(mBinding.episode.getPaddingStart(), mBinding.episode.getPaddingTop(), mBinding.episode.getPaddingEnd(), padding);
         mBinding.episode.post(this::updateEpisodeViewportHeight);
     }
@@ -502,11 +501,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.getRoot().getLocationOnScreen(root);
         mBinding.episode.getLocationOnScreen(episode);
         int available = root[1] + mBinding.getRoot().getHeight() - mEpisodeBottomInset - ResUtil.dp2px(8) - episode[1];
-        int limit = ResUtil.isPad() || ResUtil.isLand(this) ? ResUtil.dp2px(328) : ResUtil.dp2px(280);
-        int height = Math.min(limit, available);
-        if (height <= 0 || height == mEpisodeMaxHeight) return;
-        mEpisodeMaxHeight = height;
-        mBinding.episode.setMaxHeight(height);
+        if (available <= 0 || available == mEpisodeMaxHeight) return;
+        mEpisodeMaxHeight = available;
+        mBinding.episode.setMaxHeight(available);
         mBinding.episode.requestLayout();
     }
 
@@ -830,9 +827,16 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void syncEpisodeGroupByScroll() {
         RecyclerView.LayoutManager manager = mBinding.episode.getLayoutManager();
         if (!(manager instanceof GridLayoutManager)) return;
-        int position = ((GridLayoutManager) manager).findFirstVisibleItemPosition();
+        int position = getEpisodeGroupSyncPosition((GridLayoutManager) manager);
         if (position == RecyclerView.NO_POSITION) return;
         selectEpisodeGroupByPosition(position);
+    }
+
+    private int getEpisodeGroupSyncPosition(GridLayoutManager manager) {
+        if (!mBinding.episode.canScrollVertically(1) && mBinding.episode.canScrollVertically(-1)) {
+            return manager.findLastVisibleItemPosition();
+        }
+        return manager.findFirstVisibleItemPosition();
     }
 
     private void selectEpisodeGroupByPosition(int position) {

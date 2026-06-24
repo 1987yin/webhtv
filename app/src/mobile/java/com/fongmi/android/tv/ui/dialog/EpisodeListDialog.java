@@ -204,9 +204,16 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
     private void syncEpisodeGroupByScroll() {
         RecyclerView.LayoutManager manager = binding.episode.getLayoutManager();
         if (!(manager instanceof GridLayoutManager)) return;
-        int position = ((GridLayoutManager) manager).findFirstVisibleItemPosition();
+        int position = getEpisodeGroupSyncPosition((GridLayoutManager) manager);
         if (position == RecyclerView.NO_POSITION) return;
         selectEpisodeGroupByPosition(position);
+    }
+
+    private int getEpisodeGroupSyncPosition(GridLayoutManager manager) {
+        if (!binding.episode.canScrollVertically(1) && binding.episode.canScrollVertically(-1)) {
+            return manager.findLastVisibleItemPosition();
+        }
+        return manager.findFirstVisibleItemPosition();
     }
 
     private void selectEpisodeGroupByPosition(int position) {
