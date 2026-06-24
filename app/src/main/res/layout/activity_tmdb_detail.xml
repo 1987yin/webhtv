@@ -251,16 +251,11 @@
                     android:textSize="16sp"
                     android:visibility="gone" />
 
-                <ProgressBar
+                <com.fongmi.android.tv.ui.custom.MiniProgressView
                     android:id="@+id/playerDisplayMini"
-                    style="?android:attr/progressBarStyleHorizontal"
                     android:layout_width="match_parent"
                     android:layout_height="3dp"
                     android:layout_gravity="bottom"
-                    android:max="10000"
-                    android:progress="0"
-                    android:progressBackgroundTint="@android:color/transparent"
-                    android:progressTint="#2196F3"
                     android:visibility="gone" />
 
                 <LinearLayout

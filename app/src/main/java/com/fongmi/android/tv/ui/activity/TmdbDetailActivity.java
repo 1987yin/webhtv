@@ -3748,7 +3748,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         boolean showTitle = canShow && (inlinePauseInfo || PlayerSetting.isDisplayTitle()) && !TextUtils.isEmpty(inlineTitleText());
         boolean showSize = canShow && (inlinePauseInfo || PlayerSetting.isDisplaySize()) && !TextUtils.isEmpty(player().getSizeText());
         boolean showProgress = !centerVisible && canShow && PlayerSetting.isDisplayProgress() && player().getDuration() > 0;
-        boolean showMini = !centerVisible && !showProgress && canShow && PlayerSetting.isDisplayMini() && player().getDuration() > 0;
+        boolean showMini = !centerVisible && canShow && PlayerSetting.isDisplayMini() && player().getDuration() > 0;
         binding.playerDisplayTitle.setText(inlineTitleText());
         binding.playerDisplaySize.setText(showSize ? player().getSizeText() : "");
         tintInlineDisplay();
@@ -3767,7 +3767,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         int progress = duration > 0 ? (int) (position * binding.playerDisplayBar.getMax() / duration) : 0;
         binding.playerDisplayPosition.setText(player().getPositionTime(0) + "/" + player().getDurationTime());
         binding.playerDisplayBar.setProgress(progress);
-        binding.playerDisplayMini.setProgress(progress);
+        binding.playerDisplayMini.setProgress(position, duration);
     }
 
     private void setButtonEnabled(View button, boolean enabled) {
