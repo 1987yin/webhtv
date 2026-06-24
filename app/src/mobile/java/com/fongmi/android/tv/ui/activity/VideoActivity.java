@@ -781,7 +781,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                         if (child == null || mEpisodeAdapter == null) return;
                         int position = mBinding.episode.getChildAdapterPosition(child);
                         if (position == RecyclerView.NO_POSITION || position >= mEpisodeAdapter.getItems().size()) return;
-                        pending = () -> EpisodeAdapter.showTitlePopup(child, mEpisodeAdapter.getItems().get(position));
+                        pending = () -> {
+                            if (mEpisodeAdapter == null) return;
+                            int current = mBinding.episode.getChildAdapterPosition(child);
+                            if (current == RecyclerView.NO_POSITION || current >= mEpisodeAdapter.getItems().size()) return;
+                            EpisodeAdapter.showTitlePopup(child, mEpisodeAdapter.getItems().get(current));
+                        };
                         handler.postDelayed(pending, ViewConfiguration.getLongPressTimeout());
                         break;
                     case MotionEvent.ACTION_MOVE:
@@ -1722,8 +1727,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setFullscreen(false);
         if (isLand() && !player().isPortrait()) setTransition();
         setRequestedOrientation(isPort() ? ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT : ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
-        mBinding.episodeGroup.postDelayed(() -> mBinding.episodeGroup.scrollToPosition(mEpisodeGroupAdapter.getPosition()), 100);
-        mBinding.episode.postDelayed(() -> mBinding.episode.scrollToPosition(mEpisodeAdapter.getPosition()), 100);
+        mBinding.episodeGroup.postDelayed(() -> scrollToPosition(mBinding.episodeGroup, mEpisodeGroupAdapter.getPosition()), 100);
+        mBinding.episode.postDelayed(() -> scrollToPosition(mBinding.episode, mEpisodeAdapter.getPosition()), 100);
         mBinding.control.title.setVisibility(View.INVISIBLE);
         setSizeText();
         mBinding.video.setLayoutParams(mFrameParams);
@@ -3148,7 +3153,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void scrollToPosition(RecyclerView view, int position) {
-        view.post(() -> view.scrollToPosition(position));
+        view.post(() -> {
+            RecyclerView.Adapter<?> adapter = view.getAdapter();
+            if (adapter == null || position < 0 || position >= adapter.getItemCount()) return;
+            view.scrollToPosition(position);
+        });
     }
 
     @Override
