@@ -128,6 +128,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private long lastLineClickTime;
     private boolean pendingShowEpg;
     private boolean pendingShowProgram;
+    private boolean playbackCatchup;
     private VideoSize videoSize;
 
     public static void start(Context context) {
@@ -601,12 +602,14 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void onSpeed() {
+        if (!player().isVod()) return;
         mBinding.control.action.speed.setText(player().addSpeed());
         PlayerSetting.putDefaultSpeed(player().getSpeed());
         setR1Callback();
     }
 
     private boolean onSpeedLong() {
+        if (!player().isVod()) return true;
         mBinding.control.action.speed.setText(player().toggleSpeed());
         PlayerSetting.putDefaultSpeed(player().getSpeed());
         setR1Callback();
@@ -1062,6 +1065,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private void fetch(EpgData item) {
         if (mChannel == null) return;
+        playbackCatchup = true;
         mViewModel.getUrl(mChannel, item);
         if (service() != null) {
             player().clear();
@@ -1072,6 +1076,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private void fetch() {
         if (mChannel == null) return;
+        playbackCatchup = false;
         LiveConfig.get().setKeep(mChannel);
         mViewModel.getUrl(mChannel);
         if (service() != null) {
@@ -1096,7 +1101,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         clearPendingReload();
         mPlaybackKey = realUrl;
         startPlayer(mPlaybackKey, result, false, getHome().getTimeout(), buildMetadata());
-        mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getDefaultSpeed()));
+        mBinding.control.action.speed.setText(player().setSpeed(playbackCatchup ? PlayerSetting.getDefaultSpeed() : 1f));
     }
 
     private boolean isSameReloadUrl(String realUrl) {
@@ -1545,6 +1550,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public void onSpeedEnd() {
+        if (player().isLive()) return;
         mBinding.widget.speed.clearAnimation();
         mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getDefaultSpeed()));
     }
