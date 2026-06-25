@@ -1,6 +1,5 @@
 package com.fongmi.android.tv.ui.custom;
 
-import android.graphics.Bitmap;
 import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -24,11 +23,8 @@ import com.fongmi.android.tv.utils.ResUtil;
 public class BuiltInWallDrawable extends Drawable {
 
     private final Paint paint;
-    private final Paint bitmapPaint;
+    private final Paint layerPaint;
     private final int wall;
-    private Bitmap bitmap;
-    private int bitmapWidth;
-    private int bitmapHeight;
     private int alpha = 255;
     private ColorFilter colorFilter;
 
@@ -36,27 +32,17 @@ public class BuiltInWallDrawable extends Drawable {
         this.wall = wall;
         this.paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         this.paint.setDither(true);
-        this.bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
-    }
-
-    public static Bitmap createBitmap(int wall, int width, int height) {
-        int safeWidth = Math.max(1, width);
-        int safeHeight = Math.max(1, height);
-        Bitmap bitmap = Bitmap.createBitmap(safeWidth, safeHeight, Bitmap.Config.ARGB_8888);
-        new BuiltInWallDrawable(wall).render(new Canvas(bitmap), safeWidth, safeHeight);
-        return bitmap;
+        this.layerPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
     }
 
     @Override
     public void draw(@NonNull Canvas canvas) {
         Rect bounds = getBounds();
         if (bounds.width() <= 0 || bounds.height() <= 0) return;
-        ensureBitmap(getRenderWidth(bounds), getRenderHeight(bounds));
-        bitmapPaint.setAlpha(alpha);
-        bitmapPaint.setColorFilter(colorFilter);
-        int save = canvas.save();
+        int save = saveLayerIfNeeded(canvas, bounds);
         canvas.clipRect(bounds);
-        canvas.drawBitmap(bitmap, bounds.left, bounds.top, bitmapPaint);
+        canvas.translate(bounds.left, bounds.top);
+        render(canvas, getRenderWidth(bounds), getRenderHeight(bounds));
         canvas.restoreToCount(save);
     }
 
@@ -77,13 +63,11 @@ public class BuiltInWallDrawable extends Drawable {
         return PixelFormat.OPAQUE;
     }
 
-    private void ensureBitmap(int width, int height) {
-        if (bitmap != null && bitmapWidth == width && bitmapHeight == height) return;
-        if (bitmap != null) bitmap.recycle();
-        bitmapWidth = width;
-        bitmapHeight = height;
-        bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        render(new Canvas(bitmap), width, height);
+    private int saveLayerIfNeeded(Canvas canvas, Rect bounds) {
+        if (alpha == 255 && colorFilter == null) return canvas.save();
+        layerPaint.setAlpha(alpha);
+        layerPaint.setColorFilter(colorFilter);
+        return canvas.saveLayer(bounds.left, bounds.top, bounds.right, bounds.bottom, layerPaint);
     }
 
     private int getRenderWidth(Rect bounds) {
