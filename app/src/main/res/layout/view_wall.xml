@@ -9,4 +9,10 @@
         android:layout_height="match_parent"
         android:scaleType="centerCrop" />
 
+    <com.fongmi.android.tv.ui.custom.BuiltInWallView
+        android:id="@+id/design"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
 </FrameLayout>

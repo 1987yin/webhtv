@@ -103,7 +103,7 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
     }
 
     private boolean isReady() {
-        return binding != null && binding.image != null && isAttachedToWindow();
+        return binding != null && binding.image != null && binding.design != null && isAttachedToWindow();
     }
 
     private void stop() {
@@ -143,28 +143,28 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
 
     private void loadRes(int resId) {
         if (!isReady()) return;
-        resetImageLayer();
+        showImage();
         setWallBackground(GREEN_WALL_COLOR);
         binding.image.setImageResource(resId);
     }
 
     private void loadColor(int color) {
         if (!isReady()) return;
-        resetImageLayer();
+        showImage();
         setWallBackground(color);
         binding.image.setImageDrawable(new ColorDrawable(color));
     }
 
     private void loadDesign(int wall) {
         if (!isReady()) return;
-        useStableDesignLayer();
+        showDesign();
         setWallBackground(Setting.getBuiltInWallColor(wall));
-        binding.image.setImageDrawable(new BuiltInWallDrawable(wall));
+        binding.design.setWall(wall);
     }
 
     private void loadImage() {
         if (!isReady()) return;
-        resetImageLayer();
+        showImage();
         Drawable cache = cache();
         if (cache != null) binding.image.setImageDrawable(cache);
         else loadPlaceholder();
@@ -178,8 +178,12 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
         if (isBuiltInColor(wall, type)) loadColor(Setting.getBuiltInWallColor(wall));
         else if (isBuiltInDesign(wall, type)) loadDesign(wall);
         else if (isGreen(wall, type)) loadRes(R.drawable.wallpaper_1);
-        else if (cache != null) binding.image.setImageDrawable(cache);
+        else if (cache != null) {
+            showImage();
+            binding.image.setImageDrawable(cache);
+        }
         else {
+            showImage();
             setWallBackground(DEFAULT_WALL_COLOR);
             binding.image.setImageDrawable(new ColorDrawable(DEFAULT_WALL_COLOR));
         }
@@ -189,13 +193,18 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
         setBackgroundColor(color);
         binding.getRoot().setBackgroundColor(color);
         binding.image.setBackgroundColor(color);
+        binding.design.setBackgroundColor(color);
     }
 
-    private void useStableDesignLayer() {
-        binding.image.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+    private void showDesign() {
+        binding.image.setImageDrawable(null);
+        binding.image.setVisibility(GONE);
+        binding.design.setVisibility(VISIBLE);
     }
 
-    private void resetImageLayer() {
+    private void showImage() {
+        binding.design.setVisibility(GONE);
+        binding.image.setVisibility(VISIBLE);
         binding.image.setLayerType(View.LAYER_TYPE_NONE, null);
     }
 
@@ -203,6 +212,7 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
         if (!isReady()) return;
         ensurePlayer();
         ensureVideoView();
+        showImage();
         video.setPlayer(player);
         video.setVisibility(VISIBLE);
         binding.image.setImageDrawable(cache());
@@ -303,7 +313,7 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
     @Override
     public void onResume(@NonNull LifecycleOwner owner) {
         if (drawable != null) drawable.start();
-        if (isReady() && isBuiltInDesign(Setting.getWall(), Setting.getWallType())) binding.image.invalidate();
+        if (isReady() && isBuiltInDesign(Setting.getWall(), Setting.getWallType())) binding.design.resume();
         if (!hasVideo()) return;
         video.setPlayer(player);
         player.play();
