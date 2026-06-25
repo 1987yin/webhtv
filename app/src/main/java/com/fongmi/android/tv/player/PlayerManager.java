@@ -773,28 +773,8 @@ public class PlayerManager implements ParseCallback {
         }
         String unavailable = getLutUnavailableReason();
         if (!TextUtils.isEmpty(unavailable)) return true;
-        return prepareLutPipelineForCurrentItem(reason);
-    }
-
-    private boolean prepareLutPipelineForCurrentItem(String reason) {
-        if (spec == null || engine == null || player == null) return true;
-        lutPipelinePrepareInProgress = true;
-        lutAppliedForItem = false;
-        lutApplyInProgress = false;
-        dynamicLutEffect.clear();
-        long position = Math.max(0, getPosition());
-        boolean playWhenReady = player.getPlayWhenReady();
-        float speed = getSpeed();
-        if (!safeSetVideoEffects(dynamicLutEffect.effects(), reason + "_prepare_dynamic_passthrough")) {
-            lutPipelinePrepareInProgress = false;
-            return true;
-        }
         lutPipelineReadyForItem = true;
-        if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "prepare current item with effects reason=%s position=%d play=%s spec=%s", reason, position, playWhenReady, debugSpec());
-        engine.restart(spec.checkUa(), position, playWhenReady);
-        if (speed != 1f) setSpeed(speed);
-        lutPipelinePrepareInProgress = false;
-        return false;
+        return true;
     }
 
     private boolean shouldWaitForLutFormat() {
