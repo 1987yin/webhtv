@@ -121,18 +121,30 @@ public class ImgUtil {
         String param = null;
         url = UrlUtil.convert(url);
         if (url.startsWith("data:")) return url;
+        boolean hasReferer = false;
         LazyHeaders.Builder builder = new LazyHeaders.Builder();
-        if (url.contains("@Headers=")) addHeader(builder, param = url.split("@Headers=")[1].split("@")[0]);
+        if (url.contains("@Headers=")) hasReferer |= addHeader(builder, param = url.split("@Headers=")[1].split("@")[0]);
         if (url.contains("@Cookie=")) builder.addHeader(HttpHeaders.COOKIE, param = url.split("@Cookie=")[1].split("@")[0]);
-        if (url.contains("@Referer=")) builder.addHeader(HttpHeaders.REFERER, param = url.split("@Referer=")[1].split("@")[0]);
+        if (url.contains("@Referer=")) {
+            builder.addHeader(HttpHeaders.REFERER, param = url.split("@Referer=")[1].split("@")[0]);
+            hasReferer = true;
+        }
         if (url.contains("@User-Agent=")) builder.addHeader(HttpHeaders.USER_AGENT, param = url.split("@User-Agent=")[1].split("@")[0]);
         url = param == null ? url : url.split("@")[0];
+        String referer = ImageHeaderPolicy.doubanImageReferer(url, hasReferer);
+        if (!TextUtils.isEmpty(referer)) builder.addHeader(HttpHeaders.REFERER, referer);
         return TextUtils.isEmpty(url) ? null : new GlideUrl(url, builder.build());
     }
 
-    private static void addHeader(LazyHeaders.Builder builder, String header) {
+    private static boolean addHeader(LazyHeaders.Builder builder, String header) {
+        boolean hasReferer = false;
         Map<String, String> map = Json.toMap(Json.parse(header));
-        for (Map.Entry<String, String> entry : map.entrySet()) builder.addHeader(UrlUtil.fixHeader(entry.getKey()), entry.getValue());
+        for (Map.Entry<String, String> entry : map.entrySet()) {
+            String key = UrlUtil.fixHeader(entry.getKey());
+            if (ImageHeaderPolicy.isReferer(key)) hasReferer = true;
+            builder.addHeader(key, entry.getValue());
+        }
+        return hasReferer;
     }
 
     private static Drawable getTextDrawable(String text, boolean vod) {
