@@ -12,6 +12,7 @@ import com.fongmi.android.tv.bean.TmdbMatchCache;
 import com.fongmi.android.tv.bean.TmdbPerson;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.event.RefreshEvent;
+import com.fongmi.android.tv.service.AiRecommendationService;
 import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.service.TmdbService;
 import com.fongmi.android.tv.setting.Setting;
@@ -107,27 +108,22 @@ public class TmdbUIAdapter {
     }
 
     public List<TmdbItem> getPersonalTmdbRecommendations() {
-        List<TmdbItem> items = getPersonalRecommendations(personalTmdbRecommendations, new ArrayList<>(), true);
-        return items.isEmpty() ? getPersonalRecommendations(personalTmdbRecommendations, new ArrayList<>(), false) : items;
+        return getPersonalRecommendations(personalTmdbRecommendations);
     }
 
     public List<TmdbItem> getPersonalDoubanRecommendations() {
-        return getPersonalRecommendations(personalDoubanRecommendations, getPersonalTmdbRecommendations(), true);
+        return getPersonalRecommendations(personalDoubanRecommendations);
     }
 
     public List<TmdbItem> getPersonalAiRecommendations() {
-        List<TmdbItem> source = new ArrayList<>(getPersonalTmdbRecommendations());
-        source.addAll(getPersonalDoubanRecommendations());
-        return getPersonalRecommendations(personalAiRecommendations, source, true);
+        return getPersonalRecommendations(personalAiRecommendations);
     }
 
-    private List<TmdbItem> getPersonalRecommendations(List<TmdbItem> personalRecommendations, List<TmdbItem> sourceRecommendations, boolean excludeCurrentRecommendations) {
+    private List<TmdbItem> getPersonalRecommendations(List<TmdbItem> personalRecommendations) {
         if (personalRecommendations == null || personalRecommendations.isEmpty()) return new ArrayList<>();
-        List<TmdbItem> currentRecommendations = excludeCurrentRecommendations ? getRecommendations() : new ArrayList<>();
         List<TmdbItem> items = new ArrayList<>();
         for (TmdbItem item : personalRecommendations) {
-            if (containsRecommendation(currentRecommendations, item) || containsRecommendation(items, item)) continue;
-            if (containsRecommendation(sourceRecommendations, item)) continue;
+            if (containsRecommendation(items, item)) continue;
             items.add(item);
         }
         return items;
@@ -364,25 +360,51 @@ public class TmdbUIAdapter {
         personalAiLoading = true;
         Task.execute(() -> {
             long start = System.currentTimeMillis();
-            PersonalRecommendationService.RecommendationPage page;
+            PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
+            AiRecommendationService.CachedPage cached = service.loadCachedAiPage(vod, item, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
+            if (cached.hasItems()) {
+                SpiderDebug.log("tmdb", "personal ai cache hit exact=%s resolved=%s count=%d title=%s", cached.isExact(), cached.isResolved(), cached.getPage().getItems().size(), item == null ? "" : item.getTitle());
+                applyPersonalAiPage(cached.getPage(), generation, false, false);
+            }
+            PersonalRecommendationService.RecommendationPage page = cached.getPage();
+            String mode = "cache";
             try {
-                page = new PersonalRecommendationService(tmdbService, tmdbConfig).loadAiPage(vod, item, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
+                if (!cached.hasItems() || !cached.isExact() || !cached.isResolved()) {
+                    mode = cached.isExact() ? "resolve-cache" : "refresh";
+                    page = cached.isExact()
+                            ? service.resolveCachedAiPage(vod, item, PersonalRecommendationService.DEFAULT_PAGE_SIZE)
+                            : service.refreshAiPage(vod, item, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
+                }
             } catch (Throwable e) {
                 SpiderDebug.log("tmdb", "initial personal ai recommendations failed error=%s", e.getMessage());
                 page = PersonalRecommendationService.RecommendationPage.empty("");
             }
             PersonalRecommendationService.RecommendationPage loadedPage = page;
-            SpiderDebug.log("tmdb", "personal ai recommendations async cost=%dms count=%d title=%s", System.currentTimeMillis() - start, loadedPage.getItems().size(), item == null ? "" : item.getTitle());
-            activity.runOnUiThread(() -> {
-                if (!isCurrentGeneration(generation)) {
-                    personalAiLoading = false;
-                    return;
-                }
-                personalAiLoading = false;
-                personalAiPage = loadedPage;
-                personalAiRecommendations = personalAiPage.getItems();
-                notifyPersonalAiRecommendationsUpdated();
-            });
+            SpiderDebug.log("tmdb", "personal ai recommendations async mode=%s cost=%dms count=%d title=%s", mode, System.currentTimeMillis() - start, loadedPage.getItems().size(), item == null ? "" : item.getTitle());
+            applyPersonalAiPage(loadedPage, generation, !cached.hasItems(), true);
+        });
+    }
+
+    private void applyPersonalAiPage(PersonalRecommendationService.RecommendationPage page, int generation, boolean allowEmpty, boolean finishLoading) {
+        activity.runOnUiThread(() -> {
+            if (!isCurrentGeneration(generation)) {
+                if (finishLoading) personalAiLoading = false;
+                return;
+            }
+            if (page == null) {
+                if (finishLoading) personalAiLoading = false;
+                return;
+            }
+            List<TmdbItem> items = page.getItems();
+            if (!allowEmpty && items.isEmpty()) {
+                if (finishLoading) personalAiLoading = false;
+                return;
+            }
+            boolean changed = !TmdbRecommendationRows.sameDisplayList(personalAiRecommendations, items);
+            personalAiPage = page;
+            personalAiRecommendations = items;
+            if (changed) notifyPersonalAiRecommendationsUpdated();
+            if (finishLoading) personalAiLoading = false;
         });
     }
 

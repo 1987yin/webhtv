@@ -69,6 +69,7 @@ import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.player.IntroSkipPlayback;
 import com.fongmi.android.tv.player.PlayerHelper;
+import com.fongmi.android.tv.service.AiRecommendationService;
 import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.service.IntroSkipService;
 import com.fongmi.android.tv.service.PlaybackService;
@@ -1592,20 +1593,40 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void loadTmdbPersonalAi(TmdbBundle bundle, Vod currentVod, List<TmdbItem> related, List<TmdbItem> personalTmdb, List<TmdbItem> personalDouban, int generation) {
         if (!Setting.isPersonalRecommendation() || bundle == null || bundle.item() == null) return;
         Task.execute(() -> {
-            List<TmdbItem> personalAi = new ArrayList<>();
+            long start = System.currentTimeMillis();
+            PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
+            AiRecommendationService.CachedPage cached = service.loadCachedAiPage(currentVod, bundle.item(), PersonalRecommendationService.DEFAULT_PAGE_SIZE);
+            if (cached.hasItems()) {
+                List<TmdbItem> cachedAi = TmdbRecommendationRows.personalAi(cached.getPage().getItems(), related, personalTmdb, personalDouban);
+                SpiderDebug.log("tmdb", "detail personal ai cache hit exact=%s resolved=%s count=%d title=%s", cached.isExact(), cached.isResolved(), cachedAi.size(), bundle.item().getTitle());
+                applyTmdbPersonalAi(bundle, cachedAi, generation, false);
+            }
+            PersonalRecommendationService.RecommendationPage page = cached.getPage();
+            String mode = "cache";
             try {
-                PersonalRecommendationService.RecommendationPage page = new PersonalRecommendationService(tmdbService, tmdbConfig).loadAiPage(currentVod, bundle.item(), PersonalRecommendationService.DEFAULT_PAGE_SIZE);
-                personalAi = TmdbRecommendationRows.personalAi(page.getItems(), related, personalTmdb, personalDouban);
+                if (!cached.hasItems() || !cached.isExact() || !cached.isResolved()) {
+                    mode = cached.isExact() ? "resolve-cache" : "refresh";
+                    page = cached.isExact()
+                            ? service.resolveCachedAiPage(currentVod, bundle.item(), PersonalRecommendationService.DEFAULT_PAGE_SIZE)
+                            : service.refreshAiPage(currentVod, bundle.item(), PersonalRecommendationService.DEFAULT_PAGE_SIZE);
+                }
             } catch (Throwable e) {
                 SpiderDebug.log("tmdb", "detail personal ai failed error=%s", e.getMessage());
             }
-            List<TmdbItem> finalPersonalAi = personalAi;
-            runOnAliveUi(() -> {
-                if (generation != loadGeneration || bundle.item() != matchedTmdbItem) return;
-                personalAiItems.clear();
-                personalAiItems.addAll(finalPersonalAi);
-                bindTmdbSection();
-            });
+            List<TmdbItem> personalAi = TmdbRecommendationRows.personalAi(page.getItems(), related, personalTmdb, personalDouban);
+            SpiderDebug.log("tmdb", "detail personal ai async mode=%s cost=%dms count=%d title=%s", mode, System.currentTimeMillis() - start, personalAi.size(), bundle.item().getTitle());
+            applyTmdbPersonalAi(bundle, personalAi, generation, !cached.hasItems());
+        });
+    }
+
+    private void applyTmdbPersonalAi(TmdbBundle bundle, List<TmdbItem> items, int generation, boolean allowEmpty) {
+        runOnAliveUi(() -> {
+            if (generation != loadGeneration || bundle == null || bundle.item() != matchedTmdbItem) return;
+            if (!allowEmpty && (items == null || items.isEmpty())) return;
+            if (TmdbRecommendationRows.sameDisplayList(personalAiItems, items)) return;
+            personalAiItems.clear();
+            if (items != null) personalAiItems.addAll(items);
+            bindTmdbSection();
         });
     }
 

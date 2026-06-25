@@ -10,6 +10,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class TmdbRecommendationRowsTest {
 
@@ -29,7 +31,7 @@ public class TmdbRecommendationRowsTest {
     }
 
     @Test
-    public void personalRows_removeDuplicatesAgainstRelatedAndProviderRows() {
+    public void personalRows_doNotRemoveDuplicatesAgainstOtherRows() {
         TmdbItem related = item(1, "重叠作品");
         TmdbItem tmdbOnly = item(2, "TMDB 个性");
         TmdbItem doubanOnly = item(-3, "豆瓣个性");
@@ -37,8 +39,8 @@ public class TmdbRecommendationRowsTest {
         List<TmdbItem> personalTmdb = TmdbRecommendationRows.personalTmdb(List.of(related, tmdbOnly), List.of(related));
         List<TmdbItem> personalDouban = TmdbRecommendationRows.personalDouban(List.of(tmdbOnly, doubanOnly), List.of(related), personalTmdb);
 
-        assertEquals(List.of("TMDB 个性"), titles(personalTmdb));
-        assertEquals(List.of("豆瓣个性"), titles(personalDouban));
+        assertEquals(List.of("重叠作品", "TMDB 个性"), titles(personalTmdb));
+        assertEquals(List.of("TMDB 个性", "豆瓣个性"), titles(personalDouban));
     }
 
     @Test
@@ -48,6 +50,34 @@ public class TmdbRecommendationRowsTest {
         List<TmdbItem> personalTmdb = TmdbRecommendationRows.personalTmdb(List.of(related), List.of(related));
 
         assertEquals(List.of("重叠作品"), titles(personalTmdb));
+    }
+
+    @Test
+    public void personalAi_keepsRowWhenEveryItemAlsoExistsInOtherRows() {
+        TmdbItem duplicate = item(1, "智能重叠");
+
+        List<TmdbItem> personalAi = TmdbRecommendationRows.personalAi(List.of(duplicate), List.of(duplicate), List.of(duplicate), List.of());
+
+        assertEquals(List.of("智能重叠"), titles(personalAi));
+    }
+
+    @Test
+    public void personalRows_removeDuplicatesInsideSameRowOnly() {
+        TmdbItem first = item(1, "同区重复");
+        TmdbItem duplicate = item(1, "同区重复");
+
+        List<TmdbItem> personalTmdb = TmdbRecommendationRows.personalTmdb(List.of(first, duplicate), new ArrayList<>());
+
+        assertEquals(List.of("同区重复"), titles(personalTmdb));
+    }
+
+    @Test
+    public void sameDisplayList_detectsPosterUpgradeForSameTitle() {
+        TmdbItem placeholder = new TmdbItem(-1, "tv", "长安十二时辰", "剧集 · 2019", "推荐理由", "", "");
+        TmdbItem resolved = new TmdbItem(123, "tv", "长安十二时辰", "剧集 · 2019", "推荐理由", "poster.jpg", "backdrop.jpg");
+
+        assertFalse(TmdbRecommendationRows.sameDisplayList(List.of(placeholder), List.of(resolved)));
+        assertTrue(TmdbRecommendationRows.sameDisplayList(List.of(resolved), List.of(resolved)));
     }
 
     private static TmdbItem item(int id, String title) {

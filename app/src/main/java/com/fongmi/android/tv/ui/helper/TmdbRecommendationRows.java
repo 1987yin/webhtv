@@ -21,27 +21,31 @@ public final class TmdbRecommendationRows {
     }
 
     public static List<TmdbItem> personalTmdb(List<TmdbItem> personalTmdb, List<TmdbItem> related) {
-        List<TmdbItem> items = personalRecommendations(personalTmdb, related, new ArrayList<>(), true);
-        return items.isEmpty() ? personalRecommendations(personalTmdb, new ArrayList<>(), new ArrayList<>(), false) : items;
+        return personalRecommendations(personalTmdb);
     }
 
     public static List<TmdbItem> personalDouban(List<TmdbItem> personalDouban, List<TmdbItem> related, List<TmdbItem> personalTmdb) {
-        return personalRecommendations(personalDouban, related, personalTmdb, true);
+        return personalRecommendations(personalDouban);
     }
 
     public static List<TmdbItem> personalAi(List<TmdbItem> personalAi, List<TmdbItem> related, List<TmdbItem> personalTmdb, List<TmdbItem> personalDouban) {
-        List<TmdbItem> source = new ArrayList<>(safeList(personalTmdb));
-        source.addAll(safeList(personalDouban));
-        return personalRecommendations(personalAi, related, source, true);
+        return personalRecommendations(personalAi);
     }
 
-    private static List<TmdbItem> personalRecommendations(List<TmdbItem> recommendations, List<TmdbItem> related, List<TmdbItem> source, boolean excludeRelated) {
-        List<TmdbItem> currentRecommendations = excludeRelated ? safeList(related) : new ArrayList<>();
-        List<TmdbItem> sourceRecommendations = safeList(source);
+    public static boolean sameDisplayList(List<TmdbItem> first, List<TmdbItem> second) {
+        int firstSize = first == null ? 0 : first.size();
+        int secondSize = second == null ? 0 : second.size();
+        if (firstSize != secondSize) return false;
+        for (int i = 0; i < firstSize; i++) {
+            if (!sameDisplayItem(first.get(i), second.get(i))) return false;
+        }
+        return true;
+    }
+
+    private static List<TmdbItem> personalRecommendations(List<TmdbItem> recommendations) {
         List<TmdbItem> items = new ArrayList<>();
         for (TmdbItem item : safeList(recommendations)) {
-            if (containsRecommendation(currentRecommendations, item) || containsRecommendation(items, item)) continue;
-            if (containsRecommendation(sourceRecommendations, item)) continue;
+            if (containsRecommendation(items, item)) continue;
             items.add(item);
         }
         return items;
@@ -65,6 +69,24 @@ public final class TmdbRecommendationRows {
         String firstTitle = normalizeTitle(first.getTitle());
         String secondTitle = normalizeTitle(second.getTitle());
         return !firstTitle.isEmpty() && firstTitle.equals(secondTitle);
+    }
+
+    private static boolean sameDisplayItem(TmdbItem first, TmdbItem second) {
+        if (first == second) return true;
+        if (first == null || second == null) return false;
+        return first.getTmdbId() == second.getTmdbId()
+                && Objects.equals(first.getMediaType(), second.getMediaType())
+                && Objects.equals(first.getTitle(), second.getTitle())
+                && Objects.equals(first.getSubtitle(), second.getSubtitle())
+                && Objects.equals(first.getOverview(), second.getOverview())
+                && Objects.equals(first.getPosterUrl(), second.getPosterUrl())
+                && Objects.equals(first.getBackdropUrl(), second.getBackdropUrl())
+                && Objects.equals(first.getCredit(), second.getCredit())
+                && Math.abs(first.getRating() - second.getRating()) < 0.001
+                && Objects.equals(first.getOriginalLanguage(), second.getOriginalLanguage())
+                && Objects.equals(first.getOriginCountry(), second.getOriginCountry())
+                && Objects.equals(first.getGenreIds(), second.getGenreIds())
+                && Objects.equals(first.getDepartment(), second.getDepartment());
     }
 
     private static String normalizeTitle(String text) {

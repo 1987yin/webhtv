@@ -29,6 +29,13 @@ public class AiRecommendationServiceTest {
     }
 
     @Test
+    public void extractOutputText_readsLooselyNestedResponsesText() {
+        String body = "{\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"text\",\"text\":{\"value\":\"{\\\"items\\\":[{\\\"title\\\":\\\"边水往事\\\"}]}\"}}]}]}";
+
+        assertEquals("{\"items\":[{\"title\":\"边水往事\"}]}", AiRecommendationService.extractOutputText(body));
+    }
+
+    @Test
     public void requestSpec_buildsOpenAiChatRequestFromBaseEndpoint() {
         AiConfig config = AiConfig.objectFrom("{\"enabled\":true,\"protocol\":\"openai_chat\",\"endpoint\":\"https://api.example.com/v1\",\"apiKey\":\"sk-test\",\"model\":\"gpt-test\",\"customUserAgent\":\"claude-cli/2.1.161\"}");
 
@@ -105,6 +112,58 @@ public class AiRecommendationServiceTest {
     }
 
     @Test
+    public void parseRecommendations_acceptsCommonAlternativeArrayKeys() {
+        String text = "{\"results\":[{\"title\":\"我的阿勒泰\",\"mediaType\":\"tv\"}]}";
+
+        List<AiRecommendationService.AiRecommendation> items = AiRecommendationService.parseRecommendations(text);
+
+        assertEquals(1, items.size());
+        assertEquals("我的阿勒泰", items.get(0).title);
+    }
+
+    @Test
+    public void parseResponseRecommendations_acceptsRawJsonBodyWhenGatewaySkipsEnvelope() {
+        AiConfig config = AiConfig.objectFrom("{\"protocol\":\"openai_responses\"}");
+        String body = "{\"items\":[{\"title\":\"去有风的地方\",\"year\":2023,\"mediaType\":\"tv\",\"reason\":\"治愈向\"}]}";
+
+        List<AiRecommendationService.AiRecommendation> items = AiRecommendationService.parseResponseRecommendations(body, config);
+
+        assertEquals(1, items.size());
+        assertEquals("去有风的地方", items.get(0).title);
+    }
+
+    @Test
+    public void parseResponseRecommendations_acceptsRawTextWithEmbeddedJson() {
+        AiConfig config = AiConfig.objectFrom("{\"protocol\":\"openai_chat\"}");
+        String body = "推荐如下：\n```json\n{\"items\":[{\"title\":\"白夜追凶\",\"mediaType\":\"tv\"}]}\n```";
+
+        List<AiRecommendationService.AiRecommendation> items = AiRecommendationService.parseResponseRecommendations(body, config);
+
+        assertEquals(1, items.size());
+        assertEquals("白夜追凶", items.get(0).title);
+    }
+
+    @Test
+    public void parseResponseRecommendations_acceptsSseDataLinesFromCompatibleGateways() {
+        AiConfig config = AiConfig.objectFrom("{\"protocol\":\"openai_chat\"}");
+        String body = "data: {\"choices\":[{\"message\":{\"content\":\"{\\\"items\\\":[{\\\"title\\\":\\\"狂飙\\\"}]}\"}}]}\n\ndata: [DONE]";
+
+        List<AiRecommendationService.AiRecommendation> items = AiRecommendationService.parseResponseRecommendations(body, config);
+
+        assertEquals(1, items.size());
+        assertEquals("狂飙", items.get(0).title);
+    }
+
+    @Test
+    public void shouldRetryRecommendationRequest_retriesTransientHttpAndParseFailures() {
+        assertTrue(AiRecommendationService.shouldRetryRecommendationRequest(408, false, null));
+        assertTrue(AiRecommendationService.shouldRetryRecommendationRequest(429, false, null));
+        assertTrue(AiRecommendationService.shouldRetryRecommendationRequest(503, false, null));
+        assertTrue(AiRecommendationService.shouldRetryRecommendationRequest(200, true, null));
+        assertFalse(AiRecommendationService.shouldRetryRecommendationRequest(401, false, null));
+    }
+
+    @Test
     public void fingerprint_changesWhenSearchRecordsOrPromptChanges() {
         AiConfig first = AiConfig.objectFrom("{\"enabled\":true,\"endpoint\":\"https://api.openai.com/v1/responses\",\"apiKey\":\"sk-test\",\"model\":\"gpt-4.1-mini\",\"recommendPrompt\":\"p1\"}");
         AiConfig second = AiConfig.objectFrom("{\"enabled\":true,\"endpoint\":\"https://api.openai.com/v1/responses\",\"apiKey\":\"sk-test\",\"model\":\"gpt-4.1-mini\",\"recommendPrompt\":\"p2\"}");
@@ -161,6 +220,33 @@ public class AiRecommendationServiceTest {
         assertEquals("claude-cli/2.1.161", AiRecommendationService.sanitizeUserAgent(" claude-cli/2.1.161 "));
         assertEquals("client\tname", AiRecommendationService.sanitizeUserAgent("client\tname"));
         assertEquals("", AiRecommendationService.sanitizeUserAgent("bad\nua"));
+    }
+
+    @Test
+    public void resolvedItemCache_roundTripsPosterReasonAndRating() {
+        TmdbItem item = new TmdbItem(123, "tv", "大明王朝1566", "剧集 · 2007", "推荐理由", "poster.jpg", "backdrop.jpg", "", 9.7);
+
+        List<TmdbItem> items = AiRecommendationService.parseResolvedItems("{\"items\":[" + AiRecommendationService.tmdbItemToJson(item) + "]}");
+
+        assertEquals(1, items.size());
+        assertEquals(123, items.get(0).getTmdbId());
+        assertEquals("tv", items.get(0).getMediaType());
+        assertEquals("大明王朝1566", items.get(0).getTitle());
+        assertEquals("推荐理由", items.get(0).getOverview());
+        assertEquals("poster.jpg", items.get(0).getPosterUrl());
+        assertEquals(9.7, items.get(0).getRating(), 0.001);
+    }
+
+    @Test
+    public void latestCacheKey_ignoresHistoryAndSearchButKeepsTitleAndPrompt() {
+        AiConfig first = AiConfig.objectFrom("{\"enabled\":true,\"protocol\":\"openai_responses\",\"endpoint\":\"https://api.openai.com/v1/responses\",\"apiKey\":\"sk-test\",\"model\":\"gpt-4.1-mini\",\"recommendPrompt\":\"p1\"}");
+        AiConfig second = AiConfig.objectFrom("{\"enabled\":true,\"protocol\":\"openai_responses\",\"endpoint\":\"https://api.openai.com/v1/responses\",\"apiKey\":\"sk-test\",\"model\":\"gpt-4.1-mini\",\"recommendPrompt\":\"p2\"}");
+
+        String base = AiRecommendationService.latestCacheKey("长安的荔枝", first);
+
+        assertEquals(base, AiRecommendationService.latestCacheKey("长安的荔枝", first));
+        assertFalse(base.equals(AiRecommendationService.latestCacheKey("大明王朝1566", first)));
+        assertFalse(base.equals(AiRecommendationService.latestCacheKey("长安的荔枝", second)));
     }
 
     @Test

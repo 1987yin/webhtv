@@ -186,6 +186,21 @@ public class PersonalRecommendationService {
         return new AiRecommendationService(tmdbService, tmdbConfig).load(currentVod, currentTitle, historyFingerprint(currentVod, false), pageSize);
     }
 
+    public AiRecommendationService.CachedPage loadCachedAiPage(@Nullable Vod currentVod, @Nullable TmdbItem currentItem, int pageSize) {
+        String currentTitle = currentTitle(currentVod, currentItem);
+        return new AiRecommendationService(tmdbService, tmdbConfig).loadCached(currentTitle, historyFingerprint(currentVod, false), pageSize);
+    }
+
+    public RecommendationPage resolveCachedAiPage(@Nullable Vod currentVod, @Nullable TmdbItem currentItem, int pageSize) {
+        String currentTitle = currentTitle(currentVod, currentItem);
+        return new AiRecommendationService(tmdbService, tmdbConfig).resolveCached(currentTitle, historyFingerprint(currentVod, false), pageSize);
+    }
+
+    public RecommendationPage refreshAiPage(@Nullable Vod currentVod, @Nullable TmdbItem currentItem, int pageSize) {
+        String currentTitle = currentTitle(currentVod, currentItem);
+        return new AiRecommendationService(tmdbService, tmdbConfig).refresh(currentVod, currentTitle, historyFingerprint(currentVod, false), pageSize);
+    }
+
     public String aiFingerprint(@Nullable Vod currentVod, @Nullable TmdbItem currentItem) {
         return AiRecommendationService.fingerprint(currentTitle(currentVod, currentItem), historyFingerprint(currentVod, false), Setting.getKeyword(), AiConfig.objectFrom(Setting.getAiConfig()));
     }
