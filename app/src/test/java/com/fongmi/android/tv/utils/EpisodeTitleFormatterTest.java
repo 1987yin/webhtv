@@ -27,6 +27,18 @@ public class EpisodeTitleFormatterTest {
     }
 
     @Test
+    public void formatTmdbTitleKeepsFileSizeOutOfCleanTitle() {
+        String title = EpisodeTitleFormatter.formatTmdbTitle("274", "[905.83MB] 274.mkv", "夸克原画");
+        assertEquals("274. 夸克原画", title);
+        assertEquals("[905.83MB] 274. 夸克原画", EpisodeTitleFormatter.withSourceFileSize("[905.83MB] 274.mkv", title, true));
+    }
+
+    @Test
+    public void formatTmdbTitleUsesTmdbTitleWhenLabelIsMissing() {
+        assertEquals("相遇", EpisodeTitleFormatter.formatTmdbTitle(null, "[5.37G] 01.mkv", "相遇"));
+    }
+
+    @Test
     public void withSourceFileSizeRespectsSwitchAndAvoidsDuplicates() {
         assertEquals("1. 相遇", EpisodeTitleFormatter.withSourceFileSize("[5.37G] 01.mkv", "1. 相遇", false));
         assertEquals("[5.37G] 1. 相遇", EpisodeTitleFormatter.withSourceFileSize("[5.37G] 01.mkv", "[5.37G] 1. 相遇", true));

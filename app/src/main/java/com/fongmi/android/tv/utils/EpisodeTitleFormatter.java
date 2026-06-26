@@ -16,6 +16,14 @@ public final class EpisodeTitleFormatter {
         return "";
     }
 
+    public static String formatTmdbTitle(String label, String sourceName, String tmdbTitle) {
+        String title = isEmpty(label) ? "" : label;
+        if (!isEmpty(tmdbTitle) && !equals(label, tmdbTitle) && !equals(sourceName, tmdbTitle)) {
+            title = isEmpty(title) ? tmdbTitle : title + ". " + tmdbTitle;
+        }
+        return title;
+    }
+
     public static String withSourceFileSize(String sourceName, String title, boolean includeFileSize) {
         if (isEmpty(title) || !includeFileSize) return isEmpty(title) ? "" : title;
         String fileSize = extractFileSize(sourceName);
@@ -43,5 +51,9 @@ public final class EpisodeTitleFormatter {
 
     private static boolean isEmpty(String value) {
         return value == null || value.isEmpty();
+    }
+
+    private static boolean equals(String first, String second) {
+        return first == null ? second == null : first.equals(second);
     }
 }

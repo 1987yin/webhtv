@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.ui.helper;
 
+import com.fongmi.android.tv.R;
+
 public final class TmdbDetailLabels {
 
     private TmdbDetailLabels() {
@@ -13,5 +15,9 @@ public final class TmdbDetailLabels {
 
     public static String headerSubtitle(String releaseDate) {
         return releaseDate == null ? "" : releaseDate.trim();
+    }
+
+    public static int keepLabel(boolean kept) {
+        return kept ? R.string.keep_add : R.string.keep;
     }
 }

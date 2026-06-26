@@ -1350,7 +1350,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mFlagAdapter.setSelected(item);
         scrollToPosition(mBinding.flag, mFlagAdapter.getPosition());
         setEpisodeAdapter(item.getEpisodes());
-        scrollToPosition(mBinding.episode, mEpisodeAdapter.getPosition());
+        scrollEpisodeToSelected();
         setQualityVisible(false);
         seamless(item);
     }
@@ -1458,8 +1458,21 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void scrollEpisodeToPosition(int position) {
         RecyclerView.LayoutManager manager = mBinding.episode.getLayoutManager();
-        if (manager instanceof GridLayoutManager) ((GridLayoutManager) manager).scrollToPositionWithOffset(position, 0);
+        if (manager instanceof GridLayoutManager) {
+            int rowStart = getEpisodeRowStart((GridLayoutManager) manager, position);
+            int offset = rowStart >= ((GridLayoutManager) manager).getSpanCount() ? -ResUtil.dp2px(4) : 0;
+            ((GridLayoutManager) manager).scrollToPositionWithOffset(rowStart, offset);
+        }
         else mBinding.episode.scrollToPosition(position);
+    }
+
+    private void scrollEpisodeToSelected() {
+        mBinding.episode.post(() -> scrollEpisodeToPosition(mEpisodeAdapter.getPosition()));
+    }
+
+    private int getEpisodeRowStart(GridLayoutManager manager, int position) {
+        int span = Math.max(1, manager.getSpanCount());
+        return Math.max(0, position - position % span);
     }
 
     private void setEpisodeItems(List<Episode> items) {
@@ -1583,7 +1596,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void reverseEpisode(boolean scroll) {
         mFlagAdapter.reverse();
         setEpisodeAdapter(getFlag().getEpisodes());
-        if (scroll) scrollToPosition(mBinding.episode, mEpisodeAdapter.getPosition());
+        if (scroll) scrollEpisodeToSelected();
     }
 
     private void onName() {
@@ -2029,7 +2042,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (isLand() && !player().isPortrait()) setTransition();
         setRequestedOrientation(isPort() ? ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT : ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
         mBinding.episodeGroup.postDelayed(() -> scrollToPosition(mBinding.episodeGroup, mEpisodeGroupAdapter.getPosition()), 100);
-        mBinding.episode.postDelayed(() -> scrollToPosition(mBinding.episode, mEpisodeAdapter.getPosition()), 100);
+        mBinding.episode.postDelayed(this::scrollEpisodeToSelected, 100);
         mBinding.control.title.setVisibility(View.INVISIBLE);
         setSizeText();
         mBinding.video.setLayoutParams(mFrameParams);
@@ -3657,7 +3670,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         } else {
             setEpisodeItems(getFlag().getEpisodes());
         }
-        scrollToPosition(mBinding.episode, mEpisodeAdapter.getPosition());
+        scrollEpisodeToSelected();
         mBinding.episode.post(this::updateEpisodeViewportHeight);
     }
 

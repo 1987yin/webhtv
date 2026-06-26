@@ -95,6 +95,23 @@ public class TmdbDetailActivityLayoutTest {
                         && adapter.contains("holder.root.hasFocus() && focusListener != null"));
     }
 
+    @Test
+    public void keepStateShowsAddedLabelWhenAlreadyKept() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int method = source.indexOf("private void updateKeepState()");
+        assertTrue(sourcePath + " is missing updateKeepState", method >= 0);
+
+        int methodEnd = source.indexOf("\n    }", method);
+        String body = source.substring(method, methodEnd);
+        assertTrue("TMDB detail must show the current favorite state, not the removal result label",
+                body.contains("TmdbDetailLabels.keepLabel(kept)") && !body.contains("R.string.keep_del"));
+        assertTrue("TMDB detail must keep all favorite buttons visually selected together",
+                body.contains("binding.keep.setSelected(kept)")
+                        && body.contains("binding.keepTop.setSelected(kept)")
+                        && body.contains("binding.keepFusion.setSelected(kept)"));
+    }
+
     private static Path findMainJavaPath() {
         Path moduleRelative = Path.of("src", "main", "java");
         if (Files.exists(moduleRelative)) return moduleRelative;

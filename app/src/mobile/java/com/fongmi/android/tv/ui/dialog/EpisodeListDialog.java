@@ -24,6 +24,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Flag;
 import com.fongmi.android.tv.databinding.DialogEpisodeListBinding;
+import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.ui.adapter.EpisodeAdapter;
 import com.fongmi.android.tv.ui.adapter.EpisodeGroupAdapter;
 import com.fongmi.android.tv.ui.adapter.FlagAdapter;
@@ -189,7 +190,8 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
         if (tmdbCard) return 2;
         int maxLen = 0;
         for (Episode item : episodes) maxLen = Math.max(maxLen, item.getDesc().concat(item.getName()).length());
-        int ideal = maxLen >= 14 ? 160 : maxLen >= 10 ? 130 : maxLen >= 7 ? 104 : 80;
+        if (maxLen >= 12) return PlayerSetting.getEpisodeColumn();
+        int ideal = maxLen >= 10 ? 130 : maxLen >= 7 ? 104 : 80;
         int available = Math.max(ResUtil.dp2px(240), getWidth() - ResUtil.dp2px(28));
         int span = available / ResUtil.dp2px(ideal);
         return Math.max(2, Math.min(4, span));

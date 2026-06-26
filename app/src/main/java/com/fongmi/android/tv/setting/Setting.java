@@ -340,12 +340,12 @@ public class Setting {
     }
 
     public static int getUiScale() {
-        int scale = Prefers.getInt("ui_scale", UI_SCALE_STANDARD);
-        return scale >= UI_SCALE_FOLLOW_SYSTEM && scale <= UI_SCALE_SMALLER ? scale : UI_SCALE_STANDARD;
+        int scale = Prefers.getInt("ui_scale", UI_SCALE_FOLLOW_SYSTEM);
+        return scale >= UI_SCALE_FOLLOW_SYSTEM && scale <= UI_SCALE_SMALLER ? scale : UI_SCALE_FOLLOW_SYSTEM;
     }
 
     public static void putUiScale(int scale) {
-        Prefers.put("ui_scale", scale >= UI_SCALE_FOLLOW_SYSTEM && scale <= UI_SCALE_SMALLER ? scale : UI_SCALE_STANDARD);
+        Prefers.put("ui_scale", scale >= UI_SCALE_FOLLOW_SYSTEM && scale <= UI_SCALE_SMALLER ? scale : UI_SCALE_FOLLOW_SYSTEM);
     }
 
     public static Context wrapUiScale(Context context) {
@@ -366,8 +366,9 @@ public class Setting {
 
     private static float getUiScaleFactor(int scale) {
         return switch (scale) {
-            case UI_SCALE_COMPACT -> 0.9f;
-            case UI_SCALE_SMALLER -> 0.8f;
+            case UI_SCALE_STANDARD -> 0.9f;
+            case UI_SCALE_COMPACT -> 0.8f;
+            case UI_SCALE_SMALLER -> 0.7f;
             default -> 1.0f;
         };
     }

@@ -119,12 +119,14 @@ public class PlayerOsdController {
     }
 
     private void setTopLeft(PlayerManager player) {
-        if (!PlayerSetting.isOsdTitle()) {
+        boolean showTitle = PlayerSetting.isOsdTitle();
+        boolean showSize = PlayerSetting.isOsdSize();
+        if (!showTitle && !showSize) {
             topLeft.setVisibility(View.GONE);
             return;
         }
-        String title = source.getTitle();
-        String size = player == null ? "" : player.getSizeText();
+        String title = showTitle ? source.getTitle() : "";
+        String size = showSize && player != null ? player.getSizeText() : "";
         if (TextUtils.isEmpty(title)) topLeft.setText(size);
         else if (TextUtils.isEmpty(size)) topLeft.setText(title);
         else topLeft.setText(title + "\n" + size);

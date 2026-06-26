@@ -12,6 +12,18 @@ public class PlayerSetting {
     public static final int IJK = 1;
     public static final int SYSTEM = 2;
     public static final int NONE = -1;
+    private static final String KEY_DISPLAY_TIME = "display_time";
+    private static final String KEY_DISPLAY_TRAFFIC = "display_traffic";
+    private static final String KEY_DISPLAY_SIZE = "display_size";
+    private static final String KEY_DISPLAY_PROGRESS = "display_progress";
+    private static final String KEY_DISPLAY_MINI = "display_mini";
+    private static final String KEY_DISPLAY_TITLE = "display_title";
+    private static final String KEY_OSD_TITLE = "player_osd_title";
+    private static final String KEY_OSD_TIME = "player_osd_time";
+    private static final String KEY_OSD_PROGRESS = "player_osd_progress";
+    private static final String KEY_OSD_TRAFFIC = "player_osd_traffic";
+    private static final String KEY_OSD_MINI = "player_osd_mini";
+    private static boolean legacyOsdMigrated;
 
     public static int getPlayer() {
         int player = Prefers.getInt("player", EXO);
@@ -205,51 +217,70 @@ public class PlayerSetting {
     }
 
     public static boolean isDisplayTime() {
-        return Prefers.getBoolean("display_time");
+        migrateLegacyOsd();
+        return Prefers.getBoolean(KEY_DISPLAY_TIME);
     }
 
     public static void putDisplayTime(boolean displayTime) {
-        Prefers.put("display_time", displayTime);
+        Prefers.put(KEY_DISPLAY_TIME, displayTime);
     }
 
     public static boolean isDisplayTraffic() {
-        return Prefers.getBoolean("display_traffic");
+        migrateLegacyOsd();
+        return Prefers.getBoolean(KEY_DISPLAY_TRAFFIC);
     }
 
     public static void putDisplayTraffic(boolean displayTraffic) {
-        Prefers.put("display_traffic", displayTraffic);
+        Prefers.put(KEY_DISPLAY_TRAFFIC, displayTraffic);
     }
 
     public static boolean isDisplaySize() {
-        return Prefers.getBoolean("display_size", true);
+        migrateLegacyOsd();
+        return Prefers.getBoolean(KEY_DISPLAY_SIZE, true);
     }
 
     public static void putDisplaySize(boolean displaySize) {
-        Prefers.put("display_size", displaySize);
+        Prefers.put(KEY_DISPLAY_SIZE, displaySize);
     }
 
     public static boolean isDisplayProgress() {
-        return Prefers.getBoolean("display_progress", true);
+        migrateLegacyOsd();
+        return Prefers.getBoolean(KEY_DISPLAY_PROGRESS, true);
     }
 
     public static void putDisplayProgress(boolean displayProgress) {
-        Prefers.put("display_progress", displayProgress);
+        Prefers.put(KEY_DISPLAY_PROGRESS, displayProgress);
     }
 
     public static boolean isDisplayMini() {
-        return Prefers.getBoolean("display_mini");
+        migrateLegacyOsd();
+        return Prefers.getBoolean(KEY_DISPLAY_MINI);
     }
 
     public static void putDisplayMini(boolean displayMini) {
-        Prefers.put("display_mini", displayMini);
+        Prefers.put(KEY_DISPLAY_MINI, displayMini);
     }
 
     public static boolean isDisplayTitle() {
-        return Prefers.getBoolean("display_title", true);
+        migrateLegacyOsd();
+        return Prefers.getBoolean(KEY_DISPLAY_TITLE, true);
     }
 
     public static void putDisplayTitle(boolean displayTitle) {
-        Prefers.put("display_title", displayTitle);
+        Prefers.put(KEY_DISPLAY_TITLE, displayTitle);
+    }
+
+    public static boolean[] getDisplayChecked() {
+        return new boolean[]{isDisplayTime(), isDisplayTraffic(), isDisplaySize(), isDisplayProgress(), isDisplayMini(), isDisplayTitle()};
+    }
+
+    public static void putDisplayChecked(boolean[] checked) {
+        putDisplayTime(valueAt(checked, 0, isDisplayTime()));
+        putDisplayTraffic(valueAt(checked, 1, isDisplayTraffic()));
+        putDisplaySize(valueAt(checked, 2, isDisplaySize()));
+        putDisplayProgress(valueAt(checked, 3, isDisplayProgress()));
+        putDisplayMini(valueAt(checked, 4, isDisplayMini()));
+        putDisplayTitle(valueAt(checked, 5, isDisplayTitle()));
     }
 
     public static boolean isCaption() {
@@ -313,46 +344,75 @@ public class PlayerSetting {
     }
 
     public static boolean isOsdTitle() {
-        return Prefers.getBoolean("player_osd_title");
+        return isDisplayTitle();
     }
 
     public static void putOsdTitle(boolean value) {
-        Prefers.put("player_osd_title", value);
+        putDisplayTitle(value);
     }
 
     public static boolean isOsdTime() {
-        return Prefers.getBoolean("player_osd_time");
+        return isDisplayTime();
     }
 
     public static void putOsdTime(boolean value) {
-        Prefers.put("player_osd_time", value);
+        putDisplayTime(value);
     }
 
     public static boolean isOsdProgress() {
-        return Prefers.getBoolean("player_osd_progress");
+        return isDisplayProgress();
     }
 
     public static void putOsdProgress(boolean value) {
-        Prefers.put("player_osd_progress", value);
+        putDisplayProgress(value);
     }
 
     public static boolean isOsdTraffic() {
-        return Prefers.getBoolean("player_osd_traffic");
+        return isDisplayTraffic();
     }
 
     public static void putOsdTraffic(boolean value) {
-        Prefers.put("player_osd_traffic", value);
+        putDisplayTraffic(value);
     }
 
     public static boolean isOsdMini() {
-        return Prefers.getBoolean("player_osd_mini");
+        return isDisplayMini();
     }
 
     public static void putOsdMini(boolean value) {
-        Prefers.put("player_osd_mini", value);
+        putDisplayMini(value);
+    }
+
+    public static boolean isOsdSize() {
+        return isDisplaySize();
+    }
+
+    public static void putOsdSize(boolean value) {
+        putDisplaySize(value);
     }
 
     public static boolean isOsdEnabled() {
-        return isOsdTitle() || isOsdTime() || isOsdProgress() || isOsdTraffic() || isOsdMini();
+        return isOsdTitle() || isOsdTime() || isOsdSize() || isOsdProgress() || isOsdTraffic() || isOsdMini();
+    }
+
+    private static boolean valueAt(boolean[] checked, int index, boolean fallback) {
+        return checked != null && checked.length > index ? checked[index] : fallback;
+    }
+
+    private static void migrateLegacyOsd() {
+        if (legacyOsdMigrated) return;
+        legacyOsdMigrated = true;
+        if (hasAny(KEY_DISPLAY_TIME, KEY_DISPLAY_TRAFFIC, KEY_DISPLAY_SIZE, KEY_DISPLAY_PROGRESS, KEY_DISPLAY_MINI, KEY_DISPLAY_TITLE)) return;
+        if (!hasAny(KEY_OSD_TITLE, KEY_OSD_TIME, KEY_OSD_PROGRESS, KEY_OSD_TRAFFIC, KEY_OSD_MINI)) return;
+        putDisplayTime(Prefers.getBoolean(KEY_OSD_TIME));
+        putDisplayTraffic(Prefers.getBoolean(KEY_OSD_TRAFFIC));
+        putDisplayProgress(Prefers.getBoolean(KEY_OSD_PROGRESS));
+        putDisplayMini(Prefers.getBoolean(KEY_OSD_MINI));
+        putDisplayTitle(Prefers.getBoolean(KEY_OSD_TITLE));
+    }
+
+    private static boolean hasAny(String... keys) {
+        for (String key : keys) if (Prefers.getPrefers().contains(key)) return true;
+        return false;
     }
 }

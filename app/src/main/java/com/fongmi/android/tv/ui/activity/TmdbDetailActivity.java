@@ -100,6 +100,7 @@ import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.helper.DetailThemeVisibility;
 import com.fongmi.android.tv.ui.helper.TmdbCinemaTheme;
 import com.fongmi.android.tv.ui.helper.TmdbDetailLabels;
+import com.fongmi.android.tv.ui.helper.TmdbEpisodeGridPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbRecommendationRows;
 import com.fongmi.android.tv.utils.BatteryUtil;
 import com.fongmi.android.tv.utils.Formatters;
@@ -540,6 +541,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         personalAiAdapter.setCinema(isCinemaMode());
         setDetailAdaptersLight(resolveLightTheme());
         updateEpisodeLayoutManager();
+        binding.episodeContainer.setItemAnimator(null);
+        binding.episodeContainer.setHasFixedSize(false);
         binding.episodeContainer.setNestedScrollingEnabled(false);
         binding.episodeContainer.setAdapter(episodeAdapter);
         binding.episodePhotoList.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
@@ -2449,8 +2452,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (episodeReverse) Collections.reverse(displayEpisodes);
         binding.episodeReverse.setText(episodeReverse ? R.string.detail_episode_forward : R.string.detail_episode_reverse);
         updateEpisodeViewModeButton();
+        int spanCount = episodeSpanCount();
         episodeAdapter.setMode(episodeGridMode ? TmdbEpisodeAdapter.Mode.GRID : TmdbEpisodeAdapter.Mode.LIST);
-        updateEpisodeLayoutManager();
+        episodeAdapter.setGridSpanCount(spanCount);
+        updateEpisodeLayoutManager(spanCount);
+        updateEpisodeViewport(displayEpisodes.size(), spanCount);
         episodeAdapter.setItems(displayEpisodes, tmdbEpisodes, episodeNumbers, selectedEpisode);
         updateEpisodeSkeleton();
         scrollEpisodeToSelected();
@@ -2504,16 +2510,42 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void updateEpisodeLayoutManager() {
+        updateEpisodeLayoutManager(episodeSpanCount());
+    }
+
+    private void updateEpisodeLayoutManager(int spanCount) {
         RecyclerView.LayoutManager current = binding.episodeContainer.getLayoutManager();
         if (episodeGridMode) {
-            if (current instanceof GridLayoutManager) return;
+            if (current instanceof GridLayoutManager grid && grid.getSpanCount() == spanCount) return;
             binding.episodeContainer.setPadding(0, 0, 0, 0);
-            binding.episodeContainer.setLayoutManager(new GridLayoutManager(this, episodeSpanCount()));
+            binding.episodeContainer.setLayoutManager(new GridLayoutManager(this, spanCount));
         } else {
             if (current instanceof LinearLayoutManager linear && linear.getOrientation() == LinearLayoutManager.HORIZONTAL) return;
             binding.episodeContainer.setPadding(0, 0, ResUtil.dp2px(8), 0);
             binding.episodeContainer.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         }
+    }
+
+    private void updateEpisodeViewport(int itemCount, int spanCount) {
+        TmdbEpisodeGridPolicy.Layout layout = TmdbEpisodeGridPolicy.layout(
+                episodeGridMode,
+                itemCount,
+                spanCount,
+                ResUtil.dp2px(TmdbEpisodeGridPolicy.GRID_CARD_HEIGHT_DP + TmdbEpisodeGridPolicy.GRID_CARD_BOTTOM_MARGIN_DP));
+        ViewGroup.LayoutParams params = binding.episodeContainer.getLayoutParams();
+        if (params.height != layout.heightPx()) {
+            params.height = layout.heightPx();
+            binding.episodeContainer.setLayoutParams(params);
+        }
+        binding.episodeContainer.setNestedScrollingEnabled(layout.nestedScrolling());
+    }
+
+    private void updateEpisodeLayoutForCurrentItems() {
+        if (episodeAdapter == null || binding == null) return;
+        int spanCount = episodeSpanCount();
+        episodeAdapter.setGridSpanCount(spanCount);
+        updateEpisodeLayoutManager(spanCount);
+        updateEpisodeViewport(episodeAdapter.getItemCount(), spanCount);
     }
 
     private int episodeSpanCount() {
@@ -5409,6 +5441,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     public void onConfigurationChanged(@NonNull Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         scheduleMobileInlineSideControlMarginUpdate();
+        if (!inlineFullscreen) updateEpisodeLayoutForCurrentItems();
     }
 
     @Override
@@ -5660,7 +5693,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void updateKeepState() {
-        String text = Keep.find(getHistoryKey()) == null ? getString(R.string.keep) : getString(R.string.keep_del);
+        boolean kept = Keep.find(getHistoryKey()) != null;
+        String text = getString(TmdbDetailLabels.keepLabel(kept));
+        binding.keep.setSelected(kept);
+        binding.keepTop.setSelected(kept);
+        binding.keepFusion.setSelected(kept);
         binding.keep.setText(text);
         binding.keepTop.setText(text);
         binding.keepFusion.setText(text);

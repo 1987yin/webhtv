@@ -7,6 +7,7 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.databinding.DialogInfoBinding;
+import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Util;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
@@ -50,6 +51,12 @@ public class InfoDialog extends BaseAlertDialog {
     @Override
     protected MaterialAlertDialogBuilder getBuilder() {
         return builder().setView(getBinding().getRoot());
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        setWidth(ResUtil.isLand(requireContext()) ? 0.62f : 0.92f);
     }
 
     @Override

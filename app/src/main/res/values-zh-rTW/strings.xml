@@ -28,7 +28,7 @@
 
     <!-- Keep -->
     <string name="keep">收藏</string>
-    <string name="keep_add">已加入收藏</string>
+    <string name="keep_add">已收藏</string>
     <string name="keep_del">已取消收藏</string>
 
     <!-- Play -->
@@ -807,7 +807,7 @@
     <string name="lut_imported">LUT 預設已導入</string>
     <string name="lut_directory_selected">LUT 目錄已選擇</string>
     <string name="lut_import_failed">LUT 導入失敗</string>
-    <string name="lut_favorited">已加入收藏</string>
+    <string name="lut_favorited">已收藏</string>
     <string name="lut_unfavorited">已取消收藏</string>
     <string name="lut_empty_presets">暫無 LUT 預設</string>
     <string name="lut_empty_favorites">暫無收藏 LUT</string>
@@ -994,11 +994,12 @@
     </string-array>
 
     <string-array name="select_player_osd">
-        <item>標題</item>
-        <item>時間</item>
-        <item>進度</item>
-        <item>網速</item>
-        <item>迷你</item>
+        <item>@string/display_time</item>
+        <item>@string/display_traffic</item>
+        <item>@string/display_size</item>
+        <item>@string/display_progress</item>
+        <item>@string/display_mini</item>
+        <item>@string/display_title</item>
     </string-array>
 
     <string-array name="select_track">

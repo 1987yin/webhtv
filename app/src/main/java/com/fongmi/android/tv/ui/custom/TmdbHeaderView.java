@@ -23,6 +23,7 @@ import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.ui.adapter.TmdbCastAdapter;
 import com.fongmi.android.tv.ui.helper.TmdbUIAdapter;
+import com.fongmi.android.tv.ui.helper.TmdbDetailLabels;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
 import com.fongmi.android.tv.ui.helper.TmdbCinemaTheme;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -176,7 +177,7 @@ public class TmdbHeaderView {
         MaterialButton keep = headerRoot.findViewById(R.id.tmdbKeep);
         if (keep == null) return;
         keep.setSelected(selected);
-        keep.setText(selected ? R.string.keep_add : R.string.keep);
+        keep.setText(TmdbDetailLabels.keepLabel(selected));
     }
 
     /**

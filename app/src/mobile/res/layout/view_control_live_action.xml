@@ -19,11 +19,6 @@
             android:text="@string/play_config" />
 
         <com.google.android.material.textview.MaterialTextView
-            android:id="@+id/source"
-            style="@style/Control"
-            android:text="@string/live_control_source" />
-
-        <com.google.android.material.textview.MaterialTextView
             android:id="@+id/home"
             style="@style/Control"
             tools:text="首頁" />

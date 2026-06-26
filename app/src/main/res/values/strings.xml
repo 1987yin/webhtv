@@ -1083,11 +1083,12 @@
     </string-array>
 
     <string-array name="select_player_osd">
-        <item>Title</item>
-        <item>Clock</item>
-        <item>Progress</item>
-        <item>Network speed</item>
-        <item>Mini</item>
+        <item>@string/display_time</item>
+        <item>@string/display_traffic</item>
+        <item>@string/display_size</item>
+        <item>@string/display_progress</item>
+        <item>@string/display_mini</item>
+        <item>@string/display_title</item>
     </string-array>
 
     <string-array name="select_track">

@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.ui.helper;
 
+import com.fongmi.android.tv.R;
+
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -23,5 +25,11 @@ public class TmdbDetailLabelsTest {
     public void headerSubtitle_usesOnlyReleaseDate() {
         assertEquals("2026-06-15", TmdbDetailLabels.headerSubtitle("2026-06-15"));
         assertEquals("", TmdbDetailLabels.headerSubtitle(null));
+    }
+
+    @Test
+    public void keepLabel_showsAddedWhenAlreadyKept() {
+        assertEquals(R.string.keep_add, TmdbDetailLabels.keepLabel(true));
+        assertEquals(R.string.keep, TmdbDetailLabels.keepLabel(false));
     }
 }

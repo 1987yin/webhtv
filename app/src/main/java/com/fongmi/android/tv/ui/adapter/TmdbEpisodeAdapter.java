@@ -14,8 +14,10 @@ import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.TmdbEpisode;
 import com.fongmi.android.tv.databinding.AdapterTmdbEpisodeBinding;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.ui.helper.TmdbEpisodeGridPolicy;
 import com.fongmi.android.tv.utils.EpisodeTitleFormatter;
 import com.fongmi.android.tv.utils.ImgUtil;
+import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Util;
 
 import java.util.ArrayList;
@@ -46,6 +48,7 @@ public class TmdbEpisodeAdapter extends RecyclerView.Adapter<TmdbEpisodeAdapter.
     private boolean light;
     private boolean compactPlain;
     private int activeStrokeColor = 0xFF2CC56F;
+    private int gridSpanCount = 2;
     private String fallbackStillUrl = "";
 
     public TmdbEpisodeAdapter(Listener listener) {
@@ -69,8 +72,15 @@ public class TmdbEpisodeAdapter extends RecyclerView.Adapter<TmdbEpisodeAdapter.
     }
 
     public void setSelected(Episode selected) {
+        int oldPosition = getPosition(this.selected);
+        int newPosition = getPosition(selected);
         this.selected = selected;
-        notifyDataSetChanged();
+        if (oldPosition == newPosition) {
+            if (newPosition >= 0) notifyItemChanged(newPosition);
+            return;
+        }
+        if (oldPosition >= 0) notifyItemChanged(oldPosition);
+        if (newPosition >= 0) notifyItemChanged(newPosition);
     }
 
     public void setLight(boolean light) {
@@ -84,13 +94,18 @@ public class TmdbEpisodeAdapter extends RecyclerView.Adapter<TmdbEpisodeAdapter.
     }
 
     public void setFallbackStillUrl(String fallbackStillUrl) {
-        this.fallbackStillUrl = TextUtils.isEmpty(fallbackStillUrl) ? "" : fallbackStillUrl;
-        notifyDataSetChanged();
+        String value = TextUtils.isEmpty(fallbackStillUrl) ? "" : fallbackStillUrl;
+        if (this.fallbackStillUrl.equals(value)) return;
+        this.fallbackStillUrl = value;
+        if (TmdbEpisodeGridPolicy.shouldUseFallbackImage(mode == Mode.GRID, items.size())) notifyDataSetChanged();
     }
 
     public void setMode(Mode mode) {
         this.mode = mode == null ? Mode.LIST : mode;
-        notifyDataSetChanged();
+    }
+
+    public void setGridSpanCount(int gridSpanCount) {
+        this.gridSpanCount = Math.max(1, gridSpanCount);
     }
 
     public int getPosition(Episode episode) {
@@ -109,20 +124,24 @@ public class TmdbEpisodeAdapter extends RecyclerView.Adapter<TmdbEpisodeAdapter.
         int episodeNumber = episodeNumber(episode, position);
         TmdbEpisode tmdbEpisode = tmdbItems.get(episodeNumber);
         String tmdbTitle = tmdbEpisode != null ? tmdbEpisode.getTitle() : "";
-        String title = getTitle(episode, episodeNumber, tmdbTitle);
+        String cleanTitle = getCleanTitle(episode, episodeNumber, tmdbTitle);
+        String title = titleWithFileSize(episode, cleanTitle);
+        String fileSize = episodeFileSize(episode);
         String date = tmdbEpisode != null ? tmdbEpisode.getDate() : "";
         String overview = tmdbEpisode != null ? tmdbEpisode.getOverview() : episode.getDesc();
         boolean activated = episode.equals(selected);
         boolean compact = compactPlain && tmdbEpisode == null && TextUtils.isEmpty(overview);
         String stillUrl = tmdbEpisode != null ? tmdbEpisode.getStillUrl() : "";
-        String imageUrl = !TextUtils.isEmpty(stillUrl) ? stillUrl : (mode == Mode.GRID ? fallbackStillUrl : "");
+        boolean allowFallback = TmdbEpisodeGridPolicy.shouldUseFallbackImage(mode == Mode.GRID, items.size());
+        String imageUrl = !TextUtils.isEmpty(stillUrl) ? stillUrl : (mode == Mode.GRID && allowFallback ? fallbackStillUrl : "");
         boolean hasImage = !TextUtils.isEmpty(imageUrl);
         boolean showVisual = hasImage || !compact;
 
         applyCardSize(holder, compact);
         if (mode == Mode.GRID) {
-            holder.binding.index.setText(title);
+            holder.binding.index.setText(cleanTitle);
             holder.binding.index.setTextSize(14f);
+            bindFileSize(holder, fileSize, !TextUtils.isEmpty(date));
             holder.binding.title.setVisibility(View.GONE);
             holder.binding.date.setText(date);
             holder.binding.date.setVisibility(TextUtils.isEmpty(date) ? View.GONE : View.VISIBLE);
@@ -130,12 +149,15 @@ public class TmdbEpisodeAdapter extends RecyclerView.Adapter<TmdbEpisodeAdapter.
         } else if (compact) {
             holder.binding.index.setText(title);
             holder.binding.index.setTextSize(14f);
+            holder.binding.fileSize.setVisibility(View.GONE);
             holder.binding.title.setVisibility(View.GONE);
             holder.binding.date.setVisibility(View.GONE);
             holder.binding.overview.setVisibility(View.GONE);
         } else {
-            holder.binding.index.setText(title);
+            holder.binding.index.setText(isPhoneWidth(holder.itemView) ? cleanTitle : title);
             holder.binding.index.setTextSize(12f);
+            if (isPhoneWidth(holder.itemView)) bindFileSize(holder, fileSize, !TextUtils.isEmpty(date));
+            else holder.binding.fileSize.setVisibility(View.GONE);
             holder.binding.title.setVisibility(View.GONE);
             holder.binding.date.setText(date);
             holder.binding.date.setVisibility(TextUtils.isEmpty(date) ? View.GONE : View.VISIBLE);
@@ -150,6 +172,7 @@ public class TmdbEpisodeAdapter extends RecyclerView.Adapter<TmdbEpisodeAdapter.
         holder.binding.badge.setVisibility(TextUtils.isEmpty(holder.binding.badge.getText()) ? View.GONE : View.VISIBLE);
         applyBadgeStyle(holder.binding.date, showVisual);
         applyBadgeStyle(holder.binding.badge, showVisual);
+        applyBadgeStyle(holder.binding.fileSize, showVisual);
         TmdbCardFocusHelper.bind(
                 holder.binding.getRoot(),
                 activated ? (light ? 0xFFE5F7EC : 0x6630A86B) : (light ? 0xEEFFFFFF : 0xCC16202A),
@@ -157,9 +180,10 @@ public class TmdbEpisodeAdapter extends RecyclerView.Adapter<TmdbEpisodeAdapter.
                 activated ? 2 : 1);
         if (showVisual) {
             holder.binding.stillFrame.setVisibility(View.VISIBLE);
-            ImgUtil.load(title, imageUrl, holder.binding.still);
+            ImgUtil.load(title, imageUrl, holder.binding.still, true, imageWidth(holder), imageHeight(holder));
         } else {
             holder.binding.stillFrame.setVisibility(View.GONE);
+            ImgUtil.clear(holder.binding.still);
         }
         holder.binding.scrim.setVisibility(showVisual ? View.VISIBLE : View.GONE);
         holder.binding.getRoot().setOnClickListener(view -> listener.onItemClick(episode));
@@ -192,6 +216,32 @@ public class TmdbEpisodeAdapter extends RecyclerView.Adapter<TmdbEpisodeAdapter.
         return Math.max(dp(view, 168), Math.min(dp(view, 230), (screen - dp(view, 56)) / 2));
     }
 
+    private int imageWidth(ViewHolder holder) {
+        int width = holder.binding.still.getWidth();
+        if (width > 0) return width;
+        width = holder.binding.getRoot().getWidth();
+        if (width > 0) return width;
+        ViewGroup.LayoutParams params = holder.binding.getRoot().getLayoutParams();
+        if (params != null && params.width > 0) return params.width;
+        if (mode == Mode.GRID) {
+            int screen = holder.itemView.getResources().getDisplayMetrics().widthPixels;
+            int sidePadding = dp(holder.itemView, Util.isMobile() ? 32 : 48);
+            int spacing = dp(holder.itemView, Math.max(0, gridSpanCount - 1) * 8);
+            return Math.max(dp(holder.itemView, 160), (screen - sidePadding - spacing) / Math.max(1, gridSpanCount));
+        }
+        return listCardWidth(holder.itemView);
+    }
+
+    private int imageHeight(ViewHolder holder) {
+        int height = holder.binding.still.getHeight();
+        if (height > 0) return height;
+        height = holder.binding.getRoot().getHeight();
+        if (height > 0) return height;
+        ViewGroup.LayoutParams params = holder.binding.getRoot().getLayoutParams();
+        if (params != null && params.height > 0) return params.height;
+        return ResUtil.dp2px(mode == Mode.GRID ? TmdbEpisodeGridPolicy.GRID_CARD_HEIGHT_DP : (isPhoneWidth(holder.itemView) ? 172 : 190));
+    }
+
     private boolean isPhoneWidth(View view) {
         return view.getResources().getConfiguration().smallestScreenWidthDp < 600;
     }
@@ -206,16 +256,39 @@ public class TmdbEpisodeAdapter extends RecyclerView.Adapter<TmdbEpisodeAdapter.
     }
 
     public static String getTitle(Episode episode, int number, String tmdbTitle) {
+        return titleWithFileSize(episode, getCleanTitle(episode, number, tmdbTitle));
+    }
+
+    public static String getCleanTitle(Episode episode, int number, String tmdbTitle) {
         String label = number > 0 ? String.valueOf(number) : episode.getName();
-        return formatTitle(label, episode.getName(), tmdbTitle);
+        return formatCleanTitle(label, episode.getName(), tmdbTitle);
     }
 
     public static String formatTitle(String label, String sourceName, String tmdbTitle) {
-        String title = label;
-        if (!TextUtils.isEmpty(tmdbTitle) && !TextUtils.equals(label, tmdbTitle) && !TextUtils.equals(sourceName, tmdbTitle)) {
-            title = label + ". " + tmdbTitle;
+        return EpisodeTitleFormatter.withSourceFileSize(sourceName, formatCleanTitle(label, sourceName, tmdbTitle), Setting.isTmdbEpisodeFileSize());
+    }
+
+    public static String formatCleanTitle(String label, String sourceName, String tmdbTitle) {
+        return EpisodeTitleFormatter.formatTmdbTitle(label, sourceName, tmdbTitle);
+    }
+
+    private static String titleWithFileSize(Episode episode, String title) {
+        return EpisodeTitleFormatter.withSourceFileSize(episode.getName(), title, Setting.isTmdbEpisodeFileSize());
+    }
+
+    private String episodeFileSize(Episode episode) {
+        if (!Setting.isTmdbEpisodeFileSize()) return "";
+        return EpisodeTitleFormatter.extractFileSize(episode.getName());
+    }
+
+    private void bindFileSize(ViewHolder holder, String fileSize, boolean belowDate) {
+        holder.binding.fileSize.setText(fileSize);
+        holder.binding.fileSize.setVisibility(TextUtils.isEmpty(fileSize) ? View.GONE : View.VISIBLE);
+        ViewGroup.LayoutParams params = holder.binding.fileSize.getLayoutParams();
+        if (params instanceof ViewGroup.MarginLayoutParams marginParams) {
+            marginParams.topMargin = dp(holder.itemView, belowDate ? 36 : 8);
+            holder.binding.fileSize.setLayoutParams(marginParams);
         }
-        return EpisodeTitleFormatter.withSourceFileSize(sourceName, title, Setting.isTmdbEpisodeFileSize());
     }
 
     private int episodeNumber(Episode episode, int position) {
@@ -249,6 +322,12 @@ public class TmdbEpisodeAdapter extends RecyclerView.Adapter<TmdbEpisodeAdapter.
     @Override
     public int getItemCount() {
         return items.size();
+    }
+
+    @Override
+    public void onViewRecycled(@NonNull ViewHolder holder) {
+        ImgUtil.clear(holder.binding.still);
+        super.onViewRecycled(holder);
     }
 
     static class ViewHolder extends RecyclerView.ViewHolder {
