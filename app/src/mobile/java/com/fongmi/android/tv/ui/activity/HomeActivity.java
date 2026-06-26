@@ -59,12 +59,14 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
 
     public static final String EXTRA_NAV_POSITION = "nav_position";
     private static final String STATE_RETURN_VOD_FROM_ENHANCE = "returnVodFromEnhance";
+    private static final String STATE_CURRENT_POSITION = "currentPosition";
 
     private FragmentStateManager mManager;
     private ActivityHomeBinding mBinding;
     private WebHomeChromeController mChrome;
     private Config mStartupConfig;
     private int orientation;
+    private int currentPosition;
     private boolean returnVodFromEnhance;
 
     @Override
@@ -88,6 +90,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     protected void initView(Bundle savedInstanceState) {
         orientation = getResources().getConfiguration().orientation;
         returnVodFromEnhance = savedInstanceState != null && savedInstanceState.getBoolean(STATE_RETURN_VOD_FROM_ENHANCE);
+        currentPosition = savedInstanceState == null ? 0 : savedInstanceState.getInt(STATE_CURRENT_POSITION, 0);
         mStartupConfig = Config.vod();
         mChrome = new WebHomeChromeController(this, mBinding, this, savedInstanceState, WebHomeChromeStartup.restore(mStartupConfig));
         mBinding.navigation.setOnItemSelectedListener(this);
@@ -99,6 +102,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     @Override
     protected void onSaveInstanceState(@NonNull Bundle outState) {
         outState.putBoolean(STATE_RETURN_VOD_FROM_ENHANCE, returnVodFromEnhance);
+        outState.putInt(STATE_CURRENT_POSITION, currentPosition);
         if (mChrome != null) mChrome.save(outState);
         super.onSaveInstanceState(outState);
     }
@@ -140,6 +144,13 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
             default -> null;
         });
         if (savedInstanceState == null) change(0);
+        else restorePosition(currentPosition);
+    }
+
+    private void restorePosition(int position) {
+        setNavigation();
+        syncNavigationSelection();
+        changeFragment(position <= 0 ? 0 : position);
     }
 
     private void initConfig() {
@@ -178,6 +189,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         mBinding.navigation.getMenu().findItem(R.id.vod).setVisible(true);
         mBinding.navigation.getMenu().findItem(R.id.setting).setVisible(true);
         mBinding.navigation.getMenu().findItem(R.id.live).setVisible(LiveConfig.hasUrl());
+        syncNavigationSelection();
     }
 
     private boolean openLive() {
@@ -254,8 +266,17 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         else mBinding.navigation.setSelectedItemId(itemId);
     }
 
+    private void syncNavigationSelection() {
+        int itemId = currentPosition == 0 ? R.id.vod : R.id.setting;
+        if (mBinding.navigation.getSelectedItemId() == itemId) return;
+        mBinding.navigation.setOnItemSelectedListener(null);
+        mBinding.navigation.setSelectedItemId(itemId);
+        mBinding.navigation.setOnItemSelectedListener(this);
+    }
+
     private boolean changeFragment(int position) {
         boolean changed = mManager.change(position);
+        if (changed) currentPosition = position;
         refreshWebHomeChromeLayout();
         return changed;
     }
