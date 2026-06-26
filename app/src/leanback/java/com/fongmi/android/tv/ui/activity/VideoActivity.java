@@ -1058,8 +1058,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private boolean focusLutQuickContent() {
         if (!isVisible(mBinding.lutQuick)) return false;
         View focus = getCurrentFocus();
-        if (focus != null && isChildOf(mBinding.lutQuick, focus)) return true;
         RecyclerView recycler = findRecyclerView(mBinding.lutQuick);
+        if (focus != null && isChildOf(mBinding.lutQuick, focus) && focus != recycler) return true;
         if (focusRecyclerItem(recycler)) return true;
         return focusFirstChild(mBinding.lutQuick);
     }
@@ -1075,28 +1075,47 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private boolean focusRecyclerItem(RecyclerView recycler) {
+        return focusRecyclerPosition(recycler, 0);
+    }
+
+    private boolean focusRecyclerPosition(RecyclerView recycler, int position) {
         if (recycler == null || recycler.getVisibility() != View.VISIBLE || !recycler.isEnabled()) return false;
         RecyclerView.Adapter<?> adapter = recycler.getAdapter();
-        if (adapter == null || adapter.getItemCount() <= 0) return recycler.requestFocus();
-        recycler.scrollToPosition(0);
-        RecyclerView.ViewHolder holder = recycler.findViewHolderForAdapterPosition(0);
+        if (adapter == null || adapter.getItemCount() <= 0) return false;
+        if (position < 0 || position >= adapter.getItemCount()) return false;
+        recycler.scrollToPosition(position);
+        RecyclerView.ViewHolder holder = recycler.findViewHolderForAdapterPosition(position);
         if (holder != null && focusFirstChild(holder.itemView)) return true;
-        if (recycler.getChildCount() > 0 && focusFirstChild(recycler.getChildAt(0))) return true;
+        for (int i = 0; i < recycler.getChildCount(); i++) {
+            View child = recycler.getChildAt(i);
+            if (recycler.getChildAdapterPosition(child) == position && focusFirstChild(child)) return true;
+        }
         recycler.post(() -> {
-            RecyclerView.ViewHolder next = recycler.findViewHolderForAdapterPosition(0);
-            if (next != null) focusFirstChild(next.itemView);
-            else if (recycler.getChildCount() > 0) focusFirstChild(recycler.getChildAt(0));
+            RecyclerView.ViewHolder next = recycler.findViewHolderForAdapterPosition(position);
+            if (next != null) {
+                focusFirstChild(next.itemView);
+                return;
+            }
+            for (int i = 0; i < recycler.getChildCount(); i++) {
+                View child = recycler.getChildAt(i);
+                if (recycler.getChildAdapterPosition(child) == position) {
+                    focusFirstChild(child);
+                    return;
+                }
+            }
         });
-        return recycler.requestFocus();
+        return true;
     }
 
     private boolean focusFirstChild(View view) {
         if (view == null || view.getVisibility() != View.VISIBLE || !view.isEnabled()) return false;
-        if (view.isFocusable() && view.requestFocus()) return true;
-        if (!(view instanceof ViewGroup group)) return false;
-        for (int i = 0; i < group.getChildCount(); i++) {
-            if (focusFirstChild(group.getChildAt(i))) return true;
+        if (view instanceof RecyclerView recycler) return focusRecyclerItem(recycler);
+        if (view instanceof ViewGroup group) {
+            for (int i = 0; i < group.getChildCount(); i++) {
+                if (focusFirstChild(group.getChildAt(i))) return true;
+            }
         }
+        if (view.isFocusable() && view.requestFocus()) return true;
         return false;
     }
 
@@ -1955,12 +1974,96 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private boolean dispatchLutQuickKey(KeyEvent event) {
+        if (KeyUtil.isEnterKey(event)) return dispatchLutQuickEnter(event);
+        if (isLutQuickDirectionKey(event)) return dispatchLutQuickDirection(event);
         if (KeyUtil.isActionDown(event)) focusLutQuickContent();
         boolean handled = super.dispatchKeyEvent(event);
         if (KeyUtil.isActionDown(event)) {
             View focus = getCurrentFocus();
             if (focus == null || !isChildOf(mBinding.lutQuick, focus)) focusLutQuickContent();
         }
+        return true;
+    }
+
+    private boolean isLutQuickDirectionKey(KeyEvent event) {
+        return KeyUtil.isUpKey(event) || KeyUtil.isDownKey(event) || KeyUtil.isLeftKey(event) || KeyUtil.isRightKey(event);
+    }
+
+    private boolean dispatchLutQuickDirection(KeyEvent event) {
+        if (!KeyUtil.isActionDown(event)) return true;
+        RecyclerView recycler = findRecyclerView(mBinding.lutQuick);
+        View focus = getCurrentFocus();
+        if (recycler != null && (focus == recycler || isChildOf(recycler, focus)) && moveLutQuickRecycler(recycler, event)) return true;
+        if (focus == null || !isChildOf(mBinding.lutQuick, focus) || focus == recycler) {
+            focusLutQuickContent();
+            focus = getCurrentFocus();
+        }
+        if (focus != null && isChildOf(mBinding.lutQuick, focus) && moveLutQuickFocus(focus, event)) return true;
+        if (recycler != null && KeyUtil.isDownKey(event) && focusRecyclerItem(recycler)) return true;
+        focusLutQuickContent();
+        return true;
+    }
+
+    private boolean moveLutQuickRecycler(RecyclerView recycler, KeyEvent event) {
+        if (!KeyUtil.isUpKey(event) && !KeyUtil.isDownKey(event)) return false;
+        RecyclerView.Adapter<?> adapter = recycler.getAdapter();
+        if (adapter == null || adapter.getItemCount() <= 0) return false;
+        int current = getRecyclerFocusPosition(recycler);
+        if (current == RecyclerView.NO_POSITION) return focusRecyclerItem(recycler);
+        int next = current + (KeyUtil.isDownKey(event) ? 1 : -1);
+        if (next < 0 || next >= adapter.getItemCount()) return false;
+        return focusRecyclerPosition(recycler, next);
+    }
+
+    private int getRecyclerFocusPosition(RecyclerView recycler) {
+        View child = getRecyclerDirectChild(recycler, getCurrentFocus());
+        return child == null ? RecyclerView.NO_POSITION : recycler.getChildAdapterPosition(child);
+    }
+
+    private View getRecyclerDirectChild(RecyclerView recycler, View focus) {
+        for (View view = focus; view != null && view != recycler; ) {
+            if (view.getParent() == recycler) return view;
+            if (!(view.getParent() instanceof View next)) return null;
+            view = next;
+        }
+        return null;
+    }
+
+    private boolean moveLutQuickFocus(View focus, KeyEvent event) {
+        List<View> focusables = new ArrayList<>();
+        collectLutQuickFocusables(mBinding.lutQuick, focusables);
+        int index = focusables.indexOf(focus);
+        if (index == -1) return false;
+        int next = index + (KeyUtil.isUpKey(event) || KeyUtil.isLeftKey(event) ? -1 : 1);
+        if (next < 0 || next >= focusables.size()) return false;
+        return focusables.get(next).requestFocus();
+    }
+
+    private void collectLutQuickFocusables(View view, List<View> focusables) {
+        if (view == null || view.getVisibility() != View.VISIBLE || !view.isEnabled()) return;
+        if (view instanceof RecyclerView recycler) {
+            for (int i = 0; i < recycler.getChildCount(); i++) collectLutQuickFocusables(recycler.getChildAt(i), focusables);
+            return;
+        }
+        if (view instanceof ViewGroup group) {
+            for (int i = 0; i < group.getChildCount(); i++) collectLutQuickFocusables(group.getChildAt(i), focusables);
+            return;
+        }
+        if (view.isFocusable()) focusables.add(view);
+    }
+
+    private boolean dispatchLutQuickEnter(KeyEvent event) {
+        if (KeyUtil.isActionDown(event)) {
+            focusLutQuickContent();
+            return true;
+        }
+        if (!KeyUtil.isActionUp(event)) return true;
+        View focus = getCurrentFocus();
+        if (focus == null || !isChildOf(mBinding.lutQuick, focus) || focus instanceof RecyclerView) {
+            if (!focusLutQuickContent()) return true;
+            focus = getCurrentFocus();
+        }
+        if (focus != null && isChildOf(mBinding.lutQuick, focus) && focus.isEnabled()) focus.performClick();
         return true;
     }
 
