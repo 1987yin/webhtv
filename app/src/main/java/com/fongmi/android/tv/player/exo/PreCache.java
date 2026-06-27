@@ -11,7 +11,6 @@ import androidx.media3.datasource.DataSource;
 import androidx.media3.exoplayer.source.preload.PreCacheHelper;
 
 import com.fongmi.android.tv.setting.PreloadSetting;
-import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -45,10 +44,6 @@ public class PreCache implements Player.Listener {
         this.player = player;
         this.handler = new Handler(player.getApplicationLooper());
         this.helper = createHelper(mediaItem);
-        if (helper == null) {
-            stop();
-            return;
-        }
         this.player.addListener(this);
         clearSeek();
         lastStartMs = C.TIME_UNSET;
@@ -111,7 +106,6 @@ public class PreCache implements Player.Listener {
             return true;
         }
         if (!shouldPreCache(startMs)) return true;
-        SpiderDebug.log("exo-precache", "precache start=%d length=%d", startMs, lengthMs);
         helper.preCache(startMs, lengthMs);
         lastStartMs = startMs;
         clearSeek();
@@ -127,7 +121,6 @@ public class PreCache implements Player.Listener {
     }
 
     private PreCacheHelper createHelper(MediaItem mediaItem) {
-        if (MediaSourceFactory.getCache() == null) return null;
         DataSource.Factory upstreamFactory = MediaSourceFactory.createUpstreamDataSourceFactory(ExoUtil.extractHeaders(mediaItem));
         return new PreCacheHelper.Factory(MediaSourceFactory.getCache(), upstreamFactory, ExoUtil.buildRenderersFactory(), getWorker().getLooper()).setDownloadExecutor(getExecutor()).create(mediaItem);
     }
@@ -161,7 +154,7 @@ public class PreCache implements Player.Listener {
     }
 
     private long getStep() {
-        return Math.min(Math.max(PreloadSetting.getPreloadDurationMs() / STEP_DIV, MIN_STEP_MS), MAX_STEP_MS);
+        return Math.clamp(PreloadSetting.getPreloadDurationMs() / STEP_DIV, MIN_STEP_MS, MAX_STEP_MS);
     }
 
     private void markSeek(long startMs) {

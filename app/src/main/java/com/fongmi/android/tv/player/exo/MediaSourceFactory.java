@@ -9,6 +9,7 @@ import androidx.media3.database.StandaloneDatabaseProvider;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.HttpDataSource;
+import androidx.media3.datasource.cache.Cache;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor;
 import androidx.media3.datasource.cache.SimpleCache;
@@ -23,7 +24,6 @@ import androidx.media3.extractor.ExtractorsFactory;
 import androidx.media3.extractor.ts.TsExtractor;
 
 import com.fongmi.android.tv.App;
-import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.PreloadSetting;
 import com.fongmi.android.tv.utils.FileUtil;
 import com.fongmi.android.tv.utils.UrlUtil;
@@ -42,8 +42,7 @@ public class MediaSourceFactory implements MediaSource.Factory {
     private static final String CONCAT_DURATION_SEPARATOR_REGEX = "\\|\\|\\|";
 
     private static StandaloneDatabaseProvider databaseProvider;
-    private static SimpleCache cache;
-    private static long cacheSize;
+    private static Cache cache;
 
     private final DefaultMediaSourceFactory defaultMediaSourceFactory;
     private HttpDataSource.Factory httpDataSourceFactory;
@@ -60,23 +59,10 @@ public class MediaSourceFactory implements MediaSource.Factory {
         return new DefaultDataSource.Factory(App.get(), factory);
     }
 
-    static synchronized SimpleCache getCache() {
-        long size = getMaxCacheSize(Path.exo());
-        if (size <= 0) {
-            releaseCache();
-            return null;
-        }
-        if (cache != null && cacheSize != size) releaseCache();
-        if (cache == null) {
-            try {
-                cache = new SimpleCache(Path.exo(), new LeastRecentlyUsedCacheEvictor(size), getDatabaseProvider());
-                cacheSize = size;
-            } catch (Throwable ignored) {
-                cache = null;
-                cacheSize = 0;
-            }
-        }
-        return cache;
+    static synchronized Cache getCache() {
+        if (cache != null) return cache;
+        File dir = Path.exoCache();
+        return cache = new SimpleCache(dir, new LeastRecentlyUsedCacheEvictor(getMaxCacheSize(dir)), getDatabaseProvider());
     }
 
     private static StandaloneDatabaseProvider getDatabaseProvider() {
@@ -85,19 +71,10 @@ public class MediaSourceFactory implements MediaSource.Factory {
     }
 
     private static long getMaxCacheSize(File dir) {
-        long size = Math.max(PlayerSetting.getPlayCacheSize(), PreloadSetting.isPreload() ? PreloadSetting.getPreloadSizeBytes() : 0);
-        if (size <= 0) return 0;
         long usedBytes = FileUtil.getDirectorySize(dir);
         long availableBytes = Math.max(0, FileUtil.getAvailableStorageSpace(dir));
         long storageBudget = (usedBytes + availableBytes) * CACHE_SPACE_PERCENT / 100;
-        return Math.min(size, storageBudget);
-    }
-
-    private static void releaseCache() {
-        if (cache == null) return;
-        cache.release();
-        cache = null;
-        cacheSize = 0;
+        return Math.min(PreloadSetting.getPreloadSizeBytes(), storageBudget);
     }
 
     static boolean isConcatenatingUrl(String url) {
@@ -146,10 +123,7 @@ public class MediaSourceFactory implements MediaSource.Factory {
     }
 
     private DataSource.Factory getDataSourceFactory() {
-        if (dataSourceFactory == null) {
-            DataSource.Factory upstreamFactory = new DefaultDataSource.Factory(App.get(), getHttpDataSourceFactory());
-            dataSourceFactory = getCache() == null ? upstreamFactory : getCacheDataSource(upstreamFactory);
-        }
+        if (dataSourceFactory == null) dataSourceFactory = getCacheDataSource(new DefaultDataSource.Factory(App.get(), getHttpDataSourceFactory()));
         return dataSourceFactory;
     }
 
