@@ -1,16 +1,26 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import android.app.Dialog;
 import android.content.DialogInterface;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
-import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.databinding.DialogQuickSearchBinding;
 import com.fongmi.android.tv.ui.adapter.QuickAdapter;
 import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
+import com.fongmi.android.tv.utils.ResUtil;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.ArrayList;
@@ -23,6 +33,7 @@ public class QuickSearchDialog extends BaseAlertDialog implements QuickAdapter.O
     private QuickAdapter.OnClickListener listener;
     private DialogInterface.OnDismissListener dismissListener;
     private QuickAdapter adapter;
+    private int panelWidth;
 
     public QuickSearchDialog() {
         pending = new ArrayList<>();
@@ -63,15 +74,17 @@ public class QuickSearchDialog extends BaseAlertDialog implements QuickAdapter.O
 
     @Override
     protected MaterialAlertDialogBuilder getBuilder() {
-        return builder().setTitle(R.string.play_search).setView(getBinding().getRoot());
+        return builder().setView(getBinding().getRoot());
     }
 
     @Override
     protected void initView() {
+        panelWidth = Math.round(ResUtil.getScreenWidth() * 0.42f);
         binding.recycler.setHasFixedSize(true);
         binding.recycler.setItemAnimator(null);
-        binding.recycler.addItemDecoration(new SpaceItemDecoration(2, 8));
+        binding.recycler.addItemDecoration(new SpaceItemDecoration(1, 8));
         binding.recycler.setAdapter(adapter = new QuickAdapter(this));
+        adapter.setWidth(panelWidth - ResUtil.dp2px(32));
         adapter.setNextFocus(0, 0);
         if (!pending.isEmpty()) {
             adapter.addAll(pending);
@@ -101,9 +114,43 @@ public class QuickSearchDialog extends BaseAlertDialog implements QuickAdapter.O
         if (dismissListener != null) dismissListener.onDismiss(dialog);
     }
 
+    @NonNull
+    @Override
+    public Dialog onCreateDialog(@Nullable android.os.Bundle savedInstanceState) {
+        Dialog dialog = super.onCreateDialog(savedInstanceState);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setWindowAnimations(0);
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            window.setDimAmount(0f);
+        }
+        return dialog;
+    }
+
     @Override
     public void onStart() {
         super.onStart();
-        setWidth(0.72f);
+        Window window = getDialog() == null ? null : getDialog().getWindow();
+        if (window == null) return;
+        window.getDecorView().setPadding(0, 0, 0, 0);
+        clearParentPadding();
+        window.setGravity(Gravity.BOTTOM | Gravity.END);
+        WindowManager.LayoutParams params = window.getAttributes();
+        params.width = panelWidth;
+        params.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        params.gravity = Gravity.BOTTOM | Gravity.END;
+        params.x = 0;
+        params.y = 0;
+        window.setAttributes(params);
+        window.setLayout(panelWidth, WindowManager.LayoutParams.WRAP_CONTENT);
+    }
+
+    private void clearParentPadding() {
+        View view = binding.getRoot();
+        while (view.getParent() instanceof View parent) {
+            if (parent instanceof ViewGroup group) group.setPadding(0, 0, 0, 0);
+            view = parent;
+        }
     }
 }

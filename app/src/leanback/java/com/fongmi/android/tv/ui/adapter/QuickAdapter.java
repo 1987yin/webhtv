@@ -19,7 +19,7 @@ public class QuickAdapter extends RecyclerView.Adapter<QuickAdapter.ViewHolder> 
 
     private final OnClickListener mListener;
     private final List<Vod> mItems;
-    private final int width;
+    private int width;
     private int nextFocusUp;
     private int nextFocusDown;
 
@@ -50,6 +50,12 @@ public class QuickAdapter extends RecyclerView.Adapter<QuickAdapter.ViewHolder> 
         if (this.nextFocusUp == nextFocusUp && this.nextFocusDown == nextFocusDown) return;
         this.nextFocusUp = nextFocusUp;
         this.nextFocusDown = nextFocusDown;
+        notifyDataSetChanged();
+    }
+
+    public void setWidth(int width) {
+        if (this.width == width) return;
+        this.width = width;
         notifyDataSetChanged();
     }
 
