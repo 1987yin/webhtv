@@ -951,7 +951,9 @@
     <string-array name="select_ui_scale">
         <item>跟随系统</item>
         <item>标准</item>
+        <item>较紧凑</item>
         <item>紧凑</item>
+        <item>更紧凑</item>
         <item>更小</item>
     </string-array>
 
