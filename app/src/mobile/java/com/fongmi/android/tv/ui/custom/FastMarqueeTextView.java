@@ -2,19 +2,23 @@ package com.fongmi.android.tv.ui.custom;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.text.TextUtils;
 import android.util.AttributeSet;
+import android.view.animation.LinearInterpolator;
 
 import com.google.android.material.textview.MaterialTextView;
 
 public class FastMarqueeTextView extends MaterialTextView {
 
-    private static final float SPEED_DP_PER_SECOND = 96f;
+    private static final float SPEED_DP_PER_SECOND = 120f;
     private static final long START_DELAY_MS = 150;
     private static final long END_HOLD_MS = 450;
 
     private ValueAnimator animator;
     private boolean marquee;
+    private float marqueeOffset;
 
     public FastMarqueeTextView(Context context) {
         super(context);
@@ -59,34 +63,71 @@ public class FastMarqueeTextView extends MaterialTextView {
     private void startFastMarquee() {
         cancelAnimator();
         if (!marquee || getWidth() <= 0 || TextUtils.isEmpty(getText())) {
-            scrollTo(0, 0);
+            marqueeOffset = 0;
+            invalidate();
             return;
         }
         int available = getWidth() - getCompoundPaddingLeft() - getCompoundPaddingRight();
-        int overflow = Math.max(0, Math.round(getPaint().measureText(getText().toString()) - available));
+        float overflow = Math.max(0, getPaint().measureText(getText().toString()) - available);
         if (overflow <= 0) {
-            scrollTo(0, 0);
+            marqueeOffset = 0;
+            invalidate();
             return;
         }
-        int holdDistance = Math.max(1, Math.round(getResources().getDisplayMetrics().density * SPEED_DP_PER_SECOND * END_HOLD_MS / 1000f));
-        long duration = Math.max(700, Math.round((overflow + holdDistance) * 1000f / (getResources().getDisplayMetrics().density * SPEED_DP_PER_SECOND)));
-        animator = ValueAnimator.ofInt(0, overflow + holdDistance);
+        float speedPxPerSecond = getResources().getDisplayMetrics().density * SPEED_DP_PER_SECOND;
+        float holdDistance = Math.max(1, speedPxPerSecond * END_HOLD_MS / 1000f);
+        long duration = Math.max(700, Math.round((overflow + holdDistance) * 1000f / speedPxPerSecond));
+        animator = ValueAnimator.ofFloat(0, overflow + holdDistance);
         animator.setStartDelay(START_DELAY_MS);
         animator.setDuration(duration);
+        animator.setInterpolator(new LinearInterpolator());
         animator.setRepeatCount(ValueAnimator.INFINITE);
         animator.setRepeatMode(ValueAnimator.RESTART);
-        animator.addUpdateListener(animation -> scrollTo(Math.min((int) animation.getAnimatedValue(), overflow), 0));
+        animator.addUpdateListener(animation -> {
+            marqueeOffset = Math.min((float) animation.getAnimatedValue(), overflow);
+            invalidate();
+        });
         animator.start();
     }
 
     private void stopFastMarquee() {
         cancelAnimator();
-        scrollTo(0, 0);
+        marqueeOffset = 0;
+        invalidate();
     }
 
     private void cancelAnimator() {
         if (animator == null) return;
         animator.cancel();
         animator = null;
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        if (!marquee || TextUtils.isEmpty(getText())) {
+            super.onDraw(canvas);
+            return;
+        }
+        String text = getText().toString();
+        Paint paint = getPaint();
+        int available = getWidth() - getCompoundPaddingLeft() - getCompoundPaddingRight();
+        float textWidth = paint.measureText(text);
+        if (available <= 0 || textWidth <= available) {
+            super.onDraw(canvas);
+            return;
+        }
+        int color = paint.getColor();
+        Paint.Align align = paint.getTextAlign();
+        paint.setColor(getCurrentTextColor());
+        paint.setTextAlign(Paint.Align.LEFT);
+        Paint.FontMetrics metrics = paint.getFontMetrics();
+        float centerY = getCompoundPaddingTop() + (getHeight() - getCompoundPaddingTop() - getCompoundPaddingBottom()) / 2f;
+        float baseline = centerY - (metrics.ascent + metrics.descent) / 2f;
+        canvas.save();
+        canvas.clipRect(getCompoundPaddingLeft(), getCompoundPaddingTop(), getWidth() - getCompoundPaddingRight(), getHeight() - getCompoundPaddingBottom());
+        canvas.drawText(text, getCompoundPaddingLeft() - marqueeOffset, baseline, paint);
+        canvas.restore();
+        paint.setColor(color);
+        paint.setTextAlign(align);
     }
 }

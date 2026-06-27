@@ -25,9 +25,11 @@ public class Setting {
 
     public static final int UI_SCALE_FOLLOW_SYSTEM = 0;
     public static final int UI_SCALE_STANDARD = 1;
-    public static final int UI_SCALE_COMFORTABLE = 2;
-    public static final int UI_SCALE_COMPACT = 3;
-    public static final int UI_SCALE_SMALLER = 4;
+    public static final int UI_SCALE_COMPACT = 2;
+    public static final int UI_SCALE_SMALLER = 3;
+    public static final int UI_SCALE_MILD_COMPACT = 4;
+    public static final int UI_SCALE_MORE_COMPACT = 5;
+    private static final int[] UI_SCALE_OPTIONS = {UI_SCALE_FOLLOW_SYSTEM, UI_SCALE_STANDARD, UI_SCALE_MILD_COMPACT, UI_SCALE_COMPACT, UI_SCALE_MORE_COMPACT, UI_SCALE_SMALLER};
 
     public static final int WALL_CINEMA = 5;
     public static final int WALL_CINEMA_WARM = 6;
@@ -328,11 +330,26 @@ public class Setting {
 
     public static int getUiScale() {
         int scale = Prefers.getInt("ui_scale", UI_SCALE_FOLLOW_SYSTEM);
-        return scale >= UI_SCALE_FOLLOW_SYSTEM && scale <= UI_SCALE_SMALLER ? scale : UI_SCALE_FOLLOW_SYSTEM;
+        return isUiScale(scale) ? scale : UI_SCALE_FOLLOW_SYSTEM;
     }
 
     public static void putUiScale(int scale) {
-        Prefers.put("ui_scale", scale >= UI_SCALE_FOLLOW_SYSTEM && scale <= UI_SCALE_SMALLER ? scale : UI_SCALE_FOLLOW_SYSTEM);
+        Prefers.put("ui_scale", isUiScale(scale) ? scale : UI_SCALE_FOLLOW_SYSTEM);
+    }
+
+    public static int getUiScaleIndex() {
+        int scale = getUiScale();
+        for (int i = 0; i < UI_SCALE_OPTIONS.length; i++) if (UI_SCALE_OPTIONS[i] == scale) return i;
+        return UI_SCALE_FOLLOW_SYSTEM;
+    }
+
+    public static void putUiScaleIndex(int index) {
+        putUiScale(index >= 0 && index < UI_SCALE_OPTIONS.length ? UI_SCALE_OPTIONS[index] : UI_SCALE_FOLLOW_SYSTEM);
+    }
+
+    private static boolean isUiScale(int scale) {
+        for (int option : UI_SCALE_OPTIONS) if (option == scale) return true;
+        return false;
     }
 
     public static Context wrapUiScale(Context context) {
@@ -353,10 +370,11 @@ public class Setting {
 
     private static float getUiScaleFactor(int scale) {
         return switch (scale) {
-            case UI_SCALE_STANDARD -> 0.98f;
-            case UI_SCALE_COMFORTABLE -> 0.94f;
-            case UI_SCALE_COMPACT -> 0.9f;
-            case UI_SCALE_SMALLER -> 0.86f;
+            case UI_SCALE_STANDARD -> 0.9f;
+            case UI_SCALE_MILD_COMPACT -> 0.85f;
+            case UI_SCALE_COMPACT -> 0.8f;
+            case UI_SCALE_MORE_COMPACT -> 0.75f;
+            case UI_SCALE_SMALLER -> 0.7f;
             default -> 1.0f;
         };
     }
