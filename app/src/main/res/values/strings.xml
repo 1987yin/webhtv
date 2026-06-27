@@ -769,7 +769,7 @@
     <!-- Player -->
     <string name="player">Player</string>
     <string name="player_render">Render</string>
-    <string name="player_exo_4k_compat">Exo 4K compatibility</string>
+    <string name="player_exo_4k_compat">EXO enhanced mode</string>
     <string name="player_kernel">Player engine</string>
     <string name="player_scale">Scale</string>
     <string name="player_lut">LUT color</string>

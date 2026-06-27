@@ -41,7 +41,7 @@ public class PlayerSetting {
         int value = Math.min(Math.max(render, RENDER_SURFACE), RENDER_TEXTURE);
         Prefers.put("render", value);
         if (isTunnel() && value == RENDER_TEXTURE) Prefers.put("tunnel", false);
-        if (isExo4KCompat() && value == RENDER_TEXTURE) Prefers.put("exo_4k_compat", false);
+        if (isExoEnhanced() && value == RENDER_TEXTURE) Prefers.put("exo_4k_compat", false);
     }
 
     public static int getSize() {
@@ -198,10 +198,18 @@ public class PlayerSetting {
     }
 
     public static boolean isExo4KCompat() {
+        return isExoEnhanced();
+    }
+
+    public static boolean isExoEnhanced() {
         return Prefers.getBoolean("exo_4k_compat");
     }
 
     public static void putExo4KCompat(boolean value) {
+        putExoEnhanced(value);
+    }
+
+    public static void putExoEnhanced(boolean value) {
         Prefers.put("exo_4k_compat", value);
         if (value) Prefers.put("render", RENDER_SURFACE);
     }

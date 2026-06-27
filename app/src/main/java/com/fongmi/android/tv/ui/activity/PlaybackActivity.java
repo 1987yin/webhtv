@@ -307,7 +307,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         if (mService == null) return;
         View surface = getExoView().getVideoSurfaceView();
         if (!(surface instanceof SurfaceView surfaceView)) return;
-        if (!PlayerSetting.isExo4KCompat() || getRender() != PlayerSetting.RENDER_SURFACE || player().isIjk()) {
+        if (!PlayerSetting.isExoEnhanced() || getRender() != PlayerSetting.RENDER_SURFACE || player().isIjk()) {
             surfaceView.getHolder().setSizeFromLayout();
             return;
         }

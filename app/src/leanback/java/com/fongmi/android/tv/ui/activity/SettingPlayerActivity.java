@@ -62,7 +62,7 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
         mBinding.uaText.setText(Setting.getUa());
         mBinding.aacText.setText(getSwitch(PlayerSetting.isPreferAAC()));
         mBinding.tunnelText.setText(getSwitch(PlayerSetting.isTunnel()));
-        mBinding.exo4kCompatText.setText(getSwitch(PlayerSetting.isExo4KCompat()));
+        mBinding.exo4kCompatText.setText(getSwitch(PlayerSetting.isExoEnhanced()));
         mBinding.adblockText.setText(getSwitch(Setting.isAdblock()));
         mBinding.speedText.setText(format.format(PlayerSetting.getSpeed()));
         mBinding.bufferText.setText(String.valueOf(PlayerSetting.getBuffer()));
@@ -264,7 +264,7 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
         int index = (PlayerSetting.getRender() + 1) % render.length;
         mBinding.renderText.setText(render[index]);
         PlayerSetting.putRender(index);
-        mBinding.exo4kCompatText.setText(getSwitch(PlayerSetting.isExo4KCompat()));
+        mBinding.exo4kCompatText.setText(getSwitch(PlayerSetting.isExoEnhanced()));
     }
 
     private void setTunnel(View view) {
@@ -274,8 +274,8 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
     }
 
     private void setExo4KCompat(View view) {
-        PlayerSetting.putExo4KCompat(!PlayerSetting.isExo4KCompat());
-        mBinding.exo4kCompatText.setText(getSwitch(PlayerSetting.isExo4KCompat()));
+        PlayerSetting.putExoEnhanced(!PlayerSetting.isExoEnhanced());
+        mBinding.exo4kCompatText.setText(getSwitch(PlayerSetting.isExoEnhanced()));
         mBinding.renderText.setText(render[PlayerSetting.getRender()]);
     }
 
