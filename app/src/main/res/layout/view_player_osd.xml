@@ -69,6 +69,26 @@
             tools:visibility="visible" />
 
         <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/osdDiagnostics"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_marginBottom="20dp"
+            android:layout_marginEnd="128dp"
+            android:ellipsize="end"
+            android:fontFeatureSettings="tnum"
+            android:maxLines="2"
+            android:shadowColor="#CC000000"
+            android:shadowDx="1.5"
+            android:shadowDy="1.5"
+            android:shadowRadius="2"
+            android:textColor="@color/white"
+            android:textSize="14sp"
+            android:visibility="gone"
+            tools:text="3840x2160 59.940fps 42.0Mbps READY buf=12000ms&#10;c2.mtk.hevc.decoder drop=12 Surface tunnel=on display=59.94Hz"
+            tools:visibility="visible" />
+
+        <com.google.android.material.textview.MaterialTextView
             android:id="@+id/osdBottomRight"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
