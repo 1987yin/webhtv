@@ -13,9 +13,9 @@
 
     <com.google.android.material.textview.MaterialTextView
         android:layout_width="match_parent"
-        android:layout_height="52dp"
+        android:layout_height="44dp"
         android:gravity="center_vertical"
-        android:text="@string/play_episodes"
+        android:text="@string/detail_flag"
         android:textColor="@color/white"
         android:textSize="18sp"
         android:textStyle="bold" />
@@ -29,11 +29,20 @@
         tools:itemCount="3"
         tools:listitem="@layout/adapter_flag" />
 
+    <com.google.android.material.textview.MaterialTextView
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="8dp"
+        android:gravity="center_vertical"
+        android:text="@string/detail_episode"
+        android:textColor="@color/white"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+
     <androidx.leanback.widget.HorizontalGridView
         android:id="@+id/array"
         android:layout_width="match_parent"
         android:layout_height="40dp"
-        android:layout_marginTop="12dp"
         android:clipChildren="false"
         android:clipToPadding="false"
         android:visibility="gone"

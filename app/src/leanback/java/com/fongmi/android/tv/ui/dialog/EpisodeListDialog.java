@@ -27,6 +27,7 @@ import com.fongmi.android.tv.databinding.DialogEpisodeListBinding;
 import com.fongmi.android.tv.ui.adapter.ArrayAdapter;
 import com.fongmi.android.tv.ui.adapter.EpisodeAdapter;
 import com.fongmi.android.tv.ui.adapter.FlagAdapter;
+import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
 import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -37,6 +38,8 @@ import java.util.List;
 public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.OnClickListener, ArrayAdapter.OnClickListener, EpisodeAdapter.OnClickListener {
 
     private final List<Integer> segmentStarts;
+    private final List<Integer> segmentEnds;
+    private final List<Episode> allEpisodes;
 
     private DialogEpisodeListBinding binding;
     private EpisodeAdapter episodeAdapter;
@@ -45,9 +48,13 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
     private DialogInterface.OnDismissListener dismissListener;
     private List<Flag> flags;
     private int panelWidth;
+    private boolean tmdbCard;
+    private int selectedSegment;
 
     public EpisodeListDialog() {
         segmentStarts = new ArrayList<>();
+        segmentEnds = new ArrayList<>();
+        allEpisodes = new ArrayList<>();
     }
 
     public static EpisodeListDialog create() {
@@ -56,6 +63,11 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
 
     public EpisodeListDialog flags(List<Flag> flags) {
         this.flags = flags;
+        return this;
+    }
+
+    public EpisodeListDialog tmdbCard(boolean tmdbCard) {
+        this.tmdbCard = tmdbCard;
         return this;
     }
 
@@ -102,13 +114,14 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
         binding.episode.setHorizontalSpacing(spacing);
         binding.episode.setVerticalSpacing(spacing);
         binding.episode.setAdapter(episodeAdapter = new EpisodeAdapter(this, getEpisodeContentWidth()));
+        episodeAdapter.setUseTmdbCard(tmdbCard);
         episodeAdapter.setOnKeyListener((view, keyCode, event) -> onEpisodeKey(event));
         binding.episode.setOnKeyListener((view, keyCode, event) -> onEpisodeKey(event));
         binding.flag.setOnKeyListener((view, keyCode, event) -> onFlagKey(event));
         binding.array.addOnChildViewHolderSelectedListener(new androidx.leanback.widget.OnChildViewHolderSelectedListener() {
             @Override
             public void onChildViewHolderSelected(@NonNull RecyclerView parent, @Nullable RecyclerView.ViewHolder child, int position, int subposition) {
-                if (child != null && position >= 0 && position < segmentStarts.size()) scrollToEpisode(segmentStarts.get(position), false);
+                if (child != null) selectSegment(position, true);
             }
         });
     }
@@ -130,22 +143,32 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
     private void setEpisodes(Flag flag) {
         if (flag == null) return;
         List<Episode> episodes = flag.getEpisodes();
-        int column = EpisodeAdapter.getColumn(episodes, getEpisodeContentWidth());
+        allEpisodes.clear();
+        allEpisodes.addAll(episodes);
+        int column = tmdbCard ? getTmdbCardColumn() : EpisodeAdapter.getColumn(episodes, getEpisodeContentWidth());
         binding.episode.setNumColumns(column);
+        episodeAdapter.setUseTmdbCard(tmdbCard);
+        episodeAdapter.setGridMode(tmdbCard);
+        episodeAdapter.setVerticalGridMode(true);
         episodeAdapter.setColumn(column);
-        episodeAdapter.addAll(episodes);
         setSegments(episodes.size());
+        setSegmentEpisodes(selectedSegment);
         scrollToSelectedEpisode();
     }
 
     private void setSegments(int size) {
-        int segment = getEpisodeSegmentSize(size);
+        int segment = tmdbCard ? getTmdbEpisodeSegmentSize(size) : getEpisodeSegmentSize(size);
         List<String> items = new ArrayList<>();
+        int selectedEpisode = getSelectedEpisodePosition(allEpisodes);
         segmentStarts.clear();
-        if (size > segment) for (int i = 0; i < size; i += segment) {
+        segmentEnds.clear();
+        if (tmdbCard || size > segment) for (int i = 0; i < size; i += segment) {
             segmentStarts.add(i);
-            items.add((i + 1) + "-" + Math.min(i + segment, size));
+            int end = Math.min(i + segment, size);
+            segmentEnds.add(end);
+            items.add((i + 1) + "-" + end);
         }
+        selectedSegment = resolveSelectedSegment(selectedEpisode);
         arrayAdapter.setSegmentSize(segment);
         arrayAdapter.addAll(items);
         binding.array.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
@@ -153,6 +176,42 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
         arrayAdapter.setNextFocus(R.id.flag, R.id.episode);
         episodeAdapter.setNextFocusUp(items.isEmpty() ? R.id.flag : R.id.array);
         episodeAdapter.setNextFocusDown(0);
+    }
+
+    private int resolveSelectedSegment(int episodePosition) {
+        if (segmentStarts.isEmpty()) return 0;
+        for (int i = 0; i < segmentStarts.size(); i++) {
+            if (episodePosition >= segmentStarts.get(i) && episodePosition < segmentEnds.get(i)) return i;
+        }
+        return 0;
+    }
+
+    private void selectSegment(int position, boolean keepSegmentFocus) {
+        if (position < 0 || position >= segmentStarts.size() || position == selectedSegment) return;
+        selectedSegment = position;
+        setSegmentEpisodes(position);
+        if (keepSegmentFocus) keepArrayFocus(position);
+    }
+
+    private void setSegmentEpisodes(int position) {
+        if (segmentStarts.isEmpty()) {
+            episodeAdapter.addAll(allEpisodes);
+            return;
+        }
+        position = Math.max(0, Math.min(position, segmentStarts.size() - 1));
+        int start = segmentStarts.get(position);
+        int end = segmentEnds.get(position);
+        episodeAdapter.addAll(EpisodeRangePolicy.slice(allEpisodes, new EpisodeRangePolicy.Range("", start, end, position == selectedSegment)));
+    }
+
+    private void keepArrayFocus(int position) {
+        binding.array.post(() -> {
+            if (binding == null) return;
+            binding.array.setSelectedPosition(position);
+            RecyclerView.ViewHolder holder = binding.array.findViewHolderForAdapterPosition(position);
+            if (holder != null) holder.itemView.requestFocus();
+            else binding.array.requestFocus();
+        });
     }
 
     private boolean onFlagKey(KeyEvent event) {
@@ -195,8 +254,16 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
 
     private void focusEpisodeFromArray() {
         int position = binding.array.getSelectedPosition();
-        int start = position >= 0 && position < segmentStarts.size() ? segmentStarts.get(position) : episodeAdapter.getPosition();
-        focusPosition(binding.episode, start);
+        selectSegment(position, false);
+        focusPosition(binding.episode, getSegmentFocusPosition(position));
+    }
+
+    private int getSegmentFocusPosition(int position) {
+        if (position < 0 || position >= segmentStarts.size()) return episodeAdapter.getPosition();
+        int selectedEpisode = getSelectedEpisodePosition(allEpisodes);
+        int start = segmentStarts.get(position);
+        int end = segmentEnds.get(position);
+        return selectedEpisode >= start && selectedEpisode < end ? selectedEpisode - start : 0;
     }
 
     private void focusFlag() {
@@ -233,18 +300,41 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
         return size <= 60 ? 20 : 40;
     }
 
+    private int getTmdbEpisodeSegmentSize(int size) {
+        List<EpisodeRangePolicy.Range> ranges = EpisodeRangePolicy.build(size, episodeAdapter == null ? 0 : episodeAdapter.getPosition(), false);
+        if (ranges.isEmpty()) return getEpisodeSegmentSize(size);
+        EpisodeRangePolicy.Range first = ranges.get(0);
+        return Math.max(1, first.end() - first.start());
+    }
+
+    private int getTmdbCardColumn() {
+        int minCardWidth = ResUtil.dp2px(260);
+        int column = getEpisodeContentWidth() / minCardWidth;
+        return Math.max(1, Math.min(2, column));
+    }
+
     private void scrollToSelectedEpisode() {
-        int position = episodeAdapter.getPosition();
+        int position = getSelectedEpisodePosition(allEpisodes);
         scrollToSegment(position);
-        scrollToEpisode(position, true);
+        scrollToEpisode(position - getSegmentStart(selectedSegment), true);
     }
 
     private void scrollToSegment(int episodePosition) {
         if (segmentStarts.isEmpty()) return;
-        int target = 0;
-        for (int i = 0; i < segmentStarts.size(); i++) if (episodePosition >= segmentStarts.get(i)) target = i;
-        binding.array.setSelectedPosition(target);
-        binding.array.scrollToPosition(target);
+        selectedSegment = resolveSelectedSegment(episodePosition);
+        binding.array.setSelectedPosition(selectedSegment);
+        binding.array.scrollToPosition(selectedSegment);
+    }
+
+    private int getSegmentStart(int position) {
+        if (position < 0 || position >= segmentStarts.size()) return 0;
+        return segmentStarts.get(position);
+    }
+
+    private int getSelectedEpisodePosition(List<Episode> episodes) {
+        if (episodes == null || episodes.isEmpty()) return 0;
+        for (int i = 0; i < episodes.size(); i++) if (episodes.get(i).isSelected()) return i;
+        return 0;
     }
 
     private void scrollToEpisode(int position, boolean requestFocus) {

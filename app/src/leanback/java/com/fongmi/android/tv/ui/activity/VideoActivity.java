@@ -1873,7 +1873,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private void onEpisodes() {
         if (mFlagAdapter.getItemCount() == 0 || mEpisodeAdapter.getItemCount() < 2) return;
         hideControl();
-        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).show(this);
+        Flag flag = getFlag();
+        boolean tmdbCard = flag != null && EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(isTmdbSourceEnabled(), flag.getEpisodes());
+        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).tmdbCard(tmdbCard).show(this);
     }
 
     private void onRepeat() {
