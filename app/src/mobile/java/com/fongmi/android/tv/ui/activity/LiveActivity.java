@@ -260,6 +260,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         setVideoView();
         setNavigation();
         setViewModel();
+        enterFullscreenLiveOnPad();
     }
 
     @Override
@@ -577,6 +578,11 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         updateEmbeddedUiMode();
         Util.hideSystemUI(this);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+    }
+
+    private void enterFullscreenLiveOnPad() {
+        if (!ResUtil.isPad() || isRotate() || isInPictureInPictureMode()) return;
+        enterFullscreenLive();
     }
 
     private void exitFullscreenLive() {
