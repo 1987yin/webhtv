@@ -10,4 +10,7 @@ public interface UpdateListener {
 
     default void onChannel(String channel) {
     }
+
+    default void onClose() {
+    }
 }

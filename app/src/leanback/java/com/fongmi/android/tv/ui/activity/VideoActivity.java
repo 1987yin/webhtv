@@ -105,6 +105,7 @@ import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
 import com.fongmi.android.tv.utils.AudioUtil;
 import com.fongmi.android.tv.utils.Clock;
+import com.fongmi.android.tv.utils.EpisodeTitleFormatter;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.KeyUtil;
@@ -540,11 +541,30 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private String getOsdTitle() {
-        String name = getName();
-        if (mEpisodeAdapter == null || mEpisodeAdapter.getItemCount() == 0) return name;
-        String episode = Objects.toString(getEpisode().getName(), "");
-        if (TextUtils.isEmpty(episode) || TextUtils.equals(name, episode)) return name;
-        return TextUtils.isEmpty(name) ? episode : name + " " + episode;
+        return EpisodeTitleFormatter.buildPlaybackTitle(getPlaybackName(), getCurrentEpisodeTitle());
+    }
+
+    private String getPlaybackName() {
+        CharSequence name = mBinding == null || mBinding.name == null ? "" : mBinding.name.getText();
+        return TextUtils.isEmpty(name) ? getName() : name.toString();
+    }
+
+    private String getCurrentEpisodeTitle() {
+        return mEpisodeAdapter == null || mEpisodeAdapter.getItemCount() == 0 ? "" : getEpisodeTitle(getEpisode());
+    }
+
+    private String getEpisodeTitle(Episode episode) {
+        return episode == null ? "" : EpisodeAdapter.getTitle(episode);
+    }
+
+    private CharSequence getPlaybackControlTitle() {
+        return getPlaybackControlTitle(mEpisodeAdapter == null || mEpisodeAdapter.getItemCount() == 0 ? null : getEpisode());
+    }
+
+    private CharSequence getPlaybackControlTitle(Episode episode) {
+        String name = getPlaybackName();
+        String title = getEpisodeTitle(episode);
+        return TextUtils.isEmpty(title) || TextUtils.equals(name, title) ? name : getString(R.string.detail_title, name, title);
     }
 
     private int getScale() {
@@ -710,7 +730,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
         mBinding.control.action.opening.setOnClickListener(view -> onOpening());
         mBinding.shortDisplay.setOnClickListener(view -> onShortDisplay());
-        mBinding.control.action.speed.setOnKeyListener((view, keyCode, event) -> onSpeedKey(event));
         mBinding.control.action.speed.setOnLongClickListener(view -> onSpeedLong());
         mBinding.control.action.reset.setOnLongClickListener(view -> onResetToggle());
         mBinding.control.action.ending.setOnLongClickListener(view -> onEndingReset());
@@ -749,12 +768,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                 if (hasFocus) scroll.post(() -> scroll.smoothScrollTo(Math.max(0, view.getLeft() - ResUtil.dp2px(24)), 0));
             });
         }
-    }
-
-    private boolean onSpeedKey(KeyEvent event) {
-        if (!KeyUtil.isActionUp(event) || !KeyUtil.isEnterKey(event)) return false;
-        onSpeed();
-        return true;
     }
 
     private void setRecyclerView() {
@@ -1049,6 +1062,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         item.checkName(getName());
         boolean loadTmdbDetail = shouldLoadTmdbDetail();
         item.checkContent(getContent());
+        setOriginalEnhancedActionVisibility(loadTmdbDetail && Setting.isOriginalEnhancedDetailPage());
+        if (isIntentTmdbPlayback()) com.fongmi.android.tv.utils.TmdbEpisodeSorter.sort(item);
+        applyTmdbEpisodeTitles(item);
         setTmdbRematchVisible(loadTmdbDetail);
         // 非 TMDB：立即揭开，全部内容一次性出现；TMDB：继续停在 loading，等富集完成再揭开
         if (!loadTmdbDetail) mBinding.progressLayout.showContent();
@@ -1078,6 +1094,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private boolean shouldLoadTmdbDetail() {
         return mTmdbUIAdapter != null && mTmdbUIAdapter.isReady();
+    }
+
+    private void setOriginalEnhancedActionVisibility(boolean hide) {
+        mBinding.shortDisplay.setVisibility(hide ? View.GONE : View.VISIBLE);
+        mBinding.change1.setVisibility(hide ? View.GONE : View.VISIBLE);
     }
 
     private void setTmdbRematchVisible(boolean visible) {
@@ -1224,8 +1245,42 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         };
     }
 
+    private void applyTmdbEpisodeTitles(Vod vod) {
+        Map<Integer, String> titles = getEpisodeTitles();
+        if (vod == null || titles.isEmpty() || vod.getFlags() == null) return;
+        for (Flag flag : vod.getFlags()) {
+            for (Episode episode : flag.getEpisodes()) {
+                String title = titles.get(episode.getNumber());
+                if (TextUtils.isEmpty(title)) continue;
+                String displayName = EpisodeTitleFormatter.withSourceFileSize(episode.getName(), EpisodeTitleFormatter.formatTmdbTitle(episode.getNumber(), title), Setting.isTmdbEpisodeFileSize());
+                if (TextUtils.equals(episode.getDisplayName(), displayName)) continue;
+                episode.setDisplayName(displayName);
+            }
+        }
+    }
+
+    private Map<Integer, String> getEpisodeTitles() {
+        Map<Integer, String> titles = new HashMap<>();
+        ArrayList<String> values = getIntent().getStringArrayListExtra("tmdb_episode_titles");
+        if (values == null) return titles;
+        for (String value : values) {
+            String[] parts = value.split("\t", 2);
+            if (parts.length != 2 || TextUtils.isEmpty(parts[1])) continue;
+            try {
+                titles.put(Integer.parseInt(parts[0]), parts[1]);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return titles;
+    }
+
+    private boolean isIntentTmdbPlayback() {
+        ArrayList<String> values = getIntent().getStringArrayListExtra("tmdb_episode_titles");
+        return values != null && !values.isEmpty();
+    }
+
     private void getPlayer(Flag flag, Episode episode) {
-        mBinding.widget.title.setText(getString(R.string.detail_title, mBinding.name.getText(), episode.getName()));
+        mBinding.widget.title.setText(getPlaybackControlTitle(episode));
         playerStartTime = System.currentTimeMillis();
         beginPlayHealth();
         SpiderDebug.log("video-flow", "player start key=%s flag=%s episode=%s url=%s", getKey(), flag.getFlag(), episode.getName(), episode.getUrl());
@@ -1817,7 +1872,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private void onEpisodes() {
         if (mFlagAdapter.getItemCount() == 0 || mEpisodeAdapter.getItemCount() < 2) return;
         hideControl();
-        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).show(this);
+        Flag flag = getFlag();
+        boolean tmdbCard = flag != null && EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(isTmdbSourceEnabled(), flag.getEpisodes());
+        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).tmdbCard(tmdbCard).show(this);
     }
 
     private void onRepeat() {
@@ -1982,21 +2039,25 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private void onSpeed() {
         mBinding.control.action.speed.setText(player().addSpeed());
         saveDefaultSpeed();
+        setR1Callback();
     }
 
     private void onSpeedAdd() {
         mBinding.control.action.speed.setText(player().addSpeed(0.25f));
         saveDefaultSpeed();
+        setR1Callback();
     }
 
     private void onSpeedSub() {
         mBinding.control.action.speed.setText(player().subSpeed(0.25f));
         saveDefaultSpeed();
+        setR1Callback();
     }
 
     private boolean onSpeedLong() {
         mBinding.control.action.speed.setText(player().toggleSpeed());
         saveDefaultSpeed();
+        setR1Callback();
         return true;
     }
 
@@ -2424,7 +2485,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             " canSave=" + (mHistory != null ? mHistory.canSave() : "null") +
             " incognito=" + Setting.isIncognito());
         if (mHistory == null || Setting.isIncognito()) return;
-        if (exit && isOwner()) {
+        if (service() != null && isOwner()) {
             updatePlaybackHistoryPosition();
             mHistory.setCreateTime(System.currentTimeMillis());
         }
@@ -2432,7 +2493,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (!mHistory.canSave()) return;
         History history = mHistory.copy();
         Task.execute(() -> {
-            history.merge().save();
+            if (history.getDuration() > 0) history.merge().save();
+            else history.save();
             android.util.Log.d("VideoActivity", "saveHistory: saved! key=" + history.getKey());
             if (exit) RefreshEvent.history();
         });
@@ -2445,7 +2507,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void updateHistory(Episode item) {
-        boolean sameEpisode = item.matches(mHistory.getEpisode());
+        boolean sameEpisode = item.matchesName(mHistory.getEpisode());
         boolean sameFlag = TextUtils.equals(mHistory.getVodFlag(), getFlag().getFlag());
         if (!sameEpisode || !sameFlag) mIntroSkipPlayback.reset();
         if ((!sameEpisode || !sameFlag) && service() != null) {
@@ -2493,8 +2555,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (id) mHistory.replace(getHistoryKey());
         if (name) mHistory.setVodName(item.getName());
         if (name) mBinding.name.setText(item.getName());
-        if (name) mBinding.widget.title.setText(item.getName());
         updateFlag(getFlag(), item.getFlags());
+        mBinding.widget.title.setText(getPlaybackControlTitle());
         if (pic) setArtwork(item.getPic());
         if (pic || name) setMetadata();
         if (pic || name) syncHistory();
@@ -2555,7 +2617,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
         @Override
         public void onStop() {
-            finish();
+            finishVideoPlayback();
         }
 
         @Override
@@ -2690,9 +2752,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (mHistory == null) return;
         long position = player().getPosition();
         long duration = player().getDuration();
-        if (position <= 0 || duration <= 0) return;
-        mHistory.setPosition(position);
-        mHistory.setDuration(duration);
+        if (position > 0) mHistory.setPosition(position);
+        if (duration > 0) mHistory.setDuration(duration);
+        else if (mHistory.getDuration() < 0) mHistory.setDuration(0);
         PlaybackEventCollector.get().updateHistory(mHistory);
     }
 
@@ -3671,7 +3733,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void setPosition() {
-        if (mHistory != null) player().seekTo(Math.max(mHistory.getOpening(), mHistory.getPosition()));
+        if (mHistory == null) return;
+        if (mHistory.isNearEnding()) {
+            SpiderDebug.log("video-flow", "reset near-end history position=%d duration=%d key=%s", mHistory.getPosition(), mHistory.getDuration(), getHistoryKey());
+            mHistory.resetPlaybackPosition();
+            syncHistory();
+        }
+        long position = Math.max(mHistory.getOpening(), mHistory.getPosition());
+        if (position > 0) player().seekTo(position);
     }
 
     private void checkEnded(boolean notify) {
@@ -4112,13 +4181,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.widget.speed.setVisibility(View.VISIBLE);
         mBinding.widget.speed.startAnimation(ResUtil.getAnim(R.anim.forward));
         mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getSpeed()));
+        saveDefaultSpeed();
     }
 
     @Override
     public void onSpeedEnd() {
         mBinding.widget.speed.clearAnimation();
         mBinding.widget.speed.setVisibility(View.GONE);
-        mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getDefaultSpeed()));
+        mBinding.control.action.speed.setText(player().getSpeedText());
         mHistory.setSpeed(player().getSpeed());
     }
 
@@ -4212,10 +4282,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         } else if (isFullscreen()) {
             exitFullscreen();
         } else {
-            mViewModel.stopSearch();
-            if (isTaskRoot()) startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
-            super.onBackInvoked();
+            finishVideoPlayback();
         }
+    }
+
+    private void finishVideoPlayback() {
+        if (isPlaybackExiting()) return;
+        mViewModel.stopSearch();
+        saveHistory(true);
+        markPlaybackExiting();
+        stopPlayback();
+        if (isTaskRoot()) startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+        super.onBackInvoked();
     }
 
     @Override

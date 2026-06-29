@@ -18,11 +18,14 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.text.style.ClickableSpan;
+import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewConfiguration;
 import android.view.animation.DecelerateInterpolator;
+import android.widget.ImageView;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
@@ -574,11 +577,30 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private String getOsdTitle() {
-        String name = getName();
-        if (mEpisodeAdapter == null || mEpisodeAdapter.isEmpty()) return name;
-        String episode = Objects.toString(getEpisode().getName(), "");
-        if (TextUtils.isEmpty(episode) || TextUtils.equals(name, episode)) return name;
-        return TextUtils.isEmpty(name) ? episode : name + " " + episode;
+        return EpisodeTitleFormatter.buildPlaybackTitle(getPlaybackName(), getCurrentEpisodeTitle());
+    }
+
+    private String getPlaybackName() {
+        CharSequence name = mBinding == null || mBinding.name == null ? "" : mBinding.name.getText();
+        return TextUtils.isEmpty(name) ? getName() : name.toString();
+    }
+
+    private String getCurrentEpisodeTitle() {
+        return mEpisodeAdapter == null || mEpisodeAdapter.isEmpty() ? "" : getEpisodeTitle(getEpisode());
+    }
+
+    private String getEpisodeTitle(Episode episode) {
+        return episode == null ? "" : EpisodeAdapter.getTitle(episode);
+    }
+
+    private CharSequence getPlaybackControlTitle() {
+        return getPlaybackControlTitle(mEpisodeAdapter == null || mEpisodeAdapter.isEmpty() ? null : getEpisode());
+    }
+
+    private CharSequence getPlaybackControlTitle(Episode episode) {
+        String name = getPlaybackName();
+        String title = getEpisodeTitle(episode);
+        return TextUtils.isEmpty(title) || TextUtils.equals(name, title) ? name : getString(R.string.detail_title, name, title);
     }
 
     private int getScale() {
@@ -972,7 +994,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         addActionButton(PlayerButtonSetting.PREV, mBinding.control.action.prev);
         addActionButton(PlayerButtonSetting.NEXT, mBinding.control.action.next);
         addActionButton(PlayerButtonSetting.EPISODES, mBinding.control.action.episodes);
-        PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
+        applyActionButtonSettings();
     }
 
     private void addActionButton(String id, View view) {
@@ -981,6 +1003,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void applyActionButtonVisibility() {
         if (mActionButtons != null) PlayerButtonSetting.applyVisibility(mActionButtons);
+    }
+
+    private void applyActionButtonSettings() {
+        if (mActionButtons != null) PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
     }
 
     private void setVideoView(boolean isInPictureInPictureMode) {
@@ -1105,6 +1131,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mTmdbFallbackToNative = false;
         mTmdbContentLoaded = false;
         mTmdbAutoDialogShown = false;
+        setOriginalEnhancedActionVisibility(tmdbMode && Setting.isOriginalEnhancedDetailPage());
         if (tmdbMode) {
             hideTmdbHeader();
             setNativeDetailInfoVisible(false);
@@ -1256,7 +1283,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.director.setVisibility(View.GONE);
         mBinding.actor.setVisibility(View.GONE);
         mBinding.contentLayout.setVisibility(View.GONE);
-        mBinding.actionRow.setVisibility(View.GONE);
     }
 
     private void setPlainText(TextView view, String text) {
@@ -1274,7 +1300,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.director.setVisibility(visibility);
         mBinding.actor.setVisibility(visibility);
         mBinding.contentLayout.setVisibility(visibility);
-        mBinding.actionRow.setVisibility(visibility);
+    }
+
+    private void setOriginalEnhancedActionVisibility(boolean hide) {
+        mBinding.shortDisplay.setVisibility(hide ? View.GONE : View.VISIBLE);
     }
 
     private void setText(TextView view, int resId, String text) {
@@ -1356,7 +1385,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void getPlayer(Flag flag, Episode episode) {
-        mBinding.control.title.setText(getString(R.string.detail_title, mBinding.name.getText(), episode.getName()));
+        mBinding.control.title.setText(getPlaybackControlTitle(episode));
         playerStartTime = System.currentTimeMillis();
         beginPlayHealth();
         SpiderDebug.log("video-flow", "player start key=%s flag=%s episode=%s url=%s", getKey(), flag.getFlag(), episode.getName(), episode.getUrl());
@@ -1384,6 +1413,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (DanmakuApi.canSearch()) DanmakuApi.search(mHistory.getVodName(), getEpisode().getName(), danmaku -> {
             if (DanmakuSetting.isSpiderFirst() && !result.getDanmaku().isEmpty()) player().addDanmaku(danmaku);
             else player().setDanmaku(danmaku);
+            refreshDanmakuControls();
         });
     }
 
@@ -1779,6 +1809,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         boolean switchToList = mEpisodeGridMode;
         mBinding.episodeViewMode.setImageResource(switchToList ? R.drawable.ic_site_list : R.drawable.ic_site_grid);
         mBinding.episodeViewMode.setContentDescription(getString(switchToList ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
+        applyTmdbPlaybackControlColors();
     }
 
     private boolean onChange() {
@@ -1794,7 +1825,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void onBack() {
         if (isFullscreen() && isShortDramaSource()) finishShortDrama();
         else if (isFullscreen()) exitFullscreen();
-        else finishPlayback();
+        else finishVideoPlayback();
+    }
+
+    private void finishVideoPlayback() {
+        saveHistory(true);
+        finishPlayback();
     }
 
     private void onCast() {
@@ -2225,6 +2261,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         player().setDanmakuEnabled(false);
     }
 
+    private void refreshDanmakuControls() {
+        mBinding.control.action.danmaku.setVisibility(DanmakuSetting.isLoad() ? View.VISIBLE : View.GONE);
+        applyActionButtonVisibility();
+        if (mBinding.control.getRoot().getVisibility() == View.VISIBLE) mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() ? View.GONE : View.VISIBLE);
+    }
+
     private void showControl() {
         if (service() == null || isInPictureInPictureMode()) return;
         setOsdSuppressed(true);
@@ -2239,7 +2281,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.osdDiagnostics.setVisibility(PlayerSetting.isOsdDiagnostics() && !player().isEmpty() ? View.VISIBLE : View.GONE);
         mBinding.control.osdDiagnostics.setAlpha(mOsd != null && mOsd.isDiagnosticsVisible() ? 1f : 0.72f);
         mBinding.control.parse.setVisibility(isFullscreen() && isUseParse() ? View.VISIBLE : View.GONE);
-        mBinding.control.action.getRoot().setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
+        mBinding.control.action.getRoot().setVisibility(isFullscreen() || isFusionPlayerActionsDocked() ? View.VISIBLE : View.GONE);
         mBinding.control.right.lock.setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.info.setVisibility(player().isEmpty() ? View.GONE : View.VISIBLE);
         mBinding.control.cast.setVisibility(isFullscreen() && mHistory != null && !player().isEmpty() ? View.VISIBLE : View.GONE);
@@ -2527,7 +2569,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             " canSave=" + (mHistory != null ? mHistory.canSave() : "null") +
             " incognito=" + Setting.isIncognito());
         if (mHistory == null || Setting.isIncognito()) return;
-        if (exit && isOwner()) {
+        if (service() != null && isOwner()) {
             updatePlaybackHistoryPosition();
             mHistory.setCreateTime(System.currentTimeMillis());
         }
@@ -2535,7 +2577,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (!mHistory.canSave()) return;
         History history = mHistory.copy();
         Task.execute(() -> {
-            history.merge().save();
+            if (history.getDuration() > 0) history.merge().save();
+            else history.save();
             android.util.Log.d("VideoActivity", "saveHistory: saved! key=" + history.getKey());
             if (exit) RefreshEvent.history();
         });
@@ -2548,7 +2591,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void updateHistory(Episode item) {
-        boolean sameEpisode = item.matches(mHistory.getEpisode());
+        boolean sameEpisode = item.matchesName(mHistory.getEpisode());
         boolean sameFlag = TextUtils.equals(mHistory.getVodFlag(), getFlag().getFlag());
         if (!sameEpisode || !sameFlag) mIntroSkipPlayback.reset();
         if ((!sameEpisode || !sameFlag) && service() != null) {
@@ -2613,8 +2656,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (id) mHistory.replace(getHistoryKey());
         if (name) mHistory.setVodName(item.getName());
         if (name) mBinding.name.setText(item.getName());
-        if (name) mBinding.control.title.setText(item.getName());
         updateFlag(getFlag(), item.getFlags());
+        mBinding.control.title.setText(getPlaybackControlTitle());
         if (pic) setArtwork(item.getPic());
         if (pic || name) setMetadata();
         if (pic || name) syncHistory();
@@ -2633,6 +2676,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 moveFlagAndEpisodeToTmdb();
                 mBinding.progressLayout.showContent();
                 mTmdbHeaderView.bind(mTmdbUIAdapter);
+                styleTmdbSourceInFlagTitle();
+                applyTmdbPlaybackControlColors();
                 applyFusionPlayerBelowSpacing();
                 updateTmdbKeepState();
                 requestIntroSkipPlan();
@@ -2824,9 +2869,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (mHistory == null) return;
         long position = player().getPosition();
         long duration = player().getDuration();
-        if (position <= 0 || duration <= 0) return;
-        mHistory.setPosition(position);
-        mHistory.setDuration(duration);
+        if (position > 0) mHistory.setPosition(position);
+        if (duration > 0) mHistory.setDuration(duration);
+        else if (mHistory.getDuration() < 0) mHistory.setDuration(0);
         PlaybackEventCollector.get().updateHistory(mHistory);
     }
 
@@ -2844,7 +2889,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         else if (event.getType() == RefreshEvent.Type.VOD) updateVod(event.getVod());
         else if (event.getType() == RefreshEvent.Type.HISTORY) refreshPersonalRecommendationsForHistory();
         else if (event.getType() == RefreshEvent.Type.SUBTITLE) player().setSub(Sub.from(event.getPath()));
-        else if (event.getType() == RefreshEvent.Type.DANMAKU) player().setDanmaku(Danmaku.from(event.getPath()));
+        else if (event.getType() == RefreshEvent.Type.DANMAKU) {
+            player().setDanmaku(Danmaku.from(event.getPath()));
+            refreshDanmakuControls();
+        }
     }
 
     private void requestIntroSkipPlan() {
@@ -2892,7 +2940,14 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setPosition() {
-        if (mHistory != null) player().seekTo(Math.max(mHistory.getOpening(), mHistory.getPosition()));
+        if (mHistory == null) return;
+        if (mHistory.isNearEnding()) {
+            SpiderDebug.log("video-flow", "reset near-end history position=%d duration=%d key=%s", mHistory.getPosition(), mHistory.getDuration(), getHistoryKey());
+            mHistory.resetPlaybackPosition();
+            syncHistory();
+        }
+        long position = Math.max(mHistory.getOpening(), mHistory.getPosition());
+        if (position > 0) player().seekTo(position);
     }
 
     private void checkOrientation() {
@@ -3186,7 +3241,16 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         wallParams.addRule(RelativeLayout.ALIGN_PARENT_END);
         mBinding.contextWall.setLayoutParams(wallParams);
         mBinding.statusBar.setBackgroundColor(Color.TRANSPARENT);
-        if (mBinding.videoContextScrim != null) mBinding.videoContextScrim.setVisibility(View.GONE);
+        if (mBinding.videoContextScrim != null) {
+            RelativeLayout.LayoutParams scrimParams = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT);
+            scrimParams.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+            scrimParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+            scrimParams.addRule(RelativeLayout.ALIGN_PARENT_START);
+            scrimParams.addRule(RelativeLayout.ALIGN_PARENT_END);
+            mBinding.videoContextScrim.setLayoutParams(scrimParams);
+            mBinding.videoContextScrim.setVisibility(View.VISIBLE);
+            applyContextWallScrimTheme();
+        }
     }
 
     private void setFusionPlayerBottomGap() {
@@ -3246,6 +3310,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         updateFusionThemeButton();
         if (mTmdbHeaderView != null && mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded()) {
             mTmdbHeaderView.bind(mTmdbUIAdapter);
+            styleTmdbSourceInFlagTitle();
+            applyTmdbPlaybackControlColors();
             applyFusionPlayerBelowSpacing();
         }
     }
@@ -3265,9 +3331,18 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.swipeLayout.setBackgroundColor(Color.TRANSPARENT);
         mBinding.progressLayout.setBackgroundColor(Color.TRANSPARENT);
         if (mBinding.nativeContentContainer != null) mBinding.nativeContentContainer.setBackgroundColor(Color.TRANSPARENT);
+        applyContextWallScrimTheme();
         syncFusionHeaderTheme();
-        if (mFlagAdapter != null) mFlagAdapter.setTmdbLight(light);
+        if (mFlagAdapter != null) mFlagAdapter.setTmdbLight(isTmdbPlaybackLightTheme());
         applyFusionNativeTextColors();
+        styleTmdbSourceInFlagTitle();
+        applyTmdbPlaybackControlColors();
+    }
+
+    private void applyContextWallScrimTheme() {
+        if (mBinding.videoContextScrim == null) return;
+        boolean light = Setting.isFusionDetailPage() && isFusionLightTheme();
+        mBinding.videoContextScrim.setBackgroundResource(light ? R.drawable.shape_video_context_scrim_light : R.drawable.shape_video_context_scrim);
     }
 
     private void applyFusionNativeTextColors() {
@@ -3285,6 +3360,48 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         }
         if (!(view instanceof ViewGroup group)) return;
         for (int i = 0; i < group.getChildCount(); i++) tintFusionNativeTextTree(group.getChildAt(i), light);
+    }
+
+    private void applyTmdbPlaybackControlColors() {
+        if (mTmdbHeaderView == null || mTmdbHeaderView.getHeaderRoot() == null) return;
+        boolean light = isTmdbPlaybackLightTheme();
+        int color = tmdbPlaybackControlColor(light);
+        if (mFlagAdapter != null) mFlagAdapter.setTmdbLight(light);
+        tintFusionPlaybackTextTree(mBinding.flagTitleBar, color, light);
+        tintFusionPlaybackTextTree(mBinding.episodeTitleBar, color, light);
+        tintFusionPlaybackText(mBinding.qualityText, color, light);
+        tintFusionPlaybackIcon(mBinding.reverse, color);
+        tintFusionPlaybackIcon(mBinding.episodeViewMode, color);
+        tintFusionPlaybackIcon(mBinding.more, color);
+        tintFusionPlaybackTextTree(mBinding.control.action.getRoot(), color, light);
+    }
+
+    private boolean isTmdbPlaybackLightTheme() {
+        return mTmdbHeaderView == null ? isFusionLightTheme() : mTmdbHeaderView.isCurrentDetailLightTheme();
+    }
+
+    private int tmdbPlaybackControlColor(boolean light) {
+        if (mTmdbHeaderView != null) return mTmdbHeaderView.getFusionSectionTitleColor();
+        return light ? 0xFF12202D : Color.WHITE;
+    }
+
+    private void tintFusionPlaybackTextTree(View view, int color, boolean light) {
+        if (view == null || view instanceof RecyclerView) return;
+        if (view instanceof TextView textView) tintFusionPlaybackText(textView, color, light);
+        if (!(view instanceof ViewGroup group)) return;
+        for (int i = 0; i < group.getChildCount(); i++) tintFusionPlaybackTextTree(group.getChildAt(i), color, light);
+    }
+
+    private void tintFusionPlaybackText(TextView textView, int color, boolean light) {
+        if (textView == null) return;
+        textView.setTextColor(color);
+        textView.setLinkTextColor(light ? 0xFF1D8F5A : Color.WHITE);
+        if (light) textView.setShadowLayer(0, 0, 0, 0);
+        else textView.setShadowLayer(ResUtil.dp2px(2), 0, ResUtil.dp2px(1), 0xB0000000);
+    }
+
+    private void tintFusionPlaybackIcon(View view, int color) {
+        if (view instanceof ImageView imageView) imageView.setColorFilter(color);
     }
 
     private void updateFusionThemeButton() {
@@ -3312,7 +3429,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private int getFusionDetailThemeMode() {
-        return getIntent().getIntExtra(EXTRA_TMDB_DETAIL_THEME, Setting.getTmdbDetailTheme()) == 1 ? 1 : 2;
+        return Setting.getTmdbDetailTheme() == 1 ? 1 : 2;
     }
 
     private void syncFusionHeaderTheme() {
@@ -3336,6 +3453,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         updateEpisodeGroupVisibility();
         restoreDefaultVideoLayout();
         setNativeDetailInfoVisible(true);
+        setOriginalEnhancedActionVisibility(false);
         mBinding.search.setVisibility(View.VISIBLE);
         if (mBinding.videoShadow != null) mBinding.videoShadow.setVisibility(View.VISIBLE);
         setText(item);
@@ -3596,8 +3714,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             if (parent != null) parent.removeView(view);
             playbackControls.addView(view);
         }
+        moveFusionPlayerActionsToTmdb(playbackControls);
         mTmdbControlsMoved = true;
         updateEpisodeGroupVisibility();
+        mTmdbHeaderView.refreshTheme();
         applyFusionThemeSurface();
     }
 
@@ -3623,10 +3743,32 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         params.setMarginStart(ResUtil.dp2px(12));
         source.setLayoutParams(params);
         mBinding.flagTitleBar.addView(source);
+        styleTmdbSourceInFlagTitle();
+    }
+
+    private void styleTmdbSourceInFlagTitle() {
+        View source = mBinding.flagTitleBar.findViewById(R.id.tmdbFusionSource);
+        if (!(source instanceof TextView textView)) return;
+        boolean light = isTmdbPlaybackLightTheme();
+        int titleColor = tmdbPlaybackControlColor(light);
+        textView.setAlpha(1f);
+        textView.setTextColor(titleColor);
+        textView.setLinkTextColor(titleColor);
+        textView.setTextSize(TypedValue.COMPLEX_UNIT_PX, mBinding.flagText.getTextSize());
+        textView.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        textView.setSingleLine(true);
+        textView.setMaxWidth(ResUtil.dp2px(260));
+        if (light) textView.setShadowLayer(0, 0, 0, 0);
+        else if (isLightText(titleColor)) textView.setShadowLayer(ResUtil.dp2px(2), 0, ResUtil.dp2px(1), 0xB0000000);
+        else textView.setShadowLayer(0, 0, 0, 0);
+    }
+
+    private boolean isLightText(int color) {
+        return Color.red(color) + Color.green(color) + Color.blue(color) > 384;
     }
 
     private void setTmdbFlagStyle(boolean enabled) {
-        mFlagAdapter.setTmdbLight(!Setting.isFusionDetailPage() || isFusionLightTheme());
+        mFlagAdapter.setTmdbLight(isTmdbPlaybackLightTheme());
         mFlagAdapter.setTmdbStyle(enabled);
         mBinding.flag.setAdapter(null);
         mBinding.flag.setAdapter(mFlagAdapter);
@@ -3637,6 +3779,21 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (view == null) return;
         for (TmdbMovedView item : mTmdbMovedViews) if (item.view == view) return;
         if (view.getParent() instanceof ViewGroup) mTmdbMovedViews.add(new TmdbMovedView(view));
+    }
+
+    private void moveFusionPlayerActionsToTmdb(ViewGroup playbackControls) {
+        if (!Setting.isFusionDetailPage()) return;
+        View actions = mBinding.control.action.getRoot();
+        rememberTmdbMovedView(actions);
+        if (actions.getParent() instanceof ViewGroup parent) parent.removeView(actions);
+        actions.setLayoutParams(new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        playbackControls.addView(actions);
+        actions.setVisibility(View.VISIBLE);
+        applyActionButtonSettings();
+    }
+
+    private boolean isFusionPlayerActionsDocked() {
+        return Setting.isFusionDetailPage() && mBinding.control.action.getRoot().getParent() != mBinding.control.bottom;
     }
 
     private View[] getTmdbMovableViews() {
@@ -4038,6 +4195,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             exitFullscreen();
         } else if (!isLock()) {
             mViewModel.stopSearch();
+            saveHistory(true);
             markPlaybackExiting();
             stopPlayback();
             if (isTaskRoot()) startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));

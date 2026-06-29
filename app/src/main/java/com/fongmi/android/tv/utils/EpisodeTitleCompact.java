@@ -16,7 +16,9 @@ import java.util.regex.Pattern;
 public final class EpisodeTitleCompact {
 
     private static final Pattern EXTENSION = Pattern.compile("(?i)\\.(mp4|mkv|avi|mov|flv|wmv|ts|m2ts|m3u8|rmvb|webm)$");
-    private static final Pattern SIZE_SUFFIX = Pattern.compile("(?i)\\s*[\\[\\(（【]?\\s*\\d+(?:\\.\\d+)?\\s*(?:GB|G|MB|M)\\s*[\\]\\)）】]?\\s*$");
+    private static final String SIZE_VALUE = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?";
+    private static final Pattern SIZE_PREFIX = Pattern.compile("(?i)^\\s*[\\[\\(（【]?\\s*" + SIZE_VALUE + "\\s*(?:GB|G|MB|M)\\s*[\\]\\)）】]?\\s*");
+    private static final Pattern SIZE_SUFFIX = Pattern.compile("(?i)\\s*[\\[\\(（【]?\\s*" + SIZE_VALUE + "\\s*(?:GB|G|MB|M)\\s*[\\]\\)）】]?\\s*$");
     private static final Pattern HASH_SUFFIX = Pattern.compile("(?i)\\s*[\\[\\(（【]\\s*[A-F0-9]{8,32}\\s*[\\]\\)）】]\\s*$");
     private static final Pattern EPISODE_START = Pattern.compile("(?i)^(?:S\\s*[0-9]{1,2}\\s*E\\s*[0-9]{1,4}(?:\\s*(?:E|[-~—–])\\s*[0-9]{1,4})?|[0-9]{1,2}\\s*x\\s*[0-9]{1,4}(?:\\s*[-~—–]\\s*[0-9]{1,4})?|第\\s*[0-9一二三四五六七八九十百]+\\s*(?:集|话|話|期|章|回)|[0-9]{1,4}\\s*(?:集|话|話|期|章|回)|(?:EP|E)\\s*[0-9]{1,4}(?:\\s*[-~—–]\\s*[0-9]{1,4})?|[0-9]{4}[-._][0-9]{1,2}[-._][0-9]{1,2}|[0-9]{1,4}(?:\\D|$)|[上下](?:集|部)?|前篇|后篇|後篇|正片|预告|預告|花絮)");
     private static final Pattern VARIANT_TOKEN = Pattern.compile("(?i)(?:^|[\\s._\\-·|/\\\\:：,，;；\\[\\]()（）【】《》])((?:4320|2160|1080|720)P|[48]K|HQ|HD|HDR10(?:\\+|⁺)?|HDR|SDR|DV|60FPS|50FPS|30FPS|25FPS|24FPS|10BITS|8BITS|HEVC|H265|H\\.265|AVC|H264|H\\.264|AV1|DDP\\s*2[.·]?0|AAC\\s*2[.·]?0)(?=$|[\\s._\\-·|/\\\\:：,，;；\\[\\]()（）【】《》])");
@@ -74,12 +76,17 @@ public final class EpisodeTitleCompact {
 
     private static String cleanFileNoise(String value) {
         String text = TextUtils.isEmpty(value) ? "" : value.trim();
-        text = HASH_SUFFIX.matcher(text).replaceFirst("");
-        text = SIZE_SUFFIX.matcher(text).replaceFirst("");
+        text = cleanEdgeNoise(text);
         text = EXTENSION.matcher(text).replaceFirst("");
-        text = HASH_SUFFIX.matcher(text).replaceFirst("");
-        text = SIZE_SUFFIX.matcher(text).replaceFirst("");
+        text = cleanEdgeNoise(text);
         return cleanupEdge(text);
+    }
+
+    private static String cleanEdgeNoise(String value) {
+        String text = HASH_SUFFIX.matcher(value).replaceFirst("");
+        text = SIZE_SUFFIX.matcher(text).replaceFirst("");
+        text = SIZE_PREFIX.matcher(text).replaceFirst("");
+        return text;
     }
 
     private static int findPrefix(List<String> names) {

@@ -24,7 +24,7 @@ public class Download {
     private volatile boolean canceled;
 
     public static Download create(String url, File file) {
-        return new Download(url, file);
+        return new Download(GithubProxy.apply(url), file);
     }
 
     public Download(String url, File file) {
@@ -60,6 +60,8 @@ public class Download {
 
     private void doInBackground() {
         try (Response res = OkHttp.newCall(url, tag).execute()) {
+            if (!res.isSuccessful()) throw new IOException("Download failed: HTTP " + res.code());
+            if (res.body() == null) throw new IOException("Download failed: empty response");
             boolean completed = download(res.body().byteStream(), getLength(res));
             if (!completed || canceled) {
                 Path.clear(file);
@@ -105,6 +107,7 @@ public class Download {
                 long total = length;
                 App.post(() -> callback.progress(progress, bytes, total, speed, elapsed));
             }
+            if (length > 0 && totalBytes != length) throw new IOException("Download incomplete");
             return !canceled;
         }
     }

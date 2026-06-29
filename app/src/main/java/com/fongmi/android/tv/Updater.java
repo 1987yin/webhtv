@@ -4,6 +4,8 @@ import android.text.TextUtils;
 import android.view.View;
 
 import androidx.fragment.app.FragmentActivity;
+import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.LifecycleEventObserver;
 
 import com.fongmi.android.tv.bean.Update;
 import com.fongmi.android.tv.impl.UpdateListener;
@@ -11,8 +13,10 @@ import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.dialog.UpdateDialog;
 import com.fongmi.android.tv.utils.Download;
 import com.fongmi.android.tv.utils.FileUtil;
+import com.fongmi.android.tv.utils.GithubProxy;
 import com.fongmi.android.tv.utils.Github;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Path;
@@ -21,12 +25,25 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.lang.ref.WeakReference;
+import java.security.MessageDigest;
+import java.util.Locale;
 
 public class Updater implements Download.Callback, UpdateListener {
 
+    private static final String DEFAULT_RELEASE_NOTES = "手动触发 GitHub Actions 构建发布。";
     private static final String SOURCE_CNB = "cnb";
     private static final String SOURCE_GITHUB = "github";
+    private static final Updater INSTANCE = new Updater();
 
+    private final LifecycleEventObserver lifecycleObserver = (source, event) -> {
+        if (!(source instanceof FragmentActivity)) return;
+        FragmentActivity activity = (FragmentActivity) source;
+        if (event == Lifecycle.Event.ON_DESTROY) unbind(activity);
+    };
+
+    private WeakReference<FragmentActivity> activityRef;
     private UpdateDialog dialog;
     private Download download;
     private Update stable;
@@ -35,12 +52,17 @@ public class Updater implements Download.Callback, UpdateListener {
     private boolean force;
     private boolean downloading;
     private boolean canceled;
+    private int lastProgress = -1;
+    private long lastBytes;
+    private long lastTotal;
+    private long lastSpeed;
+    private long lastElapsed;
 
     private Updater() {
     }
 
     public static Updater create() {
-        return new Updater();
+        return INSTANCE;
     }
 
     private File getFile() {
@@ -59,20 +81,32 @@ public class Updater implements Download.Callback, UpdateListener {
     }
 
     public void start(FragmentActivity activity) {
+        bind(activity);
+        boolean forceCheck = force;
+        force = false;
+        if (downloading) {
+            restoreDialog(activity);
+            return;
+        }
         if (!Setting.getUpdate()) return;
-        Task.execute(() -> doInBackground(activity));
+        Task.execute(() -> doInBackground(activity, forceCheck));
     }
 
-    private void doInBackground(FragmentActivity activity) {
+    public void resume(FragmentActivity activity) {
+        bind(activity);
+        restoreDialog(activity);
+    }
+
+    private void doInBackground(FragmentActivity activity, boolean forceCheck) {
         stable = getUpdate(Update.CHANNEL_STABLE);
         beta = getUpdate(Update.CHANNEL_BETA);
         if (!stable.hasUpdate() && !beta.hasUpdate()) {
-            if (force && (stable.hasManifest() || beta.hasManifest())) {
+            if (forceCheck && (stable.hasManifest() || beta.hasManifest())) {
                 selected = stable;
                 App.post(() -> show(activity));
                 return;
             }
-            if (force) App.post(() -> Notify.show(hasErrorOnly() ? R.string.update_failed : R.string.update_latest));
+            if (forceCheck) App.post(() -> Notify.show(hasErrorOnly() ? R.string.update_failed : R.string.update_latest));
             return;
         }
         selected = stable;
@@ -124,7 +158,7 @@ public class Updater implements Download.Callback, UpdateListener {
     private Update readUpdate(String channel, String manifestUrl, String source) {
         Update update = Update.empty(channel);
         try {
-            String text = OkHttp.string(manifestUrl);
+            String text = OkHttp.string(GithubProxy.apply(manifestUrl));
             if (TextUtils.isEmpty(text)) throw new IllegalStateException("Empty update manifest: " + manifestUrl);
             JSONObject object = new JSONObject(text);
             update.name = object.optString("name");
@@ -134,8 +168,13 @@ public class Updater implements Download.Callback, UpdateListener {
             update.code = object.optInt("code");
             update.apk = object.optString("apk");
             update.size = object.optLong("size");
+            update.sha256 = object.optString("sha256");
             update.apkUrl = getApkUrl(update, source);
-            if (TextUtils.isEmpty(update.notes)) update.notes = getReleaseNotes(update.name);
+            if (isDefaultReleaseNotes(update.notes)) update.notes = "";
+            if (TextUtils.isEmpty(update.notes)) {
+                String notes = getReleaseNotes(update.name);
+                if (!TextUtils.isEmpty(notes)) update.notes = notes;
+            }
         } catch (Exception e) {
             e.printStackTrace();
             update.error = e.getMessage();
@@ -163,6 +202,10 @@ public class Updater implements Download.Callback, UpdateListener {
         return Github.getCnbAsset(apk);
     }
 
+    private boolean isDefaultReleaseNotes(String notes) {
+        return !TextUtils.isEmpty(notes) && DEFAULT_RELEASE_NOTES.equals(notes.trim());
+    }
+
     private String getReleaseNotes(String tag) {
         if (TextUtils.isEmpty(tag)) return "";
         String notes = readReleaseNotes(tag);
@@ -172,7 +215,7 @@ public class Updater implements Download.Callback, UpdateListener {
 
     private String readReleaseNotes(String tag) {
         try {
-            return new JSONObject(OkHttp.string(Github.getReleaseApi(tag))).optString("body");
+            return new JSONObject(OkHttp.string(GithubProxy.apply(Github.getReleaseApi(tag)))).optString("body");
         } catch (Exception ignored) {
             return "";
         }
@@ -183,8 +226,12 @@ public class Updater implements Download.Callback, UpdateListener {
     }
 
     private void show(FragmentActivity activity) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
+        if (activity.getSupportFragmentManager().isStateSaved()) return;
+        bind(activity);
         dismiss();
-        dialog = UpdateDialog.create().stable(stable).beta(beta).selected(selected.channel).listener(this).show(activity);
+        String channel = selected == null ? Update.CHANNEL_STABLE : selected.channel;
+        dialog = UpdateDialog.create().stable(stable).beta(beta).selected(channel).listener(this).show(activity);
     }
 
     @Override
@@ -196,6 +243,7 @@ public class Updater implements Download.Callback, UpdateListener {
         view.setEnabled(false);
         downloading = true;
         canceled = false;
+        resetProgress();
         Path.clear(getFile());
         setDialogProgress(0, 0, selected.size, 0, 0);
         download = Download.create(selected.apkUrl, getFile()).tag(selected.apkUrl);
@@ -209,6 +257,7 @@ public class Updater implements Download.Callback, UpdateListener {
             downloading = false;
             if (download != null) download.cancel();
             download = null;
+            resetProgress();
             Notify.show(R.string.update_canceled);
             dismiss();
             return;
@@ -216,6 +265,11 @@ public class Updater implements Download.Callback, UpdateListener {
         Setting.putUpdate(false);
         if (download != null) download.cancel();
         dismiss();
+    }
+
+    @Override
+    public void onClose() {
+        dialog = null;
     }
 
     @Override
@@ -244,10 +298,16 @@ public class Updater implements Download.Callback, UpdateListener {
     }
 
     private void setDialogProgress(int progress, long bytes, long total, long speed, long elapsed) {
-        if (canceled || !downloading || dialog == null) return;
+        if (canceled || !downloading) return;
         long manifestSize = selected == null ? 0 : selected.size;
         if (total <= 0 && manifestSize > 0) total = manifestSize;
         if (progress < 0 && total > 0 && bytes > 0) progress = (int) (bytes * 100.0 / total);
+        lastProgress = progress;
+        lastBytes = bytes;
+        lastTotal = total;
+        lastSpeed = speed;
+        lastElapsed = elapsed;
+        if (dialog == null) return;
         if (!dialog.setProgress(progress, bytes, total, speed, elapsed)) dialog = null;
     }
 
@@ -255,6 +315,8 @@ public class Updater implements Download.Callback, UpdateListener {
     public void error(String msg) {
         if (canceled) return;
         downloading = false;
+        download = null;
+        resetProgress();
         Notify.show(msg);
         dismiss();
     }
@@ -262,8 +324,76 @@ public class Updater implements Download.Callback, UpdateListener {
     @Override
     public void success(File file) {
         if (canceled) return;
-        downloading = false;
-        FileUtil.openFile(file);
-        dismiss();
+        download = null;
+        Update target = selected;
+        Task.execute(() -> {
+            String error = validate(file, target);
+            App.post(() -> {
+                if (canceled) return;
+                downloading = false;
+                resetProgress();
+                if (!TextUtils.isEmpty(error)) {
+                    Path.clear(file);
+                    Notify.show(error);
+                    dismiss();
+                    return;
+                }
+                FileUtil.openFile(file);
+                dismiss();
+            });
+        });
+    }
+
+    private void restoreDialog(FragmentActivity activity) {
+        if (!downloading || selected == null) return;
+        show(activity);
+        setDialogProgress(lastProgress, lastBytes, lastTotal, lastSpeed, lastElapsed);
+    }
+
+    private String validate(File file, Update update) {
+        if (file == null || !file.exists() || file.length() <= 0) return ResUtil.getString(R.string.update_download_invalid);
+        if (update != null && update.size > 0 && file.length() != update.size) return ResUtil.getString(R.string.update_download_incomplete);
+        if (update != null && !TextUtils.isEmpty(update.sha256) && !update.sha256.equalsIgnoreCase(sha256(file))) return ResUtil.getString(R.string.update_download_checksum);
+        if (App.get().getPackageManager().getPackageArchiveInfo(file.getAbsolutePath(), 0) == null) return ResUtil.getString(R.string.update_download_invalid);
+        return "";
+    }
+
+    private String sha256(File file) {
+        try (FileInputStream input = new FileInputStream(file)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[16384];
+            int read;
+            while ((read = input.read(buffer)) != -1) digest.update(buffer, 0, read);
+            StringBuilder builder = new StringBuilder();
+            for (byte value : digest.digest()) builder.append(String.format(Locale.ROOT, "%02x", value));
+            return builder.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void bind(FragmentActivity activity) {
+        if (activity == null) return;
+        FragmentActivity old = activityRef == null ? null : activityRef.get();
+        if (old == activity) return;
+        if (old != null) old.getLifecycle().removeObserver(lifecycleObserver);
+        activityRef = new WeakReference<>(activity);
+        activity.getLifecycle().addObserver(lifecycleObserver);
+    }
+
+    private void unbind(FragmentActivity activity) {
+        FragmentActivity current = activityRef == null ? null : activityRef.get();
+        if (current != activity) return;
+        activity.getLifecycle().removeObserver(lifecycleObserver);
+        activityRef = null;
+        if (!downloading) dialog = null;
+    }
+
+    private void resetProgress() {
+        lastProgress = -1;
+        lastBytes = 0;
+        lastTotal = 0;
+        lastSpeed = 0;
+        lastElapsed = 0;
     }
 }

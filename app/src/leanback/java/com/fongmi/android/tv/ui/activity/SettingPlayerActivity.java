@@ -74,6 +74,7 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
         mBinding.playCacheText.setText((playCache = ResUtil.getStringArray(R.array.select_play_cache))[PlayerSetting.getPlayCacheOption()]);
         setPreloadText();
         mBinding.autoChangeText.setText(getSwitch(PlayerSetting.isAutoChange()));
+        mBinding.autoSkipIntroOutroText.setText(getSwitch(Setting.isAutoSkipIntroOutro()));
         mBinding.backgroundText.setText(getSwitch(PlayerSetting.isBackgroundOn()));
         mBinding.musicNotificationText.setText(getSwitch(PlayerSetting.isMusicNotification()));
         mBinding.audioBookNotificationText.setText(getSwitch(PlayerSetting.isAudioBookNotification()));
@@ -106,6 +107,7 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
         mBinding.preloadSize.setOnClickListener(this::setPreloadSize);
         mBinding.preloadTime.setOnClickListener(this::setPreloadTime);
         mBinding.autoChange.setOnClickListener(this::setAutoChange);
+        mBinding.autoSkipIntroOutro.setOnClickListener(this::setAutoSkipIntroOutro);
         mBinding.render.setOnClickListener(this::setRender);
         mBinding.tunnel.setOnClickListener(this::setTunnel);
         mBinding.exo4kCompat.setOnClickListener(this::setExo4KCompat);
@@ -264,6 +266,11 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
     private void setAutoChange(View view) {
         PlayerSetting.putAutoChange(!PlayerSetting.isAutoChange());
         mBinding.autoChangeText.setText(getSwitch(PlayerSetting.isAutoChange()));
+    }
+
+    private void setAutoSkipIntroOutro(View view) {
+        Setting.putAutoSkipIntroOutro(!Setting.isAutoSkipIntroOutro());
+        mBinding.autoSkipIntroOutroText.setText(getSwitch(Setting.isAutoSkipIntroOutro()));
     }
 
     private void setRender(View view) {

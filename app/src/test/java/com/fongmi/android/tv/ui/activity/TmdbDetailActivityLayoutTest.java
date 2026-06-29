@@ -34,6 +34,62 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void fusionInlinePlayerButtonsUsePlayerButtonSettings() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int method = source.indexOf("private void applyInlinePlayerButtonSettings()");
+        int update = source.indexOf("private void updateInlineButtons(boolean playing)");
+        int call = source.indexOf("applyInlinePlayerButtonSettings();", update);
+
+        assertTrue(sourcePath + " is missing applyInlinePlayerButtonSettings", method >= 0);
+        assertTrue("inline player buttons must apply settings after dynamic visibility is recalculated", call > update);
+        assertTrue("wide fusion buttons must use PlayerButtonSetting order and visibility",
+                source.indexOf("PlayerButtonSetting.applyOrder((ViewGroup) binding.playerActionRow.getChildAt(0)", method) > method);
+        assertTrue("fusion fullscreen button must be mapped to player button settings",
+                source.indexOf("buttons.put(PlayerButtonSetting.FULLSCREEN, binding.playerFullscreenAction)", method) > method);
+        assertTrue("fusion refresh button must be mapped so hiding reset hides refresh",
+                source.indexOf("buttons.put(PlayerButtonSetting.RESET, binding.playerRefresh)", method) > method);
+        assertTrue("fusion source button must be mapped to the change setting",
+                source.indexOf("buttons.put(PlayerButtonSetting.CHANGE, binding.playerChangeSource)", method) > method);
+    }
+
+    @Test
+    public void mobileFusionInlinePlayerActionLayoutExposesConfigContainer() throws Exception {
+        Path layoutPath = findMainResPath().resolve(Path.of("layout", "view_control_vod_action_tmdb.xml"));
+        String layout = new String(Files.readAllBytes(layoutPath), StandardCharsets.UTF_8);
+
+        assertTrue("mobile fusion action row must expose @id/container for PlayerButtonSetting.applyOrder",
+                layout.contains("android:id=\"@+id/container\""));
+    }
+
+    @Test
+    public void mobileFusionDetailDocksInlinePlayerActionsBelowPlayer() throws Exception {
+        Path layoutPath = findMainResPath().resolve(Path.of("layout", "activity_tmdb_detail.xml"));
+        String layout = new String(Files.readAllBytes(layoutPath), StandardCharsets.UTF_8);
+        int player = layout.indexOf("android:id=\"@+id/playerPanel\"");
+        int dock = layout.indexOf("android:id=\"@+id/mobileFusionPlayerActionDock\"");
+        int fusionActions = layout.indexOf("android:id=\"@+id/fusionActions\"");
+
+        assertTrue("mobile fusion detail must expose a dock for the shared player action row", dock >= 0);
+        assertTrue("mobile fusion player action dock must sit between player and detail actions", player < dock && dock < fusionActions);
+
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int update = source.indexOf("private void updateMobileInlineButtons(boolean playing");
+        int dockMethod = source.indexOf("private boolean updateMobileFusionPlayerActionDock(boolean show)");
+        int restoreMethod = source.indexOf("private void restoreMobileInlinePlayerAction()");
+
+        assertTrue(sourcePath + " is missing updateMobileFusionPlayerActionDock", dockMethod >= 0);
+        assertTrue(sourcePath + " is missing restoreMobileInlinePlayerAction", restoreMethod >= 0);
+        assertTrue("mobile inline buttons must dock the action row before falling back to fullscreen visibility",
+                source.indexOf("boolean docked = updateMobileFusionPlayerActionDock(hasPlayer && !locked);", update) > update);
+        assertTrue("non-fullscreen fusion detail must move the shared action row into the visible dock",
+                source.indexOf("binding.mobileFusionPlayerActionDock.addView(detailActionRoot", dockMethod) > dockMethod);
+        assertTrue("fullscreen and non-fusion modes must restore the action row to the control overlay",
+                source.indexOf("restoreMobileInlinePlayerAction();", dockMethod) > dockMethod);
+    }
+
+    @Test
     public void fusionDetailBackdropCropsToFillScreen() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -110,6 +166,39 @@ public class TmdbDetailActivityLayoutTest {
                 body.contains("binding.keep.setSelected(kept)")
                         && body.contains("binding.keepTop.setSelected(kept)")
                         && body.contains("binding.keepFusion.setSelected(kept)"));
+    }
+
+    @Test
+    public void lightActionButtonsStayReadableOnBackdropAndPanels() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int theme = source.indexOf("private void applyDetailTheme()");
+        int themeEnd = source.indexOf("private void styleSourceValue()", theme);
+        int helper = source.indexOf("private void setDetailActionButton(MaterialButton button, ThemeColors colors)");
+        assertTrue(sourcePath + " is missing applyDetailTheme", theme >= 0 && themeEnd > theme);
+        assertTrue(sourcePath + " is missing setDetailActionButton", helper >= 0);
+
+        String themeBody = source.substring(theme, themeEnd);
+        assertTrue("light detail actions must use the readable action button helper",
+                themeBody.contains("setDetailActionButton(binding.keep, colors);")
+                        && themeBody.contains("setDetailActionButton(binding.keepTop, colors);")
+                        && themeBody.contains("setDetailActionButton(binding.keepFusion, colors);")
+                        && themeBody.contains("setDetailActionButton(binding.rematch, colors);")
+                        && themeBody.contains("setDetailActionButton(binding.rematchTop, colors);")
+                        && themeBody.contains("setDetailActionButton(binding.rematchFusion, colors);")
+                        && themeBody.contains("setDetailActionButton(binding.changeSource, colors);")
+                        && themeBody.contains("setDetailActionButton(binding.changeSourceDetail, colors);"));
+
+        int helperEnd = source.indexOf("private void setButton(MaterialButton button, int background, int stroke, int text)", helper);
+        assertTrue("setDetailActionButton must be placed before setButton", helperEnd > helper);
+        String helperBody = source.substring(helper, helperEnd);
+        assertTrue("light action buttons need an opaque surface instead of the translucent control color",
+                helperBody.contains("if (lightTheme)")
+                        && helperBody.contains("button.setAlpha(1f);")
+                        && helperBody.contains("0xFFFFFFFF")
+                        && helperBody.contains("colors.chipActive")
+                        && helperBody.contains("colors.lineStrong")
+                        && helperBody.contains("colors.primary"));
     }
 
     @Test

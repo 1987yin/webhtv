@@ -20,7 +20,9 @@ import android.widget.FrameLayout;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.widget.LinearLayoutCompat;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.Observer;
@@ -134,6 +136,9 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private boolean playbackCatchup;
     private boolean liveMenuOverlay;
     private VideoSize videoSize;
+    private int groupBasePaddingBottom;
+    private int channelBasePaddingBottom;
+    private int epgBasePaddingBottom;
 
     public static void start(Context context) {
         context.startActivity(new Intent(context, LiveActivity.class).putExtra("empty", LiveConfig.isEmpty()));
@@ -229,6 +234,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     protected void initView(Bundle savedInstanceState) {
         super.initView(savedInstanceState);
         mKeyDown = CustomKeyDown.create(this, mBinding.exo);
+        captureLiveListBasePadding();
+        setupWindowInsets();
         updateControlInsets();
         updateLiveMenuInsets();
         mObserveEpg = this::setEpg;
@@ -320,6 +327,20 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             }
         });
         mBinding.epgData.setAdapter(mEpgDataAdapter = new EpgDataAdapter(this));
+    }
+
+    private void captureLiveListBasePadding() {
+        groupBasePaddingBottom = mBinding.group.getPaddingBottom();
+        channelBasePaddingBottom = mBinding.channel.getPaddingBottom();
+        epgBasePaddingBottom = mBinding.epgData.getPaddingBottom();
+    }
+
+    private void setupWindowInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(mBinding.getRoot(), (view, insets) -> {
+            updateLiveListBottomInset(insets);
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(mBinding.getRoot());
     }
 
     private void setVideoView() {
@@ -896,12 +917,18 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     @Override
     public void onItemClick(Group item) {
         mGroupAdapter.setSelected(mGroup = item);
-        mChannelAdapter.addAll(item.getChannel(), item.getPosition());
+        mChannelAdapter.addAll(item.getChannel(), getCurrentChannelPosition(item));
         scrollToChannelPosition(Math.max(item.getPosition(), 0));
         if (!item.isKeep() || ++count < 5 || mHides.isEmpty()) return;
         if (Biometric.enable()) Biometric.show(this);
         else PassDialog.create().show(this);
         resetPass();
+    }
+
+    private int getCurrentChannelPosition(Group group) {
+        if (mChannel == null || mChannel.getGroup() == null || !group.equals(mChannel.getGroup())) return -1;
+        for (int i = 0; i < group.getChannel().size(); i++) if (group.getChannel().get(i) == mChannel) return i;
+        return group.getChannel().indexOf(mChannel);
     }
 
     @Override
@@ -1838,11 +1865,25 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private void updateLiveMenuInsets() {
         if (isEmbeddedLiveUi()) noPadding(mBinding.recycler);
         else setPadding(mBinding.recycler, true);
+        updateLiveListBottomInset(ViewCompat.getRootWindowInsets(mBinding.getRoot()));
     }
 
     private void updateControlInsets() {
         if (isEmbeddedLiveUi()) noPadding(mBinding.control.getRoot());
         else setPadding(mBinding.control.getRoot());
+    }
+
+    private void updateLiveListBottomInset(@Nullable WindowInsetsCompat insets) {
+        int bottom = isEmbeddedLiveUi() && insets != null ? insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom : 0;
+        int extra = isEmbeddedLiveUi() ? bottom + ResUtil.dp2px(6) : 0;
+        setRecyclerBottomPadding(mBinding.group, groupBasePaddingBottom + extra);
+        setRecyclerBottomPadding(mBinding.channel, channelBasePaddingBottom + extra);
+        setRecyclerBottomPadding(mBinding.epgData, epgBasePaddingBottom + extra);
+    }
+
+    private void setRecyclerBottomPadding(RecyclerView view, int bottom) {
+        if (view.getPaddingBottom() == bottom) return;
+        view.setPaddingRelative(view.getPaddingStart(), view.getPaddingTop(), view.getPaddingEnd(), bottom);
     }
 
     private void updateVideoHeight(VideoSize size) {

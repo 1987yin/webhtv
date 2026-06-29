@@ -269,6 +269,7 @@ public class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.ViewHold
         textView.setNextFocusDownId(isBottomEdge(position) && nextFocusDown != 0 ? nextFocusDown : View.NO_ID);
         textView.setSelected(item.isSelected());
         textView.setText(getTitle(item));
+        textView.setOnKeyListener(keyListener);
         textView.setOnClickListener(v -> mListener.onItemClick(item));
         if (mLongClickListener != null) {
             textView.setOnLongClickListener(v -> {
@@ -291,6 +292,7 @@ public class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.ViewHold
         binding.cardContainer.setSelected(item.isSelected());
         binding.cardContainer.setNextFocusUpId(isTopEdge(position) && nextFocusUp != 0 ? nextFocusUp : View.NO_ID);
         binding.cardContainer.setNextFocusDownId(isBottomEdge(position) && nextFocusDown != 0 ? nextFocusDown : View.NO_ID);
+        binding.cardContainer.setOnKeyListener(keyListener);
 
         // 设置焦点边框效果
         binding.cardContainer.setForeground(binding.cardContainer.getContext().getDrawable(R.drawable.selector_episode_card));
@@ -309,19 +311,15 @@ public class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.ViewHold
         // 设置标题
         binding.cardTitle.setText(cardTitle);
 
-        // 网格模式展示更多元信息，列表模式保持干净的横向剧照条
-        if (gridMode && !tmdbEpisode.getDate().isEmpty()) {
-            binding.dateBadge.setText(tmdbEpisode.getDate());
+        // 网格模式展示手机版原生增强同款的日期 / 时长徽标，列表模式保持干净的横向剧照条
+        String meta = getMeta(tmdbEpisode);
+        if (gridMode && !TextUtils.isEmpty(meta)) {
+            binding.dateBadge.setText(meta);
             binding.dateBadge.setVisibility(View.VISIBLE);
         } else {
             binding.dateBadge.setVisibility(View.GONE);
         }
-        if (gridMode && tmdbEpisode.getRuntime() > 0) {
-            binding.runtimeBadge.setText(String.format(Locale.US, "%dm", tmdbEpisode.getRuntime()));
-            binding.runtimeBadge.setVisibility(View.VISIBLE);
-        } else {
-            binding.runtimeBadge.setVisibility(View.GONE);
-        }
+        binding.runtimeBadge.setVisibility(View.GONE);
 
         // 设置简介
         if (gridMode && !tmdbEpisode.getOverview().isEmpty()) {
@@ -432,6 +430,13 @@ public class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.ViewHold
         String title = EpisodeTitleFormatter.formatTmdbTitle(tmdbEpisode.getNumber(), tmdbEpisode.getTitle());
         if (title.isEmpty()) title = tmdbEpisode.getDisplayTitle();
         return EpisodeTitleFormatter.withSourceFileSize(item.getName(), title, Setting.isTmdbEpisodeFileSize());
+    }
+
+    private String getMeta(TmdbEpisode tmdbEpisode) {
+        List<String> values = new ArrayList<>();
+        if (!TextUtils.isEmpty(tmdbEpisode.getDate())) values.add(tmdbEpisode.getDate());
+        if (tmdbEpisode.getRuntime() > 0) values.add(String.format(Locale.US, "%dm", tmdbEpisode.getRuntime()));
+        return TextUtils.join(" / ", values);
     }
 
     private boolean isTopEdge(int position) {

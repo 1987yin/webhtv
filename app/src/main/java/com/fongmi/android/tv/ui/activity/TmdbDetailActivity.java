@@ -15,6 +15,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.text.TextUtils;
+import android.util.TypedValue;
 import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -80,6 +81,7 @@ import com.fongmi.android.tv.service.IntroSkipService;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.service.TmdbService;
 import com.fongmi.android.tv.setting.DanmakuSetting;
+import com.fongmi.android.tv.setting.PlayerButtonSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.subtitle.SubtitlePlaybackSession;
@@ -250,6 +252,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private ViewGroup.LayoutParams inlinePiPLayoutParams;
     private View detailControlRoot;
     private View detailActionRoot;
+    private ViewGroup detailActionParent;
+    private ViewGroup.LayoutParams detailActionLayoutParams;
+    private int detailActionIndex;
     private View inlineControlFocus;
     private long lastInlineControlInteraction;
     private long inlineDisplaySuppressUntil;
@@ -283,6 +288,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private boolean manualEpisodeRange;
     private boolean scrollEpisodeStartOnce;
     private int episodeRangeIndex;
+    private int pendingEpisodeRangeFocus = -1;
     private boolean tmdbMediaLoading;
     private boolean lightTheme;
     private boolean backdropSlideLoading;
@@ -745,6 +751,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.detailControlHost.removeAllViews();
         binding.detailControlHost.addView(detailControlRoot);
         detailActionRoot = detailControlRoot.findViewById(R.id.action);
+        detailActionParent = (ViewGroup) detailActionRoot.getParent();
+        detailActionLayoutParams = detailActionRoot.getLayoutParams();
+        detailActionIndex = detailActionParent.indexOfChild(detailActionRoot);
     }
 
     private <T extends View> T detailControlView(int id, Class<T> type) {
@@ -1011,24 +1020,24 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         setCard(binding.tmdbPanel, colors.panel, colors.line);
         applyTemplateCardChrome(colors);
         tintTextTree(binding.getRoot(), colors);
-        setButton(binding.keep, colors.control, colors.line, colors.primary);
-        setButton(binding.keepTop, colors.control, colors.line, colors.primary);
-        setButton(binding.keepFusion, colors.control, colors.line, colors.primary);
-        setButton(binding.rematch, colors.control, colors.line, colors.primary);
-        setButton(binding.rematchTop, colors.control, colors.line, colors.primary);
-        setButton(binding.rematchFusion, colors.control, colors.line, colors.primary);
-        setButton(binding.changeSource, colors.control, colors.line, colors.primary);
-        setButton(binding.changeSourceDetail, colors.control, colors.line, colors.primary);
-        setButton(binding.themeModeTop, colors.control, colors.line, colors.primary);
-        setButton(binding.themeMode, colors.control, colors.line, colors.primary);
-        setButton(binding.themeModeDetail, colors.control, colors.line, colors.primary);
+        setDetailActionButton(binding.keep, colors);
+        setDetailActionButton(binding.keepTop, colors);
+        setDetailActionButton(binding.keepFusion, colors);
+        setDetailActionButton(binding.rematch, colors);
+        setDetailActionButton(binding.rematchTop, colors);
+        setDetailActionButton(binding.rematchFusion, colors);
+        setDetailActionButton(binding.changeSource, colors);
+        setDetailActionButton(binding.changeSourceDetail, colors);
+        setDetailActionButton(binding.themeModeTop, colors);
+        setDetailActionButton(binding.themeMode, colors);
+        setDetailActionButton(binding.themeModeDetail, colors);
         setButton(binding.episodeReverse, colors.control, colors.line, colors.primary);
         setButton(binding.episodeViewMode, colors.control, colors.line, colors.primary);
         setButton(binding.play, colors.play, colors.play, 0xFFFFFFFF);
         binding.headerTitle.setTextColor(colors.primary);
         binding.title.setTextColor(colors.primary);
         binding.subtitle.setTextColor(colors.secondary);
-        binding.sourceValue.setTextColor(colors.muted);
+        styleSourceValue();
         binding.overview.setTextColor(colors.body);
         binding.overviewToggle.setTextColor(colors.accent);
         binding.episodeEmpty.setTextColor(colors.secondary);
@@ -1056,6 +1065,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (episodePhotoAdapter != null) episodePhotoAdapter.setLight(lightTheme);
         setDetailAdaptersLight(lightTheme);
         if (isCinemaMode()) scheduleBackdropSlide(BACKDROP_SLIDE_DELAY_MS);
+    }
+
+    private void styleSourceValue() {
+        int titleColor = binding.flagTitle.getCurrentTextColor();
+        binding.sourceValue.setAlpha(1f);
+        binding.sourceValue.setTextColor(titleColor);
+        binding.sourceValue.setLinkTextColor(titleColor);
+        binding.sourceValue.setTextSize(TypedValue.COMPLEX_UNIT_PX, binding.flagTitle.getTextSize());
+        binding.sourceValue.setTypeface(binding.flagTitle.getTypeface());
     }
 
     private void setDetailAdaptersLight(boolean light) {
@@ -1355,6 +1373,24 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerPanel.post(() -> {
             if (!isFinishing() && binding.playerPanel.getVisibility() == View.VISIBLE && !inlineFullscreen) binding.playerPanel.requestFocus();
         });
+    }
+
+    private void setDetailActionButton(MaterialButton button, ThemeColors colors) {
+        if (lightTheme) {
+            int[][] states = new int[][]{
+                    new int[]{android.R.attr.state_selected},
+                    new int[]{}
+            };
+            button.setAlpha(1f);
+            button.setBackgroundTintList(new ColorStateList(states, new int[]{colors.chipActive, 0xFFFFFFFF}));
+            button.setTextColor(new ColorStateList(states, new int[]{colors.primary, colors.primary}));
+            button.setIconTint(new ColorStateList(states, new int[]{colors.primary, colors.primary}));
+            button.setOnFocusChangeListener(null);
+            applyButtonFocus(button, colors.lineStrong, button.hasFocus());
+            button.setOnFocusChangeListener((view, focused) -> applyButtonFocus(button, colors.lineStrong, focused));
+            return;
+        }
+        setButton(button, colors.control, colors.line, colors.primary);
     }
 
     private void setButton(MaterialButton button, int background, int stroke, int text) {
@@ -2511,20 +2547,48 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 episodeRangeIndex = index;
                 renderEpisodes();
             });
+            setEpisodeRangeFocusChange(button, index);
             binding.episodeRangeContainer.addView(button);
         }
         View selected = binding.episodeRangeContainer.getChildAt(episodeRangeIndex);
         if (selected != null) binding.episodeRangeScroll.post(() -> binding.episodeRangeScroll.smoothScrollTo(Math.max(0, selected.getLeft() - ResUtil.dp2px(12)), 0));
+        restoreEpisodeRangeFocus();
+    }
+
+    private void setEpisodeRangeFocusChange(MaterialButton button, int index) {
+        ThemeColors colors = lightTheme ? ThemeColors.light() : ThemeColors.dark();
+        button.setOnFocusChangeListener((view, focused) -> {
+            applyChipFocus(button, index == episodeRangeIndex, focused, colors);
+            if (!focused || index == episodeRangeIndex) return;
+            cancelPendingInlinePlayback();
+            manualEpisodeRange = true;
+            episodeRangeIndex = index;
+            pendingEpisodeRangeFocus = index;
+            renderEpisodes();
+        });
+    }
+
+    private void restoreEpisodeRangeFocus() {
+        if (pendingEpisodeRangeFocus < 0) return;
+        int target = pendingEpisodeRangeFocus;
+        pendingEpisodeRangeFocus = -1;
+        binding.episodeRangeContainer.post(() -> {
+            if (binding == null || target >= binding.episodeRangeContainer.getChildCount()) return;
+            View child = binding.episodeRangeContainer.getChildAt(target);
+            if (child != null) child.requestFocus();
+        });
     }
 
     private void clearEpisodeRanges() {
         binding.episodeRangeScroll.setVisibility(View.GONE);
         binding.episodeRangeContainer.removeAllViews();
+        pendingEpisodeRangeFocus = -1;
     }
 
     private void resetEpisodeRange() {
         episodeRangeIndex = 0;
         manualEpisodeRange = false;
+        pendingEpisodeRangeFocus = -1;
     }
 
     private void scrollEpisodeToSelected() {
@@ -3933,7 +3997,56 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerRepeat.setSelected(hasPlayer && player().isRepeatOne());
         setInlineFullscreenIcon();
         updateMobileInlineButtons(playing, hasPlayer, hasPrev, hasNext, hasTitle);
+        applyInlinePlayerButtonSettings();
         updateInlineDisplayPanel();
+    }
+
+    private void applyInlinePlayerButtonSettings() {
+        PlayerButtonSetting.applyOrder((ViewGroup) binding.playerActionRow.getChildAt(0), inlinePlayerButtonMap());
+        if (!Util.isMobile() || detailActionRoot == null) return;
+        PlayerButtonSetting.applyOrder(detailActionRoot.findViewById(R.id.container), mobileInlinePlayerButtonMap());
+    }
+
+    private Map<String, View> inlinePlayerButtonMap() {
+        Map<String, View> buttons = new LinkedHashMap<>();
+        buttons.put(PlayerButtonSetting.FULLSCREEN, binding.playerFullscreenAction);
+        buttons.put(PlayerButtonSetting.NEXT, binding.playerNext);
+        buttons.put(PlayerButtonSetting.PREV, binding.playerPrev);
+        buttons.put(PlayerButtonSetting.EPISODES, binding.playerEpisodes);
+        buttons.put(PlayerButtonSetting.RESET, binding.playerRefresh);
+        buttons.put(PlayerButtonSetting.CHANGE, binding.playerChangeSource);
+        buttons.put(PlayerButtonSetting.PLAYER, binding.playerExternal);
+        buttons.put(PlayerButtonSetting.DECODE, binding.playerDecode);
+        buttons.put(PlayerButtonSetting.SPEED, binding.playerSpeed);
+        buttons.put(PlayerButtonSetting.SCALE, binding.playerScale);
+        buttons.put(PlayerButtonSetting.TEXT, binding.playerTextTrack);
+        buttons.put(PlayerButtonSetting.AUDIO, binding.playerAudioTrack);
+        buttons.put(PlayerButtonSetting.VIDEO, binding.playerVideoTrack);
+        buttons.put(PlayerButtonSetting.OPENING, binding.playerOpening);
+        buttons.put(PlayerButtonSetting.ENDING, binding.playerEnding);
+        buttons.put(PlayerButtonSetting.DANMAKU, binding.playerDanmaku);
+        buttons.put(PlayerButtonSetting.TITLE, binding.playerChapter);
+        buttons.put(PlayerButtonSetting.REPEAT, binding.playerRepeat);
+        return buttons;
+    }
+
+    private Map<String, View> mobileInlinePlayerButtonMap() {
+        Map<String, View> buttons = new LinkedHashMap<>();
+        buttons.put(PlayerButtonSetting.PLAYER, detailActionView(R.id.player, View.class));
+        buttons.put(PlayerButtonSetting.DECODE, detailActionView(R.id.decode, View.class));
+        buttons.put(PlayerButtonSetting.SPEED, detailActionView(R.id.speed, View.class));
+        buttons.put(PlayerButtonSetting.SCALE, detailActionView(R.id.scale, View.class));
+        buttons.put(PlayerButtonSetting.RESET, detailActionView(R.id.reset, View.class));
+        buttons.put(PlayerButtonSetting.REPEAT, detailActionView(R.id.repeat, View.class));
+        buttons.put(PlayerButtonSetting.TEXT, detailActionView(R.id.text, View.class));
+        buttons.put(PlayerButtonSetting.AUDIO, detailActionView(R.id.audio, View.class));
+        buttons.put(PlayerButtonSetting.VIDEO, detailActionView(R.id.video, View.class));
+        buttons.put(PlayerButtonSetting.OPENING, detailActionView(R.id.opening, View.class));
+        buttons.put(PlayerButtonSetting.ENDING, detailActionView(R.id.ending, View.class));
+        buttons.put(PlayerButtonSetting.DANMAKU, detailActionView(R.id.danmaku, View.class));
+        buttons.put(PlayerButtonSetting.TITLE, detailActionView(R.id.chapter, View.class));
+        buttons.put(PlayerButtonSetting.EPISODES, detailActionView(R.id.episodes, View.class));
+        return buttons;
     }
 
     private void updateMobileInlineButtons(boolean playing, boolean hasPlayer, boolean hasPrev, boolean hasNext, boolean hasTitle) {
@@ -4006,8 +4119,33 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         detailActionView(R.id.chapter, View.class).setVisibility(hasTitle ? View.VISIBLE : View.GONE);
         detailActionView(R.id.actionQuality, View.class).setVisibility(inlineQuality ? View.VISIBLE : View.GONE);
         detailActionView(R.id.repeat, View.class).setSelected(hasPlayer && player().isRepeatOne());
-        action.setVisibility(inlineFullscreen && !locked ? View.VISIBLE : View.GONE);
+        boolean docked = updateMobileFusionPlayerActionDock(hasPlayer && !locked);
+        if (!docked) action.setVisibility(inlineFullscreen && !locked ? View.VISIBLE : View.GONE);
         inlineControlController.updateDanmakuState();
+    }
+
+    private boolean updateMobileFusionPlayerActionDock(boolean show) {
+        if (!Util.isMobile() || detailActionRoot == null || binding.mobileFusionPlayerActionDock == null) return false;
+        if (!isFusionMode() || inlineFullscreen || inlinePiPLayout || !show) {
+            restoreMobileInlinePlayerAction();
+            binding.mobileFusionPlayerActionDock.setVisibility(View.GONE);
+            return false;
+        }
+        if (detailActionRoot.getParent() != binding.mobileFusionPlayerActionDock) {
+            if (detailActionRoot.getParent() instanceof ViewGroup parent) parent.removeView(detailActionRoot);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            binding.mobileFusionPlayerActionDock.addView(detailActionRoot, params);
+        }
+        binding.mobileFusionPlayerActionDock.setVisibility(View.VISIBLE);
+        detailActionRoot.setVisibility(View.VISIBLE);
+        return true;
+    }
+
+    private void restoreMobileInlinePlayerAction() {
+        if (detailActionRoot == null || detailActionParent == null || detailActionRoot.getParent() == detailActionParent) return;
+        if (detailActionRoot.getParent() instanceof ViewGroup parent) parent.removeView(detailActionRoot);
+        int index = Math.min(Math.max(detailActionIndex, 0), detailActionParent.getChildCount());
+        detailActionParent.addView(detailActionRoot, index, detailActionLayoutParams);
     }
 
     private CharSequence inlineDecodeText(boolean hasPlayer) {
@@ -4675,44 +4813,28 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void showTvInlineEpisodes() {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(ResUtil.dp2px(28), ResUtil.dp2px(16), ResUtil.dp2px(28), ResUtil.dp2px(20));
+        panel.setPadding(ResUtil.dp2px(36), ResUtil.dp2px(34), ResUtil.dp2px(36), ResUtil.dp2px(26));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(0xDD111820);
-        background.setCornerRadius(ResUtil.dp2px(8));
+        background.setColor(0x66111820);
+        background.setCornerRadius(0);
         panel.setBackground(background);
 
-        LinearLayout header = new LinearLayout(this);
-        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        TextView title = new TextView(this);
-        title.setText(R.string.detail_episode);
-        title.setTextColor(0xFFEAF2F8);
-        title.setTextSize(18f);
-        header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        ImageView reverse = new ImageView(this);
-        reverse.setImageResource(R.drawable.ic_action_reverse);
-        reverse.setColorFilter(0xFFEAF2F8);
-        reverse.setPadding(ResUtil.dp2px(8), ResUtil.dp2px(8), ResUtil.dp2px(8), ResUtil.dp2px(8));
-        reverse.setFocusable(true);
-        reverse.setFocusableInTouchMode(true);
-        reverse.setClickable(true);
-        reverse.setContentDescription(getString(R.string.detail_episode_reverse));
-        applyEpisodeDialogIconState(reverse, false);
-        reverse.setOnFocusChangeListener((view, focused) -> applyEpisodeDialogIconState(reverse, focused));
-        header.addView(reverse, new LinearLayout.LayoutParams(ResUtil.dp2px(34), ResUtil.dp2px(34)));
-        ImageView mode = new ImageView(this);
-        updateInlineEpisodeModeIcon(mode);
-        mode.setColorFilter(0xFFEAF2F8);
-        mode.setPadding(ResUtil.dp2px(8), ResUtil.dp2px(8), ResUtil.dp2px(8), ResUtil.dp2px(8));
-        mode.setFocusable(true);
-        mode.setFocusableInTouchMode(true);
-        mode.setClickable(true);
-        applyEpisodeDialogIconState(mode, false);
-        mode.setOnFocusChangeListener((view, focused) -> applyEpisodeDialogIconState(mode, focused));
-        LinearLayout.LayoutParams modeParams = new LinearLayout.LayoutParams(ResUtil.dp2px(34), ResUtil.dp2px(34));
-        modeParams.setMarginStart(ResUtil.dp2px(8));
-        header.addView(mode, modeParams);
-        panel.addView(header, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        TextView flagTitle = createTvInlineSectionTitle(R.string.detail_flag);
+        panel.addView(flagTitle, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        HorizontalScrollView flagScroll = new HorizontalScrollView(this);
+        flagScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout flagRow = new LinearLayout(this);
+        flagRow.setOrientation(LinearLayout.HORIZONTAL);
+        flagScroll.addView(flagRow, new HorizontalScrollView.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams flagParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        flagParams.topMargin = ResUtil.dp2px(12);
+        panel.addView(flagScroll, flagParams);
+
+        TextView episodeTitle = createTvInlineSectionTitle(R.string.detail_episode);
+        LinearLayout.LayoutParams episodeTitleParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        episodeTitleParams.topMargin = ResUtil.dp2px(22);
+        panel.addView(episodeTitle, episodeTitleParams);
 
         HorizontalScrollView pageScroll = new HorizontalScrollView(this);
         pageScroll.setHorizontalScrollBarEnabled(false);
@@ -4720,14 +4842,14 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         LinearLayout pageRow = new LinearLayout(this);
         pageRow.setOrientation(LinearLayout.HORIZONTAL);
         pageScroll.addView(pageRow, new HorizontalScrollView.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        LinearLayout.LayoutParams pageParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ResUtil.dp2px(48));
-        pageParams.topMargin = ResUtil.dp2px(6);
+        LinearLayout.LayoutParams pageParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pageParams.topMargin = ResUtil.dp2px(12);
         panel.addView(pageScroll, pageParams);
 
         RecyclerView recycler = new RecyclerView(this);
         recycler.setClipToPadding(false);
         updateTvInlineEpisodeLayoutManager(recycler);
-        InlineEpisodeAdapter adapter = new InlineEpisodeAdapter(new InlineEpisodeAdapter.Listener() {
+        TmdbEpisodeAdapter adapter = new TmdbEpisodeAdapter(new TmdbEpisodeAdapter.Listener() {
             @Override
             public void onItemClick(Episode episode) {
                 Dialog dialog = (Dialog) panel.getTag();
@@ -4736,30 +4858,52 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             }
 
             @Override
-            public boolean onItemLongClick(MaterialButton button, Episode episode) {
-                Notify.show(inlineEpisodeTitle(episode));
-                return true;
+            public void onItemLongClick(View anchor, Episode episode, int episodeNumber) {
+                if (EpisodeTitlePopup.show(anchor, inlineEpisodeTitle(episode))) return;
+                showTmdbEpisodeDetail(episode, episodeNumber);
             }
         });
+        adapter.setLight(lightTheme);
+        adapter.setActiveStrokeColor(0xFF2AA46B);
+        adapter.setNativeEnhanced(true);
         recycler.setAdapter(adapter);
-        LinearLayout.LayoutParams recyclerParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ResUtil.dp2px(314));
-        recyclerParams.topMargin = ResUtil.dp2px(6);
+        LinearLayout.LayoutParams recyclerParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (int) (ResUtil.getScreenHeight(this) * 0.62f));
+        recyclerParams.topMargin = ResUtil.dp2px(10);
         panel.addView(recycler, recyclerParams);
 
         final int[] pageIndex = {0};
+        final List<MaterialButton> flagButtons = new ArrayList<>();
         final List<TextView> pageButtons = new ArrayList<>();
         final Runnable[] render = new Runnable[1];
+        View.OnKeyListener flagKeyListener = (view, keyCode, event) -> {
+            if (!KeyUtil.isDownKey(event)) return false;
+            if (!KeyUtil.isActionDown(event)) return true;
+            if (focusTvInlinePageButton(pageButtons, pageScroll, pageIndex[0])) return true;
+            return focusTvInlineEpisode(recycler, adapter);
+        };
+        adapter.setOnKeyListener((view, keyCode, event) -> {
+            if (!KeyUtil.isUpKey(event)) return false;
+            if (!KeyUtil.isActionDown(event)) return true;
+            if (recycler.getChildAdapterPosition(view) > 0) return false;
+            if (focusTvInlinePageButton(pageButtons, pageScroll, pageIndex[0])) return true;
+            return focusTvInlineFlagButton(flagButtons, flagScroll, selectedFlag);
+        });
         final java.util.function.BiConsumer<Integer, Boolean> showPage = (index, focusEpisode) -> {
             List<Episode> ordered = orderedInlineEpisodes();
             List<EpisodeRangePolicy.Range> ranges = EpisodeRangePolicy.build(ordered.size(), ordered.indexOf(selectedEpisode), episodeReverse);
             if (ranges.isEmpty()) {
-                adapter.setItems(List.of(), selectedEpisode, inlineEpisodeTitles(selectedFlag.getEpisodes()));
+                adapter.setItems(List.of(), tmdbEpisodes, Map.of(), selectedEpisode);
                 return;
             }
             pageIndex[0] = Math.max(0, Math.min(index, ranges.size() - 1));
             List<Episode> pageItems = EpisodeRangePolicy.slice(ordered, ranges.get(pageIndex[0]));
-            adapter.setItems(pageItems, selectedEpisode, inlineEpisodeTitles(selectedFlag.getEpisodes()));
-            for (int i = 0; i < pageButtons.size(); i++) applyEpisodeDialogPageState(pageButtons.get(i), i == pageIndex[0], pageButtons.get(i).hasFocus());
+            adapter.setMode(TmdbEpisodeAdapter.Mode.GRID);
+            adapter.setGridSpanCount(1);
+            adapter.setFallbackStillUrl(episodeFallbackStillUrl());
+            adapter.setItems(pageItems, tmdbEpisodes, episodeNumbers(pageItems, selectedFlag.getEpisodes()), selectedEpisode);
+            for (int i = 0; i < pageButtons.size(); i++) {
+                if (pageButtons.get(i) instanceof MaterialButton button) applyTvInlineChipState(button, i == pageIndex[0], button.hasFocus());
+            }
             if (!focusEpisode) return;
             int selected = pageItems.indexOf(selectedEpisode);
             if (selected < 0) selected = 0;
@@ -4773,7 +4917,21 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 });
             });
         };
+        Runnable renderFlags = () -> {
+            flagRow.removeAllViews();
+            flagButtons.clear();
+            List<Flag> flags = vod == null ? List.of() : vod.getFlags();
+            for (Flag flag : flags) {
+                MaterialButton button = createChipButton(flag.getShow());
+                setChipState(button, flag.equals(selectedFlag));
+                button.setOnClickListener(view -> switchTvInlineFlag(flag, render));
+                button.setOnKeyListener(flagKeyListener);
+                flagRow.addView(button);
+                flagButtons.add(button);
+            }
+        };
         render[0] = () -> {
+            renderFlags.run();
             List<Episode> ordered = orderedInlineEpisodes();
             pageRow.removeAllViews();
             pageButtons.clear();
@@ -4782,31 +4940,33 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             if (ranges.isEmpty()) return;
             int selectedPage = EpisodeRangePolicy.selectedPosition(ranges);
             for (int i = 0; i < ranges.size(); i++) {
-                TextView button = createEpisodeDialogPageButton(ranges.get(i).label(), i == selectedPage);
+                MaterialButton button = createChipButton(ranges.get(i).label());
+                setChipState(button, i == selectedPage);
                 int page = i;
-                button.setOnClickListener(view -> showPage.accept(page, true));
+                button.setOnClickListener(view -> {
+                    showPage.accept(page, false);
+                    focusTvInlinePageButton(pageButtons, pageScroll, page);
+                });
                 button.setOnFocusChangeListener((view, focused) -> {
-                    applyEpisodeDialogPageState(button, page == pageIndex[0], focused);
+                    applyTvInlineChipState(button, page == pageIndex[0], focused);
                     if (focused && page != pageIndex[0]) showPage.accept(page, false);
                 });
-                button.setOnKeyListener((view, keyCode, event) -> moveEpisodeDialogPageFocus(pageButtons, pageScroll, page, keyCode, event, target -> showPage.accept(target, false)));
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ResUtil.dp2px(136), ResUtil.dp2px(34));
-                params.setMargins(0, ResUtil.dp2px(5), ResUtil.dp2px(12), ResUtil.dp2px(5));
-                pageRow.addView(button, params);
+                button.setOnKeyListener((view, keyCode, event) -> {
+                    if (KeyUtil.isDownKey(event)) {
+                        if (!KeyUtil.isActionDown(event)) return true;
+                        return focusTvInlineEpisode(recycler, adapter);
+                    }
+                    if (KeyUtil.isUpKey(event)) {
+                        if (!KeyUtil.isActionDown(event)) return true;
+                        return focusTvInlineFlagButton(flagButtons, flagScroll, selectedFlag);
+                    }
+                    return moveEpisodeDialogPageFocus(pageButtons, pageScroll, page, keyCode, event, target -> showPage.accept(target, false));
+                });
+                pageRow.addView(button);
                 pageButtons.add(button);
             }
             showPage.accept(selectedPage, true);
         };
-        reverse.setOnClickListener(view -> {
-            toggleEpisodeReverse();
-            render[0].run();
-        });
-        mode.setOnClickListener(view -> {
-            inlineEpisodeGridMode = !inlineEpisodeGridMode;
-            updateTvInlineEpisodeLayoutManager(recycler);
-            updateInlineEpisodeModeIcon(mode);
-            render[0].run();
-        });
 
         AlertDialog dialog = new MaterialAlertDialogBuilder(this).setView(panel).create();
         panel.setTag(dialog);
@@ -4816,10 +4976,86 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawableResource(android.R.color.transparent);
-            window.setDimAmount(0.18f);
-            int width = (int) (ResUtil.getScreenWidth(this) * 0.84f);
-            window.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT);
+            window.setDimAmount(0.08f);
+            window.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+            int width = Math.min(ResUtil.dp2px(760), (int) (ResUtil.getScreenWidth(this) * 0.50f));
+            window.setLayout(width, WindowManager.LayoutParams.MATCH_PARENT);
         }
+    }
+
+    private TextView createTvInlineSectionTitle(int resId) {
+        TextView title = new TextView(this);
+        title.setText(resId);
+        title.setTextColor(0xFFFFFFFF);
+        title.setTextSize(16f);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setIncludeFontPadding(false);
+        return title;
+    }
+
+    private void applyTvInlineChipState(MaterialButton button, boolean selected, boolean focused) {
+        ThemeColors colors = lightTheme ? ThemeColors.light() : ThemeColors.dark();
+        button.setTextColor(colors.primary);
+        button.setBackgroundColor(selected ? colors.chipActive : colors.chip);
+        applyChipFocus(button, selected, focused, colors);
+    }
+
+    private void switchTvInlineFlag(Flag flag, Runnable[] render) {
+        if (flag == null || flag.equals(selectedFlag)) return;
+        cancelPendingInlinePlayback();
+        selectedFlag = flag;
+        selectedEpisode = null;
+        selectedSeasonNumber = -1;
+        resetEpisodeRange();
+        if (selectedFlag.getEpisodes() != null && !selectedFlag.getEpisodes().isEmpty()) selectedEpisode = selectedFlag.find(history == null ? "" : history.getVodRemarks(), getMarkText().isEmpty());
+        if (selectedEpisode == null && selectedFlag.getEpisodes() != null && !selectedFlag.getEpisodes().isEmpty()) selectedEpisode = selectedFlag.getEpisodes().get(0);
+        if (selectedEpisode != null) selectedSeasonNumber = seasonForEpisode(selectedEpisode, selectedFlag.getEpisodes());
+        if (render != null && render[0] != null) render[0].run();
+    }
+
+    private boolean focusTvInlineFlagButton(List<MaterialButton> buttons, HorizontalScrollView scroll, Flag flag) {
+        if (buttons.isEmpty()) return false;
+        int target = 0;
+        List<Flag> flags = vod == null ? List.of() : vod.getFlags();
+        for (int i = 0; i < flags.size() && i < buttons.size(); i++) {
+            if (flags.get(i).equals(flag)) {
+                target = i;
+                break;
+            }
+        }
+        MaterialButton button = buttons.get(target);
+        scroll.post(() -> {
+            if (button.getParent() == null) return;
+            button.requestFocus();
+            scroll.smoothScrollTo(Math.max(0, button.getLeft() - ResUtil.dp2px(12)), 0);
+        });
+        return true;
+    }
+
+    private boolean focusTvInlinePageButton(List<TextView> buttons, HorizontalScrollView scroll, int position) {
+        if (buttons.isEmpty() || scroll.getVisibility() != View.VISIBLE) return false;
+        int target = Math.max(0, Math.min(position, buttons.size() - 1));
+        TextView button = buttons.get(target);
+        scroll.post(() -> {
+            if (button.getParent() == null) return;
+            button.requestFocus();
+            scroll.smoothScrollTo(Math.max(0, button.getLeft() - ResUtil.dp2px(12)), 0);
+        });
+        return true;
+    }
+
+    private boolean focusTvInlineEpisode(RecyclerView recycler, TmdbEpisodeAdapter adapter) {
+        if (adapter.getItemCount() == 0) return false;
+        int focus = Math.max(0, adapter.getPosition(selectedEpisode));
+        recycler.post(() -> {
+            recycler.scrollToPosition(focus);
+            recycler.post(() -> {
+                RecyclerView.ViewHolder holder = recycler.findViewHolderForAdapterPosition(focus);
+                if (holder != null) holder.itemView.requestFocus();
+                else recycler.requestFocus();
+            });
+        });
+        return true;
     }
 
     private boolean moveEpisodeDialogPageFocus(List<TextView> buttons, HorizontalScrollView scroll, int position, int keyCode, KeyEvent event, java.util.function.IntConsumer showPage) {
@@ -5002,13 +5238,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void updateTvInlineEpisodeLayoutManager(RecyclerView recycler) {
         RecyclerView.LayoutManager current = recycler.getLayoutManager();
-        if (inlineEpisodeGridMode) {
-            if (current instanceof GridLayoutManager grid && grid.getSpanCount() == 3) return;
-            recycler.setLayoutManager(new GridLayoutManager(this, 3));
-        } else {
-            if (current instanceof LinearLayoutManager linear && !(current instanceof GridLayoutManager) && linear.getOrientation() == LinearLayoutManager.VERTICAL) return;
-            recycler.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false));
-        }
+        if (current instanceof GridLayoutManager grid && grid.getSpanCount() == 1) return;
+        recycler.setLayoutManager(new GridLayoutManager(this, 1));
     }
 
     private int inlineEpisodeSpanCount() {
