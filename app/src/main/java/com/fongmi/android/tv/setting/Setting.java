@@ -154,8 +154,8 @@ public class Setting {
     }
 
     public static int getWall() {
-        int wall = Prefers.getInt("wall", WALL_DREAM_PURPLE);
-        return wall == WALL_GREEN || isLegacyColorWall(wall) ? WALL_DREAM_PURPLE : wall;
+        int wall = Prefers.getInt("wall", WALL_GRAPHITE_SMOKE);
+        return wall == WALL_GREEN || isLegacyColorWall(wall) ? WALL_GRAPHITE_SMOKE : wall;
     }
 
     public static void putWall(int wall) {
