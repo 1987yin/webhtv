@@ -10,7 +10,7 @@
     <string name="home_setting">Setting</string>
     <string name="home_history">History</string>
     <string name="home_history_button">History</string>
-    <string name="home_recommend">Recommend</string>
+    <string name="home_recommend"></string>
     <string name="setting_home_buttons">Home buttons</string>
     <string name="home_buttons_reset">Reset</string>
     <string name="home_buttons_selected">%1$d/%2$d enabled</string>
