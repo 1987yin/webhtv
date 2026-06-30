@@ -105,6 +105,27 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void unmatchedTmdbDetailUsesAppWallpaperBackdrop() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int bind = source.indexOf("private void bindBackdrop()");
+        int surface = source.indexOf("private void applyBackdropSurface(ThemeColors colors)");
+        int wallpaper = source.indexOf("private boolean useAppWallpaperBackdrop()");
+
+        assertTrue(sourcePath + " is missing bindBackdrop", bind >= 0);
+        assertTrue(sourcePath + " is missing applyBackdropSurface", surface >= 0);
+        assertTrue(sourcePath + " is missing useAppWallpaperBackdrop", wallpaper >= 0);
+        assertTrue("unmatched TMDB detail must not use the source poster as the large backdrop fallback",
+                source.indexOf("bindBackdropImage(vod.getName(), wallpaperBackdrop ? \"\" : tmdbBackdropUrl(), wallpaperBackdrop ? \"\" : vod.getPic());", bind) > bind);
+        assertTrue("unmatched TMDB detail must keep the hero layer visible so the wallpaper can be shaded",
+                source.indexOf("TextUtils.isEmpty(image) && !useAppWallpaperBackdrop() ? View.GONE : View.VISIBLE") > bind);
+        assertTrue("unmatched TMDB detail must make the detail background transparent over the app wallpaper",
+                source.indexOf("useAppWallpaperBackdrop() ? Color.TRANSPARENT : backdropFallbackBackground(colors)", surface) > surface);
+        assertTrue("wallpaper fallback must only apply after source detail has loaded and no TMDB detail matched",
+                source.indexOf("return vod != null && matchedTmdbDetail == null;", wallpaper) > wallpaper);
+    }
+
+    @Test
     public void detailLoadsPersonalAiCacheBeforeSlowMediaBlocksFinish() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);

@@ -444,6 +444,30 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void mobileTmdbFallbackUsesAppWallpaperSurface() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int fallback = source.indexOf("private void showNativeDetailFallback(Vod item)");
+        int surface = source.indexOf("private void applyNativeFallbackWallpaperSurface()");
+        int theme = source.indexOf("private void applyFusionThemeSurface()");
+        int scrim = source.indexOf("private void applyContextWallScrimTheme()");
+
+        assertTrue(sourcePath + " is missing showNativeDetailFallback", fallback >= 0);
+        assertTrue(sourcePath + " is missing applyNativeFallbackWallpaperSurface", surface >= 0);
+        assertTrue("unmatched TMDB fallback must switch to the app wallpaper surface before native rows draw",
+                source.indexOf("applyNativeFallbackWallpaperSurface();", fallback) > fallback);
+        assertTrue("unmatched TMDB fallback must clear the opaque root background",
+                source.indexOf("mBinding.getRoot().setBackgroundColor(Color.TRANSPARENT);", surface) > surface);
+        assertTrue("unmatched TMDB fallback must clear the old TMDB scroll background",
+                source.indexOf("mBinding.scroll.setBackgroundColor(Color.TRANSPARENT);", surface) > surface);
+        assertTrue("unmatched TMDB fallback must keep a readable dark scrim over the app wallpaper",
+                source.indexOf("mBinding.videoContextScrim.setBackgroundResource(R.drawable.shape_video_context_scrim);", scrim) > scrim
+                        && source.indexOf("mBinding.videoContextScrim.setVisibility(View.VISIBLE);", scrim) > scrim);
+        assertTrue("fusion theme refresh must not cover unmatched fallback with a solid color",
+                source.indexOf("mBinding.getRoot().setBackgroundColor(mTmdbFallbackToNative ? Color.TRANSPARENT", theme) > theme);
+    }
+
+    @Test
     public void leanbackTmdbRecommendationPresenterReportsAlreadyFocusedAiCards() throws Exception {
         Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "presenter", "TmdbRecommendationPresenter.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
