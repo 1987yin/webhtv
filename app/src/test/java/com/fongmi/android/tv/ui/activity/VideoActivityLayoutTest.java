@@ -143,7 +143,7 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
-    public void mobileOriginalEnhancedHidesShortDisplayButKeepsDetailActionRow() throws Exception {
+    public void mobileOriginalEnhancedHidesOriginalDetailActionRow() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int method = source.indexOf("private void setNativeDetailInfoVisible(boolean visible)");
@@ -152,11 +152,11 @@ public class VideoActivityLayoutTest {
         int visibilityMethod = source.indexOf("private void setOriginalEnhancedActionVisibility(boolean hide)");
 
         assertTrue(sourcePath + " is missing setNativeDetailInfoVisible", method >= 0);
-        assertTrue("native enhanced mode must not hide the whole detail action row",
+        assertTrue("native detail info visibility must not control the detail action row",
                 !methodBody.contains("mBinding.actionRow.setVisibility(visibility)"));
         assertTrue(sourcePath + " is missing setOriginalEnhancedActionVisibility", visibilityMethod >= 0);
-        assertTrue("native enhanced mode must hide the short display button",
-                source.indexOf("mBinding.shortDisplay.setVisibility(hide ? View.GONE : View.VISIBLE)", visibilityMethod) > visibilityMethod);
+        assertTrue("native enhanced mode must hide the original detail action row",
+                source.indexOf("mBinding.actionRow.setVisibility(hide ? View.GONE : View.VISIBLE)", visibilityMethod) > visibilityMethod);
     }
 
     @Test
