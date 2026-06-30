@@ -1089,8 +1089,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mClock.setCallback(null);
         updateNavigationKey();
         subtitlePlaybackSession.stop(this);
-        player().reset();
-        player().stop();
+        if (service() != null) {
+            player().reset();
+            player().stop();
+        }
         getDetail();
     }
 
