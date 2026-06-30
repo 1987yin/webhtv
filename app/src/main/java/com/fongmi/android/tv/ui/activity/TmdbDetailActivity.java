@@ -1011,13 +1011,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void applyDetailTheme() {
         lightTheme = resolveLightTheme();
         applyDetailEdgeToEdge();
-        ThemeColors colors = lightTheme ? ThemeColors.light() : ThemeColors.dark();
-        if (isCinemaMode()) colors = ThemeColors.cinema(lightTheme);
-        int backdropBackground = backdropFallbackBackground(colors);
-        binding.root.setBackgroundColor(backdropBackground);
-        binding.hero.setBackgroundColor(backdropBackground);
-        binding.backdropFill.setBackgroundColor(backdropBackground);
-        binding.backdrop.setBackgroundColor(backdropBackground);
+        ThemeColors colors = currentThemeColors();
+        applyBackdropSurface(colors);
         binding.backdropFill.setAlpha(backdropSlideAlpha());
         binding.backdrop.setAlpha(backdropSlideAlpha());
         binding.backdropShade.setBackground(isCinemaMode() ? cinemaBackdropShade() : colorDrawable(colors.backdropShade));
@@ -1952,7 +1947,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void bindBackdrop() {
-        bindBackdropImage(vod.getName(), tmdbBackdropUrl(), vod.getPic());
+        boolean wallpaperBackdrop = useAppWallpaperBackdrop();
+        bindBackdropImage(vod.getName(), wallpaperBackdrop ? "" : tmdbBackdropUrl(), wallpaperBackdrop ? "" : vod.getPic());
         episodeAdapter.setFallbackStillUrl(episodeFallbackStillUrl());
         ImgUtil.load(vod.getName(), tmdbPosterUrl(), binding.poster);
     }
@@ -1969,7 +1965,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void bindBackdropImage(String title, String backdrop, String fallback) {
         boolean hasBackdrop = !TextUtils.isEmpty(backdrop) && !TextUtils.equals(backdrop, fallback);
         String image = hasBackdrop ? backdrop : fallback;
-        binding.hero.setVisibility(TextUtils.isEmpty(image) ? View.GONE : View.VISIBLE);
+        refreshBackdropSurface();
+        binding.hero.setVisibility(TextUtils.isEmpty(image) && !useAppWallpaperBackdrop() ? View.GONE : View.VISIBLE);
         cancelBackdropSlideRequest();
         if (TextUtils.isEmpty(image)) {
             ImgUtil.clear(binding.backdropFill);
@@ -2198,6 +2195,27 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private boolean shouldCropBackdrop() {
         return true;
+    }
+
+    private ThemeColors currentThemeColors() {
+        ThemeColors colors = lightTheme ? ThemeColors.light() : ThemeColors.dark();
+        return isCinemaMode() ? ThemeColors.cinema(lightTheme) : colors;
+    }
+
+    private void refreshBackdropSurface() {
+        applyBackdropSurface(currentThemeColors());
+    }
+
+    private void applyBackdropSurface(ThemeColors colors) {
+        int backdropBackground = useAppWallpaperBackdrop() ? Color.TRANSPARENT : backdropFallbackBackground(colors);
+        binding.root.setBackgroundColor(backdropBackground);
+        binding.hero.setBackgroundColor(backdropBackground);
+        binding.backdropFill.setBackgroundColor(backdropBackground);
+        binding.backdrop.setBackgroundColor(backdropBackground);
+    }
+
+    private boolean useAppWallpaperBackdrop() {
+        return vod != null && matchedTmdbDetail == null;
     }
 
     private int backdropFallbackBackground(ThemeColors colors) {

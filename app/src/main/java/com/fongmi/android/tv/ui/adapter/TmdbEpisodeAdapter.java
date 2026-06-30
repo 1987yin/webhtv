@@ -158,8 +158,9 @@ public class TmdbEpisodeAdapter extends RecyclerView.Adapter<TmdbEpisodeAdapter.
 
         applyCardSize(holder, compact);
         if (isNativeEnhanced()) {
-            holder.binding.index.setText(title);
-            holder.binding.index.setTextSize(isPhoneWidth(holder.itemView) ? 12f : 18f);
+            boolean phoneWidth = isPhoneWidth(holder.itemView);
+            holder.binding.index.setText(nativeEnhancedIndexTitle(title, cleanTitle, phoneWidth, mode));
+            holder.binding.index.setTextSize(nativeEnhancedIndexTextSize(phoneWidth, mode));
             holder.binding.fileSize.setVisibility(View.GONE);
             holder.binding.title.setVisibility(View.GONE);
             holder.binding.date.setText(nativeEnhancedMeta(tmdbEpisode));
@@ -329,6 +330,14 @@ public class TmdbEpisodeAdapter extends RecyclerView.Adapter<TmdbEpisodeAdapter.
 
     private boolean isNativeEnhanced() {
         return nativeEnhanced;
+    }
+
+    static String nativeEnhancedIndexTitle(String title, String cleanTitle, boolean phoneWidth, Mode mode) {
+        return phoneWidth && mode == Mode.GRID ? cleanTitle : title;
+    }
+
+    static float nativeEnhancedIndexTextSize(boolean phoneWidth, Mode mode) {
+        return phoneWidth && mode == Mode.GRID ? 14f : phoneWidth ? 12f : 18f;
     }
 
     public static String getTitle(Episode episode, int number, String tmdbTitle) {
