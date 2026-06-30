@@ -2207,10 +2207,33 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.title.setVisibility(View.INVISIBLE);
         setSizeText();
         mBinding.video.setLayoutParams(mFrameParams);
+        restoreEmbeddedVideoLayoutAfterFullscreen();
         mKeyDown.resetScale();
         App.post(mR3, 2000);
         setRotate(false);
         hideControl();
+    }
+
+    private void restoreEmbeddedVideoLayoutAfterFullscreen() {
+        mBinding.video.forceLayout();
+        mBinding.video.requestLayout();
+        mBinding.exo.forceLayout();
+        mBinding.exo.requestLayout();
+        mBinding.scroll.forceLayout();
+        mBinding.scroll.requestLayout();
+        mBinding.progressLayout.requestLayout();
+        mBinding.video.post(() -> {
+            mBinding.video.setLayoutParams(mFrameParams);
+            mBinding.video.requestLayout();
+            mBinding.exo.requestLayout();
+            mBinding.scroll.requestLayout();
+        });
+        mBinding.progressLayout.postDelayed(() -> {
+            mBinding.video.setLayoutParams(mFrameParams);
+            mBinding.video.requestLayout();
+            mBinding.exo.requestLayout();
+            mBinding.scroll.requestLayout();
+        }, 180);
     }
 
     private void setTransition() {

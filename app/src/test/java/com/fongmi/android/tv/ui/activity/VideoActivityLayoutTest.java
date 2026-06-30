@@ -173,6 +173,99 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void leanbackTmdbEpisodeDialogUsesFullscreenAdaptiveCards() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "EpisodeListDialog.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int init = source.indexOf("protected void initView()");
+        int width = source.indexOf("private int getPanelWidth()");
+        int column = source.indexOf("private int getTmdbCardColumn()");
+        int start = source.indexOf("public void onStart()");
+
+        assertTrue(sourcePath + " is missing tmdb episode dialog hooks", init >= 0 && width > init && column > width && start > column);
+        assertTrue("TMDB episode dialog must use the full screen instead of the old right-side panel",
+                source.indexOf("if (tmdbCard) return screen;", width) > width
+                        && source.indexOf("int width = tmdbCard ? WindowManager.LayoutParams.MATCH_PARENT : panelWidth;", start) > start
+                        && source.indexOf("int gravity = tmdbCard ? Gravity.CENTER : Gravity.END | Gravity.BOTTOM;", start) > start);
+        assertTrue("TMDB episode dialog must use the same adaptive TV card columns as TMDB detail",
+                source.indexOf("return TmdbEpisodeGridPolicy.tvAdaptiveSpanCount(getResources().getConfiguration().screenWidthDp);", column) > column);
+        assertTrue("TMDB episode dialog should drop the side-sheet chrome in card mode",
+                source.indexOf("binding.getRoot().setBackgroundColor(0x66111820);", init) > init
+                        && source.indexOf("binding.getRoot().setPadding(ResUtil.dp2px(48), ResUtil.dp2px(34), ResUtil.dp2px(48), ResUtil.dp2px(26));", init) > init);
+
+        Path activityPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
+        int span = activity.indexOf("private int getEpisodeGridSpanCount()");
+        int setEpisode = activity.indexOf("private void setEpisodeAdapter(List<Episode> items, boolean scrollToCurrent)");
+        int toggle = activity.indexOf("private void toggleEpisodeViewMode()");
+        assertTrue("native enhanced playback page episode grid must use the shared adaptive TV card columns",
+                span >= 0
+                        && activity.indexOf("return TmdbEpisodeGridPolicy.tvAdaptiveSpanCount(getResources().getConfiguration().screenWidthDp);", span) > span
+                        && setEpisode >= 0
+                        && activity.indexOf("if (showTmdbEpisodeChrome && hasMultiple) episodeGridMode = true;", setEpisode) > setEpisode
+                        && activity.indexOf("mBinding.episodeViewMode.setVisibility(View.GONE);", setEpisode) > setEpisode
+                        && toggle >= 0
+                        && activity.indexOf("if (isTmdbSourceEnabled()) return;", toggle) > toggle);
+    }
+
+    @Test
+    public void leanbackFullscreenExitRestoresEmbeddedVideoLayout() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int exit = source.indexOf("private void exitFullscreen()");
+        int restore = source.indexOf("private void restoreEmbeddedVideoLayoutAfterFullscreen()");
+        int next = source.indexOf("private void onContent()", restore);
+
+        assertTrue(sourcePath + " is missing exitFullscreen", exit >= 0);
+        assertTrue(sourcePath + " is missing restoreEmbeddedVideoLayoutAfterFullscreen", restore >= 0 && next > restore);
+
+        String exitBody = source.substring(exit, restore);
+        String restoreBody = source.substring(restore, next);
+        assertTrue("leanback fullscreen exit should reuse the embedded native player restore path",
+                exitBody.contains("mBinding.video.setLayoutParams(mFrameParams);")
+                        && exitBody.contains("restoreEmbeddedVideoLayoutAfterFullscreen();"));
+        assertTrue("embedded native player restore must invalidate stale fullscreen layout measurements",
+                restoreBody.contains("mBinding.video.forceLayout();")
+                        && restoreBody.contains("mBinding.video.requestLayout();")
+                        && restoreBody.contains("mBinding.exo.forceLayout();")
+                        && restoreBody.contains("mBinding.exo.requestLayout();")
+                        && restoreBody.contains("mBinding.scroll.forceLayout();")
+                        && restoreBody.contains("mBinding.scroll.requestLayout();")
+                        && restoreBody.contains("mBinding.progressLayout.requestLayout();")
+                        && restoreBody.contains("mBinding.video.post(() -> {")
+                        && restoreBody.contains("mBinding.progressLayout.postDelayed(() -> {")
+                        && restoreBody.contains("}, 180);"));
+    }
+
+    @Test
+    public void mobileFullscreenExitRestoresEmbeddedVideoLayout() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int exit = source.indexOf("private void exitFullscreen()");
+        int restore = source.indexOf("private void restoreEmbeddedVideoLayoutAfterFullscreen()");
+        int next = source.indexOf("private void setTransition()", restore);
+
+        assertTrue(sourcePath + " is missing exitFullscreen", exit >= 0);
+        assertTrue(sourcePath + " is missing restoreEmbeddedVideoLayoutAfterFullscreen", restore >= 0 && next > restore);
+
+        String exitBody = source.substring(exit, restore);
+        String restoreBody = source.substring(restore, next);
+        assertTrue("mobile fullscreen exit should reuse the embedded native player restore path",
+                exitBody.contains("mBinding.video.setLayoutParams(mFrameParams);")
+                        && exitBody.contains("restoreEmbeddedVideoLayoutAfterFullscreen();"));
+        assertTrue("mobile embedded native player restore must invalidate stale fullscreen layout measurements",
+                restoreBody.contains("mBinding.video.forceLayout();")
+                        && restoreBody.contains("mBinding.video.requestLayout();")
+                        && restoreBody.contains("mBinding.exo.forceLayout();")
+                        && restoreBody.contains("mBinding.exo.requestLayout();")
+                        && restoreBody.contains("mBinding.scroll.forceLayout();")
+                        && restoreBody.contains("mBinding.scroll.requestLayout();")
+                        && restoreBody.contains("mBinding.progressLayout.requestLayout();")
+                        && restoreBody.contains("mBinding.video.post(() -> {")
+                        && restoreBody.contains("mBinding.progressLayout.postDelayed(() -> {")
+                        && restoreBody.contains("}, 180);"));
+    }
+
+    @Test
     public void tmdbHeaderHidesChangeSourceInOriginalEnhancedMode() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "custom", "TmdbHeaderView.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
