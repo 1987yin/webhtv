@@ -1305,7 +1305,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setOriginalEnhancedActionVisibility(boolean hide) {
-        mBinding.shortDisplay.setVisibility(hide ? View.GONE : View.VISIBLE);
+        mBinding.actionRow.setVisibility(hide ? View.GONE : View.VISIBLE);
     }
 
     private void setText(TextView view, int resId, String text) {

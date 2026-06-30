@@ -63,29 +63,31 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
-    public void mobileFusionDetailDocksInlinePlayerActionsBelowPlayer() throws Exception {
+    public void mobileFusionDetailKeepsInlinePlayerActionsInsideOverlay() throws Exception {
         Path layoutPath = findMainResPath().resolve(Path.of("layout", "activity_tmdb_detail.xml"));
         String layout = new String(Files.readAllBytes(layoutPath), StandardCharsets.UTF_8);
         int player = layout.indexOf("android:id=\"@+id/playerPanel\"");
         int dock = layout.indexOf("android:id=\"@+id/mobileFusionPlayerActionDock\"");
         int fusionActions = layout.indexOf("android:id=\"@+id/fusionActions\"");
 
-        assertTrue("mobile fusion detail must expose a dock for the shared player action row", dock >= 0);
-        assertTrue("mobile fusion player action dock must sit between player and detail actions", player < dock && dock < fusionActions);
+        assertTrue("mobile fusion detail may keep a hidden legacy action dock for binding compatibility", dock >= 0);
+        assertTrue("mobile fusion player action dock must remain hidden between player and detail actions", player < dock && dock < fusionActions);
 
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int update = source.indexOf("private void updateMobileInlineButtons(boolean playing");
-        int dockMethod = source.indexOf("private boolean updateMobileFusionPlayerActionDock(boolean show)");
+        int dockMethod = source.indexOf("private void hideMobileFusionPlayerActionDock()");
         int restoreMethod = source.indexOf("private void restoreMobileInlinePlayerAction()");
 
-        assertTrue(sourcePath + " is missing updateMobileFusionPlayerActionDock", dockMethod >= 0);
+        assertTrue(sourcePath + " is missing hideMobileFusionPlayerActionDock", dockMethod >= 0);
         assertTrue(sourcePath + " is missing restoreMobileInlinePlayerAction", restoreMethod >= 0);
-        assertTrue("mobile inline buttons must dock the action row before falling back to fullscreen visibility",
-                source.indexOf("boolean docked = updateMobileFusionPlayerActionDock(hasPlayer && !locked);", update) > update);
-        assertTrue("non-fullscreen fusion detail must move the shared action row into the visible dock",
-                source.indexOf("binding.mobileFusionPlayerActionDock.addView(detailActionRoot", dockMethod) > dockMethod);
-        assertTrue("fullscreen and non-fusion modes must restore the action row to the control overlay",
+        assertTrue("mobile inline buttons must hide the below-player action dock before choosing overlay visibility",
+                source.indexOf("hideMobileFusionPlayerActionDock();", update) > update);
+        assertTrue("non-fullscreen fusion detail must not move the shared action row into a visible below-player dock",
+                !source.contains("binding.mobileFusionPlayerActionDock.addView(detailActionRoot"));
+        assertTrue("source switches must restore the action row to the control overlay and hide the dock",
+                source.indexOf("hideMobileFusionPlayerActionDock();", source.indexOf("private void resetDetailState()")) > source.indexOf("private void resetDetailState()"));
+        assertTrue("fullscreen and non-fusion modes must keep the action row in the control overlay",
                 source.indexOf("restoreMobileInlinePlayerAction();", dockMethod) > dockMethod);
     }
 

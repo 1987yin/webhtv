@@ -466,6 +466,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerError.setVisibility(View.GONE);
         binding.playerControls.setVisibility(View.GONE);
         binding.detailControlHost.setVisibility(View.GONE);
+        hideMobileFusionPlayerActionDock();
         binding.flagContainer.removeAllViews();
         binding.seasonContainer.removeAllViews();
         clearEpisodeRanges();
@@ -3964,6 +3965,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (binding == null) return;
         boolean hadControlFocus = hasFocusedChild(inlineControlsView());
         inlineControlsView().setVisibility(View.GONE);
+        hideMobileFusionPlayerActionDock();
         App.removeCallbacks(inlineHideControls);
         if (hadControlFocus) binding.playerPanel.requestFocus();
         updateInlineDisplayPanel();
@@ -3974,6 +3976,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         inlinePauseInfo = false;
         App.removeCallbacks(inlineHideControls);
         inlineControlsView().setVisibility(View.GONE);
+        hideMobileFusionPlayerActionDock();
         hideInlineGestureViews();
         hideInlineDisplayPanel();
         View focus = getCurrentFocus();
@@ -4253,26 +4256,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         detailActionView(R.id.chapter, View.class).setVisibility(hasTitle ? View.VISIBLE : View.GONE);
         detailActionView(R.id.actionQuality, View.class).setVisibility(inlineQuality ? View.VISIBLE : View.GONE);
         detailActionView(R.id.repeat, View.class).setSelected(hasPlayer && player().isRepeatOne());
-        boolean docked = updateMobileFusionPlayerActionDock(hasPlayer && !locked);
-        if (!docked) action.setVisibility(inlineFullscreen && !locked ? View.VISIBLE : View.GONE);
+        hideMobileFusionPlayerActionDock();
+        action.setVisibility(inlineFullscreen && !locked ? View.VISIBLE : View.GONE);
         inlineControlController.updateDanmakuState();
     }
 
-    private boolean updateMobileFusionPlayerActionDock(boolean show) {
-        if (!Util.isMobile() || detailActionRoot == null || binding.mobileFusionPlayerActionDock == null) return false;
-        if (!isFusionMode() || inlineFullscreen || inlinePiPLayout || !show) {
-            restoreMobileInlinePlayerAction();
-            binding.mobileFusionPlayerActionDock.setVisibility(View.GONE);
-            return false;
-        }
-        if (detailActionRoot.getParent() != binding.mobileFusionPlayerActionDock) {
-            if (detailActionRoot.getParent() instanceof ViewGroup parent) parent.removeView(detailActionRoot);
-            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            binding.mobileFusionPlayerActionDock.addView(detailActionRoot, params);
-        }
-        binding.mobileFusionPlayerActionDock.setVisibility(View.VISIBLE);
-        detailActionRoot.setVisibility(View.VISIBLE);
-        return true;
+    private void hideMobileFusionPlayerActionDock() {
+        if (!Util.isMobile() || detailActionRoot == null || binding.mobileFusionPlayerActionDock == null) return;
+        restoreMobileInlinePlayerAction();
+        binding.mobileFusionPlayerActionDock.setVisibility(View.GONE);
     }
 
     private void restoreMobileInlinePlayerAction() {
