@@ -99,8 +99,9 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
     protected void initView() {
         panelWidth = getPanelWidth();
         if (tmdbCard) {
-            binding.getRoot().setBackgroundColor(0x66111820);
-            binding.getRoot().setPadding(ResUtil.dp2px(48), ResUtil.dp2px(34), ResUtil.dp2px(48), ResUtil.dp2px(26));
+            // TMDB 卡片模式：全屏显示，深色半透明背景，适中内边距
+            binding.getRoot().setBackgroundColor(0x80111820);
+            binding.getRoot().setPadding(ResUtil.dp2px(24), ResUtil.dp2px(20), ResUtil.dp2px(24), ResUtil.dp2px(16));
         }
         setRecyclerView();
         flagAdapter.addAll(flags == null ? new ArrayList<>() : flags);
