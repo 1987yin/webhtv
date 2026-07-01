@@ -41,6 +41,7 @@ import java.util.Objects;
 public class CollectActivity extends BaseActivity implements CollectAdapter.OnClickListener, SearchAdapter.OnClickListener, CustomScroller.Callback {
 
     private static final float SEARCH_CARD_RATIO = 0.72f;
+    private static final int SEARCH_LIST_ROW_HEIGHT_DP = 116;
 
     private ActivityCollectBinding mBinding;
     private CollectAdapter mCollectAdapter;
@@ -206,7 +207,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
                 }
             }
         });
-        mBinding.recycler.setAdapter(mSearchAdapter = new SearchAdapter(this, getItemWidth(count), getItemHeight(count)));
+        mBinding.recycler.setAdapter(mSearchAdapter = new SearchAdapter(this, getItemWidth(count), getItemHeight(count), isListMode(count)));
     }
 
     private boolean canLoadImage() {
@@ -284,6 +285,10 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         return Setting.getSearchUi() == 0;
     }
 
+    private boolean isListMode(int count) {
+        return count == 1;
+    }
+
     private void setSearchColumn() {
         int iconRes = getSearchColumnIcon();
         mBinding.searchColumn.setImageResource(iconRes);
@@ -320,7 +325,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         if (layoutManager != null) {
             layoutManager.setSpanCount(count);
         }
-        mSearchAdapter = new SearchAdapter(this, getItemWidth(count), getItemHeight(count));
+        mSearchAdapter = new SearchAdapter(this, getItemWidth(count), getItemHeight(count), isListMode(count));
         mBinding.recycler.setAdapter(mSearchAdapter);
         mBinding.recycler.setItemViewCacheSize(count * 3);
 
@@ -344,7 +349,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
     }
 
     private int getItemHeight(int count) {
-        return (int) (getItemWidth(count) / SEARCH_CARD_RATIO);
+        return isListMode(count) ? ResUtil.dp2px(SEARCH_LIST_ROW_HEIGHT_DP) : (int) (getItemWidth(count) / SEARCH_CARD_RATIO);
     }
 
     private void setCollect(Result result) {

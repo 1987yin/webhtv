@@ -39,6 +39,29 @@ public class SearchResultLayoutTest {
     }
 
     @Test
+    public void listModeUsesCompactSearchRowsInsteadOfPosterHeight() throws Exception {
+        Path collectPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "CollectActivity.java"));
+        String collect = read(collectPath);
+        Path adapterPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "SearchAdapter.java"));
+        String adapter = read(adapterPath);
+        Path listLayoutPath = findLeanbackResPath().resolve(Path.of("layout", "adapter_search_list.xml"));
+        String listLayout = read(listLayoutPath);
+
+        assertTrue("TV list mode should have a fixed compact row height",
+                collect.contains("SEARCH_LIST_ROW_HEIGHT_DP"));
+        assertTrue("TV list mode must not calculate height from full-width poster ratio",
+                collect.contains("return isListMode(count) ? ResUtil.dp2px(SEARCH_LIST_ROW_HEIGHT_DP) : (int) (getItemWidth(count) / SEARCH_CARD_RATIO);"));
+        assertTrue("Search adapter must receive whether it is rendering compact list rows",
+                collect.contains("new SearchAdapter(this, getItemWidth(count), getItemHeight(count), isListMode(count))"));
+        assertTrue("TV search adapter should inflate a dedicated list row layout",
+                adapter.contains("AdapterSearchListBinding"));
+        assertTrue("Compact list row should keep a modest fixed XML preview height",
+                listLayout.contains("android:layout_height=\"116dp\""));
+        assertTrue("Compact list row should use a side poster instead of a full-width image",
+                listLayout.contains("android:layout_toEndOf=\"@+id/image\""));
+    }
+
+    @Test
     public void personalSettingsExposeSearchLayoutSwitch() throws Exception {
         Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "SettingPersonalActivity.java"));
         String source = read(sourcePath);
