@@ -143,9 +143,8 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
     }
 
     private int getPanelWidth() {
-        int screen = ResUtil.getScreenWidth(requireContext());
-        if (tmdbCard) return screen;
-        return Math.max(ResUtil.dp2px(420), Math.min(ResUtil.dp2px(680), Math.round(screen * 0.42f)));
+        // 文本与卡片模式统一使用全屏宽度，避免长剧名在右侧窄抽屉中被截断
+        return ResUtil.getScreenWidth(requireContext());
     }
 
     private int getEpisodeContentWidth() {
@@ -470,8 +469,9 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
         if (window == null || binding == null) return;
         window.getDecorView().setPadding(0, 0, 0, 0);
         clearParentPaddingAndFillHeight();
-        int gravity = tmdbCard ? Gravity.CENTER : Gravity.END | Gravity.BOTTOM;
-        int width = tmdbCard ? WindowManager.LayoutParams.MATCH_PARENT : panelWidth;
+        // 选集对话框统一全屏居中显示，文本模式不再使用右侧侧抽屉
+        int gravity = Gravity.CENTER;
+        int width = WindowManager.LayoutParams.MATCH_PARENT;
         window.setGravity(gravity);
         WindowManager.LayoutParams params = window.getAttributes();
         params.width = width;

@@ -252,10 +252,10 @@ public class VideoActivityLayoutTest {
         int start = source.indexOf("public void onStart()");
 
         assertTrue(sourcePath + " is missing tmdb episode dialog hooks", init >= 0 && width > init && column > width && start > column);
-        assertTrue("TMDB episode dialog must use the full screen instead of the old right-side panel",
-                source.indexOf("if (tmdbCard) return screen;", width) > width
-                        && source.indexOf("int width = tmdbCard ? WindowManager.LayoutParams.MATCH_PARENT : panelWidth;", start) > start
-                        && source.indexOf("int gravity = tmdbCard ? Gravity.CENTER : Gravity.END | Gravity.BOTTOM;", start) > start);
+        assertTrue("Episode dialog must use the full screen for both card and text modes",
+                source.indexOf("return ResUtil.getScreenWidth(requireContext());", width) > width
+                        && source.indexOf("int width = WindowManager.LayoutParams.MATCH_PARENT;", start) > start
+                        && source.indexOf("int gravity = Gravity.CENTER;", start) > start);
         assertTrue("TMDB episode dialog must use the same adaptive TV card columns as TMDB detail",
                 source.indexOf("return TmdbEpisodeGridPolicy.tvAdaptiveSpanCount(getResources().getConfiguration().screenWidthDp);", column) > column);
         assertTrue("TMDB episode dialog should drop the side-sheet chrome in card mode",

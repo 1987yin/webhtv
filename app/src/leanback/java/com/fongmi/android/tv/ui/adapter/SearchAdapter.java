@@ -130,6 +130,7 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
         holder.binding.remark.setVisibility(item.getRemarkVisible());
         holder.binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
         holder.binding.getRoot().setOnKeyListener((v, keyCode, event) -> listener.onItemKey(holder.getBindingAdapterPosition(), keyCode, event));
+        holder.setMarquee(holder.binding.getRoot().hasFocus());
         ImgUtil.load(item.getName(), item.getPic(), holder.binding.image, width, height);
     }
 
@@ -145,6 +146,13 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
         ViewHolder(@NonNull AdapterSearchBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
+            binding.getRoot().setOnFocusChangeListener((v, hasFocus) -> setMarquee(hasFocus));
+        }
+
+        private void setMarquee(boolean selected) {
+            binding.name.setSelected(selected);
+            binding.site.setSelected(selected);
+            binding.remark.setSelected(selected);
         }
     }
 }
