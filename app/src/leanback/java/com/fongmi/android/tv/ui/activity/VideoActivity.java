@@ -1406,8 +1406,12 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mEpisodeAdapter.setUseTmdbCard(useTmdbCards);
         mEpisodeGridAdapter.setUseTmdbCard(useTmdbCards);
         applyActionButtonVisibility();
-        mEpisodeAdapter.addAll(items);
-        mEpisodeGridAdapter.addAll(items);
+
+        // 优化：只加载第一个分段的数据，避免一次性渲染所有集数导致卡顿
+        int segmentSize = getEpisodeSegmentSize(items.size());
+        List<Episode> initialItems = items.size() > segmentSize ? items.subList(0, Math.min(segmentSize, items.size())) : items;
+        mEpisodeAdapter.addAll(initialItems);
+        mEpisodeGridAdapter.addAll(initialItems);
 
         applyEpisodeViewMode(false);
 
@@ -1445,8 +1449,12 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mEpisodeGridAdapter.setGridMode(true);
         mEpisodeGridAdapter.setVerticalGridMode(true);
         mEpisodeGridAdapter.setColumn(column);
-        mEpisodeAdapter.addAll(items);
-        mEpisodeGridAdapter.addAll(items);
+
+        // 优化：只加载第一个分段的数据，避免一次性渲染所有集数导致卡顿
+        int segmentSize = getEpisodeSegmentSize(items.size());
+        List<Episode> initialItems = items.size() > segmentSize ? items.subList(0, Math.min(segmentSize, items.size())) : items;
+        mEpisodeAdapter.addAll(initialItems);
+        mEpisodeGridAdapter.addAll(initialItems);
         updateEpisodeGridViewport();
         updateUpstreamNativeEpisodeGridViewport();
         mBinding.episodeGrid.post(this::updateUpstreamNativeEpisodeGridViewport);
@@ -1790,7 +1798,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private int getEpisodeSegmentSize(int size) {
-        return size <= 60 ? 20 : 40;
+        // 优化：减小分段大小，避免一次性渲染过多卡片
+        if (size <= 30) return size;   // 30集以下不分段
+        if (size <= 60) return 20;     // 31-60集，每段20集
+        if (size <= 100) return 30;    // 61-100集，每段30集
+        return 40;                     // 100集以上，每段40集
     }
 
     private int findFocusDown(int index) {

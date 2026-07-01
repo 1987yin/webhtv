@@ -180,11 +180,21 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
         int selectedEpisode = getSelectedEpisodePosition(allEpisodes);
         segmentStarts.clear();
         segmentEnds.clear();
-        if (tmdbCard || size > segment) for (int i = 0; i < size; i += segment) {
-            segmentStarts.add(i);
-            int end = Math.min(i + segment, size);
-            segmentEnds.add(end);
-            items.add((i + 1) + "-" + end);
+        // 修复：对于 tmdbCard 模式，始终创建分段（即使 size <= segment），避免一次性加载所有剧集
+        if (tmdbCard) {
+            for (int i = 0; i < size; i += segment) {
+                segmentStarts.add(i);
+                int end = Math.min(i + segment, size);
+                segmentEnds.add(end);
+                items.add((i + 1) + "-" + end);
+            }
+        } else if (size > segment) {
+            for (int i = 0; i < size; i += segment) {
+                segmentStarts.add(i);
+                int end = Math.min(i + segment, size);
+                segmentEnds.add(end);
+                items.add((i + 1) + "-" + end);
+            }
         }
         selectedSegment = resolveSelectedSegment(selectedEpisode);
         arrayAdapter.setSegmentSize(segment);
@@ -368,10 +378,10 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
     }
 
     private int getTmdbEpisodeSegmentSize(int size) {
-        List<EpisodeRangePolicy.Range> ranges = EpisodeRangePolicy.build(size, episodeAdapter == null ? 0 : episodeAdapter.getPosition(), false);
-        if (ranges.isEmpty()) return getEpisodeSegmentSize(size);
-        EpisodeRangePolicy.Range first = ranges.get(0);
-        return Math.max(1, first.end() - first.start());
+        // 强制使用固定分段大小，避免一次性加载过多剧集导致卡顿
+        if (size <= 30) return size;  // 30集以下不分段
+        if (size <= 100) return 30;   // 31-100集，每段30集
+        return 40;                    // 100集以上，每段40集
     }
 
     private int getTmdbCardColumn() {
