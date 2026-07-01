@@ -434,6 +434,16 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
     }
 
     @Override
+    public void onSegmentClick(int position) {
+        selectSegment(position, true);
+    }
+
+    @Override
+    public void onSegmentFocus(int position) {
+        selectSegment(position, true);
+    }
+
+    @Override
     public void onDismiss(@NonNull DialogInterface dialog) {
         super.onDismiss(dialog);
         if (dismissListener != null) dismissListener.onDismiss(dialog);

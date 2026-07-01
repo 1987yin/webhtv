@@ -2445,18 +2445,27 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setContextWall(String url) {
-        if (!Setting.isPlaybackArtworkWall() && !Setting.isFusionDetailPage()) {
+        setContextWall(url, false);
+    }
+
+    private void setContextWall(String url, boolean skipLock) {
+        if (!Setting.isPlaybackArtworkWall() && !Setting.isFusionDetailPage() && !Setting.isOriginalEnhancedDetailPage()) {
             mContextWallUrl = "";
             hideContextWall();
             return;
         }
-        String wall = lockContextWall(url);
+        // 轮播场景（原生增强/Fusion 的 backdrop 变化）需要跳过锁定，否则永远只显示第一张
+        String wall = skipLock ? Objects.toString(url, "") : lockContextWall(url);
         if (TextUtils.isEmpty(wall)) {
             mContextWallUrl = "";
             hideContextWall();
             return;
         }
-        if (Objects.equals(mContextWallUrl, wall)) return;
+        if (Objects.equals(mContextWallUrl, wall)) {
+            android.util.Log.d("VideoActivity", "setContextWall: URL 相同，跳过（wall=" + wall + ")");
+            return;
+        }
+        android.util.Log.d("VideoActivity", "setContextWall: 切换背景 wall=" + wall);
         mContextWallUrl = wall;
         resetContextWallAlpha();
         if (isGone(mBinding.contextWall)) {
@@ -2471,6 +2480,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 mBinding.contextWall.setBackgroundColor(0x00000000);
                 mBinding.contextWall.setImageDrawable(resource);
                 mBinding.contextWall.setVisibility(View.VISIBLE);
+                android.util.Log.d("VideoActivity", "setContextWall: 图片加载完成");
             }
 
             @Override
@@ -2478,6 +2488,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 if (!Objects.equals(mContextWallUrl, wall)) return;
                 mContextWallUrl = "";
                 hideContextWall();
+                android.util.Log.w("VideoActivity", "setContextWall: 图片加载失败");
             }
         });
     }
@@ -2488,7 +2499,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void restoreContextWall() {
-        if (!Setting.isPlaybackArtworkWall()) return;
+        if (!Setting.isPlaybackArtworkWall() && !Setting.isFusionDetailPage() && !Setting.isOriginalEnhancedDetailPage()) return;
         String wall = getContextWall();
         if (TextUtils.isEmpty(wall)) {
             hideContextWall();
@@ -3250,13 +3261,26 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             public void onImagesLoaded() {
                 // TMDB 内容加载完成，设置标记并隐藏进度条
                 android.util.Log.d("VideoActivity", "TMDB 内容加载完成，隐藏进度条");
-                if (Setting.isFusionDetailPage() && mTmdbUIAdapter != null && mTmdbUIAdapter.getTmdbItem() != null) {
-                    setContextWall(mTmdbUIAdapter.getTmdbItem().getBackdropUrl());
+                // 原生增强模式：在内容加载后隐藏独立 backdrop
+                if (Setting.isOriginalEnhancedDetailPage() && mTmdbHeaderView != null) {
+                    mTmdbHeaderView.hideNativeHeroBackdrop();
                 }
                 mTmdbContentLoaded = true;
                 hideProgress();
             }
         });
+
+        // 原生增强模式和 Fusion 模式：设置 Backdrop 变化监听器，同步轮播到 contextWall
+        if (Setting.isFusionDetailPage() || Setting.isOriginalEnhancedDetailPage()) {
+            mTmdbHeaderView.setOnBackdropChangeListener(new com.fongmi.android.tv.ui.custom.TmdbHeaderView.OnBackdropChangeListener() {
+                @Override
+                public void onBackdropChanged(String imageUrl) {
+                    // 将轮播的图片同步到全屏背景（跳过锁定，允许切换）
+                    android.util.Log.d("VideoActivity", "接收到 backdrop 变化通知，URL=" + imageUrl);
+                    setContextWall(imageUrl, true);
+                }
+            });
+        }
 
         // TMDB 模式下：隐藏原生详情信息（但保持容器可见，因为 TMDB 内容也在里面）
         setNativeDetailInfoVisible(false);
@@ -3266,6 +3290,17 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
         if (Setting.isFusionDetailPage()) {
             applyFusionDetailChrome();
+        } else if (Setting.isOriginalEnhancedDetailPage()) {
+            // 原生增强模式：启用全屏背景
+            applyOriginalEnhancedBackdropLayout();
+            mBinding.getRoot().setBackgroundColor(Color.TRANSPARENT);
+            mBinding.scroll.setBackgroundColor(Color.TRANSPARENT);
+            mBinding.swipeLayout.setBackgroundColor(Color.TRANSPARENT);
+            mBinding.progressLayout.setBackgroundColor(Color.TRANSPARENT);
+            if (mBinding.nativeContentContainer != null) {
+                mBinding.nativeContentContainer.setBackgroundColor(Color.TRANSPARENT);
+            }
+            applyTmdbTabletVideoLayoutIfNeeded();
         } else {
             mBinding.scroll.setBackgroundColor(com.fongmi.android.tv.ui.custom.TmdbHeaderView.getThemeBackgroundColor());
             applyTmdbTabletVideoLayoutIfNeeded();
@@ -3317,6 +3352,29 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             mBinding.videoContextScrim.setLayoutParams(scrimParams);
             mBinding.videoContextScrim.setVisibility(View.VISIBLE);
             applyContextWallScrimTheme();
+        }
+    }
+
+    private void applyOriginalEnhancedBackdropLayout() {
+        // 设置全屏背景布局（类似 Fusion）
+        RelativeLayout.LayoutParams wallParams = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT);
+        wallParams.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        wallParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+        wallParams.addRule(RelativeLayout.ALIGN_PARENT_START);
+        wallParams.addRule(RelativeLayout.ALIGN_PARENT_END);
+        mBinding.contextWall.setLayoutParams(wallParams);
+        mBinding.statusBar.setBackgroundColor(Color.TRANSPARENT);
+
+        // 设置遮罩层为全屏
+        if (mBinding.videoContextScrim != null) {
+            RelativeLayout.LayoutParams scrimParams = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT);
+            scrimParams.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+            scrimParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+            scrimParams.addRule(RelativeLayout.ALIGN_PARENT_START);
+            scrimParams.addRule(RelativeLayout.ALIGN_PARENT_END);
+            mBinding.videoContextScrim.setLayoutParams(scrimParams);
+            mBinding.videoContextScrim.setBackgroundResource(R.drawable.shape_video_context_scrim);
+            mBinding.videoContextScrim.setVisibility(View.VISIBLE);
         }
     }
 

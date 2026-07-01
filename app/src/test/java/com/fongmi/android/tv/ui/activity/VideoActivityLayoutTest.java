@@ -228,6 +228,21 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void leanbackDetailActionRowScrollsHorizontally() throws Exception {
+        Path layoutFile = findLeanbackResPath().resolve(Path.of("layout", "activity_video.xml"));
+        Element row = findAndroidId(layoutFile.toFile(), "row2");
+
+        assertTrue(layoutFile + " is missing @+id/row2", row != null);
+        assertTrue("leanback detail action row must scroll instead of clipping overflow",
+                "HorizontalScrollView".equals(row.getNodeName()));
+        assertTrue("leanback detail action row must fill the remaining right side",
+                "match_parent".equals(row.getAttribute("android:layout_width"))
+                        && "true".equals(row.getAttribute("android:layout_alignParentEnd")));
+        assertTrue("leanback detail action row should hide scrollbars",
+                "none".equals(row.getAttribute("android:scrollbars")));
+    }
+
+    @Test
     public void leanbackTmdbEpisodeDialogUsesFullscreenAdaptiveCards() throws Exception {
         Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "EpisodeListDialog.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -256,10 +271,76 @@ public class VideoActivityLayoutTest {
                 span >= 0
                         && activity.indexOf("return TmdbEpisodeGridPolicy.tvAdaptiveSpanCount(getResources().getConfiguration().screenWidthDp);", span) > span
                         && setEpisode >= 0
-                        && activity.indexOf("if (showTmdbEpisodeChrome && hasMultiple) episodeGridMode = true;", setEpisode) > setEpisode
-                        && activity.indexOf("mBinding.episodeViewMode.setVisibility(View.GONE);", setEpisode) > setEpisode
+                        && activity.indexOf("if (showTmdbEpisodeChrome && hasMultiple) episodeGridMode = Setting.getTmdbEpisodeGridMode();", setEpisode) > setEpisode
+                        && activity.indexOf("mBinding.episodeViewMode.setVisibility(showTmdbEpisodeChrome && hasMultiple && useTmdbCards ? View.VISIBLE : View.GONE);", setEpisode) > setEpisode
                         && toggle >= 0
-                        && activity.indexOf("if (isTmdbSourceEnabled()) return;", toggle) > toggle);
+                        && activity.indexOf("if (mBinding.episodeViewMode.getVisibility() != View.VISIBLE) return;", toggle) > toggle
+                        && activity.indexOf("Setting.putTmdbEpisodeGridMode(episodeGridMode);", toggle) > toggle);
+    }
+
+    @Test
+    public void leanbackPlaybackEpisodeRangeButtonsApplyOnFocusAndHandleClick() throws Exception {
+        Path adapterPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "ArrayAdapter.java"));
+        String adapter = new String(Files.readAllBytes(adapterPath), StandardCharsets.UTF_8);
+        Path activityPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
+        Path dialogPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "EpisodeListDialog.java"));
+        String dialog = new String(Files.readAllBytes(dialogPath), StandardCharsets.UTF_8);
+
+        int bind = adapter.indexOf("public void onBindViewHolder");
+        int listener = adapter.indexOf("public interface OnClickListener");
+        assertTrue("leanback episode range buttons must forward click events",
+                bind >= 0
+                        && adapter.indexOf("mListener.onSegmentClick(position)", bind) > bind
+                        && adapter.indexOf("mListener.onSegmentFocus(position)", bind) > bind
+                        && listener >= 0
+                        && adapter.indexOf("void onSegmentClick(int position);", listener) > listener
+                        && adapter.indexOf("void onSegmentFocus(int position);", listener) > listener);
+
+        int recycler = activity.indexOf("mBinding.array.addOnChildViewHolderSelectedListener");
+        assertTrue("playback page range focus must apply the segment without moving focus into episodes",
+                recycler >= 0
+                        && activity.indexOf("selectEpisodeSegment(position, false);", recycler) > recycler);
+
+        int selector = activity.indexOf("private void selectEpisodeSegment(int position, boolean requestEpisodeFocus)");
+        assertTrue("playback page must share segment focus and click behavior",
+                selector >= 0
+                        && activity.indexOf("if (position <= 1) return;", selector) > selector
+                        && activity.indexOf("mBinding.array.setSelectedPosition(position);", selector) > selector
+                        && activity.indexOf("showEpisodeSegment(position);", selector) > selector);
+
+        int showSegment = activity.indexOf("private void showEpisodeSegment(int position)");
+        assertTrue("playback page range focus must replace the visible episode items",
+                showSegment >= 0
+                        && activity.indexOf("List<Episode> episodes = getFlag().getEpisodes();", showSegment) > showSegment
+                        && activity.indexOf("List<Episode> items = episodes.subList(start, end);", showSegment) > showSegment
+                        && activity.indexOf("mEpisodeAdapter.addAll(items);", showSegment) > showSegment
+                        && activity.indexOf("mEpisodeGridAdapter.addAll(items);", showSegment) > showSegment);
+
+        int selectedPosition = activity.indexOf("private int getSelectedEpisodePosition(List<Episode> episodes)");
+        int adjacent = activity.indexOf("private Episode getAdjacentEpisode(int offset)");
+        assertTrue("playback next/previous must follow the selected episode after reverse sorting",
+                selectedPosition >= 0
+                        && activity.indexOf("episodes.get(i).isSelected()", selectedPosition) > selectedPosition
+                        && adjacent >= 0
+                        && activity.indexOf("int position = getSelectedEpisodePosition(episodes);", adjacent) > adjacent
+                        && activity.indexOf("flag.getPosition()", adjacent) == -1);
+
+        int handler = activity.indexOf("public void onSegmentClick(int position)");
+        assertTrue("playback page must not jump focus away from the clicked episode range",
+                handler >= 0
+                        && activity.indexOf("selectEpisodeSegment(position, false);", handler) > handler);
+
+        int focusHandler = activity.indexOf("public void onSegmentFocus(int position)");
+        assertTrue("playback page must apply the focused episode range without jumping focus",
+                focusHandler >= 0
+                        && activity.indexOf("selectEpisodeSegment(position, false);", focusHandler) > focusHandler);
+
+        int dialogHandler = dialog.indexOf("public void onSegmentClick(int position)");
+        assertTrue("episode dialog must keep satisfying the ArrayAdapter click contract",
+                dialogHandler >= 0
+                        && dialog.indexOf("selectSegment(position, true);", dialogHandler) > dialogHandler
+                        && dialog.indexOf("public void onSegmentFocus(int position)") > dialogHandler);
     }
 
     @Test
