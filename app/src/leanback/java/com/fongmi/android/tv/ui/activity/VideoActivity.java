@@ -92,6 +92,7 @@ import com.fongmi.android.tv.ui.custom.CustomKeyDownVod;
 import com.fongmi.android.tv.ui.custom.CustomMovement;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
 import com.fongmi.android.tv.ui.custom.PlayerOsdController;
+import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
 import com.fongmi.android.tv.ui.dialog.ContentDialog;
 import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
@@ -179,6 +180,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private boolean detailRequested;
     private boolean detailHealthRecorded;
     private boolean playHealthRecorded;
+    private boolean episodeGridSpacingAdded;
     private boolean episodeGridMode;
     private Runnable mR1;
     private Runnable mR2;
@@ -527,6 +529,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private boolean isTmdbMode() {
         return getIntent().getBooleanExtra("tmdbMode", false);
+    }
+
+    private boolean shouldUseUpstreamNativeEpisodeModule() {
+        return Setting.isDirectDetailPage() && !isTmdbMode();
     }
 
     private boolean isTmdbSourceEnabled() {
@@ -1380,6 +1386,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.episodeContainer.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
         mBinding.control.action.episodes.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
 
+        if (shouldUseUpstreamNativeEpisodeModule()) {
+            setUpstreamNativeEpisodeItems(items, scrollToCurrent);
+            return;
+        }
+
         if (showTmdbEpisodeChrome && hasMultiple) episodeGridMode = true;
         if (!showTmdbEpisodeChrome || !hasMultiple) episodeGridMode = false;
         mBinding.episodeHeader.setVisibility(showTmdbEpisodeChrome && !isEmpty ? View.VISIBLE : View.GONE);
@@ -1403,6 +1414,36 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             setEpisodeContentVisible(true);
         }
 
+        setArrayAdapter(items.size());
+        updateFocus();
+        if (scrollToCurrent) scrollToCurrentEpisode();
+        setR2Callback();
+    }
+
+    private void setUpstreamNativeEpisodeItems(List<Episode> items, boolean scrollToCurrent) {
+        episodeGridMode = true;
+        int column = EpisodeAdapter.getColumn(items);
+        mBinding.episodeHeader.setVisibility(View.GONE);
+        mBinding.episodeReverse.setVisibility(View.GONE);
+        mBinding.episodeViewMode.setVisibility(View.GONE);
+        mBinding.episodeLoadingIndicator.setVisibility(View.GONE);
+        mBinding.episode.setVisibility(View.GONE);
+        mBinding.episodeGrid.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
+        RecyclerView.LayoutManager layoutManager = mBinding.episodeGrid.getLayoutManager();
+        if (layoutManager instanceof GridLayoutManager gridLayoutManager) gridLayoutManager.setSpanCount(column);
+        mEpisodeAdapter.setUseTmdbCard(false);
+        mEpisodeGridAdapter.setUseTmdbCard(false);
+        mEpisodeAdapter.setGridMode(false);
+        mEpisodeAdapter.setVerticalGridMode(true);
+        mEpisodeAdapter.setColumn(column);
+        mEpisodeGridAdapter.setGridMode(true);
+        mEpisodeGridAdapter.setVerticalGridMode(true);
+        mEpisodeGridAdapter.setColumn(column);
+        mEpisodeAdapter.addAll(items);
+        mEpisodeGridAdapter.addAll(items);
+        updateEpisodeGridViewport();
+        updateUpstreamNativeEpisodeGridViewport();
+        mBinding.episodeGrid.post(this::updateUpstreamNativeEpisodeGridViewport);
         setArrayAdapter(items.size());
         updateFocus();
         if (scrollToCurrent) scrollToCurrentEpisode();
@@ -1597,6 +1638,30 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.episodeGrid.setNestedScrollingEnabled(false);
     }
 
+    private void updateUpstreamNativeEpisodeGridViewport() {
+        int spacing = ResUtil.dp2px(12);
+        int height = getUpstreamNativeEpisodeGridHeight(spacing);
+        ViewGroup.LayoutParams params = mBinding.episodeGrid.getLayoutParams();
+        if (params.height != height) {
+            params.height = height;
+            mBinding.episodeGrid.setLayoutParams(params);
+        }
+        if (!episodeGridSpacingAdded) {
+            RecyclerView.LayoutManager layoutManager = mBinding.episodeGrid.getLayoutManager();
+            int spanCount = layoutManager instanceof GridLayoutManager gridLayoutManager ? gridLayoutManager.getSpanCount() : 2;
+            mBinding.episodeGrid.addItemDecoration(new SpaceItemDecoration(spanCount, 12));
+            episodeGridSpacingAdded = true;
+        }
+        mBinding.episodeGrid.setNestedScrollingEnabled(true);
+    }
+
+    private int getUpstreamNativeEpisodeGridHeight(int spacing) {
+        int available = getEpisodeAvailableHeight(mBinding.episodeGrid);
+        if (available > 0) return available;
+        int rows = ResUtil.getScreenHeight() < ResUtil.dp2px(560) ? 2 : 3;
+        return ResUtil.dp2px(64) * rows + spacing * Math.max(0, rows - 1) + mBinding.episodeGrid.getPaddingTop() + mBinding.episodeGrid.getPaddingBottom();
+    }
+
     private void scrollToCurrentEpisode() {
         scrollToEpisode(mEpisodeAdapter.getPosition());
     }
@@ -1670,14 +1735,22 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private int getEpisodeAvailableHeight() {
+        return getEpisodeAvailableHeight(mBinding.episode);
+    }
+
+    private int getEpisodeAvailableHeight(View episodeView) {
         int height = mBinding.scroll.getHeight();
         if (height <= 0) return 0;
         int available = height - mBinding.scroll.getPaddingTop() - mBinding.scroll.getPaddingBottom();
-        ViewGroup.LayoutParams episodeParams = mBinding.episode.getLayoutParams();
+        if (mBinding.scroll.getChildCount() == 0 || !(mBinding.scroll.getChildAt(0) instanceof ViewGroup group)) return available;
+        View target = episodeView;
+        while (target.getParent() instanceof View parent && parent != group) target = parent;
+        ViewGroup.LayoutParams episodeParams = target.getLayoutParams();
         if (episodeParams instanceof ViewGroup.MarginLayoutParams margins) available -= margins.topMargin + margins.bottomMargin;
-        for (int i = 0; i < mBinding.scroll.getChildCount(); i++) {
-            View child = mBinding.scroll.getChildAt(i);
-            if (child == mBinding.episode || child.getVisibility() == View.GONE) continue;
+        available -= group.getPaddingTop() + group.getPaddingBottom();
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (child == target || child.getVisibility() == View.GONE) continue;
             available -= child.getMeasuredHeight();
             ViewGroup.LayoutParams params = child.getLayoutParams();
             if (params instanceof ViewGroup.MarginLayoutParams margins) available -= margins.topMargin + margins.bottomMargin;

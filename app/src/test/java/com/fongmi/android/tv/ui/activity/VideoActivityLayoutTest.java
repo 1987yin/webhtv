@@ -160,6 +160,61 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void mobileDirectPlaybackUsesUpstreamNativeEpisodeStrip() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int predicate = source.indexOf("private boolean shouldUseUpstreamNativeEpisodeModule()");
+        int bind = source.indexOf("private void setUpstreamNativeEpisodeItems(List<Episode> items)");
+        int layout = source.indexOf("private void updateEpisodeLayoutForUpstreamNative()");
+        int setEpisode = source.indexOf("private void setEpisodeAdapter(List<Episode> items)");
+
+        assertTrue(sourcePath + " is missing direct native episode predicate", predicate >= 0);
+        assertTrue("direct native episode mode must be scoped to the 影视原生 setting",
+                source.indexOf("return Setting.isDirectDetailPage() && !isTmdbMode();", predicate) > predicate);
+        assertTrue("direct native playback must bypass enhanced episode grid binding",
+                setEpisode >= 0 && source.indexOf("if (shouldUseUpstreamNativeEpisodeModule())", setEpisode) > setEpisode);
+        assertTrue("direct native playback should restore the upstream horizontal episode strip",
+                bind >= 0
+                        && source.indexOf("mEpisodeAdapter.setViewType(ViewType.HORI);", bind) > bind
+                        && source.indexOf("mBinding.more.setVisibility(items.size() < 10 ? View.GONE : View.VISIBLE);", bind) > bind
+                        && layout > bind
+                        && source.indexOf("new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)", layout) > layout);
+    }
+
+    @Test
+    public void leanbackDirectPlaybackUsesUpstreamNativeEpisodeModule() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int predicate = source.indexOf("private boolean shouldUseUpstreamNativeEpisodeModule()");
+        int setEpisode = source.indexOf("private void setEpisodeAdapter(List<Episode> items, boolean scrollToCurrent)");
+        int bind = source.indexOf("private void setUpstreamNativeEpisodeItems(List<Episode> items, boolean scrollToCurrent)");
+        int viewport = source.indexOf("private void updateUpstreamNativeEpisodeGridViewport()");
+
+        assertTrue(sourcePath + " is missing leanback direct native episode predicate", predicate >= 0);
+        assertTrue("leanback direct native episode mode must be scoped to the 影视原生 setting",
+                source.indexOf("return Setting.isDirectDetailPage() && !isTmdbMode();", predicate) > predicate);
+        assertTrue("leanback direct native playback must bypass enhanced episode chrome",
+                setEpisode >= 0 && source.indexOf("if (shouldUseUpstreamNativeEpisodeModule())", setEpisode) > setEpisode);
+        assertTrue("leanback direct native playback should keep upstream grouping and vertical episode grid",
+                bind >= 0
+                        && source.indexOf("mBinding.episodeHeader.setVisibility(View.GONE);", bind) > bind
+                        && source.indexOf("episodeGridMode = true;", bind) > bind
+                        && source.indexOf("mBinding.episode.setVisibility(View.GONE);", bind) > bind
+                        && source.indexOf("mBinding.episodeGrid.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);", bind) > bind
+                        && source.indexOf("mEpisodeGridAdapter.setVerticalGridMode(true);", bind) > bind
+                        && source.indexOf("setArrayAdapter(items.size());", bind) > bind);
+        assertTrue("leanback direct native grouping must scroll the episode grid internally so the focused group stays visible",
+                viewport >= 0
+                        && source.indexOf("params.height = height;", viewport) > viewport
+                        && source.indexOf("getUpstreamNativeEpisodeGridHeight(spacing)", viewport) > viewport
+                        && source.indexOf("ResUtil.dp2px(64) * rows", viewport) > viewport
+                        && source.indexOf("new SpaceItemDecoration(spanCount, 12)", viewport) > viewport
+                        && source.indexOf("mBinding.episodeGrid.setNestedScrollingEnabled(true);", viewport) > viewport
+                        && source.indexOf("updateUpstreamNativeEpisodeGridViewport();", bind) > bind
+                        && source.indexOf("mBinding.episodeGrid.post(this::updateUpstreamNativeEpisodeGridViewport);", bind) > bind);
+    }
+
+    @Test
     public void leanbackOriginalEnhancedHidesShortDisplayAndSourceActions() throws Exception {
         Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
