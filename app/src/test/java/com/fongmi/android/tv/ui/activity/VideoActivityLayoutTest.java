@@ -120,6 +120,34 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void mobileVideoKeepsParseRowHiddenInEmbeddedPlayerWhenPlaybackStarts() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int method = source.indexOf("private void setPlayer(Result result)");
+        int setUseParse = source.indexOf("setUseParse(result.shouldUseParse());", method);
+        int guardedParseRow = source.indexOf("mBinding.control.parse.setVisibility(isFullscreen() && isUseParse() ? View.VISIBLE : View.GONE);", setUseParse);
+        int startPlayer = source.indexOf("startPlayer(getHistoryKey(), result, isUseParse()", setUseParse);
+
+        assertTrue(sourcePath + " is missing setPlayer", method >= 0);
+        assertTrue("parse row must only become visible in fullscreen during playback start", guardedParseRow > setUseParse && guardedParseRow < startPlayer);
+    }
+
+    @Test
+    public void mobileShortDramaKeepsStandardSettingButtonVisible() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int showControl = source.indexOf("private void showControl()");
+        int shortDrama = source.indexOf("boolean shortDrama = isShortDramaSource();", showControl);
+        int setting = source.indexOf("mBinding.control.setting.setVisibility(mHistory == null || (isFullscreen() && !shortDrama) ? View.GONE : View.VISIBLE);", shortDrama);
+        int shortDramaViews = source.indexOf("private View[] getShortDramaControlViews()");
+        int dockedSetting = source.indexOf("mBinding.control.setting,", shortDramaViews);
+
+        assertTrue(sourcePath + " is missing showControl", showControl >= 0);
+        assertTrue("short drama mode must keep the standard setting button visible while fullscreen", setting > shortDrama);
+        assertTrue("short drama floating controls must include the standard setting button", dockedSetting > shortDramaViews);
+    }
+
+    @Test
     public void mobileVideoTmdbMovableViewsKeepQualityBetweenFlagsAndEpisodes() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -258,9 +286,9 @@ public class VideoActivityLayoutTest {
                         && source.indexOf("int gravity = Gravity.CENTER;", start) > start);
         assertTrue("TMDB episode dialog must use the same adaptive TV card columns as TMDB detail",
                 source.indexOf("return TmdbEpisodeGridPolicy.tvAdaptiveSpanCount(getResources().getConfiguration().screenWidthDp);", column) > column);
-        assertTrue("TMDB episode dialog should drop the side-sheet chrome in card mode",
-                source.indexOf("binding.getRoot().setBackgroundColor(0x66111820);", init) > init
-                        && source.indexOf("binding.getRoot().setPadding(ResUtil.dp2px(48), ResUtil.dp2px(34), ResUtil.dp2px(48), ResUtil.dp2px(26));", init) > init);
+        assertTrue("TMDB episode dialog should use fullscreen optimized padding and background",
+                source.indexOf("binding.getRoot().setBackgroundColor(0x80111820);", init) > init
+                        && source.indexOf("binding.getRoot().setPadding(ResUtil.dp2px(24), ResUtil.dp2px(20), ResUtil.dp2px(24), ResUtil.dp2px(16));", init) > init);
 
         Path activityPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
@@ -668,6 +696,9 @@ public class VideoActivityLayoutTest {
                 source.indexOf("mTmdbHeaderView.getFusionSectionTitleColor()", method) > method);
         assertTrue("TMDB flag chips must use the same resolved playback theme as the moved labels",
                 methodBody.contains("mFlagAdapter.setTmdbLight(light)"));
+        assertTrue("fullscreen player action buttons must stay white instead of inheriting light TMDB text",
+                methodBody.contains("boolean playerOverlay = isFullscreen() || mBinding.control.action.getRoot().getParent() == mBinding.control.bottom")
+                        && methodBody.contains("playerOverlay ? Color.WHITE : color"));
         assertTrue("fusion playback icon retint must use a color filter", source.indexOf("setColorFilter(color)", method) > method);
         assertTrue("light fusion playback labels must clear inherited video shadows", source.indexOf("setShadowLayer(0, 0, 0, 0)", method) > method);
         assertTrue("episode view mode icon must be retinted after changing its drawable", viewModeRetint > viewModeIcon);
@@ -776,6 +807,27 @@ public class VideoActivityLayoutTest {
         assertTrue("TMDB header must apply theme after receiving the detail theme mode", apply > assign);
         assertTrue("TMDB header must not skip theme refresh just because the numeric mode is unchanged",
                 earlyReturn < 0 || earlyReturn > apply);
+    }
+
+    @Test
+    public void tmdbDetailThemeToggleRestylesExternalLinks() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int cycle = source.indexOf("private void cycleThemeMode()");
+        int apply = source.indexOf("applyDetailTheme();", cycle);
+        int external = source.indexOf("bindExternalLinks();", apply);
+        int render = source.indexOf("renderFlagSelection();", apply);
+        int method = source.indexOf("private int addExternalLink(String name, String url)");
+        int nextMethod = source.indexOf("private void openExternalLink(String url)", method);
+        String methodBody = nextMethod > method ? source.substring(method, nextMethod) : source.substring(method);
+
+        assertTrue(sourcePath + " is missing cycleThemeMode", cycle >= 0);
+        assertTrue("theme toggle must rebuild external link rows after theme colors change",
+                external > apply && external < render);
+        assertTrue("direct detail external link labels must use resolved theme text color",
+                methodBody.contains("label.setTextColor(colors.primary)"));
+        assertTrue("direct detail external link icons must use resolved theme icon color",
+                methodBody.contains("icon.setColorFilter(colors.secondary)"));
     }
 
     @Test
