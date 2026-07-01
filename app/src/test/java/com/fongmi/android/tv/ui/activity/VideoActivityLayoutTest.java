@@ -258,9 +258,9 @@ public class VideoActivityLayoutTest {
                         && source.indexOf("int gravity = Gravity.CENTER;", start) > start);
         assertTrue("TMDB episode dialog must use the same adaptive TV card columns as TMDB detail",
                 source.indexOf("return TmdbEpisodeGridPolicy.tvAdaptiveSpanCount(getResources().getConfiguration().screenWidthDp);", column) > column);
-        assertTrue("TMDB episode dialog should drop the side-sheet chrome in card mode",
-                source.indexOf("binding.getRoot().setBackgroundColor(0x66111820);", init) > init
-                        && source.indexOf("binding.getRoot().setPadding(ResUtil.dp2px(48), ResUtil.dp2px(34), ResUtil.dp2px(48), ResUtil.dp2px(26));", init) > init);
+        assertTrue("TMDB episode dialog should use fullscreen optimized padding and background",
+                source.indexOf("binding.getRoot().setBackgroundColor(0x80111820);", init) > init
+                        && source.indexOf("binding.getRoot().setPadding(ResUtil.dp2px(24), ResUtil.dp2px(20), ResUtil.dp2px(24), ResUtil.dp2px(16));", init) > init);
 
         Path activityPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);

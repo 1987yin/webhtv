@@ -1269,6 +1269,11 @@
     <string name="detail_image_next">下一張</string>
     <string name="detail_image_close">關閉</string>
 
+    <string-array name="select_search_ui">
+        <item>橫屏</item>
+        <item>豎屏</item>
+    </string-array>
+
     <string-array name="select_search_column">
         <item>自適應</item>
         <item>1個</item>

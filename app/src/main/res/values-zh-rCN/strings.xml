@@ -1094,8 +1094,8 @@
     </string-array>
 
     <string-array name="select_search_ui">
-        <item>横向</item>
-        <item>纵向</item>
+        <item>横屏</item>
+        <item>竖屏</item>
     </string-array>
 
     <string-array name="select_search_column">
