@@ -31,8 +31,8 @@ public class PlayerDisplaySettingSyncTest {
         assertTrue("PlayerOsdController is missing setTopLeft", method >= 0);
         int methodEnd = source.indexOf("\n    }", method);
         String body = source.substring(method, methodEnd);
-        assertTrue("Player OSD should honor the shared resolution display switch", body.contains("PlayerSetting.isOsdSize()"));
-        assertTrue("Player OSD should allow title and resolution to be toggled independently", body.contains("showTitle") && body.contains("showSize"));
+        assertTrue("Player OSD should honor the shared resolution display switch", body.contains("PlayerSetting.isOsdResolution()"));
+        assertTrue("Player OSD should allow title and resolution to be toggled independently", body.contains("showTitle") && body.contains("showResolution"));
     }
 
     @Test

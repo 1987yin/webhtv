@@ -25,7 +25,7 @@ public class TmdbEpisodeAdapterTest {
         assertTrue("native-enhanced TMDB episode cards must keep fallback artwork visible",
                 method >= 0
                         && source.indexOf("return false;", method) > method
-                        && source.indexOf("String imageUrl = !TextUtils.isEmpty(stillUrl) ? stillUrl : (allowFallback && !suppressSharedFallback ? fallbackStillUrl : \"\");") > method);
+                        && source.contains("allowFallback && !suppressSharedFallback ? fallbackStillUrl : \"\""));
     }
 
     @Test

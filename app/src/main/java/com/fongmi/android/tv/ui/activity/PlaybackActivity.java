@@ -191,6 +191,9 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     protected void onSurfaceAttached() {
     }
 
+    protected void onSeekStarted() {
+    }
+
     protected void applyResizeMode(int resizeMode) {
         PlayerView view = getExoView();
         view.setResizeMode(resizeMode);
@@ -211,6 +214,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     protected void seekTo(long time) {
+        onSeekStarted();
         mController.seekTo(player().getPosition() + time);
         mController.play();
     }
@@ -260,19 +264,24 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         long start = System.currentTimeMillis();
         SessionToken token = new SessionToken(this, new ComponentName(this, PlaybackService.class));
         mControllerFuture = new MediaController.Builder(this, token).setListener(this).buildAsync();
-        mControllerFuture.addListener(this::onControllerConnected, ContextCompat.getMainExecutor(this));
+        mControllerFuture.addListener(this::handleControllerConnected, ContextCompat.getMainExecutor(this));
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "controller build requested cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
     }
 
-    private void onControllerConnected() {
+    protected void onControllerConnected() {
+    }
+
+    private void handleControllerConnected() {
         long start = System.currentTimeMillis();
         try {
             mController = mControllerFuture.get();
             getSeekView().setPlayer(mController);
+            getSeekView().setSeekListener(this::onSeekStarted);
             mController.addListener(this);
         } catch (Exception ignored) {
         }
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "controller connected cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
+        if (mController != null) onControllerConnected();
     }
 
     private PendingIntent buildSessionIntent() {

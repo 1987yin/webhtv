@@ -81,6 +81,8 @@ import com.fongmi.android.tv.setting.PlayerButtonSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
+import com.fongmi.android.tv.title.MediaTitleLearningExample;
+import com.fongmi.android.tv.title.MediaTitleRequest;
 import com.fongmi.android.tv.subtitle.SubtitlePlaybackSession;
 import com.fongmi.android.tv.ui.activity.SearchActivity;
 import com.fongmi.android.tv.ui.adapter.ArrayAdapter;
@@ -169,6 +171,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private QuickSearchDialog mQuickSearchDialog;
     private PlayerOsdController mOsd;
     private final IntroSkipPlayback mIntroSkipPlayback = new IntroSkipPlayback();
+    private androidx.appcompat.app.AlertDialog mIntroSkipConfirmDialog;
     private final SubtitlePlaybackSession subtitlePlaybackSession = new SubtitlePlaybackSession(this);
     private CustomKeyDownVod mKeyDown;
     private SiteViewModel mViewModel;
@@ -187,6 +190,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private boolean episodeGridMode;
     private Runnable mR1;
     private Runnable mR2;
+    private Runnable mSeekProgressFallback;
     private Runnable mTmdbDetailTimeout;
     private boolean mTmdbDetailLoading;
     private boolean mTmdbDetailRevealed;
@@ -268,6 +272,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         Uri uri = Uri.parse(push.getUrl());
         if (FileChooser.isValid(activity, uri)) file(activity, FileChooser.getPathFromUri(uri), push.getTitle());
         else startPush(activity, push);
+    }
+
+    @Override
+    protected boolean customWall() {
+        return false;
     }
 
     public static void file(FragmentActivity activity, String path) {
@@ -682,6 +691,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mR1 = this::hideControl;
         mR2 = this::updateFocus;
         mR4 = this::showEmpty;
+        mSeekProgressFallback = this::hideSeekProgressIfReady;
         SpiderDebug.log("video-flow", "initView state ready cost=%dms", System.currentTimeMillis() - start);
         checkCast();
         SpiderDebug.log("video-flow", "initView preview ready cost=%dms", System.currentTimeMillis() - start);
@@ -786,6 +796,22 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             public void onChildViewHolderSelected(@NonNull RecyclerView parent, @Nullable RecyclerView.ViewHolder child, int position, int subposition) {
                 if (child != null) selectEpisodeSegment(position, false);
             }
+        });
+        setupIntroSkipConfirmListener();
+    }
+
+    private void setupIntroSkipConfirmListener() {
+        mIntroSkipPlayback.setSkipConfirmListener((segment, action) -> {
+            if (mIntroSkipConfirmDialog != null && mIntroSkipConfirmDialog.isShowing()) return;
+            int messageId = segment.isOpening()
+                ? (segment.getKind() == IntroSkipService.Segment.Kind.INTRO ? R.string.intro_skip_confirm_intro : R.string.intro_skip_confirm_recap)
+                : R.string.intro_skip_confirm_outro;
+            mIntroSkipConfirmDialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.intro_skip_confirm_title)
+                .setMessage(messageId)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> action.run())
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
         });
     }
 
@@ -1352,7 +1378,15 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         List<Danmaku> siteDanmakus = result.getDanmaku();
         startPlayer(getHistoryKey(), result, isUseParse(), getSite().getTimeout(), buildMetadata());
         subtitlePlaybackSession.onPlaybackStarted(this, result);
-        if (DanmakuApi.canAutoSearch(siteDanmakus)) DanmakuApi.search(mHistory.getVodName(), getEpisode().getName(), danmaku -> {
+        if (DanmakuApi.canAutoSearch(siteDanmakus)) DanmakuApi.search(MediaTitleRequest.builder()
+                .siteKey(getKey())
+                .vodId(getId())
+                .rawTitle(mHistory.getVodName())
+                .rawRemarks(mHistory.getVodRemarks())
+                .episodeName(getEpisode().getName())
+                .source(MediaTitleLearningExample.SOURCE_DANMAKU_AUTO)
+                .allowAi(true)
+                .build(), danmaku -> {
             if (DanmakuSetting.isSpiderFirst() && !siteDanmakus.isEmpty()) player().addDanmaku(danmaku);
             else player().setDanmaku(danmaku);
         });
@@ -1360,7 +1394,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private boolean redirectToContentHandler(Result result) {
         boolean handled = com.fongmi.android.tv.content.ContentDispatcher.dispatchResult(this, getHistoryKey(), getKey(), getFlag().getFlag(), mHistory.getVodName(), mHistory.getVodPic(), getFlag().getEpisodes(), getSelectedEpisodePosition(getFlag().getEpisodes()), result, getSite().getTimeout());
-        if (handled) finish();
+        if (handled) {
+            stopPlayback();
+            finish();
+        }
         return handled;
     }
 
@@ -1927,7 +1964,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private boolean onEpisodeKey(KeyEvent event) {
-        if (!KeyUtil.isActionDown(event) || !KeyUtil.isUpKey(event)) return false;
+        if (!KeyUtil.isActionDown(event)) return false;
         RecyclerView episodeView = episodeGridMode ? mBinding.episodeGrid : mBinding.episode;
         RecyclerView.ViewHolder holder = episodeView.findContainingViewHolder(getCurrentFocus());
         if (holder == null) return false;
@@ -1936,8 +1973,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (episodeGridMode) {
             RecyclerView.LayoutManager layoutManager = mBinding.episodeGrid.getLayoutManager();
             int spanCount = layoutManager instanceof GridLayoutManager gridLayoutManager ? gridLayoutManager.getSpanCount() : getEpisodeGridSpanCount();
-            if (position >= spanCount) return false;
+            if (KeyUtil.isDownKey(event)) {
+                int target = TmdbEpisodeGridPolicy.verticalFocusTarget(position, spanCount, mEpisodeGridAdapter.getItemCount(), true);
+                return target != TmdbEpisodeGridPolicy.NO_FOCUS_TARGET && focusEpisodeGridPosition(target);
+            }
+            if (KeyUtil.isUpKey(event)) {
+                int target = TmdbEpisodeGridPolicy.verticalFocusTarget(position, spanCount, mEpisodeGridAdapter.getItemCount(), false);
+                if (target != TmdbEpisodeGridPolicy.NO_FOCUS_TARGET) return focusEpisodeGridPosition(target);
+            } else {
+                return false;
+            }
         } else if (position != 0) {
+            return false;
+        } else if (!KeyUtil.isUpKey(event)) {
             return false;
         }
         int target = findFocusUp(episodeFocusIndex(episodeGridMode ? R.id.episodeGrid : R.id.episode));
@@ -1945,6 +1993,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         View view = findViewById(target);
         if (view == null || view.getVisibility() != View.VISIBLE) return false;
         view.requestFocus();
+        return true;
+    }
+
+    private boolean focusEpisodeGridPosition(int position) {
+        RecyclerView.ViewHolder holder = mBinding.episodeGrid.findViewHolderForAdapterPosition(position);
+        if (holder != null && holder.itemView.requestFocus()) return true;
+        mBinding.episodeGrid.scrollToPosition(position);
+        mBinding.episodeGrid.post(() -> {
+            RecyclerView.ViewHolder next = mBinding.episodeGrid.findViewHolderForAdapterPosition(position);
+            if (next != null) next.itemView.requestFocus();
+        });
         return true;
     }
 
@@ -2427,7 +2486,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void onDanmaku() {
-        DanmakuDialog.create().player(player()).show(this);
+        DanmakuDialog.create().player(player()).identity(getKey(), getId(), mHistory == null ? "" : mHistory.getVodName(), getEpisode().getName()).show(this);
         hideControl();
     }
 
@@ -2437,13 +2496,20 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void showProgress() {
+        if (mSeekProgressFallback != null) App.removeCallbacks(mSeekProgressFallback);
         mBinding.progress.getRoot().setVisibility(View.VISIBLE);
         hideCenter();
         hideError();
     }
 
     private void hideProgress() {
+        if (mSeekProgressFallback != null) App.removeCallbacks(mSeekProgressFallback);
         mBinding.progress.getRoot().setVisibility(View.GONE);
+    }
+
+    private void showPlaybackContent() {
+        if (!mBinding.progressLayout.isContent()) mBinding.progressLayout.showContent();
+        hideProgress();
     }
 
     private void showError(String text) {
@@ -2974,7 +3040,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                 break;
             case Player.STATE_READY:
                 recordPlayHealth(true, "");
-                hideProgress();
+                showPlaybackContent();
                 player().reset();
                 applyShortDramaMode();
                 requestIntroSkipPlan();
@@ -3005,6 +3071,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     @Override
     protected void onSurfaceAttached() {
         applyResizeMode(getScale());
+    }
+
+    private void hideSeekProgressIfReady() {
+        if (service() == null || player() == null || player().getPlaybackState() != Player.STATE_READY) return;
+        showPlaybackContent();
+    }
+
+    @Override
+    protected void onSeekStarted() {
+        showProgress();
+        App.removeCallbacks(mSeekProgressFallback);
+        App.post(mSeekProgressFallback, 500);
     }
 
     @Override
@@ -3635,6 +3713,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (mTmdbUIAdapter == null || mVod == null || item == null) return;
         mTmdbDialogGeneration++;
         showTmdbDetailLoading();
+        mTmdbUIAdapter.rememberManualMatch(mVod, item);
         mTmdbUIAdapter.load(item, mVod);
         Notify.show(R.string.detail_tmdb_match_saved);
     }
@@ -3995,7 +4074,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void requestIntroSkipPlan() {
-        if (!Setting.isAutoSkipIntroOutro() || player() == null) {
+        if (!Setting.isIntroSkipEnabled() || player() == null) {
             mIntroSkipPlayback.reset();
             return;
         }
@@ -4005,7 +4084,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private boolean applyAutoIntroSkip() {
-        if (!Setting.isAutoSkipIntroOutro() || player() == null) return false;
+        if (!Setting.isIntroSkipEnabled() || player() == null) return false;
         return mIntroSkipPlayback.apply(player(), () -> checkEnded(false));
     }
 
@@ -4626,7 +4705,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         stopBackdropAutoScroll();
         dismissQuickSearchDialog();
         RefreshEvent.keep();
-        App.removeCallbacks(mR1, mR2, mR4);
+        App.removeCallbacks(mR1, mR2, mR4, mSeekProgressFallback);
         App.removeCallbacks(mTmdbDetailTimeout);
         if (mOsd != null) mOsd.release();
         mViewModel.getResult().removeObserver(mObserveDetail);

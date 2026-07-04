@@ -31,7 +31,7 @@ public class TmdbUIAdapterTest {
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int cacheHit = source.indexOf("auto match cache hit");
         int skipCheck = source.indexOf("isCachedSplitSeasonMismatch(videoName, vod, matched)", cacheHit);
-        int search = source.indexOf("tmdbMatcher.searchAndMatch(videoName, vod)", cacheHit);
+        int search = source.indexOf("tmdbMatcher.searchAndMatch(title, vod)", cacheHit);
 
         assertTrue("TMDB UI adapter must check cached matches for split-season duplicates", skipCheck > cacheHit);
         assertTrue("split-season cache check must run before falling back to TMDB search", search > skipCheck);
