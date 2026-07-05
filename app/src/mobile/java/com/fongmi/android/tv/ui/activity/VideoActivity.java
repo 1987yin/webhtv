@@ -196,6 +196,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private QualityAdapter mQualityAdapter;
     private QuickAdapter mQuickAdapter;
     private QuickSearchDialog mQuickSearchDialog;
+    private String mQuickSearchKeyword;
     private ParseAdapter mParseAdapter;
     private TmdbRecommendationAdapter mPersonalTmdbRecommendationAdapter;
     private TmdbRecommendationAdapter mPersonalDoubanRecommendationAdapter;
@@ -1865,11 +1866,18 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void showQuickSearch(String keyword) {
+        mQuickSearchKeyword = TextUtils.isEmpty(mQuickSearchKeyword) ? keyword : mQuickSearchKeyword;
         mQuickSearchDialog = QuickSearchDialog.create()
-                .title(getString(R.string.detail_search, keyword))
+                .title(getString(R.string.detail_search, mQuickSearchKeyword))
+                .keyword(mQuickSearchKeyword)
                 .listener(this)
+                .searchListener(this::onQuickSearch)
                 .items(mQuickAdapter.getItems());
         mQuickSearchDialog.show(this);
+    }
+
+    private void onQuickSearch(String keyword) {
+        initSearch(keyword, false);
     }
 
     private void onReverse() {
@@ -3288,6 +3296,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void startSearch(String keyword) {
+        mQuickSearchKeyword = keyword;
         mQuickAdapter.clear();
         mBinding.quick.setVisibility(View.GONE);
         if (isQuickSearchVisible()) mQuickSearchDialog.clear();
@@ -3322,7 +3331,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private boolean mismatch(Vod item) {
         if (getId().equals(item.getId())) return true;
         if (mBroken.contains(item.getId())) return true;
-        String keyword = mBinding.name.getText().toString();
+        String keyword = TextUtils.isEmpty(mQuickSearchKeyword) ? mBinding.name.getText().toString() : mQuickSearchKeyword;
         if (isAutoMode()) return !item.getName().equals(keyword);
         else return !item.getName().contains(keyword);
     }

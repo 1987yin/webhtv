@@ -1,21 +1,16 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import android.app.Dialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
-import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
-import android.view.WindowManager;
 
-import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 
@@ -27,7 +22,6 @@ import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.github.catvod.crawler.SpiderDebug;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 public final class ManagePageDialog {
 
@@ -55,20 +49,15 @@ public final class ManagePageDialog {
         binding.message.setText(activity.getString(R.string.manage_page_dialog_message, lanUrl, localUrl));
         setScrollHeight(activity, binding.contentScroll, 0.34f, 300);
 
-        AlertDialog dialog = new MaterialAlertDialogBuilder(activity, R.style.ThemeOverlay_WebHTV_LightDialog)
-                .setView(binding.getRoot())
-                .create();
+        Dialog dialog = LightDialog.create(activity, null, binding.getRoot(), 0.68f, 0.92f, 640);
         binding.open.setOnClickListener(v -> open(activity, localUrl));
         binding.copy.setOnClickListener(v -> copy(activity, lanUrl));
         binding.stop.setOnClickListener(v -> {
             ManageService.stop(activity);
             dialog.dismiss();
         });
-        dialog.setOnShowListener(d -> {
-            configureWindow(activity, dialog, 0.68f, 0.92f, 640);
-            binding.open.requestFocus();
-        });
         dialog.show();
+        binding.open.requestFocus();
     }
 
     private static void open(FragmentActivity activity, String url) {
@@ -84,9 +73,7 @@ public final class ManagePageDialog {
         binding.message.setText(activity.getString(R.string.manage_page_battery_message, ManageService.getBackgroundPowerGuide(activity)));
         setScrollHeight(activity, binding.contentScroll, 0.42f, 360);
 
-        AlertDialog dialog = new MaterialAlertDialogBuilder(activity, R.style.ThemeOverlay_WebHTV_LightDialog)
-                .setView(binding.getRoot())
-                .create();
+        Dialog dialog = LightDialog.create(activity, null, binding.getRoot(), 0.70f, 0.92f, 680);
         binding.openAnyway.setOnClickListener(v -> {
             ManageService.confirmBackgroundPowerHandled();
             dialog.dismiss();
@@ -96,32 +83,14 @@ public final class ManagePageDialog {
             if (ManageService.openBackgroundPowerSettings(activity)) dialog.dismiss();
             else Notify.show(R.string.manage_page_battery_open_failed);
         });
-        dialog.setOnShowListener(d -> {
-            configureWindow(activity, dialog, 0.70f, 0.92f, 680);
-            binding.openSettings.requestFocus();
-        });
         dialog.show();
+        binding.openSettings.requestFocus();
     }
 
     private static void setScrollHeight(FragmentActivity activity, View view, float screenFactor, int maxDp) {
         ViewGroup.LayoutParams params = view.getLayoutParams();
         params.height = Math.min(ResUtil.dp2px(maxDp), Math.round(ResUtil.getScreenHeight(activity) * screenFactor));
         view.setLayoutParams(params);
-    }
-
-    private static void configureWindow(FragmentActivity activity, AlertDialog dialog, float landFactor, float portFactor, int maxDp) {
-        Window window = dialog.getWindow();
-        if (window == null) return;
-        WindowManager.LayoutParams params = window.getAttributes();
-        boolean land = ResUtil.isLand(activity);
-        int width = Math.min(Math.round(ResUtil.getScreenWidth(activity) * (land ? landFactor : portFactor)), ResUtil.dp2px(maxDp));
-        params.width = Math.max(width, ResUtil.dp2px(320));
-        params.height = WindowManager.LayoutParams.WRAP_CONTENT;
-        params.gravity = Gravity.CENTER;
-        window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        window.getDecorView().setPadding(0, 0, 0, 0);
-        window.setAttributes(params);
-        window.setLayout(params.width, WindowManager.LayoutParams.WRAP_CONTENT);
     }
 
     private static void openBrowser(FragmentActivity activity, String url) {

@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
@@ -12,7 +13,6 @@ import android.view.WindowManager;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.FragmentActivity;
-import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.BuildConfig;
 import com.fongmi.android.tv.R;
@@ -38,9 +38,7 @@ public final class AboutDialog {
         DialogAboutBinding binding = DialogAboutBinding.inflate(LayoutInflater.from(activity));
         binding.version.setText(activity.getString(R.string.about_version, AppVersion.fullName(), BuildConfig.FLAVOR_mode, BuildConfig.FLAVOR_abi));
 
-        AlertDialog dialog = new MaterialAlertDialogBuilder(activity, R.style.ThemeOverlay_WebHTV_LightDialog)
-                .setView(binding.getRoot())
-                .create();
+        Dialog dialog = LightDialog.create(activity, null, binding.getRoot());
         binding.confirm.setOnClickListener(v -> dialog.dismiss());
         binding.checkUpdate.setOnClickListener(v -> {
             dialog.dismiss();
@@ -48,12 +46,9 @@ public final class AboutDialog {
         });
         binding.githubProxy.setOnClickListener(v -> showGithubProxy(activity));
         dialog.setCanceledOnTouchOutside(false);
-        boolean configured = configureWindow(activity, dialog);
-        dialog.setOnShowListener(d -> {
-            if (!configured) configureWindow(activity, dialog);
-            binding.confirm.requestFocus();
-        });
         dialog.show();
+        configureWindow(activity, dialog);
+        binding.confirm.requestFocus();
     }
 
     private static void showGithubProxy(FragmentActivity activity) {
@@ -130,7 +125,7 @@ public final class AboutDialog {
         ((GithubProxyAdapter) binding.list.getAdapter()).setItems(GithubProxy.getSources(), GithubProxy.getActive());
     }
 
-    private static boolean configureWindow(FragmentActivity activity, AlertDialog dialog) {
+    private static boolean configureWindow(FragmentActivity activity, Dialog dialog) {
         Window window = dialog.getWindow();
         if (window == null) return false;
         WindowManager.LayoutParams params = window.getAttributes();

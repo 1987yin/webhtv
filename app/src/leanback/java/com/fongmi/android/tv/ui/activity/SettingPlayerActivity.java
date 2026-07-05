@@ -74,6 +74,7 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
         mBinding.backBufferText.setText((backBuffer = ResUtil.getStringArray(R.array.select_back_buffer))[PlayerSetting.getBackBufferOption()]);
         mBinding.playCacheText.setText((playCache = ResUtil.getStringArray(R.array.select_play_cache))[PlayerSetting.getPlayCacheOption()]);
         setPreloadText();
+        mBinding.autoPlayText.setText(getSwitch(PlayerSetting.isAutoPlay()));
         mBinding.autoChangeText.setText(getSwitch(PlayerSetting.isAutoChange()));
         mBinding.autoSkipIntroOutroText.setText((introSkipMode = getResources().getStringArray(R.array.select_auto_skip_intro_outro))[Setting.getIntroSkipMode()]);
         mBinding.backgroundText.setText(getSwitch(PlayerSetting.isBackgroundOn()));
@@ -108,6 +109,7 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
         mBinding.preloadThread.setOnClickListener(this::setPreloadThread);
         mBinding.preloadSize.setOnClickListener(this::setPreloadSize);
         mBinding.preloadTime.setOnClickListener(this::setPreloadTime);
+        mBinding.autoPlay.setOnClickListener(this::setAutoPlay);
         mBinding.autoChange.setOnClickListener(this::setAutoChange);
         mBinding.autoSkipIntroOutro.setOnClickListener(this::setAutoSkipIntroOutro);
         mBinding.render.setOnClickListener(this::setRender);
@@ -263,6 +265,11 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
         mBinding.preloadThreadText.setText(getString(R.string.player_preload_threads_value, PreloadSetting.getPreloadThreads()));
         mBinding.preloadSizeText.setText(FileUtil.byteCountToDisplaySize(PreloadSetting.getPreloadSizeBytes()));
         mBinding.preloadTimeText.setText(getString(R.string.player_preload_time_value, PreloadSetting.getPreloadTimeSeconds()));
+    }
+
+    private void setAutoPlay(View view) {
+        PlayerSetting.putAutoPlay(!PlayerSetting.isAutoPlay());
+        mBinding.autoPlayText.setText(getSwitch(PlayerSetting.isAutoPlay()));
     }
 
     private void setAutoChange(View view) {

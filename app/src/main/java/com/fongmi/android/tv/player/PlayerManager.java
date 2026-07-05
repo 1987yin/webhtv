@@ -97,6 +97,7 @@ public class PlayerManager implements ParseCallback {
     private boolean lutPipelinePrepareInProgress;
     private boolean pendingLutPreview;
     private boolean waitingLutBeforePlay;
+    private boolean playWhenReady = true;
     private boolean lutWarmupRecoveryActive;
     private boolean lutWarmupRefreshRequested;
     private boolean lutWarmupReloadPreviewPending;
@@ -326,6 +327,10 @@ public class PlayerManager implements ParseCallback {
 
     public String getDecodeText() {
         return engine.getDecodeText();
+    }
+
+    public boolean isHardDecode() {
+        return engine.isHard();
     }
 
     public String getPlayerText() {
@@ -600,21 +605,19 @@ public class PlayerManager implements ParseCallback {
     }
 
     private void switchEngine(int type, boolean persist, boolean preserveState, boolean notifyPrepare) {
-        long position = preserveState ? getPosition() : 0;
-        float speed = preserveState ? getSpeed() : 1f;
-        boolean repeat = preserveState && isRepeatOne();
         int decode = engine.getDecode();
-        switchEngine(type, persist, notifyPrepare, decode, position, speed, repeat);
+        switchEngine(type, persist, preserveState, notifyPrepare, decode);
     }
 
     private void switchEngine(int type, boolean persist, boolean preserveState, boolean notifyPrepare, int decode) {
         long position = preserveState ? getPosition() : 0;
         float speed = preserveState ? getSpeed() : 1f;
         boolean repeat = preserveState && isRepeatOne();
-        switchEngine(type, persist, notifyPrepare, decode, position, speed, repeat);
+        boolean wasPlayWhenReady = preserveState && player != null ? player.getPlayWhenReady() : playWhenReady;
+        switchEngine(type, persist, notifyPrepare, decode, position, speed, repeat, wasPlayWhenReady);
     }
 
-    private void switchEngine(int type, boolean persist, boolean notifyPrepare, int decode, long position, float speed, boolean repeat) {
+    private void switchEngine(int type, boolean persist, boolean notifyPrepare, int decode, long position, float speed, boolean repeat, boolean wasPlayWhenReady) {
         prepareSeq++;
         resetLutRuntimeState("switch_player", true);
         engine.release();
@@ -628,8 +631,9 @@ public class PlayerManager implements ParseCallback {
         player = engine.getPlayer();
         callback.onPlayerRebuild(player);
         if (spec == null || spec.getUrl() == null) return;
-        if (persist) setMediaItem();
-        else setMediaItemNow(Constant.TIMEOUT_PLAY, notifyPrepare);
+        this.playWhenReady = wasPlayWhenReady;
+        if (notifyPrepare) setMediaItem(Constant.TIMEOUT_PLAY);
+        else setMediaItemNow(Constant.TIMEOUT_PLAY, false);
         if (position > 0) seekTo(position);
         if (speed != 1f) setSpeed(speed);
         setRepeatOne(repeat);
@@ -664,7 +668,12 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void start(PlaySpec spec, long timeout) {
+        start(spec, timeout, true);
+    }
+
+    public void start(PlaySpec spec, long timeout, boolean playWhenReady) {
         this.spec = spec;
+        this.playWhenReady = playWhenReady;
         retry = 0;
         exoFallbackTried = false;
         realtimeFallbackTried = false;
@@ -676,8 +685,13 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void parse(String key, Result result, boolean useParse, MediaMetadata metadata) {
+        parse(key, result, useParse, metadata, true);
+    }
+
+    public void parse(String key, Result result, boolean useParse, MediaMetadata metadata, boolean playWhenReady) {
         stopParse();
         spec = PlaySpec.fromParse(result, key, metadata);
+        this.playWhenReady = playWhenReady;
         retry = 0;
         exoFallbackTried = false;
         realtimeFallbackTried = false;
@@ -694,6 +708,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void setMediaItem() {
+        playWhenReady = player == null || player.getPlayWhenReady();
         setMediaItem(Constant.TIMEOUT_PLAY);
     }
 
@@ -752,7 +767,7 @@ public class PlayerManager implements ParseCallback {
         prepareLutPipeline();
         initTrack = false;
         waitingLutBeforePlay = false;
-        engine.start(spec.checkUa());
+        engine.start(spec.checkUa(), playWhenReady);
         App.post(runnable, timeout);
         if (notifyPrepare) callback.onPrepare();
     }
@@ -1206,7 +1221,7 @@ public class PlayerManager implements ParseCallback {
         if (headers != null) headers.remove(HttpHeaders.RANGE);
         if (spec != null) spec.setHeaders(headers);
         if (spec != null) spec.setUrl(url);
-        setMediaItem();
+        setMediaItem(Constant.TIMEOUT_PLAY);
     }
 
     @Override
@@ -1344,7 +1359,7 @@ public class PlayerManager implements ParseCallback {
                 if (fallbackPlayer(e)) return;
                 callback.onError(engine.getErrorMessage(e));
             } else {
-                toggleDecode();
+                callback.onError(engine.getErrorMessage(e));
             }
         }
     };

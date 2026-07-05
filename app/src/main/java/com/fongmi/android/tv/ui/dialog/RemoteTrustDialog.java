@@ -1954,17 +1954,12 @@ public final class RemoteTrustDialog {
 
     private static void confirmConfigDelete(FragmentActivity activity, Binding binding, ConfigDialogState state, JsonObject payload) {
         if (payload == null) return;
-        showModal(new MaterialAlertDialogBuilder(activity, R.style.ThemeOverlay_WebHTV_LightDialog)
-                .setTitle(R.string.remote_trust_config_delete)
-                .setMessage(activity.getString(R.string.remote_trust_config_delete_message, payload.has("url") ? payload.get("url").getAsString() : ""))
-                .setNegativeButton(R.string.dialog_cancel, null)
-                .setPositiveButton(R.string.dialog_confirm, (dialog, which) -> runConfigCommand(activity, binding, state, "config.delete", payload, () -> {
-                    removeConfig(state.items, payload);
-                    binding.configCache.put(remoteCacheKey(binding), state.items);
-                    state.selected = null;
-                    renderRemoteConfigList(activity, binding, state);
-                }))
-                .create());
+        ChoiceDialog.showConfirm(activity, R.string.remote_trust_config_delete, activity.getString(R.string.remote_trust_config_delete_message, payload.has("url") ? payload.get("url").getAsString() : ""), R.string.dialog_confirm, () -> runConfigCommand(activity, binding, state, "config.delete", payload, () -> {
+            removeConfig(state.items, payload);
+            binding.configCache.put(remoteCacheKey(binding), state.items);
+            state.selected = null;
+            renderRemoteConfigList(activity, binding, state);
+        }));
     }
 
     private static void prefetchVodSites(FragmentActivity activity, Binding binding, ConfigDialogState state) {
@@ -2647,50 +2642,40 @@ public final class RemoteTrustDialog {
     }
 
     private static void confirmClear(FragmentActivity activity, Binding binding) {
-        showModal(new MaterialAlertDialogBuilder(activity, R.style.ThemeOverlay_WebHTV_LightDialog)
-                .setTitle(R.string.remote_trust_reset_local)
-                .setMessage(R.string.remote_trust_clear_message)
-                .setNegativeButton(R.string.dialog_cancel, null)
-                .setPositiveButton(R.string.dialog_confirm, (dialog, which) -> {
-                    RemoteStore.clear();
-                    RemoteAgent.get().stop();
-                    RemoteAgentService.stop(activity);
-                    binding.initialized = false;
-                    clearBindCode(binding);
-                    binding.selectedGroupId = "";
-                    binding.selectedDeviceId = "";
-                    binding.serviceStateText = "";
-                    binding.serviceDetailText = "";
-                    binding.diagnostics = "";
-                    binding.statusExpanded = false;
-                    binding.advancedExpanded = false;
-                    binding.autoBindAttempted = false;
-                    resetDetect(binding);
-                    binding.creatingBindCode = false;
-                    clearRemoteCache(binding);
-                    binding.page = PAGE_DEVICES;
-                    render(activity, binding);
-                })
-                .create());
+        ChoiceDialog.showConfirm(activity, R.string.remote_trust_reset_local, activity.getString(R.string.remote_trust_clear_message), R.string.dialog_confirm, () -> {
+            RemoteStore.clear();
+            RemoteAgent.get().stop();
+            RemoteAgentService.stop(activity);
+            binding.initialized = false;
+            clearBindCode(binding);
+            binding.selectedGroupId = "";
+            binding.selectedDeviceId = "";
+            binding.serviceStateText = "";
+            binding.serviceDetailText = "";
+            binding.diagnostics = "";
+            binding.statusExpanded = false;
+            binding.advancedExpanded = false;
+            binding.autoBindAttempted = false;
+            resetDetect(binding);
+            binding.creatingBindCode = false;
+            clearRemoteCache(binding);
+            binding.page = PAGE_DEVICES;
+            render(activity, binding);
+        });
     }
 
     private static void confirmDeleteDevice(FragmentActivity activity, Binding binding, DeviceRow row) {
         if (row == null || row.group == null || row.device == null) return;
-        showModal(new MaterialAlertDialogBuilder(activity, R.style.ThemeOverlay_WebHTV_LightDialog)
-                .setTitle(R.string.remote_trust_delete_device)
-                .setMessage(activity.getString(R.string.remote_trust_delete_device_message, deviceName(row.device)))
-                .setNegativeButton(R.string.dialog_cancel, null)
-                .setPositiveButton(R.string.dialog_confirm, (dialog, which) -> {
-                    RemoteProfile profile = currentProfile(binding);
-                    if (profile == null) return;
-                    if (RemoteStore.removeDevice(profile.serverOrigin, row.group.groupId, row.device.deviceId)) {
-                        binding.selectedGroupId = "";
-                        binding.selectedDeviceId = "";
-                        Notify.show(R.string.remote_trust_delete_device_done);
-                        render(activity, binding);
-                    }
-                })
-                .create());
+        ChoiceDialog.showConfirm(activity, R.string.remote_trust_delete_device, activity.getString(R.string.remote_trust_delete_device_message, deviceName(row.device)), R.string.dialog_confirm, () -> {
+            RemoteProfile profile = currentProfile(binding);
+            if (profile == null) return;
+            if (RemoteStore.removeDevice(profile.serverOrigin, row.group.groupId, row.device.deviceId)) {
+                binding.selectedGroupId = "";
+                binding.selectedDeviceId = "";
+                Notify.show(R.string.remote_trust_delete_device_done);
+                render(activity, binding);
+            }
+        });
     }
 
     private static void copyCode(Context context, Binding binding) {

@@ -199,9 +199,9 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         button.setInsetTop(0);
         button.setInsetBottom(0);
         button.setPadding(ResUtil.dp2px(14), ResUtil.dp2px(6), ResUtil.dp2px(14), ResUtil.dp2px(6));
-        button.setTextColor(ContextCompat.getColorStateList(requireContext(), R.color.selector_control));
-        button.setBackgroundTintList(ContextCompat.getColorStateList(requireContext(), R.color.selector_button));
-        button.setStrokeColor(ContextCompat.getColorStateList(requireContext(), R.color.selector_stroke));
+        button.setTextColor(ContextCompat.getColorStateList(requireContext(), R.color.dialog_outlined_button_text));
+        button.setBackgroundTintList(ContextCompat.getColorStateList(requireContext(), R.color.dialog_outlined_button_bg));
+        button.setStrokeColor(ContextCompat.getColorStateList(requireContext(), R.color.dialog_outlined_button_stroke));
         button.setOnClickListener(v -> onGroupClick(group, button));
         return button;
     }

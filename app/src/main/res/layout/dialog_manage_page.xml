@@ -53,26 +53,30 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/stop"
             style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="40dp"
+            android:layout_weight="1"
             android:minWidth="0dp"
             android:minHeight="40dp"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:singleLine="true"
             android:text="@string/manage_page_stop"
             android:textColor="@color/dialog_text_button"
             app:rippleColor="#1A1A73E8" />
 
-        <Space
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/copy"
             style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="40dp"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:minWidth="0dp"
             android:minHeight="40dp"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:singleLine="true"
             android:text="@string/manage_page_copy_url"
             android:textColor="@color/dialog_outlined_button_text"
             app:backgroundTint="@color/dialog_outlined_button_bg"
@@ -81,10 +85,15 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/open"
             style="@style/Widget.Material3.Button"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="40dp"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:minWidth="0dp"
             android:minHeight="40dp"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:singleLine="true"
             android:text="@string/manage_page_open_browser"
             android:textColor="@color/dialog_primary_button_text"
             app:backgroundTint="@color/dialog_primary_button_bg" />
