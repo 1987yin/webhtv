@@ -233,6 +233,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             attachSurface();
             player().start(PlaySpec.from(result, key, metadata), timeout, PlayerSetting.isAutoPlay());
         }
+        syncKeepScreenOn();
     }
 
     private void bindPlaybackService() {
@@ -281,6 +282,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         } catch (Exception ignored) {
         }
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "controller connected cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
+        syncKeepScreenOn();
         if (mController != null) onControllerConnected();
     }
 
@@ -404,6 +406,22 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         mService = null;
     }
 
+    private void syncKeepScreenOn() {
+        if (shouldKeepScreenOn()) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    private boolean shouldKeepScreenOn() {
+        if (!isOwner()) return false;
+        PlayerManager manager = player();
+        if (manager == null || manager.isReleased() || manager.isEmpty()) return false;
+        Player active = mController != null ? mController : manager.getPlayer();
+        int state = active.getPlaybackState();
+        if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) return false;
+        if (active.isPlaying()) return true;
+        return active.getPlayWhenReady() && (state == Player.STATE_BUFFERING || state == Player.STATE_READY);
+    }
+
     private String lifecycleState() {
         String playerKey = null;
         boolean released = true;
@@ -475,17 +493,22 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     @Override
     public void onIsPlayingChanged(boolean isPlaying) {
+        syncKeepScreenOn();
         if (!isOwner()) return;
         syncShutter();
-        if (isPlaying) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        else if (!isBuffering()) getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "playing changed isPlaying=%s state=%d %s", isPlaying, mController == null ? -1 : mController.getPlaybackState(), lifecycleState());
         onPlayingChanged(isPlaying);
     }
 
     @Override
+    public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+        syncKeepScreenOn();
+    }
+
+    @Override
     public void onPlaybackStateChanged(int state) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "state changed state=%d %s", state, lifecycleState());
+        syncKeepScreenOn();
         if (!isOwner()) return;
         syncShutter();
         onStateChanged(state);
@@ -508,6 +531,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         mService.setNavigationCallback(getNavigationCallback(), getPlaybackKey());
         mService.addPlayerCallback(mPlayerCallback);
         player().setLutAllowed(isLutAllowed());
+        syncKeepScreenOn();
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "service connected cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service connected %s", lifecycleState());
         onServiceConnected();
@@ -529,6 +553,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             detachSurface();
             onReclaim();
         }
+        syncKeepScreenOn();
     }
 
     @Override

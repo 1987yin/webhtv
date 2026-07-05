@@ -46,6 +46,12 @@ public class PlayerDisplaySettingSyncTest {
         assertTrue(source.contains("\"display_title\""));
     }
 
+    @Test
+    public void backupIncludesFfmpegModePreference() throws Exception {
+        String source = read(mainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "bean", "Backup.java")));
+        assertTrue(source.contains("\"ffmpeg_mode\""));
+    }
+
     private static void assertSettingPageUsesDisplayPreferences(String source) {
         assertTrue(source.contains("PlayerSetting.getDisplayChecked()"));
         assertTrue(source.contains("PlayerSetting.putDisplayChecked(checked)"));

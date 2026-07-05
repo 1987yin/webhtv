@@ -108,6 +108,7 @@ import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
+import com.fongmi.android.tv.ui.helper.PlayerControlFocusHelper;
 import com.fongmi.android.tv.ui.helper.TmdbEpisodeGridPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
 import com.fongmi.android.tv.utils.AudioUtil;
@@ -276,7 +277,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected boolean customWall() {
-        return false;
+        return true;
     }
 
     public static void file(FragmentActivity activity, String path) {
@@ -1966,7 +1967,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private boolean onEpisodeKey(KeyEvent event) {
         if (!KeyUtil.isActionDown(event)) return false;
         RecyclerView episodeView = episodeGridMode ? mBinding.episodeGrid : mBinding.episode;
-        RecyclerView.ViewHolder holder = episodeView.findContainingViewHolder(getCurrentFocus());
+        View focus = getCurrentFocus();
+        if (focus == null) return false;
+        RecyclerView.ViewHolder holder = episodeView.findContainingViewHolder(focus);
         if (holder == null) return false;
         int position = holder.getBindingAdapterPosition();
         if (position == RecyclerView.NO_POSITION) return false;
@@ -2545,7 +2548,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         setPlayParamsState();
         mBinding.control.getRoot().setVisibility(View.VISIBLE);
         if (mOsd != null) mOsd.setControlsVisible(true);
-        view.requestFocus();
+        PlayerControlFocusHelper.ensureFocus(mBinding.control.getRoot(), view);
         setR1Callback();
     }
 
@@ -2935,7 +2938,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                 .filter(item::equals).findFirst().ifPresentOrElse(target -> {
                     target.mergeEpisodes(item.getEpisodes(), mHistory.isRevSort());
                     if (target.equals(activated)) {
-                        boolean useTmdbCard = EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(isTmdbSourceEnabled(), item.getEpisodes());
+                        boolean useTmdbCard = EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(isTmdbSourceEnabled(), target.getEpisodes());
 
                         if (useTmdbCard && mBinding.episodeLoadingIndicator.getVisibility() == View.VISIBLE) {
                             // TMDB数据加载完成，执行淡入动画
@@ -4407,7 +4410,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private View getFocus2() {
-        return mFocus2 == null || mFocus2.getVisibility() != View.VISIBLE || mFocus2 == mBinding.control.action.opening || mFocus2 == mBinding.control.action.ending ? mBinding.control.action.next : mFocus2;
+        return mFocus2 == null || mFocus2.getVisibility() != View.VISIBLE || !PlayerControlFocusHelper.isDescendant(mBinding.control.getRoot(), mFocus2) || mFocus2 == mBinding.control.action.opening || mFocus2 == mBinding.control.action.ending ? mBinding.control.action.next : mFocus2;
     }
 
     @Override
@@ -4418,8 +4421,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             if (Setting.getFullscreenMenuKey() == 1) onEpisodes();
             else onToggle();
         }
-        if (isVisible(mBinding.control.getRoot())) setR1Callback();
-        if (isVisible(mBinding.control.getRoot())) mFocus2 = getCurrentFocus();
+        if (isVisible(mBinding.control.getRoot())) {
+            setR1Callback();
+            if (PlayerControlFocusHelper.handleKey(mBinding.control.getRoot(), getFocus2(), event)) return true;
+            if (PlayerControlFocusHelper.containsFocus(mBinding.control.getRoot())) mFocus2 = getCurrentFocus();
+        }
         if (onEpisodeKey(event)) return true;
         if (handleEpisodeLongPress(event)) return true;
         if (isFullscreen() && isGone(mBinding.control.getRoot()) && mKeyDown.hasEvent(event) && service() != null) return mKeyDown.onKeyDown(event);

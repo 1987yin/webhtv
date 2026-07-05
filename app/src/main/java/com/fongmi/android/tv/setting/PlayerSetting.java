@@ -387,6 +387,22 @@ public class PlayerSetting {
         Prefers.put("video_prefer", videoPrefer);
     }
 
+    public static int getFFmpegMode() {
+        return Prefers.getInt("ffmpeg_mode", 2);
+    }
+
+    public static void putFFmpegMode(int mode) {
+        Prefers.put("ffmpeg_mode", mode);
+    }
+
+    public static boolean useNextLibFFmpeg() {
+        return getFFmpegMode() == 0;
+    }
+
+    public static void putUseNextLibFFmpeg(boolean useNextLib) {
+        putFFmpegMode(useNextLib ? 0 : 1);
+    }
+
     public static boolean isPreferAAC() {
         return Prefers.getBoolean("prefer_aac");
     }

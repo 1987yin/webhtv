@@ -20,6 +20,7 @@ import android.text.TextUtils;
 import android.text.style.ClickableSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -132,6 +133,7 @@ import com.fongmi.android.tv.ui.dialog.VideoContentDialog;
 import com.fongmi.android.tv.ui.helper.DetailThemeVisibility;
 import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
 import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
+import com.fongmi.android.tv.ui.helper.PlayerControlFocusHelper;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
 import com.fongmi.android.tv.utils.AudioUtil;
 import com.fongmi.android.tv.utils.Clock;
@@ -2438,6 +2440,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.getRoot().setVisibility(View.VISIBLE);
         if (mOsd != null) mOsd.setControlsVisible(true);
         checkFullscreenImg();
+        mBinding.control.getRoot().post(() -> PlayerControlFocusHelper.ensureFocus(mBinding.control.getRoot(), mBinding.control.play));
         setR1Callback();
     }
 
@@ -2450,6 +2453,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (mOsd != null) mOsd.setControlsVisible(false);
         App.removeCallbacks(mR1);
         setOsdSuppressed(false);
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (isVisible(mBinding.control.getRoot()) && PlayerControlFocusHelper.handleKey(mBinding.control.getRoot(), mBinding.control.play, event)) return true;
+        return super.dispatchKeyEvent(event);
     }
 
     private void setOsdSuppressed(boolean suppressed) {

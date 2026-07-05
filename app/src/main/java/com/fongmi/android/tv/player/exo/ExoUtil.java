@@ -76,7 +76,10 @@ public class ExoUtil {
 
     public static ExoPlayer buildPlayer(int decode, Player.Listener listener) {
         ExoPlayer.Builder builder = new ExoPlayer.Builder(App.get()).setTrackSelector(buildTrackSelector()).setRenderersFactory(buildPlaybackRenderersFactory(decode)).setMediaSourceFactory(buildMediaSourceFactory());
-        builder.setLoadControl(PlayerSetting.isExoEnhanced() ? buildEnhancedLoadControl() : buildLoadControl());
+        // Simple 模式：完全模仿 TV 项目，不设置 LoadControl
+        if (PlayerSetting.getFFmpegMode() != 2) {
+            builder.setLoadControl(PlayerSetting.isExoEnhanced() ? buildEnhancedLoadControl() : buildLoadControl());
+        }
         ExoPlayer player = builder.build();
         PlaybackAnalyticsListener.reset();
         player.addAnalyticsListener(new PlaybackAnalyticsListener());
@@ -167,6 +170,20 @@ public class ExoUtil {
     }
 
     private static RenderersFactory buildRenderersFactory(int audioRenderMode, int videoRenderMode, boolean audioPrefer, boolean videoPrefer) {
+        int mode = PlayerSetting.getFFmpegMode();
+        if (mode == 0) {
+            // NextLib: 使用第三方 FFmpeg 渲染器
+            return buildNextLibRenderersFactory(audioRenderMode, videoRenderMode, audioPrefer, videoPrefer);
+        } else if (mode == 1) {
+            // Official: 仅 Media3 官方渲染器
+            return buildOfficialRenderersFactory(audioRenderMode, videoRenderMode, audioPrefer, videoPrefer);
+        } else {
+            // Simple: 完全模仿 TV 项目（无自定义 FFmpeg 渲染器 + 无自定义 LoadControl）
+            return buildSimpleRenderersFactory(audioRenderMode, videoRenderMode, audioPrefer, videoPrefer);
+        }
+    }
+
+    private static RenderersFactory buildNextLibRenderersFactory(int audioRenderMode, int videoRenderMode, boolean audioPrefer, boolean videoPrefer) {
         DefaultRenderersFactory factory = new FfmpegRenderersFactory(App.get(), audioRenderMode, videoRenderMode, audioPrefer, videoPrefer) {
             @Override
             protected AudioSink buildAudioSink(@NonNull Context context, boolean enableFloatOutput, boolean enableAudioOutputPlaybackParams) {
@@ -178,6 +195,38 @@ public class ExoUtil {
             factory.experimentalSetLateThresholdToDropDecoderInputUs(ENHANCED_LATE_THRESHOLD_TO_DROP_INPUT_US);
         }
         return factory.setEnableDecoderFallback(true).setExtensionRendererMode(Math.max(audioRenderMode, videoRenderMode));
+    }
+
+    private static RenderersFactory buildOfficialRenderersFactory(int audioRenderMode, int videoRenderMode, boolean audioPrefer, boolean videoPrefer) {
+        DefaultRenderersFactory factory = new DefaultRenderersFactory(App.get()) {
+            @Override
+            protected AudioSink buildAudioSink(@NonNull Context context, boolean enableFloatOutput, boolean enableAudioOutputPlaybackParams) {
+                return ExoUtil.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParams);
+            }
+        };
+        if (PlayerSetting.isExoEnhanced()) {
+            factory.forceEnableMediaCodecAsynchronousQueueing();
+            factory.experimentalSetLateThresholdToDropDecoderInputUs(ENHANCED_LATE_THRESHOLD_TO_DROP_INPUT_US);
+        }
+        // Official 模式：只使用 Media3 自带的扩展渲染器，不依赖 NextLib
+        // 通过 ExtensionRendererMode 控制硬解/软解优先级
+        return factory
+            .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(Math.max(audioRenderMode, videoRenderMode));
+    }
+
+    private static RenderersFactory buildSimpleRenderersFactory(int audioRenderMode, int videoRenderMode, boolean audioPrefer, boolean videoPrefer) {
+        // Simple 模式：完全模仿 TV 项目
+        // 不使用 NextLib，不设置 ExoEnhanced 参数，保持最简单的配置
+        DefaultRenderersFactory factory = new DefaultRenderersFactory(App.get()) {
+            @Override
+            protected AudioSink buildAudioSink(@NonNull Context context, boolean enableFloatOutput, boolean enableAudioOutputPlaybackParams) {
+                return ExoUtil.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParams);
+            }
+        };
+        return factory
+            .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(Math.max(audioRenderMode, videoRenderMode));
     }
 
     private static AudioSink buildAudioSink(Context context, boolean enableFloatOutput, boolean enableAudioOutputPlaybackParams) {

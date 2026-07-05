@@ -27,3 +27,4 @@ app/signing/
 .gradle-user-home/
 plans/
 .tokensave
+.codebase-memory

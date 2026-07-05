@@ -86,6 +86,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.audioDecodeText.setText(getSwitch(PlayerSetting.isAudioPrefer()));
         mBinding.audioPassThroughText.setText(getSwitch(PlayerSetting.isAudioPassThrough()));
         mBinding.videoDecodeText.setText(getSwitch(PlayerSetting.isVideoPrefer()));
+        mBinding.ffmpegModeText.setText(getFFmpegModeText());
         mBinding.caption.setVisibility(PlayerSetting.hasCaption() ? View.VISIBLE : View.GONE);
         mBinding.osdText.setText(getOsdText(osd = ResUtil.getStringArray(R.array.select_player_osd)));
         mBinding.kernelText.setText((kernel = ResUtil.getStringArray(R.array.select_player_kernel))[PlayerSetting.getPlayer()]);
@@ -130,6 +131,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.audioDecode.setOnClickListener(this::setAudioDecode);
         mBinding.audioPassThrough.setOnClickListener(this::setAudioPassThrough);
         mBinding.videoDecode.setOnClickListener(this::setVideoDecode);
+        mBinding.ffmpegMode.setOnClickListener(this::setFfmpegMode);
     }
 
     private void onUa(View view) {
@@ -401,6 +403,21 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     private void setVideoDecode(View view) {
         PlayerSetting.putVideoPrefer(!PlayerSetting.isVideoPrefer());
         mBinding.videoDecodeText.setText(getSwitch(PlayerSetting.isVideoPrefer()));
+    }
+
+    private void setFfmpegMode(View view) {
+        int mode = (PlayerSetting.getFFmpegMode() + 1) % 3;
+        PlayerSetting.putFFmpegMode(mode);
+        mBinding.ffmpegModeText.setText(getFFmpegModeText());
+    }
+
+    private String getFFmpegModeText() {
+        return switch (PlayerSetting.getFFmpegMode()) {
+            case 0 -> "NextLib";
+            case 1 -> "Official";
+            case 2 -> "Simple";
+            default -> "NextLib";
+        };
     }
 
     @Override

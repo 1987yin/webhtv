@@ -816,6 +816,7 @@
     <string name="player_audio_decode">音訊軟解</string>
     <string name="player_audio_passthrough">音訊直通</string>
     <string name="player_video_decode">視訊軟解</string>
+    <string name="player_ffmpeg_mode">FFmpeg模式</string>
     <string name="player_aac_track">AAC優先</string>
     <string name="player_music_notification">音樂背景通知</string>
     <string name="player_audio_book_notification">有聲書背景通知</string>
@@ -1168,6 +1169,9 @@
     <string name="dialog_tmdb_api_host_hint">例如 https://api.tmdb.org</string>
     <string name="dialog_tmdb_image_host_label">圖片域名</string>
     <string name="dialog_tmdb_image_host_hint">例如 https://image.tmdb.org</string>
+    <string name="dialog_tmdb_section_data">數據源</string>
+    <string name="dialog_tmdb_section_ratings">評分擴展</string>
+    <string name="dialog_tmdb_section_rules">站點規則</string>
     <string name="dialog_omdb_api_key_label">OMDb API Key（可選，用於 IMDB 評分）</string>
     <string name="dialog_omdb_api_key_hint">輸入 OMDb API Key</string>
     <string name="dialog_omdb_api_key_tip">免費獲取 API Key（每天1000次）: https://www.omdbapi.com/apikey.aspx</string>

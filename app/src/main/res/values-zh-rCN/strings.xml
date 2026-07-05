@@ -837,6 +837,7 @@
     <string name="player_audio_decode">音频软解</string>
     <string name="player_audio_passthrough">音频直通</string>
     <string name="player_video_decode">视频软解</string>
+    <string name="player_ffmpeg_mode">FFmpeg模式</string>
     <string name="player_aac_track">AAC优先</string>
     <string name="player_music_notification">音乐后台通知</string>
     <string name="player_audio_book_notification">有声书后台通知</string>
@@ -1246,6 +1247,9 @@
     <string name="dialog_tmdb_api_host_hint">例如 https://api.tmdb.org</string>
     <string name="dialog_tmdb_image_host_label">图片域名</string>
     <string name="dialog_tmdb_image_host_hint">例如 https://image.tmdb.org</string>
+    <string name="dialog_tmdb_section_data">数据源</string>
+    <string name="dialog_tmdb_section_ratings">评分扩展</string>
+    <string name="dialog_tmdb_section_rules">站点规则</string>
     <string name="dialog_omdb_api_key_label">OMDb API Key（可选，用于 IMDB 评分）</string>
     <string name="dialog_omdb_api_key_hint">输入 OMDb API Key</string>
     <string name="dialog_omdb_api_key_tip">免费获取 API Key（每天1000次）: https://www.omdbapi.com/apikey.aspx</string>

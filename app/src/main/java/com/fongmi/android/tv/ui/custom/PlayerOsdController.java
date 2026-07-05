@@ -202,6 +202,7 @@ public class PlayerOsdController {
         }
         String text = getDiagnostics(player);
         diagnostics.setText(text);
+        diagnostics.setTextColor(0xFFFFFFFF); // 强制设置白色
         diagnostics.setVisibility(TextUtils.isEmpty(text) ? View.GONE : View.VISIBLE);
     }
 

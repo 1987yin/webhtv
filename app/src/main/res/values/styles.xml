@@ -151,6 +151,7 @@
     <style name="Control">
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
+        <item name="android:textColor">@color/player_control_text</item>
     </style>
 
     <style name="DisplayControl" parent="Control">

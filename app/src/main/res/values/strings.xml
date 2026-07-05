@@ -839,6 +839,7 @@
     <string name="player_audio_decode">Audio software decode</string>
     <string name="player_audio_passthrough">Audio passthrough</string>
     <string name="player_video_decode">Video software decode</string>
+    <string name="player_ffmpeg_mode">FFmpeg mode</string>
     <string name="player_aac_track">Prefer aac track</string>
     <string name="player_music_notification">Music background notification</string>
     <string name="player_audio_book_notification">Audiobook background notification</string>
@@ -1263,6 +1264,9 @@
     <string name="dialog_tmdb_api_host_hint">For example https://api.tmdb.org</string>
     <string name="dialog_tmdb_image_host_label">Image host</string>
     <string name="dialog_tmdb_image_host_hint">For example https://image.tmdb.org</string>
+    <string name="dialog_tmdb_section_data">Data source</string>
+    <string name="dialog_tmdb_section_ratings">Ratings</string>
+    <string name="dialog_tmdb_section_rules">Source rules</string>
     <string name="dialog_omdb_api_key_label">OMDb API Key (Optional, for IMDB ratings)</string>
     <string name="dialog_omdb_api_key_hint">Enter OMDb API Key</string>
     <string name="dialog_omdb_api_key_tip">Get free API Key (1000/day): https://www.omdbapi.com/apikey.aspx</string>
