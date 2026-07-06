@@ -787,6 +787,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.actor.setOnClickListener(view -> onActor());
         mBinding.content.setOnClickListener(view -> onContent());
         mBinding.reverse.setOnClickListener(view -> onReverse());
+        if (mBinding.episodeFileName != null) mBinding.episodeFileName.setOnClickListener(view -> toggleEpisodeFileName());
         if (mBinding.episodeViewMode != null) mBinding.episodeViewMode.setOnClickListener(view -> toggleEpisodeViewMode());
         mBinding.director.setOnClickListener(view -> onDirector());
         mBinding.name.setOnLongClickListener(view -> onChange());
@@ -1228,6 +1229,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             com.fongmi.android.tv.bean.TmdbItem tmdbItem = getTmdbItem();
             if (tmdbItem != null) {
                 // 直接使用传入的 TmdbItem
+                SpiderDebug.log("tmdb-mobile", "direct load vodTitle=%s tmdbTitle=%s tmdbId=%d media=%s", item.getName(), tmdbItem.getTitle(), tmdbItem.getTmdbId(), tmdbItem.getMediaType());
                 mTmdbUIAdapter.load(tmdbItem, item);
             } else {
                 // 自动搜索匹配
@@ -1583,7 +1585,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (showViewMode) mEpisodeGridMode = Setting.getTmdbEpisodeGridMode();
         if (!showViewMode) mEpisodeGridMode = true;
         updateEpisodeViewModeButton();
+        updateEpisodeFileNameButton();
+        android.util.Log.d("VideoActivity", "setEpisodeAdapter - showViewMode=" + showViewMode + ", useTmdbCard=" + useTmdbCard + ", size=" + size);
         if (mBinding.episodeViewMode != null) mBinding.episodeViewMode.setVisibility(showViewMode ? View.VISIBLE : View.GONE);
+        if (mBinding.episodeFileName != null) {
+            mBinding.episodeFileName.setVisibility(showViewMode ? View.VISIBLE : View.GONE);
+            android.util.Log.d("VideoActivity", "episodeFileName visibility set to " + (showViewMode ? "VISIBLE" : "GONE"));
+        }
         mBinding.episode.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
         mBinding.more.setVisibility(View.GONE);
         int maxGroupSize = useTmdbCard ? EpisodeRangePolicy.CARD_PAGE_MAX_SIZE : 0;
@@ -1604,6 +1612,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mEpisodeAdapter.setUseTmdbCard(false);
         mEpisodeAdapter.setViewType(ViewType.GRID);
         if (mBinding.episodeViewMode != null) mBinding.episodeViewMode.setVisibility(View.GONE);
+        if (mBinding.episodeFileName != null) mBinding.episodeFileName.setVisibility(View.GONE);
         mBinding.episode.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
         mBinding.more.setVisibility(View.GONE);
         List<EpisodeGroupAdapter.Group> groups = EpisodeGroupAdapter.build(size, getSelectedEpisodePosition(items), mHistory != null && mHistory.isRevSort());
@@ -1903,6 +1912,40 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         boolean switchToList = mEpisodeGridMode;
         mBinding.episodeViewMode.setImageResource(switchToList ? R.drawable.ic_site_list : R.drawable.ic_site_grid);
         mBinding.episodeViewMode.setContentDescription(getString(switchToList ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
+        applyTmdbPlaybackControlColors();
+    }
+
+    private void toggleEpisodeFileName() {
+        if (mBinding.episodeFileName == null || mBinding.episodeFileName.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        boolean showScraped = !Setting.getTmdbEpisodeShowScrapedName();
+        android.util.Log.d("VideoActivity", "toggleEpisodeFileName - showScraped=" + showScraped + ", mTmdbControlsMoved=" + mTmdbControlsMoved);
+        Setting.putTmdbEpisodeShowScrapedName(showScraped);
+        updateEpisodeFileNameButton();
+        // Fusion 模式 reparent 后 RecyclerView 刷新失效，强制重建 adapter
+        if (mTmdbControlsMoved && mEpisodeAdapter != null) {
+            android.util.Log.d("VideoActivity", "Fusion mode detected, recreating adapter. Item count=" + mEpisodeAdapter.getItemCount());
+            int position = mEpisodeAdapter.getPosition();
+            boolean useTmdbCard = mEpisodeAdapter.isUsingTmdbCard();
+            ArrayList<Episode> items = new ArrayList<>(getCurrentEpisodeItems());
+            android.util.Log.d("VideoActivity", "First episode tmdbEpisode=" + (items.isEmpty() ? "empty" : (items.get(0).getTmdbEpisode() != null ? "not null" : "null")));
+            int viewType = useTmdbCard && !mEpisodeGridMode ? ViewType.HORI : ViewType.GRID;
+            mEpisodeAdapter = new EpisodeAdapter(this, viewType, items);
+            mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
+            mBinding.episode.setAdapter(mEpisodeAdapter);
+            scrollToPosition(mBinding.episode, position);
+        } else {
+            android.util.Log.d("VideoActivity", "Normal mode, calling setEpisodeItems");
+            setEpisodeItems(getCurrentEpisodeItems());
+            scrollToPosition(mBinding.episode, mEpisodeAdapter.getPosition());
+        }
+    }
+
+    private void updateEpisodeFileNameButton() {
+        if (mBinding.episodeFileName == null) return;
+        boolean showScraped = Setting.getTmdbEpisodeShowScrapedName();
+        mBinding.episodeFileName.setContentDescription(getString(showScraped ? R.string.detail_episode_file_name_original_action : R.string.detail_episode_file_name_scraped_action));
         applyTmdbPlaybackControlColors();
     }
 
@@ -3588,7 +3631,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (mFusionThemeButton != null) {
             mFusionThemeButton.setOnClickListener(view -> cycleFusionTheme());
         }
-        updateFusionThemeButtonVisibility();
+        updateFusionThemeButton();
     }
 
     private RelativeLayout getFusionChromeRoot() {
@@ -3671,6 +3714,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         tintFusionPlaybackTextTree(mBinding.episodeTitleBar, color, light);
         tintFusionPlaybackText(mBinding.qualityText, color, light);
         tintFusionPlaybackIcon(mBinding.reverse, color);
+        if (mBinding.episodeFileName != null) tintFusionPlaybackIcon(mBinding.episodeFileName, color);
         tintFusionPlaybackIcon(mBinding.episodeViewMode, color);
         tintFusionPlaybackIcon(mBinding.more, color);
         boolean playerOverlay = isFullscreen() || mBinding.control.action.getRoot().getParent() == mBinding.control.bottom;

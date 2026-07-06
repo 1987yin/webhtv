@@ -15,6 +15,11 @@ public final class MediaTitleParser {
     private static final Pattern BRACKET_PATTERN = Pattern.compile("[\\[【「『(（]([^\\]】」』)）]{1,60})[\\]】」』)）]");
     private static final Pattern NOISE_WORDS = Pattern.compile("(?i)\\b(HD|4K|8K|1080P|2160P|720P|HDR|HDR10|DV|BluRay|WEB[- ]?DL|HDTV|BDRip|Remux|HEVC|H\\.?265|H\\.?264|x265|x264|AAC|DTS|DDP|Atmos|NF|Netflix|AMZN|DSNP)\\b");
     private static final Pattern SUSPICIOUS_MARKERS = Pattern.compile("[#＃]");
+    private static final Pattern BOOK_TITLE_PATTERN = Pattern.compile("《([^》]{1,80})》");
+    private static final Pattern URL_PATTERN = Pattern.compile("(?i)https?://\\S+");
+    private static final Pattern INLINE_FROM_PATTERN = Pattern.compile("\\bfrom\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern DASH_SEPARATOR_PATTERN = Pattern.compile("\\s+[-－—~～]\\s+");
+    private static final Pattern FRAME_RATE_PATTERN = Pattern.compile("(?i)(?<!\\d)(?:24|25|30|50|60|120)\\s*(?:fps|帧)(?![\\u4e00-\\u9fffA-Za-z0-9])");
 
     public MediaTitleResolution parse(MediaTitleRequest request) {
         MediaTitleRequest safe = request == null ? MediaTitleRequest.builder().build() : request;
@@ -54,6 +59,15 @@ public final class MediaTitleParser {
         return resolution;
     }
 
+    public List<String> cleanSearchTitles(MediaTitleRequest request) {
+        MediaTitleRequest safe = request == null ? MediaTitleRequest.builder().build() : request;
+        List<String> result = new ArrayList<>();
+        addCleanSearchTitles(result, safe.getRawTitle());
+        addCleanSearchTitles(result, safe.getEpisodeName());
+        if (result.isEmpty()) addCleanSearchTitles(result, safe.getRawRemarks());
+        return result;
+    }
+
     public String cleanTitle(String text) {
         if (isBlank(text)) return "";
         String raw = text.trim();
@@ -64,9 +78,11 @@ public final class MediaTitleParser {
         clean = SEASON_PATTERN.matcher(clean).replaceAll(" ");
         clean = YEAR_PATTERN.matcher(clean).replaceAll(" ");
         clean = NOISE_WORDS.matcher(clean).replaceAll(" ");
+        clean = FRAME_RATE_PATTERN.matcher(clean).replaceAll(" ");
         clean = clean.replaceAll("(更新至|更至|连载至|全|共)\\s*[0-9零〇一二三四五六七八九十百]+\\s*[集话話回期章节節]", " ");
+        clean = clean.replaceAll("(更新至|更至|连载至)\\s*$", " ");
         clean = clean.replaceAll("(国语版|国配版|普通话版|粤语版|台语版|闽南语版|原声版|配音版|中字版|字幕版|台版|台湾版|港版|大陆版|内地版|中国版|泰版|韩版|日版|美版|英版)", " ");
-        clean = clean.replaceAll("(臻彩|高码|高码率|无水印|无台标|国语|国配|国粤|粤语|中字|字幕|内封|简繁|双语|官中|杜比|合集|全集|完结|未删减|加长版|修复版|防和谐版|防和谐)", " ");
+        clean = clean.replaceAll("(真彩|臻彩|高码|高码率|无水印|无台标|国语|国配|国粤|粤语|中字|字幕|内封|简繁|双语|官中|杜比|合集|全集|完结|未删减|加长版|修复版|防和谐版|防和谐)", " ");
         clean = clean.replaceAll("[#＃]+", "");
         clean = clean.replaceAll("(?i)(^|\\s)(动漫|动画|电视剧|剧集|电影|综艺)(\\s|$)", " ");
         clean = clean.replaceAll("[._\\-+]+", " ");
@@ -109,6 +125,163 @@ public final class MediaTitleParser {
         return cleanTitle(text).replaceAll("[\\s·•:：\\-_/\\\\|()（）\\[\\]【】]+", "").toLowerCase(Locale.ROOT);
     }
 
+    private void addCleanSearchTitles(List<String> result, String text) {
+        if (isBlank(text)) return;
+        String source = normalizePlaybackName(URL_PATTERN.matcher(text.trim()).replaceAll(" "));
+        Matcher book = BOOK_TITLE_PATTERN.matcher(source);
+        while (book.find()) addCleanSearchTitle(result, book.group(1));
+
+        boolean bracketTitle = addCleanSearchTitle(result, bestBracketTitle(source));
+        if (bracketTitle && looksLikeBracketReleaseName(source)) return;
+
+        for (String segment : titleSegments(source)) addCleanSearchTitle(result, segment);
+    }
+
+    private boolean addCleanSearchTitle(List<String> result, String text) {
+        String title = effectiveSearchTitle(text);
+        if (!isUsableCleanSearchTitle(title)) return false;
+        for (String item : result) if (item.equalsIgnoreCase(title)) return false;
+        result.add(title);
+        return true;
+    }
+
+    private String effectiveSearchTitle(String text) {
+        if (isBlank(text)) return "";
+        String value = normalizePlaybackName(URL_PATTERN.matcher(text.trim()).replaceAll(" "));
+        value = cutInlineSourceSuffix(value);
+        value = FRAME_RATE_PATTERN.matcher(value).replaceAll(" ");
+        value = cleanTitle(value);
+        value = FRAME_RATE_PATTERN.matcher(value).replaceAll(" ");
+        value = value.replaceAll("(更新至|更至|连载至)\\s*$", " ");
+        value = value.replaceAll("[\\[\\]【】「」『』()（）]", " ");
+        value = value.replace('|', ' ').replace('丨', ' ');
+        value = dropLeadingGroupTokens(value);
+        return compactSearchTitle(value);
+    }
+
+    private List<String> titleSegments(String text) {
+        List<String> segments = new ArrayList<>();
+        if (isBlank(text)) return segments;
+        String value = text.trim();
+        String piped = value.replace('丨', '|');
+        int first = piped.indexOf('|');
+        if (first >= 0) {
+            int second = piped.indexOf('|', first + 1);
+            int last = piped.lastIndexOf('|');
+            if (second > first) addSegment(segments, piped.substring(first + 1, second));
+            if (last > first) addSegment(segments, piped.substring(last + 1));
+            addSegment(segments, piped.substring(first + 1));
+        } else {
+            addSegment(segments, value);
+        }
+        return segments;
+    }
+
+    private void addSegment(List<String> segments, String value) {
+        String text = value == null ? "" : value.trim();
+        if (text.isEmpty()) return;
+        for (String item : segments) if (item.equalsIgnoreCase(text)) return;
+        segments.add(text);
+    }
+
+    private String bestBracketTitle(String text) {
+        Matcher matcher = BRACKET_PATTERN.matcher(text == null ? "" : text);
+        String best = "";
+        int bestScore = Integer.MIN_VALUE;
+        while (matcher.find()) {
+            String title = effectiveSearchTitle(matcher.group(1));
+            if (!isUsableCleanSearchTitle(title)) continue;
+            int score = titleScore(title);
+            if (score > bestScore) {
+                best = title;
+                bestScore = score;
+            }
+        }
+        return best;
+    }
+
+    private int titleScore(String title) {
+        String value = title == null ? "" : title.trim();
+        int cjk = value.replaceAll("[^\\u4e00-\\u9fff]", "").length();
+        int letters = value.replaceAll("[^A-Za-z]", "").length();
+        return cjk * 100 + letters * 10 + value.length();
+    }
+
+    private boolean looksLikeBracketReleaseName(String text) {
+        if (isBlank(text)) return false;
+        String value = text.trim();
+        return value.matches("^(?:[\\[【「『(（][^\\]】」』)）]{1,60}[\\]】」』)）]){2,}.*");
+    }
+
+    private String cutInlineSourceSuffix(String text) {
+        String value = text == null ? "" : text;
+        int cut = -1;
+        Matcher from = INLINE_FROM_PATTERN.matcher(value);
+        if (from.find()) cut = from.start();
+        Matcher dash = DASH_SEPARATOR_PATTERN.matcher(value);
+        if (dash.find()) cut = cut < 0 ? dash.start() : Math.min(cut, dash.start());
+        return cut >= 0 ? value.substring(0, cut) : value;
+    }
+
+    private String normalizePlaybackName(String text) {
+        if (isBlank(text)) return "";
+        return text.replaceFirst("^\\s*正在播放\\s*[:：]?\\s*", "").trim();
+    }
+
+    private String dropLeadingGroupTokens(String text) {
+        String value = text == null ? "" : text.trim().replaceAll("\\s+", " ");
+        if (value.isEmpty()) return "";
+        String[] tokens = value.split("\\s+");
+        int start = 0;
+        while (start < tokens.length - 1 && looksLikeGroupToken(tokens[start], joinTokens(tokens, start + 1))) start++;
+        return joinTokens(tokens, start);
+    }
+
+    private boolean looksLikeGroupToken(String token, String rest) {
+        String value = normalize(token);
+        String remaining = rest == null ? "" : rest;
+        if (value.isEmpty() || !remaining.matches(".*[\\u4e00-\\u9fff].*")) return false;
+        if (value.matches("(?i)[a-z]{1,4}")) return true;
+        if (value.length() <= 8 && value.matches(".*\\d.*") && !value.matches(".*(?:季|部|集|话|話|期|岁)$")) return true;
+        return value.matches("(?i)(?:tv|bd|dvd|line\\d*|source\\d*)");
+    }
+
+    private String joinTokens(String[] tokens, int start) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = Math.max(0, start); i < tokens.length; i++) {
+            if (isBlank(tokens[i])) continue;
+            if (builder.length() > 0) builder.append(' ');
+            builder.append(tokens[i]);
+        }
+        return builder.toString();
+    }
+
+    private String compactSearchTitle(String text) {
+        String value = text == null ? "" : text;
+        value = value.replaceAll("[#＃]+", "");
+        value = value.replaceAll("[._+]+", " ");
+        value = value.replaceAll("\\s+", " ").trim();
+        String previous;
+        do {
+            previous = value;
+            value = value.replaceAll("([\\u4e00-\\u9fff])\\s+([\\u4e00-\\u9fff])", "$1$2");
+        } while (!previous.equals(value));
+        value = value.replaceAll("(?i)^[a-z]\\s+(?=.*[\\u4e00-\\u9fff])", "");
+        value = value.replaceAll("^[\\s:：,，.。·|/\\\\\\-]+|[\\s:：,，.。·|/\\\\\\-]+$", "");
+        return stripTrailingSeasonDigit(value);
+    }
+
+    private boolean isUsableCleanSearchTitle(String text) {
+        String value = text == null ? "" : text.trim();
+        if (value.length() < 2 || value.length() > 80) return false;
+        if (isNoiseTag(value)) return false;
+        if (!value.matches(".*[\\u4e00-\\u9fffA-Za-z].*")) return false;
+        String normalized = normalize(value);
+        if (normalized.length() < 2) return false;
+        if (normalized.matches("(?i)(?:更新至|更至|连载至|全集|合集|完结|电影|电视剧|剧集|动漫|动画|综艺|tv)")) return false;
+        return !value.matches("^第\\s*[0-9零〇一二三四五六七八九十两百]+\\s*[集话話回期章节節].*");
+    }
+
     private MediaTitleLearningExample bestLearningExample(String ruleTitle, String combined, List<MediaTitleLearningExample> examples) {
         if (examples == null || examples.isEmpty()) return null;
         List<MediaTitleLearningExample> usable = new ArrayList<>();
@@ -125,9 +298,9 @@ public final class MediaTitleParser {
 
     private double learningScore(String ruleTitle, String combined, MediaTitleLearningExample example) {
         String rule = normalize(ruleTitle);
-        String sourceRule = normalize(example.getRuleTitle());
-        String raw = normalize(combined);
-        String sourceRaw = normalize(example.getRawTitle());
+        String sourceRule = normalize(cleanTitle(example.getRuleTitle()));
+        String raw = normalize(cleanTitle(combined));
+        String sourceRaw = normalize(cleanTitle(example.getRawTitle()));
         double score = similarity(rule, sourceRule);
         if (!sourceRaw.isEmpty()) score = Math.max(score, similarity(raw, sourceRaw));
         if (!sourceRule.isEmpty() && (raw.contains(sourceRule) || sourceRule.contains(rule))) score += 0.2;
@@ -163,7 +336,7 @@ public final class MediaTitleParser {
         String value = normalize(text);
         if (value.isEmpty()) return true;
         return NOISE_WORDS.matcher(text).find()
-                || value.matches(".*(臻彩|高码|无水印|无台标|国语|国配|国粤|粤语|中字|字幕|内封|简繁|双语|官中|杜比|合集|全集|完结|未删减|加长版|修复版).*");
+                || value.matches(".*(真彩|臻彩|高码|无水印|无台标|国语|国配|国粤|粤语|中字|字幕|内封|简繁|双语|官中|杜比|合集|全集|完结|未删减|加长版|修复版).*");
     }
 
     private int inferTrailingSeason(String raw) {

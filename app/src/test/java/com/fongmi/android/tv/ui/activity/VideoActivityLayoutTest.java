@@ -360,6 +360,21 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void leanbackVodEventPageSuffixStripPreservesLeadingSlashIds() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int method = source.indexOf("private static String stripPageSuffix(String id)");
+        int nextMethod = source.indexOf("private void loadNativePersonalRecommendations", method);
+        String body = method >= 0 && nextMethod > method ? source.substring(method, nextMethod) : "";
+
+        assertTrue(sourcePath + " is missing stripPageSuffix", method >= 0);
+        assertTrue("leanback VOD event ids may start with /index.php and must not be stripped to empty",
+                body.contains("slash > 0 ? id.substring(0, slash) : id"));
+        assertFalse("only real page suffixes after the first character should be stripped",
+                body.contains("slash >= 0 ? id.substring(0, slash) : id"));
+    }
+
+    @Test
     public void playbackControllerConnectionDoesNotReplayStaleState() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -1055,6 +1070,27 @@ public class VideoActivityLayoutTest {
 
         assertTrue("fusion theme button must switch light to dark and dark to light",
                 source.contains("int theme = isFusionLightTheme() ? 2 : 1;"));
+    }
+
+    @Test
+    public void tmdbHeaderThemeToggleIsHiddenUntilVideoActivityAllowsFusionThemeSwitching() throws Exception {
+        Path layoutPath = findMainResPath().resolve(Path.of("layout", "view_tmdb_header.xml"));
+        Element themeToggle = findAndroidId(layoutPath.toFile(), "tmdbThemeToggle");
+        Path headerPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "custom", "TmdbHeaderView.java"));
+        String headerSource = new String(Files.readAllBytes(headerPath), StandardCharsets.UTF_8);
+        Path videoPath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String videoSource = new String(Files.readAllBytes(videoPath), StandardCharsets.UTF_8);
+        int styleFusion = headerSource.indexOf("private void styleFusionActions()");
+        int styleFusionEnd = headerSource.indexOf("private void clearFusionActionStyling()", styleFusion);
+        String styleFusionBody = headerSource.substring(styleFusion, styleFusionEnd);
+
+        assertTrue(layoutPath + " is missing @+id/tmdbThemeToggle", themeToggle != null);
+        assertTrue("TMDB header theme toggle must start hidden so colorful playback pages do not show it",
+                "gone".equals(themeToggle.getAttribute("android:visibility")));
+        assertFalse("TmdbHeaderView must not force the theme toggle visible; VideoActivity owns that mode decision",
+                styleFusionBody.contains("themeToggle.setVisibility(View.VISIBLE)"));
+        assertTrue("VideoActivity must still show the header theme toggle for the real fusion detail mode",
+                videoSource.contains("DetailThemeVisibility.showFusionThemeButton(Setting.isFusionDetailPage(), isFullscreen(), isInPictureInPictureMode())"));
     }
 
     @Test

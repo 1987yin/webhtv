@@ -1567,15 +1567,12 @@ public class TmdbHeaderView {
     private void styleFusionActions() {
         ViewGroup row = headerRoot.findViewById(R.id.tmdbActions);
         MaterialButton rematch = headerRoot.findViewById(R.id.tmdbRematch);
-        MaterialButton keep = headerRoot.findViewById(R.id.tmdbKeep);
-        MaterialButton themeToggle = headerRoot.findViewById(R.id.tmdbThemeToggle);
         // 已在布局里按正确顺序排列（换源|收藏|TMDB|主题），不再动态重排
         if (row != null) {
             row.setBackground(null);
             row.setPadding(0, 0, 0, 0);
         }
         if (rematch != null) rematch.setText("重新匹配");
-        if (themeToggle != null) themeToggle.setVisibility(View.VISIBLE);
     }
 
     private void clearFusionActionStyling() {

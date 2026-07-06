@@ -11,6 +11,7 @@ public final class MediaTitleResolution {
     public static final String SOURCE_RULE = "RULE";
     public static final String SOURCE_AI = "AI";
     public static final String SOURCE_RULE_AI_MERGED = "RULE_AI_MERGED";
+    public static final String SOURCE_CLEANED = "CLEANED";
 
     private String rawTitle;
     private String ruleTitle;

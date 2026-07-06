@@ -27,6 +27,11 @@ public class TmdbDetailActivityLayoutTest {
                 helper > load && source.indexOf("MediaTitleResolver resolver = new MediaTitleResolver();", helper) > helper);
         assertTrue("automatic TMDB detail matching must not fall back to obfuscated raw titles when parser cleaned them",
                 queryFilter > helper && source.indexOf("shouldSkipRawTmdbQuery(rawTitle, resolution)", queryFilter) > queryFilter);
+        int originalSearch = source.indexOf("AutoTmdbMatch match = searchResolvedTmdbMatch(rawTitle, resolution, attempted);", helper);
+        int cleaned = source.indexOf("resolver.queryCleanedTitles(request, 4)", originalSearch);
+        int aiFallback = source.indexOf("resolver.resolveWithAiFallback(request)", originalSearch);
+        assertTrue("automatic TMDB detail matching must try code-cleaned title candidates before AI fallback",
+                originalSearch > helper && cleaned > originalSearch && aiFallback > cleaned);
         assertTrue("automatic TMDB detail matching must accept exact same-title ties from TMDB search order",
                 exactTie > 0 && source.indexOf("shouldAcceptFirstExactTmdbCandidate(best, second, keyword, sourceVod)", load) > load);
     }
@@ -44,6 +49,44 @@ public class TmdbDetailActivityLayoutTest {
         assertTrue("stale cached title F must not override parsed title 凡人修仙传",
                 source.indexOf("new MediaTitleParser().cleanTitle(getTmdbRawTitle())", compatible) > compatible
                         && source.indexOf("normalize(item.getTitle()).equals(normalize(parsedTitle))", compatible) > compatible);
+    }
+
+    @Test
+    public void playbackTmdbItemKeepsMatchedTitleForNativeEnhancedHeader() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int method = source.indexOf("private TmdbItem playbackTmdbItem()");
+        int end = source.indexOf("private Vod playbackTmdbVod()", method);
+        String body = source.substring(method, end);
+
+        assertTrue("native enhanced playback must pass the matched TMDB title, not the noisy source title",
+                body.contains("matchedTmdbTitle()"));
+        assertTrue("native enhanced playback item must not replace TMDB title with vod.getName()",
+                !body.contains("TextUtils.isEmpty(vod.getName()) ? matchedTmdbItem.getTitle() : vod.getName()"));
+    }
+
+    @Test
+    public void tmdbDetailNormalizesCachedTitleBeforeNativeEnhancedPlayback() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int loadBundle = source.indexOf("private TmdbBundle loadTmdbBundle(TmdbItem item)");
+        int normalize = source.indexOf("private TmdbItem normalizeTmdbItemTitle", loadBundle);
+        int detailTitle = source.indexOf("private String tmdbDetailTitle", normalize);
+        int playbackName = source.indexOf("private String playbackHistoryName()");
+        int enrichVod = source.indexOf("private void enrichVod()");
+        int manual = source.indexOf("private void applyManualTmdb(TmdbItem item)");
+
+        assertTrue("TMDB detail loading must normalize stale cached item titles from the detail payload",
+                loadBundle >= 0 && source.indexOf("item = normalizeTmdbItemTitle(item, detail);", loadBundle) > loadBundle);
+        assertTrue("title normalization must prefer detail name/title over cached item title",
+                normalize > loadBundle && detailTitle > normalize
+                        && source.indexOf("tmdbDetailTitle(item, detail)", normalize) > normalize
+                        && source.indexOf("string(detail, \"name\")", detailTitle) > detailTitle
+                        && source.indexOf("string(detail, \"title\")", detailTitle) > detailTitle);
+        assertTrue("native enhanced playback history name must use normalized TMDB title",
+                playbackName >= 0 && source.indexOf("coalesce(matchedTmdbTitle()", playbackName) > playbackName);
+        assertTrue("detail page vod title must use normalized TMDB title",
+                enrichVod >= 0 && source.indexOf("String title = matchedTmdbTitle();", enrichVod) > enrichVod);
+        assertTrue("manual matching must save the normalized bundle item, not the pre-detail item",
+                manual >= 0 && source.indexOf("saveTmdbMatch(bundle.item());", manual) > manual);
     }
 
     @Test
@@ -115,6 +158,38 @@ public class TmdbDetailActivityLayoutTest {
 
         assertAndroidIdOrder("fusion detail action order", layout, List.of("changeSource", "keepFusion", "rematchFusion", "themeMode"));
         assertAndroidIdOrder("panel detail action order", layout, List.of("changeSourceDetail", "keep", "rematch", "themeModeDetail"));
+    }
+
+    @Test
+    public void themeActionButtonsHaveFallbackTextBeforeRuntimeThemeRefresh() throws Exception {
+        String detailLayout = readLayout("activity_tmdb_detail.xml");
+        String headerLayout = readLayout("view_tmdb_header.xml");
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int init = source.indexOf("private void initPage()");
+        int labelRefresh = source.indexOf("updateThemeModeButtonLabels();", init);
+        int visibilityRefresh = source.indexOf("updateDetailThemeButtonVisibility();", init);
+
+        assertAndroidIdHasAttribute("top theme action", detailLayout, "themeModeTop", "android:text=\"@string/detail_theme_light\"");
+        assertAndroidIdHasAttribute("fusion theme action", detailLayout, "themeMode", "android:text=\"@string/detail_theme_light\"");
+        assertAndroidIdHasAttribute("panel theme action", detailLayout, "themeModeDetail", "android:text=\"@string/detail_theme_light\"");
+        assertAndroidIdHasAttribute("TMDB header theme action", headerLayout, "tmdbThemeToggle", "android:text=\"@string/detail_theme_light\"");
+        assertTrue("TMDB detail must set theme action labels before applying their initial visibility",
+                init >= 0 && labelRefresh > init && visibilityRefresh > labelRefresh);
+    }
+
+    @Test
+    public void playbackPageHidesThemeActionsWhileEnhancedDetailKeepsThem() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int method = source.indexOf("private void updateDetailThemeButtonVisibility()");
+        int methodEnd = source.indexOf("private void applyTemplateCardChrome", method);
+        String body = source.substring(method, methodEnd);
+
+        assertTrue("playback page must be detected independently from the detail style",
+                body.contains("boolean playbackPage = isAutoPlayMode() || detailPlayerActive;"));
+        assertTrue("playback page must hide the fusion-row theme action",
+                body.contains("binding.themeMode.setVisibility(playbackPage ? View.GONE : (fusionMode ? (showMobileButton || showLargeScreenButton ? View.VISIBLE : View.GONE) : (showLargeScreenButton ? View.VISIBLE : View.GONE)));"));
+        assertTrue("enhanced detail page must keep its theme action, but playback pages must hide it",
+                body.contains("binding.themeModeDetail.setVisibility(fusionMode || playbackPage ? View.GONE : (showMobileButton || showLargeScreenButton ? View.VISIBLE : View.GONE));"));
     }
 
     @Test
@@ -224,6 +299,29 @@ public class TmdbDetailActivityLayoutTest {
         assertTrue(sourcePath + " is missing shouldBlockInlineControlsForLoading", helper >= 0);
         assertTrue("inline controls should consult the loading guard helper before hiding controls", guard > method);
         assertTrue("locked fullscreen loading must still allow the controls overlay to appear for unlock/exit", helperGuard > helper);
+    }
+
+    @Test
+    public void inlinePlayerPersistentDisplayUsesPlayerOsdOnTvAndLegacyPanelOnMobile() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int method = source.indexOf("private void updateInlineDisplayPanel()");
+        int end = source.indexOf("private void setButtonEnabled", method);
+        String body = method >= 0 && end > method ? source.substring(method, end) : "";
+        int initOsd = source.indexOf("inlineOsd = new PlayerOsdController(");
+
+        assertTrue(sourcePath + " is missing updateInlineDisplayPanel", method >= 0);
+        assertTrue("mobile inline playback must suppress PlayerOsdController persistent corner labels to avoid duplicate display",
+                initOsd >= 0 && source.indexOf("inlineOsd.setPersistentSuppressed(Util.isMobile());", initOsd) > initOsd);
+        assertTrue("TV inline playback should clear the legacy panel and let PlayerOsdController render persistent OSD",
+                body.contains("if (!Util.isMobile()) {") && body.contains("hideInlineDisplayPanel();") && body.contains("return;"));
+        assertTrue("mobile inline playback should keep the legacy display panel for persistent screen display",
+                body.contains("PlayerSetting.isDisplayTime()")
+                        && body.contains("Traffic.setSpeed(binding.playerDisplayTraffic)")
+                        && body.contains("binding.playerDisplayTopLeft.setVisibility")
+                        && body.contains("binding.playerDisplayBottomProgress.setVisibility")
+                        && body.contains("binding.playerDisplayMini.setVisibility"));
+        assertTrue("mobile legacy display text should be tinted before being shown", body.contains("tintInlineDisplay();"));
     }
 
     @Test
@@ -1681,6 +1779,12 @@ public class TmdbDetailActivityLayoutTest {
             assertTrue(label + " should keep @+id/" + id + " after the previous mapped control", index > previous);
             previous = index;
         }
+    }
+
+    private static void assertAndroidIdHasAttribute(String label, String layout, String id, String attribute) {
+        int index = layout.indexOf("android:id=\"@+id/" + id + "\"");
+        assertTrue(label + " is missing @+id/" + id, index >= 0);
+        assertTrue(label + " must include " + attribute, containsViewAttribute(layout, index, attribute));
     }
 
     private static void assertNativeControlButton(String layout, String id, String marginEnd) {

@@ -545,10 +545,14 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.themeModeDetail.setOnClickListener(view -> cycleThemeMode());
         binding.episodeReverse.setOnClickListener(view -> toggleEpisodeReverse());
         binding.episodeViewMode.setOnClickListener(view -> toggleEpisodeViewMode());
+        binding.episodeFileName.setOnClickListener(view -> toggleEpisodeFileName());
         binding.episodeReverse.setOnKeyListener((view, keyCode, event) -> onDetailEpisodeToolKey(view, keyCode, event));
         binding.episodeViewMode.setOnKeyListener((view, keyCode, event) -> onDetailEpisodeToolKey(view, keyCode, event));
-        binding.episodeReverse.setNextFocusRightId(R.id.episodeViewMode);
-        binding.episodeViewMode.setNextFocusLeftId(R.id.episodeReverse);
+        binding.episodeFileName.setOnKeyListener((view, keyCode, event) -> onDetailEpisodeToolKey(view, keyCode, event));
+        binding.episodeReverse.setNextFocusRightId(R.id.episodeFileName);
+        binding.episodeFileName.setNextFocusLeftId(R.id.episodeReverse);
+        binding.episodeFileName.setNextFocusRightId(R.id.episodeViewMode);
+        binding.episodeViewMode.setNextFocusLeftId(R.id.episodeFileName);
         setupOverviewInteraction();
         if (Util.isMobile()) binding.headerTitle.setText("");
         else binding.headerTitle.setText(detailModeTitle());
@@ -559,6 +563,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.overviewToggle.setVisibility(View.GONE);
         binding.play.setText(R.string.detail_play_now);
         binding.keep.setText(R.string.keep);
+        lightTheme = resolveLightTheme();
+        updateThemeModeButtonLabels();
         binding.playerPanel.setVisibility(isFusionMode() ? View.VISIBLE : View.GONE);
         binding.heroSpacer.setVisibility(isFusionMode() ? View.GONE : View.VISIBLE);
         binding.keepTop.setVisibility(View.GONE);
@@ -583,7 +589,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
             @Override
             public void onItemLongClick(View anchor, Episode episode, int episodeNumber) {
-                if (isFusionMode() && EpisodeTitlePopup.show(anchor, inlineEpisodeTitle(episode))) return;
                 showTmdbEpisodeDetail(episode, episodeNumber);
             }
         });
@@ -769,6 +774,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             },
             14f
         );
+        inlineOsd.setPersistentSuppressed(Util.isMobile());
         inlineGestureDetector = PlayerGesture.create(this, binding.playerPanel, this);
         setupPlayerPanelFocusLayer();
         binding.playerPanel.setOnTouchListener(this::onInlineTouch);
@@ -1249,6 +1255,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         setDetailActionButton(binding.themeModeDetail, colors);
         setEpisodeToolButton(binding.episodeReverse, colors);
         setEpisodeToolButton(binding.episodeViewMode, colors);
+        setEpisodeToolButton(binding.episodeFileName, colors);
         setButton(binding.play, colors.play, colors.play, 0xFFFFFFFF);
         binding.headerTitle.setTextColor(colors.primary);
         binding.title.setTextColor(colors.primary);
@@ -1262,9 +1269,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         else binding.personalAiReason.setShadowLayer(0f, 0f, 0f, 0x00000000);
         tintTmdbSectionTitles(colors);
         styleSourceValue();
-        binding.themeModeTop.setText(themeModeLabel());
-        binding.themeMode.setText(themeModeLabel());
-        binding.themeModeDetail.setText(themeModeLabel());
+        updateThemeModeButtonLabels();
         updateDetailThemeButtonVisibility();
         tintInlineGestureOverlay();
         if (isInlinePlayerMode()) {
@@ -1328,11 +1333,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         boolean showMobileButton = DetailThemeVisibility.showMobileThemeButton(mobile, inlineFullscreen, inlinePiPLayout, pictureInPicture);
         boolean showLargeScreenButton = DetailThemeVisibility.showLargeScreenThemeButton(mobile, inlineFullscreen, inlinePiPLayout, pictureInPicture);
         boolean fusionMode = isFusionMode();
+        boolean playbackPage = isAutoPlayMode() || detailPlayerActive;
         // 手机版也使用底部一排的主题按钮（themeModeDetail），不再使用右上角浮动按钮（themeModeTop）
         binding.themeModeTop.setVisibility(View.GONE);
         // 融合模式：主题按钮在 fusionActions 排；其他模式：在 detail 排
-        binding.themeMode.setVisibility(fusionMode ? (showMobileButton || showLargeScreenButton ? View.VISIBLE : View.GONE) : (showLargeScreenButton ? View.VISIBLE : View.GONE));
-        binding.themeModeDetail.setVisibility(fusionMode ? View.GONE : (showMobileButton || showLargeScreenButton ? View.VISIBLE : View.GONE));
+        binding.themeMode.setVisibility(playbackPage ? View.GONE : (fusionMode ? (showMobileButton || showLargeScreenButton ? View.VISIBLE : View.GONE) : (showLargeScreenButton ? View.VISIBLE : View.GONE)));
+        binding.themeModeDetail.setVisibility(fusionMode || playbackPage ? View.GONE : (showMobileButton || showLargeScreenButton ? View.VISIBLE : View.GONE));
     }
 
     private void applyTemplateCardChrome(ThemeColors colors) {
@@ -1568,6 +1574,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return lightTheme ? R.string.detail_theme_light : R.string.detail_theme_dark;
     }
 
+    private void updateThemeModeButtonLabels() {
+        binding.themeModeTop.setText(themeModeLabel());
+        binding.themeMode.setText(themeModeLabel());
+        binding.themeModeDetail.setText(themeModeLabel());
+    }
+
     private void setCard(MaterialCardView card, int background, int stroke) {
         card.setCardBackgroundColor(background);
         card.setStrokeColor(stroke);
@@ -1662,6 +1674,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         ThemeColors colors = currentThemeColors();
         applyEpisodeToolButtonFocus(binding.episodeReverse, colors);
         applyEpisodeToolButtonFocus(binding.episodeViewMode, colors);
+        applyEpisodeToolButtonFocus(binding.episodeFileName, colors);
     }
 
     private void applyEpisodeToolButtonFocus(MaterialButton button, ThemeColors colors) {
@@ -1974,6 +1987,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private TmdbBundle loadTmdbBundle(TmdbItem item) throws Exception {
         JsonObject detail = tmdbService.detail(item, tmdbConfig);
+        item = normalizeTmdbItemTitle(item, detail);
         List<Integer> seasons = new ArrayList<>();
         Map<Integer, Integer> seasonCounts = new HashMap<>();
         Map<Integer, List<TmdbEpisode>> seasonEpisodes = new HashMap<>();
@@ -1984,6 +1998,34 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             seasons.addAll(seasonCounts.keySet());
         }
         return new TmdbBundle(item, detail, List.of(), List.of(), List.of(), List.of(), seasons, seasonCounts, seasonEpisodes, seasonCast, seasonPhotos);
+    }
+
+    private TmdbItem normalizeTmdbItemTitle(TmdbItem item, JsonObject detail) {
+        if (item == null) return null;
+        String title = tmdbDetailTitle(item, detail);
+        if (TextUtils.isEmpty(title) || title.equals(item.getTitle())) return item;
+        logTmdbMatch("详情标题归一化：缓存标题=%s，TMDB标题=%s", item.getTitle(), title);
+        return new TmdbItem(
+                item.getTmdbId(),
+                item.getMediaType(),
+                title,
+                item.getSubtitle(),
+                item.getOverview(),
+                item.getPosterUrl(),
+                item.getBackdropUrl(),
+                item.getCredit(),
+                item.getRating(),
+                item.getOriginalLanguage(),
+                item.getOriginCountry(),
+                item.getGenreIds(),
+                item.getDepartment());
+    }
+
+    private String tmdbDetailTitle(TmdbItem item, JsonObject detail) {
+        if (item == null || detail == null) return "";
+        String primary = "movie".equalsIgnoreCase(item.getMediaType()) ? string(detail, "title") : string(detail, "name");
+        if (!TextUtils.isEmpty(primary)) return primary;
+        return "movie".equalsIgnoreCase(item.getMediaType()) ? string(detail, "name") : string(detail, "title");
     }
 
     private void loadTmdbMediaBlocks(TmdbBundle bundle) {
@@ -2202,7 +2244,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private TmdbItem getCachedTmdbMatch() {
         if (!isTmdbAllowedForCurrentSite()) return null;
-        TmdbItem item = Setting.getTmdbMatchCache().find(getKeyText(), getIdText());
+        TmdbItem item = Setting.getTmdbMatchCache().find(getKeyText(), getIdText(), getTmdbRawTitle());
         if (!isCachedTmdbMatchCompatible(item)) return null;
         return item;
     }
@@ -2231,7 +2273,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void saveTmdbMatch(TmdbItem item) {
         if (item == null || item.getTmdbId() <= 0) return;
         TmdbMatchCache cache = Setting.getTmdbMatchCache();
-        cache.put(getKeyText(), getIdText(), item);
+        cache.put(getKeyText(), getIdText(), getTmdbRawTitle(), item);
         Setting.putTmdbMatchCache(cache);
     }
 
@@ -2252,7 +2294,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private String getTmdbSearchQuery() {
-        if (matchedTmdbItem != null && !TextUtils.isEmpty(matchedTmdbItem.getTitle())) return matchedTmdbItem.getTitle();
+        String tmdbTitle = matchedTmdbTitle();
+        if (!TextUtils.isEmpty(tmdbTitle)) return tmdbTitle;
         if (vod != null && !TextUtils.isEmpty(vod.getName())) return cleanTmdbSearchQuery(vod.getName());
         return cleanTmdbSearchQuery(getNameText());
     }
@@ -2268,21 +2311,31 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         MediaTitleResolution resolution = resolver.resolve(request);
         AutoTmdbMatch match = searchResolvedTmdbMatch(rawTitle, resolution, attempted);
         if (match.item() != null) return match;
+        List<String> cleanedTitles = resolver.queryCleanedTitles(request, 4);
+        logTmdbMatch("清洗标题兜底：原始标题=%s，候选=%s", rawTitle, cleanedTitles);
+        AutoTmdbMatch cleanedMatch = searchResolvedTmdbMatch(rawTitle, cleanedTitles, MediaTitleResolution.SOURCE_CLEANED, attempted);
+        if (cleanedMatch.item() != null) return cleanedMatch;
         MediaTitleResolution fallback = resolver.resolveWithAiFallback(request);
         logTmdbMatch("AI 标题兜底：source=%s，原始标题=%s，候选=%s", fallback.getSource(), rawTitle, fallback.queryTitles());
         AutoTmdbMatch fallbackMatch = searchResolvedTmdbMatch(rawTitle, fallback, attempted);
-        return fallbackMatch.items().isEmpty() && !match.items().isEmpty() ? match : fallbackMatch;
+        if (!fallbackMatch.items().isEmpty()) return fallbackMatch;
+        if (!cleanedMatch.items().isEmpty()) return cleanedMatch;
+        return !match.items().isEmpty() ? match : fallbackMatch;
     }
 
     private AutoTmdbMatch searchResolvedTmdbMatch(String rawTitle, MediaTitleResolution resolution, List<String> attempted) throws Exception {
+        return searchResolvedTmdbMatch(rawTitle, automaticTmdbQueries(resolution, rawTitle), resolution.getSource(), attempted);
+    }
+
+    private AutoTmdbMatch searchResolvedTmdbMatch(String rawTitle, List<String> titles, String source, List<String> attempted) throws Exception {
         List<TmdbItem> lastItems = new ArrayList<>();
-        for (String title : automaticTmdbQueries(resolution, rawTitle)) {
+        for (String title : titles) {
             String query = cleanTmdbSearchQuery(title);
             if (TextUtils.isEmpty(query) || containsQuery(attempted, query)) continue;
             attempted.add(query);
             List<TmdbItem> items = searchTmdbItems(query, title);
             lastItems = items;
-            logTmdbMatch("搜索完成：原始标题=%s，解析来源=%s，候选标题=%s，实际搜索词=%s，返回数量=%d", rawTitle, resolution.getSource(), title, query, items.size());
+            logTmdbMatch("搜索完成：原始标题=%s，解析来源=%s，候选标题=%s，实际搜索词=%s，返回数量=%d", rawTitle, source, title, query, items.size());
             TmdbItem item = chooseTmdbMatch(items, query, null);
             if (item == null) {
                 SplitYearSearch split = searchSplitYearTmdbItems(query, null);
@@ -2377,8 +2430,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                     if (generation != loadGeneration || applyGeneration != tmdbApplyGeneration || vod == null) return;
                     binding.loading.setVisibility(View.GONE);
                     applyTmdbBundle(bundle);
-                    saveTmdbMatch(item);
-                    saveManualTmdbLearning(item);
+                    saveTmdbMatch(bundle.item());
+                    saveManualTmdbLearning(bundle.item());
                     enrichVod();
                     bindPage();
                     loadTmdbMediaBlocks(bundle);
@@ -2396,7 +2449,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void enrichVod() {
         if (matchedTmdbItem != null) {
-            if (!TextUtils.isEmpty(matchedTmdbItem.getTitle())) vod.setName(matchedTmdbItem.getTitle());
+            String title = matchedTmdbTitle();
+            if (!TextUtils.isEmpty(title)) vod.setName(title);
             if (!TextUtils.isEmpty(matchedTmdbItem.getPosterUrl())) vod.setPic(matchedTmdbItem.getPosterUrl());
         }
         String overview = tmdbOverview();
@@ -3184,24 +3238,33 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void applyEpisodeViewport(List<Episode> items, Map<Episode, Integer> episodeNumbers, boolean scrollToSelection) {
+        applyEpisodeViewport(items, episodeNumbers, scrollToSelection, false);
+    }
+
+    private void applyEpisodeViewport(List<Episode> items, Map<Episode, Integer> episodeNumbers, boolean scrollToSelection, boolean forceRefresh) {
         updateEpisodeViewModeButton();
+        updateEpisodeFileNameButton();
         int spanCount = episodeSpanCount();
         episodeAdapter.setDisplayMode(episodeGridMode ? TmdbEpisodeAdapter.Mode.GRID : TmdbEpisodeAdapter.Mode.LIST, spanCount);
         updateEpisodeLayoutManager(spanCount);
         updateEpisodeViewport(items.size(), spanCount);
         lastDetailEpisodeFocusRowStart = RecyclerView.NO_POSITION;
         episodeAdapter.setFallbackStillUrl(episodeFallbackStillUrl());
-        episodeAdapter.setItems(items, tmdbEpisodes, episodeNumbers, selectedEpisode);
+        episodeAdapter.setItems(items, tmdbEpisodes, episodeNumbers, selectedEpisode, forceRefresh);
         updateEpisodeSkeleton();
         if (scrollToSelection) scrollEpisodeToSelected();
         updatePlayLabel();
     }
 
     private void rerenderEpisodeViewportOnly(boolean scrollToSelection) {
-        rerenderEpisodeViewportOnly(scrollToSelection, false);
+        rerenderEpisodeViewportOnly(scrollToSelection, false, false);
     }
 
     private void rerenderEpisodeViewportOnly(boolean scrollToSelection, boolean rebuildRanges) {
+        rerenderEpisodeViewportOnly(scrollToSelection, rebuildRanges, false);
+    }
+
+    private void rerenderEpisodeViewportOnly(boolean scrollToSelection, boolean rebuildRanges, boolean forceRefresh) {
         List<Episode> episodes = selectedFlag == null ? null : selectedFlag.getEpisodes();
         if (episodes == null || episodes.isEmpty()) return;
         List<Episode> visibleEpisodes = visibleEpisodes(episodes);
@@ -3211,7 +3274,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (ranges.isEmpty()) {
             renderedEpisodeRangeIndex = -1;
             if (rebuildRanges) clearEpisodeRanges();
-            applyEpisodeViewport(List.of(), Map.of(), false);
+            applyEpisodeViewport(List.of(), Map.of(), false, forceRefresh);
             return;
         }
         episodeRangeIndex = resolveEpisodeRangeIndex(ranges);
@@ -3220,7 +3283,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         List<Episode> pageItems = ranges.size() > 1 ? EpisodeRangePolicy.slice(displayEpisodes, ranges.get(episodeRangeIndex)) : displayEpisodes;
         Map<Episode, Integer> numbers = episodeNumbers(pageItems, episodes);
         binding.episodeReverse.setText(episodeReverse ? R.string.detail_episode_forward : R.string.detail_episode_reverse);
-        applyEpisodeViewport(pageItems, numbers, scrollToSelection);
+        applyEpisodeViewport(pageItems, numbers, scrollToSelection, forceRefresh);
         renderedEpisodeRangeIndex = ranges.size() > 1 ? episodeRangeIndex : -1;
     }
 
@@ -3700,11 +3763,23 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         rerenderEpisodeViewportOnly(false);
     }
 
+    private void toggleEpisodeFileName() {
+        boolean showScraped = !Setting.getTmdbEpisodeShowScrapedName();
+        Setting.putTmdbEpisodeShowScrapedName(showScraped);
+        rerenderEpisodeViewportOnly(false, false, true);
+    }
+
     private void updateEpisodeViewModeButton() {
         boolean switchToList = episodeGridMode;
         binding.episodeViewMode.setText(switchToList ? R.string.detail_episode_view_list : R.string.detail_episode_view_grid);
         binding.episodeViewMode.setIconResource(switchToList ? R.drawable.ic_site_list : R.drawable.ic_site_grid);
         binding.episodeViewMode.setContentDescription(getString(switchToList ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
+    }
+
+    private void updateEpisodeFileNameButton() {
+        boolean showScraped = Setting.getTmdbEpisodeShowScrapedName();
+        binding.episodeFileName.setText(showScraped ? R.string.detail_episode_file_name_original : R.string.detail_episode_file_name_scraped);
+        binding.episodeFileName.setContentDescription(getString(showScraped ? R.string.detail_episode_file_name_original_action : R.string.detail_episode_file_name_scraped_action));
     }
 
     private void updateEpisodeLayoutManager() {
@@ -4192,6 +4267,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void playDefaultPlayback() {
+        logTmdbMatch("原生增强播放标题：raw=%s，缓存标题=%s，详情标题=%s，播放标题=%s", getTmdbRawTitle(), matchedTmdbItem == null ? "" : matchedTmdbItem.getTitle(), tmdbDetailTitle(matchedTmdbItem, matchedTmdbDetail), playbackHistoryName());
         VideoActivity.startDirectTmdb(this, getKeyText(), getIdText(), playbackHistoryName(), playbackHistoryPic(), playbackMark(), selectedTmdbEpisodeTitles(), playbackTmdbItem(), playbackTmdbVod(), playbackFlag(), playbackEpisodeName(), playbackEpisodeUrl());
     }
 
@@ -4789,7 +4865,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private String playbackHistoryName() {
-        return coalesce(matchedTmdbItem == null ? "" : matchedTmdbItem.getTitle(), vod == null ? "" : vod.getName(), getNameText());
+        return coalesce(matchedTmdbTitle(), vod == null ? "" : vod.getName(), getNameText());
+    }
+
+    private String matchedTmdbTitle() {
+        return coalesce(tmdbDetailTitle(matchedTmdbItem, matchedTmdbDetail), matchedTmdbItem == null ? "" : matchedTmdbItem.getTitle());
     }
 
     private String playbackHistoryPic() {
@@ -5447,6 +5527,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void updateInlineDisplayPanel() {
         if (binding == null) return;
+        if (!Util.isMobile()) {
+            hideInlineDisplayPanel();
+            return;
+        }
         if (isInPictureInPictureMode() || isInlineDisplaySuppressed()) {
             hideInlineDisplayPanel();
             return;
@@ -6399,7 +6483,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
             @Override
             public void onItemLongClick(View anchor, Episode episode, int episodeNumber) {
-                if (EpisodeTitlePopup.show(anchor, inlineEpisodeTitle(episode))) return;
                 showTmdbEpisodeDetail(episode, episodeNumber);
             }
         });
@@ -8949,8 +9032,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         cleaned = cleaned.replaceAll("第\\s*[一二三四五六七八九十百零〇两0-9]+\\s*[集话話]", " ");
         cleaned = cleaned.replaceAll("(全|共|更新至|更至|连载至|連載至)\\s*[0-9一二三四五六七八九十百零〇]+\\s*[集话話]", " ");
         cleaned = cleaned.replaceAll("(?i)\\b(4K|8K|1080P|2160P|720P|HDR|HDR10|DV|WEB[- ]?DL|BluRay|BDRip|Remux|HEVC|H\\.?265|H\\.?264|x265|x264|AAC|DTS|DDP?5?\\.?1|Atmos|NF|Netflix|AMZN|DSNP)\\b", " ");
+        cleaned = cleaned.replaceAll("(?i)(?<!\\d)(?:24|25|30|50|60|120)\\s*(?:fps|帧)(?![\\u4e00-\\u9fffA-Za-z0-9])", " ");
+        cleaned = cleaned.replaceAll("(更新至|更至|连载至|連載至)\\s*$", " ");
         cleaned = cleaned.replaceAll("(国语版|国配版|普通话版|粤语版|台语版|闽南语版|原声版|配音版|中字版|字幕版|台版|台灣版|台湾版|港版|港澳版|大陆版|內地版|内地版|中国版|中國版|泰版|泰国版|泰國版|韩版|韩国版|韓國版|日版|日本版|美版|美国版|美國版|英版|英国版|英國版)", " ");
-        cleaned = cleaned.replaceAll("(臻彩|高码|高码率|无水印|无台标|国语|国配|国粤|粤语|中字|字幕|内封|简繁|双语|官中|杜比|合集|全集|完结|未删减|加长版|修复版)", " ");
+        cleaned = cleaned.replaceAll("(真彩|臻彩|高码|高码率|无水印|无台标|国语|国配|国粤|粤语|中字|字幕|内封|简繁|双语|官中|杜比|合集|全集|完结|未删减|加长版|修复版)", " ");
         cleaned = cleaned.replaceAll("[._\\-+]+", " ");
         cleaned = cleaned.replaceAll("\\s+", " ").trim();
         cleaned = cleaned.replaceAll("^[\\s:：,，.。·|/\\\\]+|[\\s:：,，.。·|/\\\\]+$", "");
@@ -8974,7 +9059,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         String value = normalize(text);
         if (TextUtils.isEmpty(value)) return true;
         return value.matches("(?i).*(4k|8k|1080p|2160p|720p|hdr|hdr10|dv|webdl|bluray|bdrip|remux|hevc|h265|h264|x265|x264|aac|dts|ddp|atmos|nf|netflix|amzn|dsnp).*")
-                || value.matches(".*(臻彩|高码|高码率|无水印|无台标|国语|国配|国粤|粤语|中字|字幕|内封|简繁|双语|官中|杜比|合集|全集|完结|未删减|加长版|修复版).*")
+                || value.matches(".*(真彩|臻彩|高码|高码率|无水印|无台标|国语|国配|国粤|粤语|中字|字幕|内封|简繁|双语|官中|杜比|合集|全集|完结|未删减|加长版|修复版).*")
                 || value.matches(".*(国语版|国配版|普通话版|粤语版|台语版|闽南语版|原声版|配音版|中字版|字幕版|台版|台灣版|台湾版|港版|港澳版|大陆版|內地版|内地版|中国版|中國版|泰版|泰国版|泰國版|韩版|韩国版|韓國版|日版|日本版|美版|美国版|美國版|英版|英国版|英國版).*");
     }
 
@@ -9071,7 +9156,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return new TmdbItem(
                 matchedTmdbItem.getTmdbId(),
                 matchedTmdbItem.getMediaType(),
-                TextUtils.isEmpty(vod.getName()) ? matchedTmdbItem.getTitle() : vod.getName(),
+                matchedTmdbTitle(),
                 buildSubtitle(),
                 displayOverview(),
                 TextUtils.isEmpty(matchedTmdbItem.getPosterUrl()) ? vod.getPic() : matchedTmdbItem.getPosterUrl(),

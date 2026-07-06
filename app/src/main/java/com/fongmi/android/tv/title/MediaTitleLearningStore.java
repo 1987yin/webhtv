@@ -101,9 +101,13 @@ public final class MediaTitleLearningStore {
 
     private double score(String siteKey, String vodId, String rawTitle, String ruleTitle, MediaTitleLearningExample example) {
         double score = 0.0;
-        if (!isBlank(siteKey) && !isBlank(vodId) && siteKey.equals(example.getSiteKey()) && vodId.equals(example.getVodId())) score = 1.0;
-        score = Math.max(score, similarity(normalize(ruleTitle), normalize(example.getRuleTitle())));
-        score = Math.max(score, similarity(normalize(rawTitle), normalize(example.getRawTitle())));
+        MediaTitleParser parser = new MediaTitleParser();
+        String rule = parser.cleanTitle(first(ruleTitle, rawTitle));
+        double titleScore = Math.max(
+                similarity(normalize(rule), normalize(parser.cleanTitle(example.getRuleTitle()))),
+                similarity(normalize(rule), normalize(parser.cleanTitle(example.getRawTitle()))));
+        if (!isBlank(siteKey) && !isBlank(vodId) && siteKey.equals(example.getSiteKey()) && vodId.equals(example.getVodId()) && (isBlank(rule) || titleScore >= 0.55)) score = 1.0;
+        score = Math.max(score, titleScore);
         if (example.isManual()) score += 0.1;
         return Math.min(1.0, score);
     }

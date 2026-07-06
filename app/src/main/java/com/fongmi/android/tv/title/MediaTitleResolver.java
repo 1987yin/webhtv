@@ -64,6 +64,18 @@ public final class MediaTitleResolver {
         return queryTitles(resolveWithAiFallback(request), limit);
     }
 
+    public List<String> queryCleanedTitles(MediaTitleRequest request, int limit) {
+        List<String> result = new ArrayList<>();
+        for (String title : parser.cleanSearchTitles(request)) {
+            if (title.isEmpty()) continue;
+            boolean exists = false;
+            for (String item : result) if (item.equalsIgnoreCase(title)) { exists = true; break; }
+            if (!exists) result.add(title);
+            if (result.size() >= limit) break;
+        }
+        return result;
+    }
+
     private List<String> queryTitles(MediaTitleResolution resolution, int limit) {
         List<String> result = new ArrayList<>();
         for (String title : resolution.queryTitles()) {
@@ -96,7 +108,7 @@ public final class MediaTitleResolver {
     }
 
     private void applyTmdbCache(MediaTitleRequest request, MediaTitleResolution resolution) {
-        TmdbItem item = Setting.getTmdbMatchCache().find(request.getSiteKey(), request.getVodId());
+        TmdbItem item = Setting.getTmdbMatchCache().find(request.getSiteKey(), request.getVodId(), request.getRawTitle());
         if (item == null || item.getTitle().isEmpty()) return;
         if (!isTmdbCacheCompatible(item, resolution)) return;
         resolution.setCanonicalTitle(item.getTitle());

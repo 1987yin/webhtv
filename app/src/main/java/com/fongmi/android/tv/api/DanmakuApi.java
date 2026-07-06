@@ -117,10 +117,22 @@ public class DanmakuApi {
         List<String> titles = resolver.queryTitles(request, 3);
         if (SpiderDebug.isEnabled()) SpiderDebug.log("danmaku", "resolved titles raw=%s episode=%s titles=%s", request.getRawTitle(), request.getEpisodeName(), titles);
         searchFirst(titles, request.getEpisodeName(), 0, found, () -> {
-            List<String> fallbackTitles = resolver.queryAiFallbackTitles(request, 3);
-            if (SpiderDebug.isEnabled()) SpiderDebug.log("danmaku", "ai fallback titles raw=%s episode=%s titles=%s", request.getRawTitle(), request.getEpisodeName(), fallbackTitles);
-            searchFirst(fallbackTitles, request.getEpisodeName(), 0, found, null);
+            List<String> cleanedTitles = resolver.queryCleanedTitles(request, 3);
+            cleanedTitles.removeIf(title -> containsTitle(titles, title));
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("danmaku", "cleaned fallback titles raw=%s episode=%s titles=%s", request.getRawTitle(), request.getEpisodeName(), cleanedTitles);
+            searchFirst(cleanedTitles, request.getEpisodeName(), 0, found, () -> {
+                List<String> fallbackTitles = resolver.queryAiFallbackTitles(request, 3);
+                fallbackTitles.removeIf(title -> containsTitle(titles, title) || containsTitle(cleanedTitles, title));
+                if (SpiderDebug.isEnabled()) SpiderDebug.log("danmaku", "ai fallback titles raw=%s episode=%s titles=%s", request.getRawTitle(), request.getEpisodeName(), fallbackTitles);
+                searchFirst(fallbackTitles, request.getEpisodeName(), 0, found, null);
+            });
         });
+    }
+
+    private static boolean containsTitle(List<String> titles, String title) {
+        if (titles == null || TextUtils.isEmpty(title)) return false;
+        for (String item : titles) if (title.equalsIgnoreCase(item)) return true;
+        return false;
     }
 
     private static void searchFirst(List<String> titles, String episode, int index, Consumer<Danmaku> found, Runnable exhausted) {

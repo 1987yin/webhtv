@@ -56,6 +56,7 @@ public class PlayerOsdController {
     private String lastSpeedText;
     private boolean controlsVisible;
     private boolean diagnosticsVisible;
+    private boolean persistentSuppressed;
     private boolean started;
 
     public PlayerOsdController(View root, TextView topLeft, TextView topRight, TextView bottomLeft, TextView bottomRight, TextView diagnostics, MiniProgressView miniProgress, Source source, float miniSp) {
@@ -110,6 +111,12 @@ public class PlayerOsdController {
         if (started) render();
     }
 
+    public void setPersistentSuppressed(boolean persistentSuppressed) {
+        if (this.persistentSuppressed == persistentSuppressed) return;
+        this.persistentSuppressed = persistentSuppressed;
+        if (started) render();
+    }
+
     public boolean isDiagnosticsVisible() {
         return diagnosticsVisible;
     }
@@ -146,6 +153,12 @@ public class PlayerOsdController {
         setTextSize(miniSp);
         PlayerManager player = source.getPlayer();
         updateSpeed();
+        if (persistentSuppressed) {
+            hidePersistent();
+            setDiagnosticsPanel(player);
+            root.setVisibility(diagnostics.getVisibility() == View.VISIBLE ? View.VISIBLE : View.GONE);
+            return true;
+        }
         setTopLeft(player);
         setTopRight();
         setBottomLeft(player);
@@ -222,10 +235,23 @@ public class PlayerOsdController {
 
     private void setTextSize(float sp) {
         topLeft.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        topLeft.setTextColor(0xFFFFFFFF);
         topRight.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        topRight.setTextColor(0xFFFFFFFF);
         bottomLeft.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        bottomLeft.setTextColor(0xFFFFFFFF);
         bottomRight.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        bottomRight.setTextColor(0xFFFFFFFF);
         diagnostics.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        diagnostics.setTextColor(0xFFFFFFFF);
+    }
+
+    private void hidePersistent() {
+        topLeft.setVisibility(View.GONE);
+        topRight.setVisibility(View.GONE);
+        bottomLeft.setVisibility(View.GONE);
+        bottomRight.setVisibility(View.GONE);
+        miniProgress.setVisibility(View.GONE);
     }
 
     private void updateSpeed() {

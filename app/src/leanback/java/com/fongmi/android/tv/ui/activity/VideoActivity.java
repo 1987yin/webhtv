@@ -752,8 +752,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
         mBinding.episodeReverse.setOnClickListener(view -> onRevSort());
         mBinding.episodeViewMode.setOnClickListener(view -> toggleEpisodeViewMode());
+        mBinding.episodeFileName.setOnClickListener(view -> toggleEpisodeFileName());
         mBinding.episodeReverse.setOnKeyListener((view, keyCode, event) -> onEpisodeHeaderToolKey(view, keyCode, event));
         mBinding.episodeViewMode.setOnKeyListener((view, keyCode, event) -> onEpisodeHeaderToolKey(view, keyCode, event));
+        mBinding.episodeFileName.setOnKeyListener((view, keyCode, event) -> onEpisodeHeaderToolKey(view, keyCode, event));
         mBinding.control.action.scale.setOnClickListener(view -> onScale());
         mBinding.control.action.actionQuality.setOnClickListener(view -> onQuality());
         mBinding.control.action.lut.setOnClickListener(view -> onLut());
@@ -1149,6 +1151,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (mTmdbUIAdapter != null && mTmdbUIAdapter.isReady()) {
             com.fongmi.android.tv.bean.TmdbItem tmdbItem = getTmdbItem();
             if (tmdbItem != null) {
+                SpiderDebug.log("tmdb-tv", "direct load vodTitle=%s tmdbTitle=%s tmdbId=%d media=%s", item.getName(), tmdbItem.getTitle(), tmdbItem.getTmdbId(), tmdbItem.getMediaType());
                 mTmdbUIAdapter.load(tmdbItem, item);
             } else {
                 mTmdbUIAdapter.autoMatch(item.getName(), item);
@@ -1468,6 +1471,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.episodeHeader.setVisibility(showTmdbEpisodeChrome && !isEmpty ? View.VISIBLE : View.GONE);
         mBinding.episodeReverse.setVisibility(showTmdbEpisodeChrome && hasMultiple ? View.VISIBLE : View.GONE);
         mBinding.episodeViewMode.setVisibility(showTmdbEpisodeChrome && hasMultiple && useTmdbCards ? View.VISIBLE : View.GONE);
+        mBinding.episodeFileName.setVisibility(showTmdbEpisodeChrome && hasMultiple ? View.VISIBLE : View.GONE);
         updateEpisodeFallbackStillUrl();
         mEpisodeAdapter.setUseTmdbCard(useTmdbCards);
         mEpisodeGridAdapter.setUseTmdbCard(useTmdbCards);
@@ -1502,6 +1506,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.episodeHeader.setVisibility(View.GONE);
         mBinding.episodeReverse.setVisibility(View.GONE);
         mBinding.episodeViewMode.setVisibility(View.GONE);
+        mBinding.episodeFileName.setVisibility(View.GONE);
         mBinding.episodeLoadingIndicator.setVisibility(View.GONE);
         mBinding.episode.setVisibility(View.GONE);
         mBinding.episodeGrid.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
@@ -1541,6 +1546,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.episodeHeader.setVisibility(View.GONE);
         mBinding.episodeReverse.setVisibility(View.GONE);
         mBinding.episodeViewMode.setVisibility(View.GONE);
+        mBinding.episodeFileName.setVisibility(View.GONE);
         mBinding.episodeLoadingIndicator.setVisibility(View.GONE);
         setEpisodeContentVisible(true);
         if (mEpisodeAdapter != null) mEpisodeAdapter.notifyDataSetChanged();
@@ -1658,6 +1664,13 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         applyEpisodeViewMode(true);
     }
 
+    private void toggleEpisodeFileName() {
+        if (mBinding.episodeFileName.getVisibility() != View.VISIBLE) return;
+        boolean showScraped = !Setting.getTmdbEpisodeShowScrapedName();
+        Setting.putTmdbEpisodeShowScrapedName(showScraped);
+        setEpisodeAdapter(getFlag().getEpisodes(), true);
+    }
+
     private void applyEpisodeViewMode(boolean scrollToCurrent) {
         if (mEpisodeAdapter == null || mEpisodeGridAdapter == null) return;
         int spanCount = getEpisodeGridSpanCount();
@@ -1676,6 +1689,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         updateEpisodeGridViewport();
         mBinding.episodeViewMode.setText(episodeGridMode ? R.string.detail_episode_view_list : R.string.detail_episode_view_grid);
         mBinding.episodeViewMode.setContentDescription(getString(episodeGridMode ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
+        updateEpisodeFileNameButton();
         updateEpisodeReverseText();
         updateFocus();
         setEpisodeContentVisible(mBinding.episodeLoadingIndicator.getVisibility() != View.VISIBLE);
@@ -1685,6 +1699,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private void updateEpisodeReverseText() {
         if (mHistory == null) return;
         mBinding.episodeReverse.setText(mHistory.isRevSort() ? R.string.detail_episode_forward : R.string.detail_episode_reverse);
+    }
+
+    private void updateEpisodeFileNameButton() {
+        boolean showScraped = Setting.getTmdbEpisodeShowScrapedName();
+        mBinding.episodeFileName.setText(showScraped ? R.string.detail_episode_file_name_original : R.string.detail_episode_file_name_scraped);
     }
 
     private void setEpisodeContentVisible(boolean visible) {
@@ -1894,6 +1913,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                 R.id.array,
                 R.id.episodeReverse,
                 R.id.episodeViewMode,
+                R.id.episodeFileName,
                 R.id.episode,
                 R.id.episodeGrid,
                 R.id.tmdbCast,
@@ -1929,13 +1949,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private void updateEpisodeHeaderFocus() {
         int up = findFocusUp(episodeFocusIndex(R.id.episodeReverse));
-        int down = findFocusDown(episodeFocusIndex(R.id.episodeViewMode));
+        int down = findFocusDown(episodeFocusIndex(R.id.episodeFileName));
         mBinding.episodeReverse.setNextFocusUpId(up == 0 ? View.NO_ID : up);
         mBinding.episodeReverse.setNextFocusDownId(down == 0 ? View.NO_ID : down);
         mBinding.episodeReverse.setNextFocusRightId(R.id.episodeViewMode);
         mBinding.episodeViewMode.setNextFocusUpId(up == 0 ? View.NO_ID : up);
         mBinding.episodeViewMode.setNextFocusDownId(down == 0 ? View.NO_ID : down);
         mBinding.episodeViewMode.setNextFocusLeftId(R.id.episodeReverse);
+        mBinding.episodeViewMode.setNextFocusRightId(R.id.episodeFileName);
+        mBinding.episodeFileName.setNextFocusUpId(up == 0 ? View.NO_ID : up);
+        mBinding.episodeFileName.setNextFocusDownId(down == 0 ? View.NO_ID : down);
+        mBinding.episodeFileName.setNextFocusLeftId(R.id.episodeViewMode);
     }
 
     private boolean onEpisodeHeaderToolKey(View view, int keyCode, KeyEvent event) {
@@ -1943,6 +1967,22 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (!KeyUtil.isActionDown(event)) return true;
         if (KeyUtil.isRightKey(event) && view == mBinding.episodeReverse && isVisible(mBinding.episodeViewMode)) {
             mBinding.episodeViewMode.requestFocus(View.FOCUS_RIGHT);
+            return true;
+        }
+        if (KeyUtil.isRightKey(event) && view == mBinding.episodeReverse && !isVisible(mBinding.episodeViewMode) && isVisible(mBinding.episodeFileName)) {
+            mBinding.episodeFileName.requestFocus(View.FOCUS_RIGHT);
+            return true;
+        }
+        if (KeyUtil.isRightKey(event) && view == mBinding.episodeViewMode && isVisible(mBinding.episodeFileName)) {
+            mBinding.episodeFileName.requestFocus(View.FOCUS_RIGHT);
+            return true;
+        }
+        if (KeyUtil.isLeftKey(event) && view == mBinding.episodeFileName && isVisible(mBinding.episodeViewMode)) {
+            mBinding.episodeViewMode.requestFocus(View.FOCUS_LEFT);
+            return true;
+        }
+        if (KeyUtil.isLeftKey(event) && view == mBinding.episodeFileName && !isVisible(mBinding.episodeViewMode) && isVisible(mBinding.episodeReverse)) {
+            mBinding.episodeReverse.requestFocus(View.FOCUS_LEFT);
             return true;
         }
         if (KeyUtil.isLeftKey(event) && view == mBinding.episodeViewMode && isVisible(mBinding.episodeReverse)) {
@@ -2429,6 +2469,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private void setOpening(long opening) {
         mHistory.setOpening(opening);
         mBinding.control.action.opening.setText(opening <= 0 ? getString(R.string.play_op) : Util.timeMs(mHistory.getOpening()));
+        syncHistory();
     }
 
     private void onEnding() {
@@ -2453,6 +2494,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private void setEnding(long ending) {
         mHistory.setEnding(ending);
         mBinding.control.action.ending.setText(ending <= 0 ? getString(R.string.play_ed) : Util.timeMs(mHistory.getEnding()));
+        syncHistory();
     }
 
     private void onChoose() {
@@ -3180,7 +3222,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private static String stripPageSuffix(String id) {
         if (TextUtils.isEmpty(id)) return id;
         int slash = id.indexOf('/');
-        return slash >= 0 ? id.substring(0, slash) : id;
+        return slash > 0 ? id.substring(0, slash) : id;
     }
 
     private void loadNativePersonalRecommendations(Vod item) {
@@ -4424,6 +4466,36 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         return mFocus2 == null || mFocus2.getVisibility() != View.VISIBLE || !PlayerControlFocusHelper.isDescendant(mBinding.control.getRoot(), mFocus2) || mFocus2 == mBinding.control.action.opening || mFocus2 == mBinding.control.action.ending ? mBinding.control.action.next : mFocus2;
     }
 
+    private boolean dispatchOpeningEndingAdjust(KeyEvent event) {
+        if (!KeyUtil.isActionDown(event) || !isVisible(mBinding.control.getRoot())) return false;
+        View focus = getCurrentFocus();
+        if (focus == mBinding.control.action.opening) return dispatchOpeningAdjust(event);
+        if (focus == mBinding.control.action.ending) return dispatchEndingAdjust(event);
+        return false;
+    }
+
+    private boolean dispatchOpeningAdjust(KeyEvent event) {
+        if (KeyUtil.isUpKey(event)) {
+            onOpeningAdd();
+            return true;
+        } else if (KeyUtil.isDownKey(event)) {
+            onOpeningSub();
+            return true;
+        }
+        return false;
+    }
+
+    private boolean dispatchEndingAdjust(KeyEvent event) {
+        if (KeyUtil.isUpKey(event)) {
+            onEndingAdd();
+            return true;
+        } else if (KeyUtil.isDownKey(event)) {
+            onEndingSub();
+            return true;
+        }
+        return false;
+    }
+
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (KeyUtil.isActionUp(event) && KeyUtil.isBackKey(event) && mBinding.lutQuick.hideIfVisible()) return true;
@@ -4434,6 +4506,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         }
         if (isVisible(mBinding.control.getRoot())) {
             setR1Callback();
+            if (dispatchOpeningEndingAdjust(event)) return true;
             if (PlayerControlFocusHelper.handleKey(mBinding.control.getRoot(), getFocus2(), event)) return true;
             if (PlayerControlFocusHelper.containsFocus(mBinding.control.getRoot())) mFocus2 = getCurrentFocus();
         }

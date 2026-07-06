@@ -27,6 +27,10 @@
     <string name="detail_episode_view_list">列表</string>
     <string name="detail_episode_view_grid_action">切换到网格</string>
     <string name="detail_episode_view_list_action">切换到列表</string>
+    <string name="detail_episode_file_name_original">原文件名</string>
+    <string name="detail_episode_file_name_scraped">刮削文件名</string>
+    <string name="detail_episode_file_name_original_action">切换到原文件名</string>
+    <string name="detail_episode_file_name_scraped_action">切换到刮削文件名</string>
 
     <!-- Keep -->
     <string name="keep">收藏</string>
@@ -146,6 +150,7 @@
     <string name="setting_vod">点播</string>
     <string name="setting_live">直播</string>
     <string name="setting_wall">壁纸</string>
+    <string name="setting_config_dialog_title">%1$s%2$s</string>
     <string name="setting_builtin_wall">内置壁纸</string>
     <string name="setting_player">播放设置</string>
     <string name="setting_danmaku">弹幕设置</string>
@@ -390,6 +395,12 @@
     <string name="setting_web_home_extension">WebHome 扩展</string>
     <string name="setting_web_home_fullscreen">WebHome 主页全屏</string>
     <string name="setting_csp_warmup">CSP init 预热</string>
+    <string name="setting_csp_warmup_default">默认</string>
+    <string name="setting_csp_warmup_custom">自定义</string>
+    <string name="setting_csp_warmup_custom_count">自定义 · %1$d 个</string>
+    <string name="setting_csp_warmup_select_site">选择 CSP 站点</string>
+    <string name="setting_csp_warmup_no_site">没有可用的 Jar CSP 站点</string>
+    <string name="setting_csp_warmup_select_required">请至少选择一个 CSP 站点</string>
     <string name="setting_playback_artwork_wall">播放界面剧照</string>
     <string name="setting_viewing_record_sync">观影记录同步</string>
     <string name="viewing_record_sync_entry_summary">%1$s · 远端 %2$d/%3$d · Webhook %4$d/%5$d</string>

@@ -95,4 +95,52 @@ public class MediaTitleParserTest {
 
         assertEquals("凡人修仙传", resolution.getCanonicalTitle());
     }
+
+    @Test
+    public void cleanTitle_removesTrueColorSourceTag() {
+        MediaTitleParser parser = new MediaTitleParser();
+
+        assertEquals("云秀行", parser.cleanTitle("云秀行（真彩）"));
+        assertEquals("云秀行", parser.normalizeSearchText("云秀行（真彩）"));
+    }
+
+    @Test
+    public void cleanSearchTitles_extractsEffectiveTitleFromSourceAndQualityNoise() {
+        List<String> titles = new MediaTitleParser().cleanSearchTitles(
+                MediaTitleRequest.builder()
+                        .rawTitle("玩偶 | 虎斑2 云秀行（真彩） 4K HDR 60帧 更新至第20集")
+                        .build());
+
+        assertEquals(List.of("云秀行"), titles);
+    }
+
+    @Test
+    public void cleanSearchTitles_prefersTitleBracketOverReleaseGroupBracket() {
+        List<String> titles = new MediaTitleParser().cleanSearchTitles(
+                MediaTitleRequest.builder()
+                        .rawTitle("[玩偶][云秀行][01][4K].mkv")
+                        .build());
+
+        assertEquals(List.of("云秀行"), titles);
+    }
+
+    @Test
+    public void candidates_doNotReuseLearningOnlyBecauseBothTitlesHaveTrueColorTag() {
+        MediaTitleLearningExample unrelated = MediaTitleLearningExample.manual(
+                "千香（真彩）",
+                "千香",
+                "千香",
+                "tv",
+                0,
+                -1,
+                MediaTitleLearningExample.SOURCE_TMDB_MANUAL);
+
+        MediaTitleResolution resolution = new MediaTitleParser().parse(
+                MediaTitleRequest.builder()
+                        .rawTitle("云秀行（真彩）")
+                        .learningExamples(List.of(unrelated))
+                        .build());
+
+        assertEquals("云秀行", resolution.getCanonicalTitle());
+    }
 }

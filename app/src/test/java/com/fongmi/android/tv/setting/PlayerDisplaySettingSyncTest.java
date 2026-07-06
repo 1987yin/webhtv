@@ -36,6 +36,34 @@ public class PlayerDisplaySettingSyncTest {
     }
 
     @Test
+    public void playerOsdControllerForcesPersistentTextWhite() throws Exception {
+        String source = read(mainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "custom", "PlayerOsdController.java")));
+        int method = source.indexOf("private void setTextSize(float sp)");
+        assertTrue("PlayerOsdController is missing setTextSize", method >= 0);
+        int methodEnd = source.indexOf("\n    }", method);
+        String body = source.substring(method, methodEnd);
+
+        assertTrue("top-left OSD text must stay white over themed TMDB surfaces", body.contains("topLeft.setTextColor(0xFFFFFFFF)"));
+        assertTrue("top-right OSD text must stay white over themed TMDB surfaces", body.contains("topRight.setTextColor(0xFFFFFFFF)"));
+        assertTrue("bottom-left OSD text must stay white over themed TMDB surfaces", body.contains("bottomLeft.setTextColor(0xFFFFFFFF)"));
+        assertTrue("bottom-right OSD text must stay white over themed TMDB surfaces", body.contains("bottomRight.setTextColor(0xFFFFFFFF)"));
+    }
+
+    @Test
+    public void playerOsdControllerCanSuppressPersistentCornerLabels() throws Exception {
+        String source = read(mainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "custom", "PlayerOsdController.java")));
+        int method = source.indexOf("public void setPersistentSuppressed(boolean persistentSuppressed)");
+        int render = source.indexOf("private boolean render()");
+
+        assertTrue("PlayerOsdController must expose persistent display suppression for embedded mobile players", method >= 0);
+        assertTrue("persistent suppression should hide title/time/progress/traffic/mini labels while keeping diagnostics available",
+                render >= 0
+                        && source.indexOf("if (persistentSuppressed)", render) > render
+                        && source.indexOf("hidePersistent();", render) > render
+                        && source.indexOf("setDiagnosticsPanel(player);", render) > render);
+    }
+
+    @Test
     public void backupIncludesPlaybackDisplayPreferences() throws Exception {
         String source = read(mainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "bean", "Backup.java")));
         assertTrue(source.contains("\"display_time\""));
