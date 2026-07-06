@@ -5,6 +5,7 @@ import org.junit.Test;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.Assert.assertTrue;
 
@@ -86,6 +87,120 @@ public class TmdbDetailActivityLayoutTest {
                 source.indexOf("buttons.put(PlayerButtonSetting.RESET, binding.playerRefresh)", method) > method);
         assertTrue("fusion source button must be mapped to the change setting",
                 source.indexOf("buttons.put(PlayerButtonSetting.CHANGE, binding.playerChangeSource)", method) > method);
+    }
+
+    @Test
+    public void fusionInlinePlayerButtonOrderMatchesNativeLeanbackPlayer() throws Exception {
+        String nativeLayout = readLeanbackLayout("view_control_vod_action.xml");
+        String fusionLayout = readLayout("activity_tmdb_detail.xml");
+        List<String> nativeOrder = List.of("next", "prev", "episodes", "reset", "search", "fullscreen", "player", "decode", "playParams", "speed", "scale", "actionQuality", "lut", "text", "audio", "video", "opening", "ending", "danmaku", "title", "repeat");
+        List<String> fusionOrder = List.of("playerNext", "playerPrev", "playerEpisodes", "playerRefresh", "playerChangeSource", "playerFullscreenAction", "playerExternal", "playerDecode", "playerPlayParams", "playerSpeed", "playerScale", "playerQuality", "playerLut", "playerTextTrack", "playerAudioTrack", "playerVideoTrack", "playerOpening", "playerEnding", "playerDanmaku", "playerChapter", "playerRepeat");
+
+        assertAndroidIdOrder("native leanback player control order", nativeLayout, nativeOrder);
+        assertAndroidIdOrder("fusion inline player control order", fusionLayout, fusionOrder);
+
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int method = source.indexOf("private void setupHorizontalFocusChain()");
+        int scale = source.indexOf("binding.playerScale", method);
+        int quality = source.indexOf("binding.playerQuality", method);
+        int lut = source.indexOf("binding.playerLut", method);
+
+        assertTrue("fusion inline focus chain must keep 画质 before LUT like native leanback player",
+                method >= 0 && scale > method && scale < quality && quality < lut);
+    }
+
+    @Test
+    public void tvDetailActionButtonsUseUnifiedSourceKeepTmdbThemeOrder() throws Exception {
+        String layout = readLayout("activity_tmdb_detail.xml");
+
+        assertAndroidIdOrder("fusion detail action order", layout, List.of("changeSource", "keepFusion", "rematchFusion", "themeMode"));
+        assertAndroidIdOrder("panel detail action order", layout, List.of("changeSourceDetail", "keep", "rematch", "themeModeDetail"));
+    }
+
+    @Test
+    public void fusionInlineFullscreenConsoleMatchesNativeLeanbackStructure() throws Exception {
+        String layout = readLayout("activity_tmdb_detail.xml");
+        int bottom = layout.indexOf("android:id=\"@+id/playerBottom\"");
+        int actionRow = layout.indexOf("android:id=\"@+id/playerActionRow\"", bottom);
+        int seek = layout.indexOf("android:id=\"@+id/seek\"", actionRow);
+        int detailHost = layout.indexOf("android:id=\"@+id/detailControlHost\"", bottom);
+
+        assertTrue("fusion inline fullscreen console must keep native bottom scrim", bottom >= 0
+                && layout.indexOf("android:background=\"@drawable/shape_controller_scrim\"", bottom) > bottom
+                && layout.indexOf("android:paddingStart=\"24dp\"", bottom) > bottom
+                && layout.indexOf("android:paddingTop=\"24dp\"", bottom) > bottom
+                && layout.indexOf("android:paddingEnd=\"24dp\"", bottom) > bottom
+                && layout.indexOf("android:paddingBottom=\"16dp\"", bottom) > bottom);
+        assertTrue("fusion inline fullscreen console must place the action row before the seek row",
+                bottom >= 0 && actionRow > bottom && seek > actionRow && detailHost > seek);
+        assertTrue("fusion inline fullscreen seek row must be a full-width native CustomSeekView child",
+                containsViewAttribute(layout, seek, "android:layout_width=\"match_parent\"")
+                        && containsViewAttribute(layout, seek, "android:layout_marginTop=\"12dp\"")
+                        && !containsViewAttribute(layout, seek, "android:layout_weight=\"1\"")
+                        && !containsViewAttribute(layout, seek, "android:paddingEnd=\"8dp\""));
+        int fullscreenIcon = layout.indexOf("android:id=\"@+id/playerFullscreen\"", bottom);
+        assertTrue("fusion inline fullscreen console must not keep the extra fullscreen icon beside the seek bar",
+                detailHost > bottom && (fullscreenIcon < 0 || fullscreenIcon > detailHost));
+        assertNativeControlButton(layout, "playerNext", "8dp");
+        assertNativeControlButton(layout, "playerPrev", "8dp");
+        assertNativeControlButton(layout, "playerEpisodes", "12dp");
+        assertNativeControlButton(layout, "playerRefresh", "8dp");
+        assertNativeControlButton(layout, "playerChangeSource", "8dp");
+        assertNativeControlButton(layout, "playerFullscreenAction", "8dp");
+        assertNativeControlButton(layout, "playerQuality", "12dp");
+        assertNativeControlButton(layout, "playerLut", "8dp");
+    }
+
+    @Test
+    public void fusionInlineQualityAndVideoTrackLogicMatchesNativeLeanbackPlayer() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int canQuality = source.indexOf("private boolean canChangeInlineQuality()");
+        int showQuality = source.indexOf("private void showInlineQuality()");
+        int changeQuality = source.indexOf("private void changeInlineQuality(int position)");
+        int updateButtons = source.indexOf("private void updateInlineButtons(boolean playing)");
+        int updateMobileButtons = source.indexOf("private void updateMobileInlineButtons(boolean playing, boolean hasPlayer, int episodeCount, boolean hasTitle)");
+
+        assertTrue("fusion quality button must only follow native URL multi-quality availability",
+                canQuality >= 0
+                        && source.indexOf("return hasInlineUrlQuality();", canQuality) > canQuality
+                        && source.indexOf("isInlineVideoTrackAsQuality", canQuality) < 0);
+        assertTrue("fusion quality dialog must not open the video-track dialog",
+                showQuality >= 0
+                        && changeQuality > showQuality
+                        && source.indexOf("TrackDialog.create().type(C.TRACK_TYPE_VIDEO)", showQuality) < 0);
+        assertTrue("fusion video-track button must stay independent from URL quality on TV",
+                updateButtons >= 0
+                        && source.indexOf("binding.playerVideoTrack.setVisibility(hasPlayer && player().haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE)", updateButtons) > updateButtons);
+        assertTrue("fusion video-track button must stay independent from URL quality on mobile",
+                updateMobileButtons >= 0
+                        && source.indexOf("detailActionView(R.id.video, View.class).setVisibility(hasPlayer && player().haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE)", updateMobileButtons) > updateMobileButtons);
+    }
+
+    @Test
+    public void fusionInlineLutQuickFocusMatchesNativeLeanbackPlayer() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String layout = readLayout("activity_tmdb_detail.xml");
+        int dispatch = source.indexOf("public boolean dispatchKeyEvent(KeyEvent event)");
+        int focus = source.indexOf("private boolean focusInlineLutQuickContent()");
+        int recyclerItem = source.indexOf("private boolean focusRecyclerItem(RecyclerView recycler)");
+        int firstChild = source.indexOf("private boolean focusFirstChild(View view)");
+        int controls = layout.indexOf("android:id=\"@+id/playerControls\"");
+        int detailControls = layout.indexOf("android:id=\"@+id/detailControlHost\"");
+        int lutQuick = layout.indexOf("android:id=\"@+id/lutQuick\"");
+
+        assertTrue("fusion LUT quick panel must consume back and remote keys before detail/player controls",
+                dispatch >= 0
+                        && source.indexOf("binding.lutQuick.hideIfVisible()", dispatch) > dispatch
+                        && source.indexOf("dispatchInlineLutQuickKey(event)", dispatch) > dispatch);
+        assertTrue("fusion LUT quick panel must be layered above fullscreen control overlays",
+                controls >= 0 && detailControls > controls && lutQuick > detailControls);
+        assertTrue("fusion LUT quick panel must focus selected entry before falling back like native leanback",
+                focus >= 0
+                        && source.indexOf("binding.lutQuick.focusSelectedEntry()", focus) > focus
+                        && source.indexOf("focusRecyclerItem(recycler)", focus) > focus
+                        && source.indexOf("focusFirstChild(binding.lutQuick)", focus) > focus);
+        assertTrue("fusion LUT quick panel must include native recycler focus fallback helpers",
+                recyclerItem > focus && firstChild > recyclerItem);
     }
 
     @Test
@@ -1537,13 +1652,51 @@ public class TmdbDetailActivityLayoutTest {
         return new String(Files.readAllBytes(layoutPath), StandardCharsets.UTF_8);
     }
 
+    private static String readLeanbackLayout(String file) throws Exception {
+        Path layoutPath = findLeanbackResPath().resolve(Path.of("layout", file));
+        return new String(Files.readAllBytes(layoutPath), StandardCharsets.UTF_8);
+    }
+
     private static String readJava(String first, String... more) throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of(first, more));
         return new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
     }
 
+    private static Path findLeanbackResPath() {
+        Path moduleRelative = Path.of("src", "leanback", "res");
+        if (Files.exists(moduleRelative)) return moduleRelative;
+        return Path.of("app", "src", "leanback", "res");
+    }
+
     private static Path findAppModulePath() {
         if (Files.exists(Path.of("proguard-rules.pro"))) return Path.of(".");
         return Path.of("app");
+    }
+
+    private static void assertAndroidIdOrder(String label, String layout, List<String> ids) {
+        int previous = -1;
+        for (String id : ids) {
+            int index = layout.indexOf("android:id=\"@+id/" + id + "\"");
+            assertTrue(label + " is missing @+id/" + id, index >= 0);
+            assertTrue(label + " should keep @+id/" + id + " after the previous mapped control", index > previous);
+            previous = index;
+        }
+    }
+
+    private static void assertNativeControlButton(String layout, String id, String marginEnd) {
+        int index = layout.indexOf("android:id=\"@+id/" + id + "\"");
+        assertTrue("fusion inline control @+id/" + id + " must use the native material text control tag",
+                layout.lastIndexOf("<com.google.android.material.textview.MaterialTextView", index) > 0);
+        assertTrue("fusion inline control @+id/" + id + " must use @style/Control",
+                containsViewAttribute(layout, index, "style=\"@style/Control\""));
+        assertTrue("fusion inline control @+id/" + id + " must match native margin " + marginEnd,
+                containsViewAttribute(layout, index, "android:layout_marginEnd=\"" + marginEnd + "\""));
+    }
+
+    private static boolean containsViewAttribute(String layout, int idIndex, String attribute) {
+        if (idIndex < 0) return false;
+        int tagEnd = layout.indexOf("/>", idIndex);
+        if (tagEnd < 0) tagEnd = layout.indexOf(">", idIndex);
+        return tagEnd > idIndex && layout.substring(idIndex, tagEnd).contains(attribute);
     }
 }

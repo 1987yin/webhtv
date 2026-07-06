@@ -1365,8 +1365,8 @@
     <string name="detail_source_empty">No available source</string>
     <string name="detail_source_episode_empty">No available episodes or source</string>
     <string name="detail_source_searching">Searching sources...</string>
-    <string name="detail_theme_dark">Theme: Dark</string>
-    <string name="detail_theme_light">Theme: Light</string>
+    <string name="detail_theme_dark">Dark</string>
+    <string name="detail_theme_light">Light</string>
     <string name="detail_tmdb_cast">Cast</string>
     <string name="detail_tmdb_creators">Creators</string>
     <string name="detail_tmdb_works">You Might Like</string>

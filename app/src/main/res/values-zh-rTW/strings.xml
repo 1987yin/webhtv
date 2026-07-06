@@ -1270,8 +1270,8 @@
     <string name="detail_source_empty">暫無可用站源</string>
     <string name="detail_source_episode_empty">暫無可用選集或站源</string>
     <string name="detail_source_searching">正在搜尋站源...</string>
-    <string name="detail_theme_dark">主題：深色</string>
-    <string name="detail_theme_light">主題：淺色</string>
+    <string name="detail_theme_dark">深色</string>
+    <string name="detail_theme_light">淺色</string>
     <string name="detail_tmdb_cast">演員</string>
     <string name="detail_tmdb_creators">主創團隊</string>
     <string name="detail_tmdb_works">猜你喜歡</string>

@@ -21,6 +21,7 @@ import com.fongmi.android.tv.api.config.LiveConfig;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.api.config.WallConfig;
 import com.fongmi.android.tv.bean.Config;
+import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.databinding.DialogConfigBinding;
 import com.fongmi.android.tv.impl.ConfigListener;
 import com.fongmi.android.tv.ui.custom.CustomTextListener;
@@ -145,17 +146,23 @@ public class ConfigDialog extends BaseAlertDialog {
     private void onPositive() {
         String url = binding.url.getText().toString().trim();
         String name = binding.name.getText().toString().trim();
-        Config config;
-        if (url.isEmpty()) {
-            Config.delete(ori, type);
-            config = Config.create(type);
-        } else if (TextUtils.isEmpty(ori)) {
-            config = Config.find(url, type).name(name).update();
-        } else {
-            config = Config.find(ori, type).url(url).name(name).update();
-        }
+        Config config = saveConfig(url, name);
         ((ConfigListener) requireParentFragment()).setConfig(config);
         dismiss();
+    }
+
+    private Config saveConfig(String url, String name) {
+        Config config;
+        if (url.isEmpty()) {
+            if (edit) Config.delete(ori, type);
+            return Config.create(type);
+        } else if (edit) {
+            config = Config.find(ori, type).url(url).name(name).update();
+        } else {
+            Config exists = AppDatabase.get().getConfigDao().find(url, type);
+            config = exists != null ? exists : Config.create(type).url(url).name(name).update();
+        }
+        return config;
     }
 
     private void configureWindow() {
@@ -177,7 +184,7 @@ public class ConfigDialog extends BaseAlertDialog {
         if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) return;
         String name = binding.name.getText().toString().trim();
         String url = "file:/" + FileChooser.getPathFromUri(result.getData().getData()).replace(Path.rootPath(), "");
-        ((ConfigListener) requireParentFragment()).setConfig(Config.find(url, type).name(name).update());
+        ((ConfigListener) requireParentFragment()).setConfig(saveConfig(url, name));
         dismiss();
     });
 }

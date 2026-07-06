@@ -33,19 +33,36 @@ public class PlayerControlFocusIntegrationTest {
         int show = activity.indexOf("private void showInlineControls(boolean show, boolean focus)");
         int focusDefault = activity.indexOf("focusInlineDefaultControl();", show);
         int dispatch = activity.indexOf("public boolean dispatchKeyEvent(KeyEvent event)");
+        int hiddenPlaybackDispatch = activity.indexOf("handleInlineFullscreenHiddenKey(event)", dispatch);
         int inlineDispatch = activity.indexOf("handleInlineKey(event)", dispatch);
         int detailDispatch = activity.indexOf("handleDetailEpisodeNavigationKey(event)", dispatch);
         int handle = activity.indexOf("private boolean handleInlineKey(KeyEvent event)");
         int focusTrap = activity.indexOf("handleInlineControlFocusKey(event)", handle);
+        int hiddenPlayback = activity.indexOf("private boolean handleInlineFullscreenHiddenKey(KeyEvent event)");
+        int hiddenPlaybackPredicate = activity.indexOf("private boolean isInlineFullscreenHiddenPlaybackKey(KeyEvent event)");
 
         assertTrue(activityPath + " must import the shared helper",
                 activity.contains("import com.fongmi.android.tv.ui.helper.PlayerControlFocusHelper;"));
         assertTrue("inline controls must restore focus even when callers pass focus=false",
                 show >= 0 && focusDefault > show);
+        assertTrue("fullscreen hidden inline playback keys must run before detail navigation can consume DPAD_UP/DOWN",
+                dispatch >= 0 && hiddenPlaybackDispatch > dispatch && hiddenPlaybackDispatch < detailDispatch);
         assertTrue("detail episode navigation must keep DPAD focus before inline controls restore lost focus",
                 dispatch >= 0 && detailDispatch > dispatch && inlineDispatch > detailDispatch);
         assertTrue("visible inline controls must trap direction/enter focus inside the overlay",
                 handle >= 0 && focusTrap > handle);
+        assertTrue("hidden fullscreen inline playback keys must delegate to inline playback handling and consume stale detail focus",
+                hiddenPlayback > handle
+                        && activity.indexOf("if (handleInlineKey(event)) return true;", hiddenPlayback) > hiddenPlayback
+                        && activity.indexOf("return true;", hiddenPlayback) > hiddenPlayback);
+        assertTrue("hidden fullscreen inline playback keys must include up/down wake keys only while controls are hidden",
+                hiddenPlaybackPredicate > hiddenPlayback
+                        && activity.indexOf("isInlinePlayerMode()", hiddenPlaybackPredicate) > hiddenPlaybackPredicate
+                        && activity.indexOf("inlineStarted", hiddenPlaybackPredicate) > hiddenPlaybackPredicate
+                        && activity.indexOf("inlineFullscreen", hiddenPlaybackPredicate) > hiddenPlaybackPredicate
+                        && activity.indexOf("isInlineControlsVisible()", hiddenPlaybackPredicate) > hiddenPlaybackPredicate
+                        && activity.indexOf("KeyUtil.isUpKey(event)", hiddenPlaybackPredicate) > hiddenPlaybackPredicate
+                        && activity.indexOf("KeyUtil.isDownKey(event)", hiddenPlaybackPredicate) > hiddenPlaybackPredicate);
         assertTrue("leanback detail-player fullscreen must disable the system focus highlight that covers video when controls hide",
                 activity.contains("private boolean isLeanbackInlinePlayerPanel()")
                         && activity.contains("return Util.isLeanback() && (isFusionMode() || isPlayerMode());")

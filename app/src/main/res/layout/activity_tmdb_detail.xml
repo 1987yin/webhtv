@@ -148,11 +148,6 @@
                     android:layout_width="match_parent"
                     android:layout_height="match_parent" />
 
-                <com.fongmi.android.tv.ui.custom.LutQuickPanel
-                    android:id="@+id/lutQuick"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent" />
-
                 <LinearLayout
                     android:id="@+id/playerProgress"
                     android:layout_width="wrap_content"
@@ -507,150 +502,148 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:gravity="center_vertical"
-                                android:orientation="horizontal"
-                                android:descendantFocusability="afterDescendants"
-                                android:focusable="false">
+                                android:orientation="horizontal">
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerNext"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/play_next" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerPrev"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/play_prev" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerEpisodes"
                                     style="@style/Control"
                                     android:layout_marginEnd="12dp"
                                     android:text="@string/detail_episode" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerRefresh"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/play_reset" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerChangeSource"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
-                                    android:text="@string/play_search" />
+                                    android:layout_marginEnd="8dp"
+                                    android:text="@string/play_change" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerFullscreenAction"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/play_fullscreen" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerExternal"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/play_exo" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerDecode"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/play_decode" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerPlayParams"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/play_params" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerSpeed"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/play_speed" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerScale"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/play_scale" />
 
-                                <TextView
-                                    android:id="@+id/playerLut"
-                                    style="@style/Control"
-                                    android:layout_marginEnd="12dp"
-                                    android:text="@string/play_lut" />
-
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerQuality"
                                     style="@style/Control"
                                     android:layout_marginEnd="12dp"
                                     android:text="@string/detail_quality"
                                     android:visibility="gone" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
+                                    android:id="@+id/playerLut"
+                                    style="@style/Control"
+                                    android:layout_marginEnd="8dp"
+                                    android:text="@string/play_lut" />
+
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerParse"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/parse"
                                     android:visibility="gone" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerTextTrack"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:tag="3"
                                     android:text="@string/play_track_text" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerAudioTrack"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:tag="1"
                                     android:text="@string/play_track_audio" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerVideoTrack"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:tag="2"
                                     android:text="@string/play_track_video" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerOpening"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/play_op" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerEnding"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/play_ed" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerDanmaku"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/danmaku"
                                     android:visibility="gone" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerChapter"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/play_title"
                                     android:visibility="gone" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerDisplay"
                                     style="@style/Control"
-                                    android:layout_marginEnd="12dp"
+                                    android:layout_marginEnd="8dp"
                                     android:text="@string/control_display" />
 
-                                <TextView
+                                <com.google.android.material.textview.MaterialTextView
                                     android:id="@+id/playerRepeat"
                                     style="@style/Control"
                                     android:text="@string/play_repeat" />
@@ -658,31 +651,11 @@
                             </LinearLayout>
                         </HorizontalScrollView>
 
-                        <LinearLayout
+                        <com.fongmi.android.tv.ui.custom.CustomSeekView
+                            android:id="@+id/seek"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="12dp"
-                            android:gravity="center_vertical"
-                            android:orientation="horizontal">
-
-                            <com.fongmi.android.tv.ui.custom.CustomSeekView
-                                android:id="@+id/seek"
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:paddingStart="0dp"
-                                android:paddingEnd="8dp" />
-
-                            <androidx.appcompat.widget.AppCompatImageView
-                                android:id="@+id/playerFullscreen"
-                                android:layout_width="48dp"
-                                android:layout_height="48dp"
-                                android:layout_marginEnd="4dp"
-                                android:background="?attr/selectableItemBackgroundBorderless"
-                                android:scaleType="center"
-                                android:src="@drawable/ic_control_fullscreen" />
-
-                        </LinearLayout>
+                            android:layout_marginTop="12dp" />
                     </LinearLayout>
 
                 </RelativeLayout>
@@ -692,6 +665,11 @@
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:visibility="gone" />
+
+                <com.fongmi.android.tv.ui.custom.LutQuickPanel
+                    android:id="@+id/lutQuick"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
             </com.google.android.material.card.MaterialCardView>
 
             <FrameLayout
@@ -721,7 +699,7 @@
                     android:layout_height="wrap_content"
                     android:minHeight="42dp"
                     android:minWidth="76dp"
-                    android:text="@string/play_search"
+                    android:text="@string/play_change"
                     android:textColor="@android:color/white"
                     android:textSize="12sp"
                     android:textStyle="bold"
@@ -729,13 +707,14 @@
                     app:strokeColor="@android:color/transparent" />
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/themeMode"
+                    android:id="@+id/keepFusion"
                     style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
                     android:minHeight="42dp"
                     android:minWidth="76dp"
+                    android:text="@string/keep"
                     android:textColor="@android:color/white"
                     android:textSize="12sp"
                     android:textStyle="bold"
@@ -758,14 +737,13 @@
                     app:strokeColor="@android:color/transparent" />
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/keepFusion"
+                    android:id="@+id/themeMode"
                     style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
                     android:minHeight="42dp"
                     android:minWidth="76dp"
-                    android:text="@string/keep"
                     android:textColor="@android:color/white"
                     android:textSize="12sp"
                     android:textStyle="bold"
@@ -920,7 +898,7 @@
                                 android:paddingStart="0dp"
                                 android:paddingEnd="0dp"
                                 android:singleLine="true"
-                                android:text="@string/play_search"
+                                android:text="@string/play_change"
                                 android:textColor="@android:color/white"
                                 android:textSize="13sp"
                                 app:backgroundTint="#2B3743"
@@ -928,26 +906,6 @@
 
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/keep"
-                                style="?attr/materialButtonOutlinedStyle"
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="8dp"
-                                android:layout_weight="1"
-                                android:ellipsize="end"
-                                android:includeFontPadding="false"
-                                android:maxLines="1"
-                                android:minHeight="42dp"
-                                android:minWidth="0dp"
-                                android:paddingStart="0dp"
-                                android:paddingEnd="0dp"
-                                android:singleLine="true"
-                                android:textColor="@android:color/white"
-                                android:textSize="13sp"
-                                app:backgroundTint="#2B3743"
-                                app:strokeColor="@android:color/transparent" />
-
-                            <com.google.android.material.button.MaterialButton
-                                android:id="@+id/themeModeDetail"
                                 style="?attr/materialButtonOutlinedStyle"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
@@ -982,6 +940,26 @@
                                 android:paddingEnd="0dp"
                                 android:singleLine="true"
                                 android:text="@string/detail_tmdb_rematch"
+                                android:textColor="@android:color/white"
+                                android:textSize="13sp"
+                                app:backgroundTint="#2B3743"
+                                app:strokeColor="@android:color/transparent" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/themeModeDetail"
+                                style="?attr/materialButtonOutlinedStyle"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="8dp"
+                                android:layout_weight="1"
+                                android:ellipsize="end"
+                                android:includeFontPadding="false"
+                                android:maxLines="1"
+                                android:minHeight="42dp"
+                                android:minWidth="0dp"
+                                android:paddingStart="0dp"
+                                android:paddingEnd="0dp"
+                                android:singleLine="true"
                                 android:textColor="@android:color/white"
                                 android:textSize="13sp"
                                 app:backgroundTint="#2B3743"

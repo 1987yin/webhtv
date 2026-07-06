@@ -96,6 +96,8 @@ public class TmdbHeaderView {
     public interface ActionListener {
         void onChangeSource();
 
+        void onChangeSourceLongClick();
+
         void onRematch();
 
         void onKeep();
@@ -517,8 +519,13 @@ public class TmdbHeaderView {
     }
 
     private void setupActions() {
-        headerRoot.findViewById(R.id.tmdbChangeSource).setOnClickListener(view -> {
+        View tmdbChangeSource = headerRoot.findViewById(R.id.tmdbChangeSource);
+        tmdbChangeSource.setOnClickListener(view -> {
             if (actionListener != null) actionListener.onChangeSource();
+        });
+        tmdbChangeSource.setOnLongClickListener(view -> {
+            if (actionListener != null) actionListener.onChangeSourceLongClick();
+            return true;
         });
         headerRoot.findViewById(R.id.tmdbRematch).setOnClickListener(view -> {
             if (actionListener != null) actionListener.onRematch();
@@ -532,7 +539,9 @@ public class TmdbHeaderView {
         if (headerRoot == null) return;
         View changeSource = headerRoot.findViewById(R.id.tmdbChangeSource);
         if (changeSource == null) return;
-        changeSource.setVisibility(Setting.isOriginalEnhancedDetailPage() ? View.GONE : View.VISIBLE);
+        // 原来：原生增强模式隐藏换源按钮
+        // 现在：所有模式都显示换源按钮
+        changeSource.setVisibility(View.VISIBLE);
     }
 
     /**
@@ -1559,16 +1568,14 @@ public class TmdbHeaderView {
         ViewGroup row = headerRoot.findViewById(R.id.tmdbActions);
         MaterialButton rematch = headerRoot.findViewById(R.id.tmdbRematch);
         MaterialButton keep = headerRoot.findViewById(R.id.tmdbKeep);
-        if (row != null && rematch != null && keep != null && row.indexOfChild(rematch) > row.indexOfChild(keep)) {
-            ViewGroup.LayoutParams params = rematch.getLayoutParams();
-            row.removeView(rematch);
-            row.addView(rematch, 1, params);
-        }
+        MaterialButton themeToggle = headerRoot.findViewById(R.id.tmdbThemeToggle);
+        // 已在布局里按正确顺序排列（换源|收藏|TMDB|主题），不再动态重排
         if (row != null) {
             row.setBackground(null);
             row.setPadding(0, 0, 0, 0);
         }
         if (rematch != null) rematch.setText("重新匹配");
+        if (themeToggle != null) themeToggle.setVisibility(View.VISIBLE);
     }
 
     private void clearFusionActionStyling() {
@@ -1870,6 +1877,7 @@ public class TmdbHeaderView {
         tintAction(R.id.tmdbChangeSource, style);
         tintAction(R.id.tmdbKeep, style);
         tintAction(R.id.tmdbRematch, style);
+        tintAction(R.id.tmdbThemeToggle, style);
     }
 
     private void tintAction(int id, int style) {

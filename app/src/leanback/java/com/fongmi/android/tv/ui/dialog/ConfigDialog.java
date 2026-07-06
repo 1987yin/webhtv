@@ -21,6 +21,7 @@ import com.fongmi.android.tv.api.config.LiveConfig;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.api.config.WallConfig;
 import com.fongmi.android.tv.bean.Config;
+import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.databinding.DialogConfigBinding;
 import com.fongmi.android.tv.event.ServerEvent;
 import com.fongmi.android.tv.impl.ConfigListener;
@@ -95,7 +96,9 @@ public class ConfigDialog extends BaseAlertDialog {
 
     @Override
     protected void initView() {
-        binding.text.setText(url = getUrl());
+        Config config = getConfig();
+        binding.name.setText(config.getName());
+        binding.text.setText(url = config.getUrl());
         binding.text.setSelection(TextUtils.isEmpty(url) ? 0 : url.length());
         binding.positive.setText(edit ? R.string.dialog_edit : R.string.dialog_positive);
         binding.code.setImageBitmap(QRCode.getLightBitmap(Server.get().getAddress(3), 200, 0));
@@ -128,6 +131,15 @@ public class ConfigDialog extends BaseAlertDialog {
         };
     }
 
+    private Config getConfig() {
+        return switch (type) {
+            case 0 -> VodConfig.get().getConfig();
+            case 1 -> LiveConfig.get().getConfig();
+            case 2 -> WallConfig.get().getConfig();
+            default -> Config.create(type);
+        };
+    }
+
     private void onChoose(View view) {
         FileChooser.from(launcher).show();
     }
@@ -152,11 +164,20 @@ public class ConfigDialog extends BaseAlertDialog {
     private void onPositive(View view) {
         String name = binding.name.getText().toString().trim();
         String text = binding.text.getText().toString().trim();
-        if (edit) Config.find(url, type).url(text).update();
-        if (text.isEmpty()) Config.delete(url, type);
-        if (name.isEmpty()) ((ConfigListener) requireActivity()).setConfig(Config.find(text, type));
-        else ((ConfigListener) requireActivity()).setConfig(Config.find(text, name, type));
+        ((ConfigListener) requireActivity()).setConfig(saveConfig(text, name));
         dismiss();
+    }
+
+    private Config saveConfig(String text, String name) {
+        if (text.isEmpty()) {
+            if (edit) Config.delete(url, type);
+            return Config.create(type);
+        } else if (edit) {
+            return Config.find(url, type).url(text).name(name).update();
+        } else {
+            Config exists = AppDatabase.get().getConfigDao().find(text, type);
+            return exists != null ? exists : Config.create(type).url(text).name(name).update();
+        }
     }
 
     private void onNegative(View view) {
@@ -192,7 +213,7 @@ public class ConfigDialog extends BaseAlertDialog {
         App.post(() -> {
             if (activity.isFinishing() || activity.isDestroyed()) return;
             dismissAllowingStateLoss();
-            App.post(() -> ((ConfigListener) activity).setConfig(Config.find("file:/" + path.replace(Path.rootPath(), ""), type)), 100);
+            App.post(() -> ((ConfigListener) activity).setConfig(saveConfig("file:/" + path.replace(Path.rootPath(), ""), binding.name.getText().toString().trim())), 100);
         }, 100);
     });
 }

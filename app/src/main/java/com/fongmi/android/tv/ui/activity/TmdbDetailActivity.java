@@ -536,8 +536,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.rematch.setOnClickListener(view -> showManualTmdbMatchDialog());
         binding.rematchTop.setOnClickListener(view -> showManualTmdbMatchDialog());
         binding.rematchFusion.setOnClickListener(view -> showManualTmdbMatchDialog());
-        binding.changeSource.setOnClickListener(view -> openGlobalSourceSearch());
-        binding.changeSourceDetail.setOnClickListener(view -> openGlobalSourceSearch());
+        binding.changeSource.setOnClickListener(view -> changeSource());
+        binding.changeSourceDetail.setOnClickListener(view -> changeSource());
         binding.changeSource.setOnLongClickListener(view -> openGlobalSourceSearch());
         binding.changeSourceDetail.setOnLongClickListener(view -> openGlobalSourceSearch());
         binding.themeModeTop.setOnClickListener(view -> cycleThemeMode());
@@ -788,7 +788,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerScale.setOnClickListener(view -> cycleInlineScale());
         binding.playerLut.setOnClickListener(view -> onInlineLut());
         binding.playerRefresh.setOnClickListener(view -> refreshInlinePlayback());
-        binding.playerChangeSource.setOnClickListener(view -> openGlobalSourceSearch());
+        binding.playerChangeSource.setOnClickListener(view -> changeSource());
         binding.playerChangeSource.setOnLongClickListener(view -> openGlobalSourceSearch());
         binding.playerRepeat.setOnClickListener(view -> toggleInlineRepeat());
         binding.playerDisplay.setOnClickListener(view -> showInlineDisplay());
@@ -809,10 +809,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerExternal.setOnLongClickListener(view -> showInlinePlayerChoice());
         binding.playerEpisodes.setOnClickListener(view -> showInlineEpisodes());
         binding.playerFullscreenAction.setOnClickListener(view -> toggleInlineFullscreen());
-        binding.playerFullscreen.setOnClickListener(view -> toggleInlineFullscreen());
-        binding.playerFullscreen.setFocusable(false);
-        binding.playerFullscreen.setFocusableInTouchMode(false);
-        if (!Util.isMobile()) binding.playerFullscreen.setVisibility(View.GONE);
         binding.playerCast.setOnClickListener(view -> onInlineCast());
         binding.playerInfo.setOnClickListener(view -> onInlineInfo());
         binding.playerControls.setOnTouchListener(this::onInlineControlTouch);
@@ -938,15 +934,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void setupHorizontalFocusChain() {
         // 按钮顺序：Next → Prev → Episodes → Refresh → ChangeSource → Fullscreen →
-        // External → Decode → PlayParams → Speed → Scale → Lut → Quality → Parse →
+        // External → Decode → PlayParams → Speed → Scale → Quality → Lut → Parse →
         // TextTrack → AudioTrack → VideoTrack → Opening → Ending → Danmaku → Chapter → Display → Repeat
 
         View[] buttons = {
             binding.playerNext, binding.playerPrev, binding.playerEpisodes,
             binding.playerRefresh, binding.playerChangeSource, binding.playerFullscreenAction,
             binding.playerExternal, binding.playerDecode, binding.playerPlayParams,
-            binding.playerSpeed, binding.playerScale, binding.playerLut,
-            binding.playerQuality, binding.playerParse, binding.playerTextTrack,
+            binding.playerSpeed, binding.playerScale, binding.playerQuality,
+            binding.playerLut, binding.playerParse, binding.playerTextTrack,
             binding.playerAudioTrack, binding.playerVideoTrack, binding.playerOpening,
             binding.playerEnding, binding.playerDanmaku, binding.playerChapter,
             binding.playerDisplay, binding.playerRepeat
@@ -1331,9 +1327,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         boolean pictureInPicture = isInPictureInPictureMode();
         boolean showMobileButton = DetailThemeVisibility.showMobileThemeButton(mobile, inlineFullscreen, inlinePiPLayout, pictureInPicture);
         boolean showLargeScreenButton = DetailThemeVisibility.showLargeScreenThemeButton(mobile, inlineFullscreen, inlinePiPLayout, pictureInPicture);
-        binding.themeModeTop.setVisibility(showMobileButton ? View.VISIBLE : View.GONE);
-        binding.themeMode.setVisibility(showLargeScreenButton ? View.VISIBLE : View.GONE);
-        binding.themeModeDetail.setVisibility(showLargeScreenButton ? View.VISIBLE : View.GONE);
+        boolean fusionMode = isFusionMode();
+        // 手机版也使用底部一排的主题按钮（themeModeDetail），不再使用右上角浮动按钮（themeModeTop）
+        binding.themeModeTop.setVisibility(View.GONE);
+        // 融合模式：主题按钮在 fusionActions 排；其他模式：在 detail 排
+        binding.themeMode.setVisibility(fusionMode ? (showMobileButton || showLargeScreenButton ? View.VISIBLE : View.GONE) : (showLargeScreenButton ? View.VISIBLE : View.GONE));
+        binding.themeModeDetail.setVisibility(fusionMode ? View.GONE : (showMobileButton || showLargeScreenButton ? View.VISIBLE : View.GONE));
     }
 
     private void applyTemplateCardChrome(ThemeColors colors) {
@@ -5181,7 +5180,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         setButtonEnabled(binding.playerPrev, hasPlayer && episodeCount > 0);
         setButtonEnabled(binding.playerNext, hasPlayer && episodeCount > 0);
         boolean inlineQuality = canChangeInlineQuality();
-        boolean inlineVideoTrackAsQuality = isInlineVideoTrackAsQuality();
         setButtonEnabled(binding.playerQuality, inlineQuality);
         setButtonEnabled(binding.playerParse, useParse && !VodConfig.get().getParses().isEmpty());
         setButtonEnabled(binding.playerSpeed, hasPlayer);
@@ -5206,14 +5204,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         setButtonEnabled(binding.playerCast, hasPlayer && hasInlineCast());
         setButtonEnabled(binding.playerInfo, false); // 始终禁用信息按钮
         setButtonEnabled(binding.playerFullscreenAction, hasPlayer);
-        setButtonEnabled(binding.playerFullscreen, hasPlayer);
         binding.playerCast.setVisibility(hasInlineCast() ? View.VISIBLE : View.GONE);
         binding.playerInfo.setVisibility(View.GONE); // 始终隐藏信息按钮
         binding.playerActionRow.setVisibility(View.VISIBLE);
         binding.playerDanmakuToggle.setVisibility(View.GONE);
         binding.playerEpisodes.setVisibility(episodeCount < 2 ? View.GONE : View.VISIBLE);
         binding.playerQuality.setVisibility(inlineQuality ? View.VISIBLE : View.GONE);
-        binding.playerVideoTrack.setVisibility(hasPlayer && player().haveTrack(C.TRACK_TYPE_VIDEO) && !inlineVideoTrackAsQuality ? View.VISIBLE : View.GONE);
+        binding.playerVideoTrack.setVisibility(hasPlayer && player().haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE);
         binding.playerParse.setVisibility(useParse && !VodConfig.get().getParses().isEmpty() ? View.VISIBLE : View.GONE);
         binding.playerDanmaku.setVisibility(hasPlayer && inlineControlController.hasDanmakuControl() ? View.VISIBLE : View.GONE);
         binding.playerChapter.setVisibility(View.GONE); // 始终隐藏信息按钮
@@ -5344,7 +5341,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         setButtonEnabled(detailActionView(R.id.speed, View.class), hasPlayer);
         setButtonEnabled(detailActionView(R.id.scale, View.class), hasPlayer);
         boolean inlineQuality = canChangeInlineQuality();
-        boolean inlineVideoTrackAsQuality = isInlineVideoTrackAsQuality();
         setButtonEnabled(detailActionView(R.id.actionQuality, View.class), inlineQuality);
         setButtonEnabled(detailActionView(R.id.reset, View.class), hasPlayer);
         setButtonEnabled(detailActionView(R.id.repeat, View.class), hasPlayer);
@@ -5382,7 +5378,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         detailActionView(R.id.episodes, View.class).setVisibility(selectedFlag != null && selectedFlag.getEpisodes() != null && !selectedFlag.getEpisodes().isEmpty() ? View.VISIBLE : View.GONE);
         detailActionView(R.id.text, View.class).setVisibility(hasPlayer && (player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod()) ? View.VISIBLE : View.GONE);
         detailActionView(R.id.audio, View.class).setVisibility(hasPlayer && player().haveTrack(C.TRACK_TYPE_AUDIO) ? View.VISIBLE : View.GONE);
-        detailActionView(R.id.video, View.class).setVisibility(hasPlayer && player().haveTrack(C.TRACK_TYPE_VIDEO) && !inlineVideoTrackAsQuality ? View.VISIBLE : View.GONE);
+        detailActionView(R.id.video, View.class).setVisibility(hasPlayer && player().haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE);
         detailActionView(R.id.opening, View.class).setVisibility(hasPlayer ? View.VISIBLE : View.GONE);
         detailActionView(R.id.ending, View.class).setVisibility(hasPlayer ? View.VISIBLE : View.GONE);
         detailActionView(R.id.danmaku, View.class).setVisibility(hasPlayer && inlineControlController.hasDanmakuControl() ? View.VISIBLE : View.GONE);
@@ -5495,7 +5491,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void setInlineFullscreenIcon() {
         binding.playerFullscreenAction.setText(inlineFullscreen ? R.string.play_exit_fullscreen : R.string.play_fullscreen);
-        binding.playerFullscreen.setImageResource(inlineFullscreen ? R.drawable.ic_control_fullscreen_exit : R.drawable.ic_control_fullscreen);
         if (Util.isMobile()) detailControlView(R.id.fullscreen, ImageView.class).setImageResource(inlineFullscreen ? R.drawable.ic_control_fullscreen_exit : R.drawable.ic_control_fullscreen);
     }
 
@@ -5609,26 +5604,22 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private String qualityLabel() {
         if (currentInlineResult == null || !currentInlineResult.getUrl().isMulti()) return getString(R.string.detail_quality);
         int position = currentInlineResult.getUrl().getPosition();
-        String name = currentInlineResult.getUrl().n(position);
-        return TextUtils.isEmpty(name) ? getString(R.string.detail_quality) + " " + (position + 1) : name;
+        String name = inlineQualityName(position);
+        return TextUtils.isEmpty(name) ? getString(R.string.detail_quality) : getString(R.string.detail_quality) + " " + name;
     }
 
     private boolean canChangeInlineQuality() {
-        return hasInlineUrlQuality() || isInlineVideoTrackAsQuality();
+        return hasInlineUrlQuality();
     }
 
     private boolean hasInlineUrlQuality() {
         return currentInlineResult != null && currentInlineResult.getUrl().isMulti();
     }
 
-    private boolean isInlineVideoTrackAsQuality() {
-        return !hasInlineUrlQuality() && service() != null && player() != null && !player().isEmpty() && player().haveTrack(C.TRACK_TYPE_VIDEO);
-    }
-
-    private String qualityLabel(int position) {
+    private String inlineQualityName(int position) {
         if (currentInlineResult == null) return getString(R.string.detail_quality);
         String name = currentInlineResult.getUrl().n(position);
-        return TextUtils.isEmpty(name) ? getString(R.string.detail_quality) + " " + (position + 1) : name;
+        return TextUtils.isEmpty(name) ? String.valueOf(position + 1) : name;
     }
 
     private String parseLabel() {
@@ -5670,28 +5661,25 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void showInlineQuality() {
         if (!canChangeInlineQuality()) return;
-
-        // 优先显示URL画质
-        if (hasInlineUrlQuality()) {
-            int count = currentInlineResult.getUrl().getValues().size();
-            String[] labels = new String[count];
-            for (int i = 0; i < count; i++) labels[i] = qualityLabel(i);
-            new MaterialAlertDialogBuilder(this)
-                    .setTitle(R.string.detail_quality)
-                    .setSingleChoiceItems(labels, currentInlineResult.getUrl().getPosition(), (dialog, which) -> {
-                        dialog.dismiss();
-                        changeInlineQuality(which);
-                    })
-                    .show();
-        }
-        // 如果没有URL画质，但有视频轨道，显示视频轨道作为画质选项
-        else if (isInlineVideoTrackAsQuality()) {
-            TrackDialog.create().type(C.TRACK_TYPE_VIDEO).player(player()).search(this::showSubtitleSearch).show(this);
-        }
+        int count = currentInlineResult.getUrl().getValues().size();
+        String[] labels = new String[count];
+        for (int i = 0; i < count; i++) labels[i] = inlineQualityName(i);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.detail_quality)
+                .setSingleChoiceItems(labels, currentInlineResult.getUrl().getPosition(), (dialog, which) -> {
+                    dialog.dismiss();
+                    changeInlineQuality(which);
+                })
+                .show();
     }
 
     private void changeInlineQuality(int position) {
-        if (!canChangeInlineQuality() || currentInlineResult.getUrl().getPosition() == position) return;
+        if (!canChangeInlineQuality()) return;
+        if (currentInlineResult.getUrl().getPosition() == position) {
+            binding.playerQuality.setText(qualityLabel());
+            if (Util.isMobile() && detailActionRoot != null) detailActionView(R.id.actionQuality, TextView.class).setText(binding.playerQuality.getText());
+            return;
+        }
         saveInlineHistory();
         currentInlineResult.getUrl().set(position);
         updateInlineButtons(service() != null && player() != null && !player().isEmpty() && player().isPlaying());
@@ -5852,23 +5840,194 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         View focus = getCurrentFocus();
         RecyclerView recycler = findRecyclerView(binding.lutQuick);
         if (focus != null && isChildOf(binding.lutQuick, focus) && focus != recycler) return true;
-        if (recycler != null && recycler.getChildCount() > 0) {
-            recycler.requestFocus();
-            return true;
+        if (binding.lutQuick.focusSelectedEntry()) return true;
+        if (focusRecyclerItem(recycler)) return true;
+        return focusFirstChild(binding.lutQuick);
+    }
+
+    private RecyclerView findRecyclerView(View view) {
+        if (view instanceof RecyclerView recycler) return recycler;
+        if (!(view instanceof ViewGroup group)) return null;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            RecyclerView recycler = findRecyclerView(group.getChildAt(i));
+            if (recycler != null) return recycler;
         }
+        return null;
+    }
+
+    private boolean dispatchInlineLutQuickKey(KeyEvent event) {
+        if (KeyUtil.isEnterKey(event)) return dispatchInlineLutQuickEnter(event);
+        if (isInlineLutQuickDirectionKey(event)) return dispatchInlineLutQuickDirection(event);
+        if (KeyUtil.isActionDown(event)) focusInlineLutQuickContent();
+        super.dispatchKeyEvent(event);
+        if (KeyUtil.isActionDown(event)) {
+            View focus = getCurrentFocus();
+            if (focus == null || !isChildOf(binding.lutQuick, focus)) focusInlineLutQuickContent();
+        }
+        return true;
+    }
+
+    private boolean isInlineLutQuickDirectionKey(KeyEvent event) {
+        return KeyUtil.isUpKey(event) || KeyUtil.isDownKey(event) || KeyUtil.isLeftKey(event) || KeyUtil.isRightKey(event);
+    }
+
+    private boolean dispatchInlineLutQuickDirection(KeyEvent event) {
+        if (!KeyUtil.isActionDown(event)) return true;
+        RecyclerView recycler = findRecyclerView(binding.lutQuick);
+        View focus = getCurrentFocus();
+        if (recycler != null && (focus == recycler || isChildOf(recycler, focus)) && moveInlineLutQuickRecycler(recycler, event)) return true;
+        if (focus == null || !isChildOf(binding.lutQuick, focus) || focus == recycler) {
+            focusInlineLutQuickContent();
+            focus = getCurrentFocus();
+        }
+        if (focus != null && isChildOf(binding.lutQuick, focus) && moveInlineLutQuickFocus(focus, event)) return true;
+        if (recycler != null && KeyUtil.isDownKey(event) && focusRecyclerItem(recycler)) return true;
+        focusInlineLutQuickContent();
+        return true;
+    }
+
+    private boolean moveInlineLutQuickRecycler(RecyclerView recycler, KeyEvent event) {
+        if (!KeyUtil.isUpKey(event) && !KeyUtil.isDownKey(event)) return false;
+        RecyclerView.Adapter<?> adapter = recycler.getAdapter();
+        if (adapter == null || adapter.getItemCount() <= 0) return false;
+        int current = getRecyclerFocusPosition(recycler);
+        if (current == RecyclerView.NO_POSITION) return binding.lutQuick.focusSelectedEntry();
+        int next = current + (KeyUtil.isDownKey(event) ? 1 : -1);
+        if (next < 0 || next >= adapter.getItemCount()) return false;
+        return focusRecyclerPosition(recycler, next);
+    }
+
+    private int getRecyclerFocusPosition(RecyclerView recycler) {
+        View child = getRecyclerDirectChild(recycler, getCurrentFocus());
+        return child == null ? RecyclerView.NO_POSITION : recycler.getChildAdapterPosition(child);
+    }
+
+    private View getRecyclerDirectChild(RecyclerView recycler, View focus) {
+        for (View view = focus; view != null && view != recycler; ) {
+            if (view.getParent() == recycler) return view;
+            if (!(view.getParent() instanceof View next)) return null;
+            view = next;
+        }
+        return null;
+    }
+
+    private boolean moveInlineLutQuickFocus(View focus, KeyEvent event) {
+        List<View> focusables = new ArrayList<>();
+        collectInlineLutQuickFocusables(binding.lutQuick, focusables);
+        View target = findInlineLutQuickFocusTarget(focus, focusables, event);
+        return target != null && target.requestFocus();
+    }
+
+    private void collectInlineLutQuickFocusables(View view, List<View> focusables) {
+        if (view == null || view.getVisibility() != View.VISIBLE || !view.isEnabled()) return;
+        if (view instanceof RecyclerView recycler) {
+            for (int i = 0; i < recycler.getChildCount(); i++) collectInlineLutQuickFocusables(recycler.getChildAt(i), focusables);
+            return;
+        }
+        if (view instanceof ViewGroup group) {
+            for (int i = 0; i < group.getChildCount(); i++) collectInlineLutQuickFocusables(group.getChildAt(i), focusables);
+            return;
+        }
+        if (view.isFocusable()) focusables.add(view);
+    }
+
+    private View findInlineLutQuickFocusTarget(View focus, List<View> focusables, KeyEvent event) {
+        Rect current = new Rect();
+        if (focus == null || !focus.getGlobalVisibleRect(current)) return null;
+        View target = null;
+        long bestScore = Long.MAX_VALUE;
+        for (View item : focusables) {
+            if (item == focus) continue;
+            Rect candidate = new Rect();
+            if (!item.getGlobalVisibleRect(candidate) || !isInlineLutQuickFocusCandidate(current, candidate, event)) continue;
+            long score = scoreInlineLutQuickFocusCandidate(current, candidate, event);
+            if (score < bestScore) {
+                bestScore = score;
+                target = item;
+            }
+        }
+        return target;
+    }
+
+    private boolean isInlineLutQuickFocusCandidate(Rect current, Rect candidate, KeyEvent event) {
+        int dx = candidate.centerX() - current.centerX();
+        int dy = candidate.centerY() - current.centerY();
+        if (KeyUtil.isLeftKey(event)) return dx < 0 && isSameInlineLutQuickFocusRow(current, candidate);
+        if (KeyUtil.isRightKey(event)) return dx > 0 && isSameInlineLutQuickFocusRow(current, candidate);
+        if (KeyUtil.isUpKey(event)) return dy < 0;
+        if (KeyUtil.isDownKey(event)) return dy > 0;
         return false;
     }
 
-    private RecyclerView findRecyclerView(ViewGroup parent) {
-        for (int i = 0; i < parent.getChildCount(); i++) {
-            View child = parent.getChildAt(i);
-            if (child instanceof RecyclerView) return (RecyclerView) child;
-            if (child instanceof ViewGroup) {
-                RecyclerView found = findRecyclerView((ViewGroup) child);
-                if (found != null) return found;
+    private boolean isSameInlineLutQuickFocusRow(Rect current, Rect candidate) {
+        return Math.abs(candidate.centerY() - current.centerY()) <= Math.max(current.height(), candidate.height());
+    }
+
+    private long scoreInlineLutQuickFocusCandidate(Rect current, Rect candidate, KeyEvent event) {
+        long dx = Math.abs(candidate.centerX() - current.centerX());
+        long dy = Math.abs(candidate.centerY() - current.centerY());
+        long primary = KeyUtil.isLeftKey(event) || KeyUtil.isRightKey(event) ? dx : dy;
+        long secondary = KeyUtil.isLeftKey(event) || KeyUtil.isRightKey(event) ? dy : dx;
+        return primary * 1000 + secondary;
+    }
+
+    private boolean dispatchInlineLutQuickEnter(KeyEvent event) {
+        if (KeyUtil.isActionDown(event)) {
+            focusInlineLutQuickContent();
+            return true;
+        }
+        if (!KeyUtil.isActionUp(event)) return true;
+        View focus = getCurrentFocus();
+        if (focus == null || !isChildOf(binding.lutQuick, focus) || focus instanceof RecyclerView) {
+            if (!focusInlineLutQuickContent()) return true;
+            focus = getCurrentFocus();
+        }
+        if (focus != null && isChildOf(binding.lutQuick, focus) && focus.isEnabled()) focus.performClick();
+        return true;
+    }
+
+    private boolean focusRecyclerItem(RecyclerView recycler) {
+        return focusRecyclerPosition(recycler, 0);
+    }
+
+    private boolean focusRecyclerPosition(RecyclerView recycler, int position) {
+        if (recycler == null || recycler.getVisibility() != View.VISIBLE || !recycler.isEnabled()) return false;
+        RecyclerView.Adapter<?> adapter = recycler.getAdapter();
+        if (adapter == null || adapter.getItemCount() <= 0) return false;
+        if (position < 0 || position >= adapter.getItemCount()) return false;
+        recycler.scrollToPosition(position);
+        RecyclerView.ViewHolder holder = recycler.findViewHolderForAdapterPosition(position);
+        if (holder != null && focusFirstChild(holder.itemView)) return true;
+        for (int i = 0; i < recycler.getChildCount(); i++) {
+            View child = recycler.getChildAt(i);
+            if (recycler.getChildAdapterPosition(child) == position && focusFirstChild(child)) return true;
+        }
+        recycler.post(() -> {
+            RecyclerView.ViewHolder next = recycler.findViewHolderForAdapterPosition(position);
+            if (next != null) {
+                focusFirstChild(next.itemView);
+                return;
+            }
+            for (int i = 0; i < recycler.getChildCount(); i++) {
+                View child = recycler.getChildAt(i);
+                if (recycler.getChildAdapterPosition(child) == position) {
+                    focusFirstChild(child);
+                    return;
+                }
+            }
+        });
+        return true;
+    }
+
+    private boolean focusFirstChild(View view) {
+        if (view == null || view.getVisibility() != View.VISIBLE || !view.isEnabled()) return false;
+        if (view instanceof RecyclerView recycler) return focusRecyclerItem(recycler);
+        if (view instanceof ViewGroup group) {
+            for (int i = 0; i < group.getChildCount(); i++) {
+                if (focusFirstChild(group.getChildAt(i))) return true;
             }
         }
-        return null;
+        return view.isFocusable() && view.requestFocus();
     }
 
     private boolean isChildOf(ViewGroup parent, View child) {
@@ -7207,6 +7366,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (binding != null && KeyUtil.isActionUp(event) && KeyUtil.isBackKey(event) && binding.lutQuick.hideIfVisible()) return true;
+        if (binding != null && isVisible(binding.lutQuick)) return dispatchInlineLutQuickKey(event);
+        if (handleInlineFullscreenHiddenKey(event)) return true;
         if (handleDetailEpisodeNavigationKey(event)) return true;
         if (handleInlineKey(event)) return true;
         return super.dispatchKeyEvent(event);
@@ -7466,6 +7628,17 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return false;
     }
 
+    private boolean handleInlineFullscreenHiddenKey(KeyEvent event) {
+        if (!isInlineFullscreenHiddenPlaybackKey(event)) return false;
+        if (handleInlineKey(event)) return true;
+        return true;
+    }
+
+    private boolean isInlineFullscreenHiddenPlaybackKey(KeyEvent event) {
+        if (event == null || !isInlinePlayerMode() || !inlineStarted || !inlineFullscreen || isInlineControlsVisible() || service() == null) return false;
+        return KeyUtil.isEnterKey(event) || KeyUtil.isUpKey(event) || KeyUtil.isDownKey(event) || KeyUtil.isLeftKey(event) || KeyUtil.isRightKey(event);
+    }
+
     private boolean handleInlineControlFocusKey(KeyEvent event) {
         return PlayerControlFocusHelper.handleKey(inlineControlsView(), getInlineControlFocus(), event);
     }
@@ -7489,6 +7662,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (!canInlineSeek() || !isInlineSeekKey(event)) return false;
         if (isInlineMediaSeekKey(event)) return true;
         if (isInlineControlsVisible()) return false;
+        if (inlineFullscreen) return true;
         View focus = getCurrentFocus();
         return focus == binding.playerPanel || (inlineFullscreen && (focus == null || isFocusInside(focus, binding.playerPanel)));
     }
