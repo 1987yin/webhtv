@@ -115,6 +115,7 @@ import com.fongmi.android.tv.ui.custom.CustomSeekView;
 import com.fongmi.android.tv.ui.custom.PlayerOsdController;
 import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
 import com.fongmi.android.tv.ui.dialog.CastDialog;
+import com.fongmi.android.tv.ui.dialog.CodecCapabilityDialog;
 import com.fongmi.android.tv.ui.dialog.ControlDialog;
 import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
 import com.fongmi.android.tv.ui.dialog.DisplayDialog;
@@ -165,7 +166,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-public class VideoActivity extends PlaybackActivity implements Clock.Callback, CustomKeyDown.Listener, TrackDialog.Listener, ControlDialog.Listener, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, EpisodeGroupAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, CastDialog.Listener, InfoDialog.Listener, SubtitlePlaybackSession.Host {
+public class VideoActivity extends PlaybackActivity implements Clock.Callback, CustomKeyDown.Listener, TrackDialog.Listener, ControlDialog.Listener, DanmakuDialog.Host, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, EpisodeGroupAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, CastDialog.Listener, InfoDialog.Listener, SubtitlePlaybackSession.Host {
 
     private static final int SHORT_DRAMA_SCALE = 4;
     private static final int SHORT_DRAMA_EDGE_MARGIN_DP = 12;
@@ -1282,7 +1283,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         int minPlayerWidth = ResUtil.dp2px(TMDB_TABLET_PLAYER_MIN_WIDTH_DP);
         int maxPlayerWidth = ResUtil.dp2px(TMDB_TABLET_PLAYER_MAX_WIDTH_DP);
         int minSummaryWidth = ResUtil.dp2px(TMDB_TABLET_SUMMARY_MIN_WIDTH_DP);
-        int screenWidth = ResUtil.getScreenWidth(this);
+        int screenWidth = ResUtil.getScreenWidth(App.get());  // 使用 App.get() 获取实时屏幕宽度
         int available = screenWidth - side * 2 - gutter;
         if (available < minPlayerWidth + minSummaryWidth) {
             restoreDefaultVideoLayout();
@@ -1731,7 +1732,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         for (Episode item : items) maxLen = Math.max(maxLen, item.getDisplayName().length());
         if (maxLen >= 12) return PlayerSetting.getEpisodeColumn();
         int ideal = maxLen >= 10 ? 130 : maxLen >= 7 ? 104 : 80;
-        int width = mBinding.episode.getWidth() > 0 ? mBinding.episode.getWidth() : ResUtil.getScreenWidth(this) - ResUtil.dp2px(32);
+        int width = mBinding.episode.getWidth() > 0 ? mBinding.episode.getWidth() : ResUtil.getScreenWidth(App.get()) - ResUtil.dp2px(32);  // 使用 App.get() 获取实时屏幕宽度
         int span = width / ResUtil.dp2px(ideal);
         return Math.max(2, Math.min(getEpisodeSpanCount(), span));
     }
@@ -2089,6 +2090,16 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     public void onDanmakuPanel() {
         DanmakuDialog.create().player(player()).identity(getKey(), getId(), mHistory == null ? "" : mHistory.getVodName(), getEpisode().getName()).show(this);
+    }
+
+    @Override
+    public void onCodecCapabilityPanel() {
+        CodecCapabilityDialog.show(this, player());
+    }
+
+    @Override
+    public boolean isDanmakuFullscreen() {
+        return isFullscreen();
     }
 
     private void onDanmakuShow() {

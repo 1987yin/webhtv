@@ -98,6 +98,7 @@ import com.fongmi.android.tv.ui.custom.CustomMovement;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
 import com.fongmi.android.tv.ui.custom.PlayerOsdController;
 import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
+import com.fongmi.android.tv.ui.dialog.CodecCapabilityDialog;
 import com.fongmi.android.tv.ui.dialog.ContentDialog;
 import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
@@ -642,6 +643,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     protected void onServiceConnected() {
         SpiderDebug.log("video-flow", "service ready sinceLaunch=%dms key=%s id=%s", getLaunchCost(System.currentTimeMillis()), getKey(), getId());
         player().setDanmakuController(mBinding.exo.getDanmakuController());
+        player().setDanmakuEnabled(DanmakuSetting.isShow());
         setPlayerKernel();
         setDecode();
         setLut();
@@ -766,6 +768,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.control.action.player.setOnLongClickListener(view -> onPlayerKernelLong());
         mBinding.control.action.decode.setOnClickListener(view -> onDecode());
         mBinding.control.action.playParams.setOnClickListener(view -> onPlayParams());
+        mBinding.control.action.codecCapability.setOnClickListener(view -> onCodecCapability());
         mBinding.control.action.ending.setOnClickListener(view -> onEnding());
         mBinding.control.action.repeat.setOnClickListener(view -> onRepeat());
         mBinding.control.action.search.setOnClickListener(view -> onSearch());
@@ -776,6 +779,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.control.action.change2.setOnClickListener(view -> onChange());
         mBinding.control.action.fullscreen.setOnClickListener(view -> onFullscreen());
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
+        mBinding.control.action.danmaku.setOnLongClickListener(view -> onDanmakuToggle());
         mBinding.control.action.opening.setOnClickListener(view -> onOpening());
         mBinding.shortDisplay.setOnClickListener(view -> onShortDisplay());
         mBinding.control.action.speed.setOnLongClickListener(view -> onSpeedLong());
@@ -891,6 +895,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private void setVideoView() {
         mBinding.control.action.danmaku.setVisibility(DanmakuSetting.isLoad() ? View.VISIBLE : View.GONE);
+        applyDanmakuState();
         mBinding.control.action.reset.setText(ResUtil.getStringArray(R.array.select_reset)[Setting.getReset()]);
         setupActionButtons();
         setPlayer();
@@ -912,6 +917,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         addActionButton(PlayerButtonSetting.PLAYER, mBinding.control.action.player);
         addActionButton(PlayerButtonSetting.DECODE, mBinding.control.action.decode);
         addActionButton(PlayerButtonSetting.PLAY_PARAMS, mBinding.control.action.playParams);
+        addActionButton(PlayerButtonSetting.CODEC_CAPABILITY, mBinding.control.action.codecCapability);
         addActionButton(PlayerButtonSetting.SPEED, mBinding.control.action.speed);
         addActionButton(PlayerButtonSetting.SCALE, mBinding.control.action.scale);
         addActionButton(PlayerButtonSetting.LUT, mBinding.control.action.lut);
@@ -2222,6 +2228,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         hideControl();
     }
 
+    private void onCodecCapability() {
+        CodecCapabilityDialog.show(this, player());
+        hideControl();
+    }
+
     private void setPlayParamsState() {
         mBinding.control.action.playParams.setSelected(mOsd != null && mOsd.isDiagnosticsVisible());
     }
@@ -2542,6 +2553,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private void onDanmaku() {
         DanmakuDialog.create().player(player()).identity(getKey(), getId(), mHistory == null ? "" : mHistory.getVodName(), getEpisode().getName()).show(this);
         hideControl();
+    }
+
+    private boolean onDanmakuToggle() {
+        DanmakuSetting.putShow(!DanmakuSetting.isShow());
+        applyDanmakuState();
+        Notify.show(DanmakuSetting.isShow() ? R.string.danmaku_show_on : R.string.danmaku_show_off);
+        return true;
+    }
+
+    private void applyDanmakuState() {
+        boolean show = DanmakuSetting.isShow();
+        if (player() != null) player().setDanmakuEnabled(show);
+        mBinding.control.action.danmaku.setSelected(show);
     }
 
     private void onToggle() {
