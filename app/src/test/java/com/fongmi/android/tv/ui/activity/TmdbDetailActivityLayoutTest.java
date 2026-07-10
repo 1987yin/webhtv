@@ -305,14 +305,18 @@ public class TmdbDetailActivityLayoutTest {
     public void inlinePlayerPersistentDisplayUsesPlayerOsdOnTvAndLegacyPanelOnMobile() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        String controller = readJava("com", "fongmi", "android", "tv", "ui", "player", "VodPlayerUiController.java");
         int method = source.indexOf("private void updateInlineDisplayPanel()");
         int end = source.indexOf("private void setButtonEnabled", method);
         String body = method >= 0 && end > method ? source.substring(method, end) : "";
-        int initOsd = source.indexOf("inlineOsd = new PlayerOsdController(");
+        int initOsd = controller.indexOf("this.osd = new PlayerOsdController(");
 
         assertTrue(sourcePath + " is missing updateInlineDisplayPanel", method >= 0);
         assertTrue("mobile inline playback must suppress PlayerOsdController persistent corner labels to avoid duplicate display",
-                initOsd >= 0 && source.indexOf("inlineOsd.setPersistentSuppressed(Util.isMobile());", initOsd) > initOsd);
+                initOsd >= 0
+                        && controller.indexOf("this.osd.setPersistentSuppressed(host.suppressPersistentOsd());", initOsd) > initOsd
+                        && source.contains("public boolean suppressPersistentOsd()")
+                        && source.contains("return Util.isMobile();"));
         assertTrue("TV inline playback should clear the legacy panel and let PlayerOsdController render persistent OSD",
                 body.contains("if (!Util.isMobile()) {") && body.contains("hideInlineDisplayPanel();") && body.contains("return;"));
         assertTrue("mobile inline playback should keep the legacy display panel for persistent screen display",
@@ -1765,6 +1769,55 @@ public class TmdbDetailActivityLayoutTest {
                 startBody.contains("inlinePlaybackEpisode = selectedEpisode;")
                         && startBody.contains("inlinePlaybackKey = getKeyText();")
                         && startBody.contains("inlinePlaybackFlag = selectedFlag == null ? \"\" : selectedFlag.getFlag();"));
+    }
+
+    @Test
+    public void fusionInlinePlayerDelegatesSharedUiSetup() throws Exception {
+        String activity = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String chrome = readJava("com", "fongmi", "android", "tv", "ui", "player", "VodPlayerChrome.java");
+        String controller = readJava("com", "fongmi", "android", "tv", "ui", "player", "VodPlayerUiController.java");
+        int method = activity.indexOf("private void initFusionPlayer()");
+        int mobile = activity.indexOf("private void setupMobileInlineControl()", method);
+        String body = activity.substring(method, mobile);
+
+        assertTrue("fusion inline player should delegate shared UI setup to VodPlayerUiController",
+                body.contains("inlinePlayerUi = new VodPlayerUiController"));
+        assertTrue("fusion inline player should pass a chrome object instead of wiring OSD views inline",
+                body.contains("VodPlayerChrome.fromTmdbDetail(binding)"));
+        assertTrue("fusion inline player should keep legacy fields backed by the shared controller during migration",
+                body.contains("inlineControlController = inlinePlayerUi.controlController();")
+                        && body.contains("inlinePiP = inlinePlayerUi.pip();")
+                        && body.contains("inlineClock = inlinePlayerUi.clock();")
+                        && body.contains("inlineOsd = inlinePlayerUi.osd();"));
+        assertTrue("fusion inline player should delegate reusable TV control bindings to VodPlayerUiController",
+                body.contains("inlinePlayerUi.bindInlineActions();")
+                        && !body.contains("binding.playerPrev.setOnClickListener")
+                        && !body.contains("binding.playerControls.setOnTouchListener(this::onInlineControlTouch);"));
+        assertTrue("shared chrome must expose the reusable TV control views",
+                chrome.contains("binding.playerPrev")
+                        && chrome.contains("binding.playerQuality")
+                        && chrome.contains("binding.playerDanmaku")
+                        && chrome.contains("binding.playerFullscreenAction")
+                        && chrome.contains("binding.playerControls"));
+        assertTrue("shared player UI controller must bind reusable TV control actions through the host contract",
+                controller.contains("public void bindInlineActions()")
+                        && controller.contains("chrome.prev.setOnClickListener(view -> host.playPrevious());")
+                        && controller.contains("chrome.quality.setOnClickListener(view -> host.showQuality());")
+                        && controller.contains("chrome.speed.setOnLongClickListener(view -> host.resetSpeed());")
+                        && controller.contains("chrome.textTrack.setOnClickListener(host::showTrack);")
+                        && controller.contains("chrome.danmaku.setOnLongClickListener(view -> host.onDanmakuLongClick());")
+                        && controller.contains("chrome.fullscreen.setOnClickListener(view -> host.toggleFullscreen());")
+                        && controller.contains("chrome.controls.setOnTouchListener(host::onControlsTouch);"));
+        assertTrue("shared player UI controller must own the reusable playback UI helpers",
+                controller.contains("new VodPlayerControlController")
+                        && controller.contains("new PlayerOsdController")
+                        && controller.contains("Clock.create()")
+                        && controller.contains("new PiP()"));
+        assertTrue("shared player UI lifecycle must own OSD start/stop/release",
+                controller.contains("osd.setDiagnosticsVisible(PlayerSetting.isOsdDiagnostics())")
+                        && controller.contains("osd.start();")
+                        && controller.contains("osd.stop();")
+                        && controller.contains("osd.release();"));
     }
 
     private static Path findMainJavaPath() {

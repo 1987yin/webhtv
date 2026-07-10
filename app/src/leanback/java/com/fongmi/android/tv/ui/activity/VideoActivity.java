@@ -112,6 +112,9 @@ import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
 import com.fongmi.android.tv.ui.helper.PlayerControlFocusHelper;
 import com.fongmi.android.tv.ui.helper.TmdbEpisodeGridPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
+import com.fongmi.android.tv.ui.player.VodPlayerChrome;
+import com.fongmi.android.tv.ui.player.VodPlayerUiController;
+import com.fongmi.android.tv.ui.player.VodPlayerUiHost;
 import com.fongmi.android.tv.utils.AudioUtil;
 import com.fongmi.android.tv.utils.Clock;
 import com.fongmi.android.tv.utils.EpisodeTitleFormatter;
@@ -119,6 +122,7 @@ import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.PiP;
 import com.fongmi.android.tv.utils.PushParser;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
@@ -171,6 +175,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private BackdropAdapter mBackdropAdapter;
     private Map<String, View> mActionButtons;
     private QuickSearchDialog mQuickSearchDialog;
+    private VodPlayerUiController mPlayerUi;
     private PlayerOsdController mOsd;
     private final IntroSkipPlayback mIntroSkipPlayback = new IntroSkipPlayback();
     private androidx.appcompat.app.AlertDialog mIntroSkipConfirmDialog;
@@ -209,6 +214,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private Runnable mBackdropRunnable;
     private int mCurrentBackdropPage = 0;
     private Clock mClock;
+    private PiP mPiP;
     private View mFocus1;
     private PersonalRecommendationService.RecommendationPage mNativePersonalTmdbPage;
     private PersonalRecommendationService.RecommendationPage mNativePersonalDoubanPage;
@@ -683,8 +689,20 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         super.initView(savedInstanceState);
         SpiderDebug.log("video-flow", "initView after playback cost=%dms", System.currentTimeMillis() - start);
         mFrameParams = mBinding.video.getLayoutParams();
-        mClock = Clock.create(mBinding.widget.clock);
-        mClock.start();
+        mPlayerUi = new VodPlayerUiController(new VodPlayerUiHost() {
+            @Override
+            public PlayerManager player() {
+                return service() == null ? null : VideoActivity.this.player();
+            }
+
+            @Override
+            public String osdTitle() {
+                return getOsdTitle();
+            }
+        }, VodPlayerChrome.fromVideo(mBinding, mBinding.widget.clock, 14f), this);
+        mClock = mPlayerUi.clock();
+        mOsd = mPlayerUi.osd();
+        mPiP = mPlayerUi.pip();
         mKeyDown = CustomKeyDownVod.create(this);
         mObserveDetail = this::setDetail;
         mObservePlayer = this::setPlayer;
@@ -700,17 +718,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         SpiderDebug.log("video-flow", "initView preview ready cost=%dms", System.currentTimeMillis() - start);
         setRecyclerView();
         setShortDisplay();
-        mOsd = new PlayerOsdController(mBinding.osd.getRoot(), mBinding.osd.osdTopLeft, mBinding.osd.osdTopRight, mBinding.osd.osdBottomLeft, mBinding.osd.osdBottomRight, mBinding.osd.osdDiagnostics, mBinding.osd.osdMiniProgress, new PlayerOsdController.Source() {
-            @Override
-            public PlayerManager getPlayer() {
-                return service() == null ? null : player();
-            }
-
-            @Override
-            public String getTitle() {
-                return getOsdTitle();
-            }
-        }, 14f);
         SpiderDebug.log("video-flow", "initView recycler ready cost=%dms", System.currentTimeMillis() - start);
         setVideoView();
         SpiderDebug.log("video-flow", "initView video view ready cost=%dms", System.currentTimeMillis() - start);
@@ -4771,17 +4778,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     protected void onStart() {
         super.onStart();
         mClock.stop().start();
-        if (mOsd != null) {
-            mOsd.setDiagnosticsVisible(PlayerSetting.isOsdDiagnostics());
-            setPlayParamsState();
-            mOsd.start();
-        }
+        mPlayerUi.onStart();
+        setPlayParamsState();
     }
 
     @Override
     protected void onStop() {
         super.onStop();
-        if (mOsd != null) mOsd.stop();
+        mPlayerUi.onStop();
         if (PlayerSetting.isBackgroundOff()) mClock.stop();
     }
 
@@ -4813,7 +4817,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     @Override
     protected void onDestroy() {
         subtitlePlaybackSession.stop(this);
-        mClock.release();
+        mPlayerUi.release();
         saveHistory(true);
         DanmakuApi.cancel();
         stopBackdropAutoScroll();
@@ -4821,7 +4825,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         RefreshEvent.keep();
         App.removeCallbacks(mR1, mR2, mR4, mSeekProgressFallback);
         App.removeCallbacks(mTmdbDetailTimeout);
-        if (mOsd != null) mOsd.release();
         mViewModel.getResult().removeObserver(mObserveDetail);
         mViewModel.getPlayer().removeObserver(mObservePlayer);
         mViewModel.getSearch().removeObserver(mObserveSearch);

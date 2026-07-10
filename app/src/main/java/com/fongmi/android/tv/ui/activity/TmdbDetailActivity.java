@@ -123,6 +123,9 @@ import com.fongmi.android.tv.ui.helper.TmdbDetailLabels;
 import com.fongmi.android.tv.ui.helper.TmdbEpisodeGridPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbMatchPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbRecommendationRows;
+import com.fongmi.android.tv.ui.player.VodPlayerChrome;
+import com.fongmi.android.tv.ui.player.VodPlayerUiController;
+import com.fongmi.android.tv.ui.player.VodPlayerUiHost;
 import com.fongmi.android.tv.utils.BatteryUtil;
 import com.fongmi.android.tv.utils.Formatters;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -275,6 +278,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private boolean savingTmdbPhoto;
     private boolean pendingInlineLutImport;
     private PlayerGesture inlineGestureDetector;
+    private VodPlayerUiController inlinePlayerUi;
     private Clock inlineClock;
     private VodPlayerControlController inlineControlController;
     private PlayerOsdController inlineOsd;
@@ -732,10 +736,20 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void initFusionPlayer() {
         initInlineLutLaunchers();
-        inlineControlController = new VodPlayerControlController(new VodPlayerControlController.Host() {
+        inlinePlayerUi = new VodPlayerUiController(new VodPlayerUiHost() {
             @Override
-            public com.fongmi.android.tv.player.PlayerManager player() {
+            public PlayerManager player() {
                 return service() == null ? null : TmdbDetailActivity.this.player();
+            }
+
+            @Override
+            public String osdTitle() {
+                return getInlineOsdTitle();
+            }
+
+            @Override
+            public boolean suppressPersistentOsd() {
+                return Util.isMobile();
             }
 
             @Override
@@ -752,33 +766,161 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             public void onDanmakuStateChanged(boolean show) {
                 setInlineDanmakuIcon(show);
             }
-        });
-        inlinePiP = new PiP();
-        inlineClock = Clock.create();
-        inlineClock.setCallback(this);
-        inlineClock.start();
-        inlineOsd = new PlayerOsdController(
-            binding.osd.getRoot(),
-            binding.osd.osdTopLeft,
-            binding.osd.osdTopRight,
-            binding.osd.osdBottomLeft,
-            binding.osd.osdBottomRight,
-            binding.osd.osdDiagnostics,
-            binding.osd.osdMiniProgress,
-            new PlayerOsdController.Source() {
-                @Override
-                public PlayerManager getPlayer() {
-                    return service() == null ? null : TmdbDetailActivity.this.player();
-                }
 
-                @Override
-                public String getTitle() {
-                    return getInlineOsdTitle();
-                }
-            },
-            14f
-        );
-        inlineOsd.setPersistentSuppressed(Util.isMobile());
+            @Override
+            public void playPrevious() {
+                TmdbDetailActivity.this.checkInlinePrev();
+            }
+
+            @Override
+            public void playNext() {
+                TmdbDetailActivity.this.checkInlineNext();
+            }
+
+            @Override
+            public void showQuality() {
+                TmdbDetailActivity.this.showInlineQuality();
+            }
+
+            @Override
+            public void cycleParse() {
+                TmdbDetailActivity.this.cycleInlineParse();
+            }
+
+            @Override
+            public void changeSpeed() {
+                TmdbDetailActivity.this.changeInlineSpeed();
+            }
+
+            @Override
+            public boolean resetSpeed() {
+                return TmdbDetailActivity.this.resetInlineSpeed();
+            }
+
+            @Override
+            public void cycleScale() {
+                TmdbDetailActivity.this.cycleInlineScale();
+            }
+
+            @Override
+            public void showLut() {
+                TmdbDetailActivity.this.onInlineLut();
+            }
+
+            @Override
+            public void refreshPlayback() {
+                TmdbDetailActivity.this.refreshInlinePlayback();
+            }
+
+            @Override
+            public void changeSource() {
+                TmdbDetailActivity.this.changeSource();
+            }
+
+            @Override
+            public boolean openSourceSearch() {
+                return TmdbDetailActivity.this.openGlobalSourceSearch();
+            }
+
+            @Override
+            public void toggleRepeat() {
+                TmdbDetailActivity.this.toggleInlineRepeat();
+            }
+
+            @Override
+            public void showDisplay() {
+                TmdbDetailActivity.this.showInlineDisplay();
+            }
+
+            @Override
+            public void toggleDecode() {
+                TmdbDetailActivity.this.toggleInlineDecode();
+            }
+
+            @Override
+            public void togglePlayParams() {
+                TmdbDetailActivity.this.toggleInlinePlayParams();
+            }
+
+            @Override
+            public void showTrack(View view) {
+                TmdbDetailActivity.this.showInlineTrack(view);
+            }
+
+            @Override
+            public boolean showSubtitle() {
+                return TmdbDetailActivity.this.showInlineSubtitle();
+            }
+
+            @Override
+            public void setOpeningFromPosition() {
+                TmdbDetailActivity.this.setInlineOpeningFromPosition();
+            }
+
+            @Override
+            public boolean resetOpening() {
+                return TmdbDetailActivity.this.resetInlineOpening();
+            }
+
+            @Override
+            public void setEndingFromPosition() {
+                TmdbDetailActivity.this.setInlineEndingFromPosition();
+            }
+
+            @Override
+            public boolean resetEnding() {
+                return TmdbDetailActivity.this.resetInlineEnding();
+            }
+
+            @Override
+            public void toggleDanmaku() {
+                TmdbDetailActivity.this.toggleInlineDanmaku();
+            }
+
+            @Override
+            public boolean onDanmakuLongClick() {
+                return TmdbDetailActivity.this.onPlayerDanmakuLongClick();
+            }
+
+            @Override
+            public void showChapter() {
+                TmdbDetailActivity.this.showInlineTitle();
+            }
+
+            @Override
+            public boolean showPlayerChoice() {
+                return TmdbDetailActivity.this.showInlinePlayerChoice();
+            }
+
+            @Override
+            public void showEpisodes() {
+                TmdbDetailActivity.this.showInlineEpisodes();
+            }
+
+            @Override
+            public void toggleFullscreen() {
+                TmdbDetailActivity.this.toggleInlineFullscreen();
+            }
+
+            @Override
+            public void cast() {
+                TmdbDetailActivity.this.onInlineCast();
+            }
+
+            @Override
+            public void showMediaInfo() {
+                TmdbDetailActivity.this.onInlineInfo();
+            }
+
+            @Override
+            public boolean onControlsTouch(View view, MotionEvent event) {
+                return TmdbDetailActivity.this.onInlineControlTouch(view, event);
+            }
+        }, VodPlayerChrome.fromTmdbDetail(binding), this);
+        inlineControlController = inlinePlayerUi.controlController();
+        inlinePiP = inlinePlayerUi.pip();
+        inlineClock = inlinePlayerUi.clock();
+        inlineOsd = inlinePlayerUi.osd();
         inlineGestureDetector = PlayerGesture.create(this, binding.playerPanel, this);
         setupPlayerPanelFocusLayer();
         binding.playerPanel.setOnTouchListener(this::onInlineTouch);
@@ -789,40 +931,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         });
         setupInlineControlFocus();
         setupInlineFocusNavigation();
-        binding.playerPrev.setOnClickListener(view -> checkInlinePrev());
-        binding.playerNext.setOnClickListener(view -> checkInlineNext());
-        binding.playerQuality.setOnClickListener(view -> showInlineQuality());
-        binding.playerParse.setOnClickListener(view -> cycleInlineParse());
-        binding.playerSpeed.setOnClickListener(view -> changeInlineSpeed());
-        binding.playerSpeed.setOnLongClickListener(view -> resetInlineSpeed());
-        binding.playerScale.setOnClickListener(view -> cycleInlineScale());
-        binding.playerLut.setOnClickListener(view -> onInlineLut());
-        binding.playerRefresh.setOnClickListener(view -> refreshInlinePlayback());
-        binding.playerChangeSource.setOnClickListener(view -> changeSource());
-        binding.playerChangeSource.setOnLongClickListener(view -> openGlobalSourceSearch());
-        binding.playerRepeat.setOnClickListener(view -> toggleInlineRepeat());
-        binding.playerDisplay.setOnClickListener(view -> showInlineDisplay());
-        binding.playerDecode.setOnClickListener(view -> toggleInlineDecode());
-        binding.playerPlayParams.setOnClickListener(view -> toggleInlinePlayParams());
-        binding.playerTextTrack.setOnClickListener(this::showInlineTrack);
-        binding.playerTextTrack.setOnLongClickListener(view -> showInlineSubtitle());
-        binding.playerAudioTrack.setOnClickListener(this::showInlineTrack);
-        binding.playerVideoTrack.setOnClickListener(this::showInlineTrack);
-        binding.playerOpening.setOnClickListener(view -> setInlineOpeningFromPosition());
-        binding.playerOpening.setOnLongClickListener(view -> resetInlineOpening());
-        binding.playerEnding.setOnClickListener(view -> setInlineEndingFromPosition());
-        binding.playerEnding.setOnLongClickListener(view -> resetInlineEnding());
-        binding.playerDanmakuToggle.setOnClickListener(view -> toggleInlineDanmaku());
-        binding.playerDanmaku.setOnClickListener(view -> showInlineDanmaku());
-        binding.playerDanmaku.setOnLongClickListener(view -> onPlayerDanmakuLongClick());
-        binding.playerChapter.setOnClickListener(view -> showInlineTitle());
-        binding.playerExternal.setOnClickListener(view -> showInlinePlayerChoice());
-        binding.playerExternal.setOnLongClickListener(view -> showInlinePlayerChoice());
-        binding.playerEpisodes.setOnClickListener(view -> showInlineEpisodes());
-        binding.playerFullscreenAction.setOnClickListener(view -> toggleInlineFullscreen());
-        binding.playerCast.setOnClickListener(view -> onInlineCast());
-        binding.playerInfo.setOnClickListener(view -> onInlineInfo());
-        binding.playerControls.setOnTouchListener(this::onInlineControlTouch);
+        inlinePlayerUi.bindInlineActions();
         setupMobileInlineControl();
         hideInlineControls();
         updateInlineButtons(false);
@@ -7998,16 +8107,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     @Override
     protected void onStart() {
         super.onStart();
-        if (inlineOsd != null) {
-            inlineOsd.setDiagnosticsVisible(PlayerSetting.isOsdDiagnostics());
-            binding.playerPlayParams.setSelected(inlineOsd.isDiagnosticsVisible());
-            inlineOsd.start();
-        }
+        if (inlinePlayerUi != null) inlinePlayerUi.onStart();
     }
 
     protected void onStop() {
         super.onStop();
-        if (inlineOsd != null) inlineOsd.stop();
+        if (inlinePlayerUi != null) inlinePlayerUi.onStop();
     }
 
     @Override
@@ -8024,8 +8129,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (inlineStarted && isOwner() && !isPlaybackExiting()) {
             stopPlayback();
         }
-        if (inlineClock != null) inlineClock.release();
-        if (inlineOsd != null) inlineOsd.release();
+        if (inlinePlayerUi != null) inlinePlayerUi.release();
         DanmakuApi.cancel();
         super.onDestroy();
     }

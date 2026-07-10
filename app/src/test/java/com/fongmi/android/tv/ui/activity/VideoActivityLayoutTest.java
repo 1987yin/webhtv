@@ -133,6 +133,67 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void videoActivitiesDelegateSharedPlayerUiSetup() throws Exception {
+        String leanback = new String(Files.readAllBytes(findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"))), StandardCharsets.UTF_8);
+        String mobile = new String(Files.readAllBytes(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"))), StandardCharsets.UTF_8);
+        String host = new String(Files.readAllBytes(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "player", "VodPlayerUiHost.java"))), StandardCharsets.UTF_8);
+        String controller = new String(Files.readAllBytes(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "player", "VodPlayerUiController.java"))), StandardCharsets.UTF_8);
+        String chrome = new String(Files.readAllBytes(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "player", "VodPlayerChrome.java"))), StandardCharsets.UTF_8);
+
+        assertVideoActivityDelegatesSharedPlayerUiSetup("leanback VideoActivity", leanback, "VodPlayerChrome.fromVideo(mBinding, mBinding.widget.clock, 14f)");
+        assertVideoActivityDelegatesSharedPlayerUiSetup("mobile VideoActivity", mobile, "VodPlayerChrome.fromVideo(mBinding, null, 12f)");
+        assertTrue("shared video chrome factory must expose OSD, optional clock and optional diagnostics button",
+                chrome.contains("fromVideo(ActivityVideoBinding binding, TextView clockView, float osdMiniSp)")
+                        && chrome.contains("binding.osd.getRoot()")
+                        && chrome.contains("clockView")
+                        && chrome.contains("osdMiniSp"));
+        assertTrue("shared player UI controller must create Clock with the optional chrome clock view",
+                controller.contains("chrome.clockView == null ? Clock.create() : Clock.create(chrome.clockView)"));
+        assertTrue("shared host should let activities preserve their previous diagnostics restore behavior",
+                host.contains("default boolean restoreDiagnosticsOnStart()") && host.contains("return true;"));
+        assertTrue("shared controller should only restore diagnostics visibility when the host opts in",
+                controller.contains("if (host.restoreDiagnosticsOnStart()) osd.setDiagnosticsVisible(PlayerSetting.isOsdDiagnostics());"));
+        int mobileRestore = mobile.indexOf("public boolean restoreDiagnosticsOnStart()");
+        int mobileRestoreEnd = mobile.indexOf("}", mobileRestore);
+        String mobileRestoreBody = mobileRestore >= 0 && mobileRestoreEnd > mobileRestore ? mobile.substring(mobileRestore, mobileRestoreEnd) : "";
+        assertTrue("mobile VideoActivity must keep diagnostics as a manual transient overlay",
+                mobileRestoreBody.contains("return false;"));
+        assertTrue("leanback VideoActivity should keep persistent diagnostics restore via the host default",
+                !leanback.contains("public boolean restoreDiagnosticsOnStart()"));
+    }
+
+    private static void assertVideoActivityDelegatesSharedPlayerUiSetup(String label, String source, String chromeFactory) {
+        int init = source.indexOf("protected void initView(Bundle savedInstanceState)");
+        int initEnd = source.indexOf("private void setRecyclerView()", init);
+        int start = source.indexOf("protected void onStart()");
+        int startEnd = source.indexOf("protected void onStop()", start);
+        int stopEnd = source.indexOf("\n    @Override", startEnd + 1);
+        int destroy = source.indexOf("protected void onDestroy()");
+        int destroyEnd = source.indexOf("private boolean isOwner()", destroy);
+        if (stopEnd < 0) stopEnd = destroy;
+        if (destroyEnd < 0) destroyEnd = source.length();
+        String initBody = source.substring(init, initEnd);
+        String startBody = source.substring(start, startEnd);
+        String stopBody = source.substring(startEnd, stopEnd);
+        String destroyBody = source.substring(destroy, destroyEnd);
+
+        assertTrue(label + " must own a shared player UI controller field", source.contains("private VodPlayerUiController mPlayerUi;"));
+        assertTrue(label + " must create shared player UI controller with the variant chrome", initBody.contains("mPlayerUi = new VodPlayerUiController") && initBody.contains(chromeFactory));
+        assertTrue(label + " must backfill legacy playback UI fields during migration",
+                initBody.contains("mClock = mPlayerUi.clock();")
+                        && initBody.contains("mOsd = mPlayerUi.osd();")
+                        && initBody.contains("mPiP = mPlayerUi.pip();"));
+        assertTrue(label + " should not instantiate duplicate OSD/Clock/PiP helpers in initView",
+                !initBody.contains("new PlayerOsdController")
+                        && !initBody.contains("Clock.create(")
+                        && !initBody.contains("new PiP()"));
+        assertTrue(label + " must delegate shared UI lifecycle",
+                startBody.contains("mPlayerUi.onStart();")
+                        && stopBody.contains("mPlayerUi.onStop();")
+                        && destroyBody.contains("mPlayerUi.release();"));
+    }
+
+    @Test
     public void mobileShortDramaKeepsStandardSettingButtonVisible() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -145,6 +206,51 @@ public class VideoActivityLayoutTest {
         assertTrue(sourcePath + " is missing showControl", showControl >= 0);
         assertTrue("short drama mode must keep the standard setting button visible while fullscreen", setting > shortDrama);
         assertTrue("short drama floating controls must include the standard setting button", dockedSetting > shortDramaViews);
+    }
+
+    @Test
+    public void mobileFullscreenButtonRevealsControlsAfterNativeEnhancedLayoutSettles() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+
+        int onFullscreen = source.indexOf("private void onFullscreen()");
+        int onFullscreenEnd = source.indexOf("private void onPiP()", onFullscreen);
+        int enterFullscreen = source.indexOf("private void enterFullscreen()");
+        int schedule = source.indexOf("private void scheduleFullscreenControlReveal()", enterFullscreen);
+        int guard = source.indexOf("private void showControlIfFullscreen()", schedule);
+        int exitFullscreen = source.indexOf("private void exitFullscreen()", guard);
+        int configChanged = source.indexOf("public void onConfigurationChanged(@NonNull Configuration newConfig)");
+        int configEnd = source.indexOf("public void onWindowFocusChanged(boolean hasFocus)", configChanged);
+
+        assertTrue(sourcePath + " is missing onFullscreen", onFullscreen >= 0 && onFullscreenEnd > onFullscreen);
+        assertTrue(sourcePath + " is missing enterFullscreen", enterFullscreen >= 0 && schedule > enterFullscreen);
+        assertTrue(sourcePath + " is missing scheduleFullscreenControlReveal", schedule >= 0 && guard > schedule);
+        assertTrue(sourcePath + " is missing showControlIfFullscreen", guard >= 0 && exitFullscreen > guard);
+        assertTrue(sourcePath + " is missing onConfigurationChanged", configChanged >= 0 && configEnd > configChanged);
+
+        String onFullscreenBody = source.substring(onFullscreen, onFullscreenEnd);
+        String enterFullscreenBody = source.substring(enterFullscreen, schedule);
+        String scheduleBody = source.substring(schedule, guard);
+        String guardBody = source.substring(guard, exitFullscreen);
+        String configBody = source.substring(configChanged, configEnd);
+
+        assertTrue("fullscreen button must reveal controls after the immediate showControl call",
+                onFullscreenBody.contains("boolean exit = isFullscreen();")
+                        && onFullscreenBody.contains("showControl();")
+                        && onFullscreenBody.contains("if (!exit) scheduleFullscreenControlReveal();")
+                        && onFullscreenBody.indexOf("showControl();") < onFullscreenBody.indexOf("scheduleFullscreenControlReveal();"));
+        assertTrue("fullscreen player layer must sit above native enhanced detail content",
+                enterFullscreenBody.contains("mBinding.video.bringToFront();"));
+        assertTrue("fullscreen control reveal must run once after layout and once after orientation settles",
+                scheduleBody.contains("mBinding.video.post(this::showControlIfFullscreen);")
+                        && scheduleBody.contains("mBinding.video.postDelayed(this::showControlIfFullscreen, 300);"));
+        assertTrue("delayed fullscreen control reveal must not run after exit, lock, or PiP",
+                guardBody.contains("if (!isFullscreen() || isLock() || isInPictureInPictureMode()) return;")
+                        && guardBody.contains("showControl();"));
+        assertTrue("orientation changes must refresh visible fullscreen controls after landscape state is applied",
+                configBody.contains("if (isFullscreen()) {")
+                        && configBody.contains("Util.hideSystemUI(this);")
+                        && configBody.contains("if (isVisible(mBinding.control.getRoot())) showControl();"));
     }
 
     @Test
