@@ -351,7 +351,7 @@ public class PlaybackRecord {
         // 去掉 historyKey 不丢任何身份信息，仅剔除设备本地 cid 的污染。
         String joined = join(record.configKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName, record.episodeUrl);
         String key = sha256(joined);
-        SpiderDebug.log("dedupeKey-debug", "key=%s\n  configKey=[%s]\n  siteKey=[%s]\n  vodId=[%s]\n  vodName=[%s]\n  flag=[%s]\n  episodeName=[%s]\n  episodeUrl=[%s]",
+        SpiderDebug.log("dedupeKey-debug", "key=%s || configKey=[%s] | siteKey=[%s] | vodId=[%s] | vodName=[%s] | flag=[%s] | episodeName=[%s] | episodeUrl=[%s]",
                 key, record.configKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName, record.episodeUrl);
         return key;
     }
