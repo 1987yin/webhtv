@@ -65,6 +65,7 @@ public final class PlaybackRemoteSyncer {
             if (!config.isUsable()) return PlaybackRemoteSyncResult.failure("远端同步源未完成配置");
             String body = fetch(config);
             List<PlaybackProgressInput> inputs = PlaybackProgressInput.listFromJson(body);
+            if (config.maxItems > 0 && inputs.size() > config.maxItems) inputs = inputs.subList(0, config.maxItems);
             List<String> deletedKeys = PlaybackProgressInput.deletedKeysFromJson(body);
             PlaybackProgressBatchResult batch = PlaybackProgressWriter.applyFromRemoteSync(inputs, config, deletedKeys);
             RefreshEvent.history();
