@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.playback;
 
+import android.text.TextUtils;
+
 import androidx.annotation.Nullable;
 import androidx.media3.common.Player;
 
@@ -15,6 +17,7 @@ public final class PlaybackEventCollector {
     public static final String RESUME = "playback.resume";
     public static final String STOP = "playback.stop";
     public static final String ENDED = "playback.ended";
+    public static final String DELETE = "playback.deleted";
 
     private static final PlaybackEventCollector INSTANCE = new PlaybackEventCollector();
 
@@ -79,6 +82,18 @@ public final class PlaybackEventCollector {
         PlaybackRecord record = snapshot(history, player, "");
         if (record != null && started) sender.sendFinalThen(record, STOP);
         resetStarted();
+    }
+
+    public synchronized void onDeleted(@Nullable History history) {
+        PlaybackRecord record = snapshotDeleted(history);
+        if (record == null) return;
+        sender.sendImmediate(record);
+    }
+
+    private PlaybackRecord snapshotDeleted(@Nullable History history) {
+        if (Setting.isIncognito() || history == null || TextUtils.isEmpty(history.getKey())) return null;
+        String sessionId = PlaybackRuntime.ensureSession(history);
+        return PlaybackRecord.from(history, null, DELETE, sessionId);
     }
 
     private void startIfNeeded(PlaybackRecord record, History history) {

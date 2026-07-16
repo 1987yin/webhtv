@@ -342,7 +342,16 @@ public class PlaybackRecord {
     }
 
     private static String dedupeKey(PlaybackRecord record) {
+        // 原作者定义：基于接口/站点/影片/剧集等稳定身份字段计算，不含时效性 token。
+        // 同一视频的不同集会生成不同的 dedupeKey（服务端按集分别存储）。
         return sha256(join(record.configKey, record.historyKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName, record.episodeUrl));
+    }
+
+    // 由本地 History 反算其 dedupeKey，与服务端存储/墓碑中的 dedupeKey 同源同算法，
+    // 供拉取同步时按"已删除墓碑"匹配并清理本地记录（无论本地原生还是远端拉取所得）。
+    public static String dedupeKeyFor(History history) {
+        if (history == null) return "";
+        return from(history, null, "", "").dedupeKey;
     }
 
     private static String clientKey() {

@@ -16,6 +16,7 @@ import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.impl.Diffable;
+import com.fongmi.android.tv.playback.PlaybackEventCollector;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 
@@ -133,7 +134,14 @@ public class History implements Diffable<History> {
     }
 
     public static void delete(int cid) {
-        AppDatabase.get().getHistoryDao().delete(cid);
+        delete(cid, true);
+    }
+
+    public static void delete(int cid, boolean report) {
+        List<History> items = AppDatabase.get().getHistoryDao().find(cid);
+        if (AppDatabase.get().getHistoryDao().delete(cid) > 0) {
+            if (report) for (History item : items) PlaybackEventCollector.get().onDeleted(item);
+        }
     }
 
     public static void sync(List<History> targets) {
@@ -382,12 +390,17 @@ public class History implements Diffable<History> {
     }
 
     private History merge(List<History> items, boolean force) {
-        for (History item : items) if (item.shouldMerge(this, force)) item.copyTo(this).delete();
+        for (History item : items) if (item.shouldMerge(this, force)) {
+            item.copyTo(this);
+            AppDatabase.get().getHistoryDao().delete(VodConfig.getCid(), item.getKey());
+            AppDatabase.get().getTrackDao().delete(item.getKey());
+        }
         return this;
     }
 
     public void replace(String key) {
-        delete();
+        AppDatabase.get().getHistoryDao().delete(VodConfig.getCid(), getKey());
+        AppDatabase.get().getTrackDao().delete(getKey());
         setKey(key);
     }
 
@@ -402,8 +415,9 @@ public class History implements Diffable<History> {
     }
 
     public History delete() {
-        AppDatabase.get().getHistoryDao().delete(VodConfig.getCid(), getKey());
+        boolean deleted = AppDatabase.get().getHistoryDao().delete(VodConfig.getCid(), getKey()) > 0;
         AppDatabase.get().getTrackDao().delete(getKey());
+        if (deleted) PlaybackEventCollector.get().onDeleted(this);
         return this;
     }
 

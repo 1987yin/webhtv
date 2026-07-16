@@ -112,6 +112,28 @@ public class PlaybackProgressInput {
         return inputs;
     }
 
+    // 从拉取响应中提取服务端返回的"已删除墓碑"列表（dedupeKey 集合）。
+    // 旧版服务端未返回该字段时返回空列表，客户端退化为不传播删除，保持向后兼容。
+    public static List<String> deletedKeysFromJson(String text) {
+        if (TextUtils.isEmpty(text)) return Collections.emptyList();
+        try {
+            JsonElement element = JsonParser.parseString(text);
+            if (element == null || !element.isJsonObject()) return Collections.emptyList();
+            JsonElement value = element.getAsJsonObject().get("deleted");
+            if (value == null || !value.isJsonArray()) return Collections.emptyList();
+            List<String> keys = new ArrayList<>();
+            for (JsonElement e : value.getAsJsonArray()) {
+                if (e != null && e.isJsonPrimitive()) {
+                    String s = e.getAsString();
+                    if (!TextUtils.isEmpty(s)) keys.add(s);
+                }
+            }
+            return keys;
+        } catch (Exception ignored) {
+            return Collections.emptyList();
+        }
+    }
+
     public String targetHistoryKey(int cid) {
         normalize();
         if (!TextUtils.isEmpty(configKey) && !TextUtils.isEmpty(siteKey) && !TextUtils.isEmpty(vodId)) return siteKey + AppDatabase.SYMBOL + vodId + AppDatabase.SYMBOL + cid;

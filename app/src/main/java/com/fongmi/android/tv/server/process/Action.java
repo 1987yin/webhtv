@@ -306,7 +306,7 @@ public class Action implements Process {
         List<History> targets = History.arrayFrom(params.get("targets"));
         if (config.getUrl() == null) return;
         if (config.getUrl().equals(VodConfig.getUrl())) {
-            if (force) History.delete(config.getId());
+            if (force) History.delete(config.getId(), false);
             History.sync(targets);
             RefreshEvent.history();
         } else {
@@ -318,7 +318,7 @@ public class Action implements Process {
         return new Callback() {
             @Override
             public void success() {
-                if (force) History.delete(cid);
+                if (force) History.delete(cid, false);
                 History.sync(targets);
                 RefreshEvent.history();
             }
