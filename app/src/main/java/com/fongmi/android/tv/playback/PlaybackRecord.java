@@ -342,7 +342,12 @@ public class PlaybackRecord {
     }
 
     private static String dedupeKey(PlaybackRecord record) {
-        return sha256(join(record.configKey, record.historyKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName, record.episodeUrl));
+        // 保留原作者的剧集级身份字段（flag / episodeName / episodeUrl），但故意排除 historyKey：
+        // historyKey = siteKey + vodId + cid，其中 cid 是每台设备本地数据库的自增行号，
+        // A、B 设备各自分配、彼此不同。若纳入哈希，同一视频在不同设备算出的 dedupeKey 不一致，
+        // 导致跨设备删除（B 删 A 上传的记录）永远 affected=0。siteKey、vodId 已单独在下方参与哈希，
+        // 去掉 historyKey 不丢任何身份信息，仅剔除设备本地 cid 的污染。
+        return sha256(join(record.configKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName, record.episodeUrl));
     }
 
     // 由本地 History 反算其 dedupeKey，与服务端存储/墓碑中的 dedupeKey 同源同算法，
