@@ -2,6 +2,8 @@ package com.fongmi.android.tv.playback;
 
 import android.text.TextUtils;
 
+import com.github.catvod.crawler.SpiderDebug;
+
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Player;
@@ -347,7 +349,11 @@ public class PlaybackRecord {
         // A、B 设备各自分配、彼此不同。若纳入哈希，同一视频在不同设备算出的 dedupeKey 不一致，
         // 导致跨设备删除（B 删 A 上传的记录）永远 affected=0。siteKey、vodId 已单独在下方参与哈希，
         // 去掉 historyKey 不丢任何身份信息，仅剔除设备本地 cid 的污染。
-        return sha256(join(record.configKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName, record.episodeUrl));
+        String joined = join(record.configKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName, record.episodeUrl);
+        String key = sha256(joined);
+        SpiderDebug.log("dedupeKey-debug", "key=%s\n  configKey=[%s]\n  siteKey=[%s]\n  vodId=[%s]\n  vodName=[%s]\n  flag=[%s]\n  episodeName=[%s]\n  episodeUrl=[%s]",
+                key, record.configKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName, record.episodeUrl);
+        return key;
     }
 
     // 由本地 History 反算其 dedupeKey，与服务端存储/墓碑中的 dedupeKey 同源同算法，
