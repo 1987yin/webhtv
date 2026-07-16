@@ -342,8 +342,6 @@ public class PlaybackRecord {
     }
 
     private static String dedupeKey(PlaybackRecord record) {
-        // 原作者定义：基于接口/站点/影片/剧集等稳定身份字段计算，不含时效性 token。
-        // 同一视频的不同集会生成不同的 dedupeKey（服务端按集分别存储）。
         return sha256(join(record.configKey, record.historyKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName, record.episodeUrl));
     }
 

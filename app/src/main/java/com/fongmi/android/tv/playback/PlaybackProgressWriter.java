@@ -80,7 +80,7 @@ public final class PlaybackProgressWriter {
             }
         }
         // 按服务端返回的"已删除墓碑"直接匹配本地记录身份并删除。
-        // 不依赖 syncSource 标记，无论该记录是本地原生创建还是从远端拉取，都能被正确删除。
+        // 无论该记录是本地原生创建还是从远端拉取，都能被正确删除。
         pruneByDeleted(deletedKeys);
         return batch;
     }
@@ -127,8 +127,8 @@ public final class PlaybackProgressWriter {
     }
 
     // 按服务端返回的"已删除墓碑"（dedupeKey 集合）直接匹配本地记录身份并删除。
-    // 匹配基于与服务端完全一致的 dedupeKey 算法，因此不依赖任何 syncSource 标记，
-    // 原生创建或拉取得到的记录都能被正确清理；且只删除服务端确被删除过的记录，不会误删纯本地记录。
+    // 匹配基于与服务端完全一致的 dedupeKey 算法，
+    // 原生创建或拉取得到的记录都能被正确清理；且只删除服务端被删除过的记录，不会误删纯本地记录。
     private static void pruneByDeleted(List<String> deletedKeys) {
         if (deletedKeys == null || deletedKeys.isEmpty()) return;
         Set<String> keys = new HashSet<>(deletedKeys);
