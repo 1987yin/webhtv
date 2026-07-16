@@ -2,8 +2,6 @@ package com.fongmi.android.tv.playback;
 
 import android.text.TextUtils;
 
-import com.github.catvod.crawler.SpiderDebug;
-
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Player;
@@ -344,16 +342,12 @@ public class PlaybackRecord {
     }
 
     private static String dedupeKey(PlaybackRecord record) {
-        // 保留原作者的剧集级身份字段（flag / episodeName / episodeUrl），但故意排除 historyKey：
-        // historyKey = siteKey + vodId + cid，其中 cid 是每台设备本地数据库的自增行号，
-        // A、B 设备各自分配、彼此不同。若纳入哈希，同一视频在不同设备算出的 dedupeKey 不一致，
-        // 导致跨设备删除（B 删 A 上传的记录）永远 affected=0。siteKey、vodId 已单独在下方参与哈希，
-        // 去掉 historyKey 不丢任何身份信息，仅剔除设备本地 cid 的污染。
-        String joined = join(record.configKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName, record.episodeUrl);
-        String key = sha256(joined);
-        SpiderDebug.log("dedupeKey-debug", "key=%s || configKey=[%s] | siteKey=[%s] | vodId=[%s] | vodName=[%s] | flag=[%s] | episodeName=[%s] | episodeUrl=[%s]",
-                key, record.configKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName, record.episodeUrl);
-        return key;
+        // 身份字段只取"跨设备稳定且必上报"的字段：configKey / siteKey / vodId / vodName / flag / episodeName。
+        // 1) 排除 historyKey：含设备本机 cid，A、B 各自分配，纳入会导致跨设备 dedupeKey 不一致。
+        // 2) 排除 episodeUrl：它只在"完整"字段预设中上报，基础/标准预设不上报，服务端会存空值；
+        //    且 episodeUrl 多为带签名/节点的挥发 URL，同一条目再次播放时可能变化，纳入反而破坏同设备进度合并。
+        //    去掉后，同一 (站点,影片,线路,集名) 仍唯一，跨设备删除与进度合并都稳定。
+        return sha256(join(record.configKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName));
     }
 
     // 由本地 History 反算其 dedupeKey，与服务端存储/墓碑中的 dedupeKey 同源同算法，
