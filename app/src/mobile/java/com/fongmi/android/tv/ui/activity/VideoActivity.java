@@ -2295,12 +2295,21 @@ private int mAudioBackgroundRandomNonce;
                 .keyword(mQuickSearchKeyword)
                 .listener(this)
                 .searchListener(this::onQuickSearch)
+                .dismissListener(this::onQuickSearchDismiss)
                 .items(mQuickAdapter.getItems());
         mQuickSearchDialog.show(this);
     }
 
     private void onQuickSearch(String keyword) {
         initSearch(keyword, false);
+    }
+
+    private void onQuickSearchDismiss() {
+        mViewModel.stopSearch();
+        mQuickSearchKeyword = null;
+        mQuickAdapter.clear();
+        mBinding.quick.setVisibility(View.GONE);
+        revealManualSearch = false;
     }
 
     private void onReverse() {
@@ -7593,6 +7602,11 @@ private void completeKaraokeResult(int action) {
 @Override
     public boolean isControlParseEnabled() {
         return isUseParse();
+    }
+
+    @Override
+    public boolean isControlAudioContent() {
+        return isAudioOnly() || isMusicLike();
     }
 
 private boolean onChooseLong() {
