@@ -67,6 +67,10 @@
     <string name="download_success">Downloaded: %s</string>
     <string name="download_failed">Download failed</string>
     <string name="download_canceled">Download canceled</string>
+    <string name="download_pause">Pause</string>
+    <string name="download_resume">Resume</string>
+    <string name="download_paused">Paused</string>
+    <string name="download_retry">Retry</string>
     <string name="download_list">Downloads</string>
     <string name="download_select_episode">Select episodes to download</string>
     <string name="download_select_all">Select all</string>
@@ -82,7 +86,7 @@
     <string name="download_clear_finished">Clear completed</string>
     <string name="download_delete_episode">Delete this episode?</string>
     <string name="download_delete_group">Delete all downloaded episodes of this drama?</string>
-    <string name="download_long_press_tip">Long press an episode to delete</string>
+    <string name="download_long_press_tip">Tap to pause or resume, long press to delete</string>
     <string name="play_fullscreen">Fullscreen</string>
     <string name="play_exit_fullscreen">Exit full</string>
     <string name="play_invert">Invert</string>

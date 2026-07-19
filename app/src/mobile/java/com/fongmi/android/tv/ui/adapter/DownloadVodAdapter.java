@@ -49,7 +49,11 @@ public class DownloadVodAdapter extends RecyclerView.Adapter<DownloadVodAdapter.
         ImgUtil.load(group.getName(), group.getCover(), holder.binding.image);
         holder.binding.name.setText(group.getName());
         if (group.isActive()) {
-            holder.binding.badge.setText(ResUtil.getString(R.string.download_active));
+            if (group.isPaused() && !group.isDownloading()) {
+                holder.binding.badge.setText(ResUtil.getString(R.string.download_paused));
+            } else {
+                holder.binding.badge.setText(ResUtil.getString(R.string.download_active));
+            }
         } else {
             holder.binding.badge.setText(group.getDone() + "/" + group.getTotal());
         }

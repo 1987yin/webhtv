@@ -163,9 +163,17 @@ public class DownloadManager {
             item.setProgress(100);
             item.setSpeed(0);
             notifyChanged();
+        } catch (M3u8Downloader.PausedException e) {
+            if (item.getState() != DownloadItem.DOWNLOADING) {
+                item.setState(DownloadItem.PAUSED);
+                item.setSpeed(0);
+            }
+            notifyChanged();
         } catch (Throwable e) {
             if (item.isCanceled()) {
                 item.setState(DownloadItem.CANCELED);
+            } else if (item.isPaused() && item.getState() != DownloadItem.DOWNLOADING) {
+                item.setState(DownloadItem.PAUSED);
             } else {
                 item.setState(DownloadItem.ERROR);
                 item.setError(e.getMessage());
@@ -210,6 +218,50 @@ public class DownloadManager {
         });
     }
 
+    public void pause(String id) {
+        Download download = mDownloads.get(id);
+        if (download != null) download.pause();
+        for (DownloadItem item : mItems) {
+            if (item.getId().equals(id)) {
+                if (item.isActive() && item.getState() != DownloadItem.PAUSED) {
+                    item.setPaused(true);
+                    item.setState(DownloadItem.PAUSED);
+                    item.setSpeed(0);
+                }
+            }
+        }
+        notifyChanged();
+    }
+
+    public void resume(String id) {
+        DownloadItem target = null;
+        for (DownloadItem item : mItems) {
+            if (item.getId().equals(id)) {
+                target = item;
+                break;
+            }
+        }
+        if (target == null || target.getState() != DownloadItem.PAUSED) return;
+        target.setPaused(false);
+        File file = new File(target.getFilePath());
+        mExecutor.execute(() -> resumeDownload(target, file));
+    }
+
+    private void resumeDownload(DownloadItem item, File file) {
+        if (item.isCanceled()) {
+            item.setState(DownloadItem.CANCELED);
+            notifyChanged();
+            return;
+        }
+        item.setState(DownloadItem.DOWNLOADING);
+        notifyChanged();
+        if (isM3u8(item.getUrl())) {
+            downloadM3u8(item, file);
+        } else {
+            downloadSingle(item, file);
+        }
+    }
+
     public void cancel(String id) {
         Download download = mDownloads.remove(id);
         if (download != null) download.cancel();
@@ -217,6 +269,7 @@ public class DownloadManager {
         for (DownloadItem item : mItems) {
             if (item.getId().equals(id)) {
                 item.setCanceled(true);
+                item.setPaused(false);
                 if (item.isActive()) item.setState(DownloadItem.CANCELED);
             }
         }

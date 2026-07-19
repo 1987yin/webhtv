@@ -22,6 +22,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import javax.crypto.Cipher;
@@ -43,6 +44,12 @@ public class M3u8Downloader {
     private static class CanceledException extends Exception {
         CanceledException() {
             super("Canceled");
+        }
+    }
+
+    public static class PausedException extends Exception {
+        PausedException() {
+            super("Paused");
         }
     }
 
@@ -73,12 +80,12 @@ public class M3u8Downloader {
         if (segments.isEmpty()) throw new Exception("no segments in playlist");
 
         File dir = new File(targetMp4.getParentFile(), "tmp_" + item.getId());
-        if (dir.exists()) deleteDir(dir);
-        if (!dir.mkdirs()) throw new Exception("create temp dir failed");
+        if (!dir.exists() && !dir.mkdirs()) throw new Exception("create temp dir failed");
 
         try {
             File tsFile = downloadSegments(item, headers, segments, dir, listener);
             if (item.isCanceled()) throw new CanceledException();
+            if (item.isPaused()) throw new PausedException();
             File out = targetMp4;
             try {
                 remuxToMp4(tsFile, targetMp4);
@@ -88,9 +95,17 @@ public class M3u8Downloader {
                 copyFile(tsFile, tsOut);
                 out = tsOut;
             }
-            return out;
-        } finally {
             deleteDir(dir);
+            return out;
+        } catch (PausedException e) {
+            // Keep the temp dir so the download can be resumed.
+            throw e;
+        } catch (CanceledException e) {
+            deleteDir(dir);
+            throw e;
+        } catch (Throwable e) {
+            deleteDir(dir);
+            throw e;
         }
     }
 
@@ -175,6 +190,7 @@ public class M3u8Downloader {
         CountDownLatch latch = new CountDownLatch(total);
         AtomicBoolean failed = new AtomicBoolean(false);
         AtomicLong downloadedBytes = new AtomicLong(0);
+        AtomicInteger completed = new AtomicInteger(0);
         File[] segFiles = new File[total];
         for (int i = 0; i < total; i++) segFiles[i] = new File(dir, "seg_" + i + ".ts");
         String tag = item.getId();
@@ -182,26 +198,33 @@ public class M3u8Downloader {
         AtomicLong lastNotify = new AtomicLong(startTime);
         AtomicLong lastBytes = new AtomicLong(0);
 
+        // Resume: count already-downloaded segments so progress continues from where it left off.
+        for (File sf : segFiles) {
+            if (sf.exists()) {
+                completed.incrementAndGet();
+                downloadedBytes.addAndGet(sf.length());
+            }
+        }
+
         for (int i = 0; i < total; i++) {
             final int index = i;
             final Segment seg = segments.get(index);
             pool.execute(() -> {
                 try {
                     if (item.isCanceled() || failed.get()) return;
+                    if (segFiles[index].exists()) {
+                        // Already downloaded in a previous session; skip it.
+                        onSegmentDone(completed, total, downloadedBytes, lastNotify, lastBytes, startTime, listener);
+                        return;
+                    }
+                    if (item.isPaused()) return;
                     byte[] data = fetchBytes(seg.uri, headers, tag);
                     if (seg.keyUri != null) data = decrypt(data, seg.keyUri, seg.iv, headers, tag);
                     try (OutputStream os = new BufferedOutputStream(new FileOutputStream(segFiles[index]))) {
                         os.write(data);
                     }
-                    long b = downloadedBytes.addAndGet(data.length);
-                    long now = System.currentTimeMillis();
-                    if (now - lastNotify.get() >= PROGRESS_INTERVAL) {
-                        lastNotify.set(now);
-                        long delta = Math.max(1, now - startTime);
-                        long speed = (b - lastBytes.get()) * 1000 / delta;
-                        if (listener != null) listener.onProgress((index + 1) * 100 / total, b, -1, speed);
-                        lastBytes.set(b);
-                    }
+                    downloadedBytes.addAndGet(data.length);
+                    onSegmentDone(completed, total, downloadedBytes, lastNotify, lastBytes, startTime, listener);
                 } catch (Throwable e) {
                     failed.set(true);
                 } finally {
@@ -212,6 +235,7 @@ public class M3u8Downloader {
         latch.await();
         pool.shutdown();
         if (item.isCanceled()) throw new CanceledException();
+        if (item.isPaused()) throw new PausedException();
         if (failed.get()) throw new Exception("segment download failed");
 
         try (OutputStream os = new BufferedOutputStream(new FileOutputStream(tsFile))) {
@@ -227,6 +251,19 @@ public class M3u8Downloader {
         }
         if (listener != null) listener.onProgress(100, downloadedBytes.get(), downloadedBytes.get(), 0);
         return tsFile;
+    }
+
+    private static void onSegmentDone(AtomicInteger completed, int total, AtomicLong downloadedBytes, AtomicLong lastNotify, AtomicLong lastBytes, long startTime, ProgressListener listener) {
+        int done = completed.incrementAndGet();
+        long now = System.currentTimeMillis();
+        if (now - lastNotify.get() >= PROGRESS_INTERVAL) {
+            lastNotify.set(now);
+            long b = downloadedBytes.get();
+            long delta = Math.max(1, now - startTime);
+            long speed = (b - lastBytes.get()) * 1000 / delta;
+            if (listener != null) listener.onProgress(done * 100 / total, b, -1, speed);
+            lastBytes.set(b);
+        }
     }
 
     private static void remuxToMp4(File tsFile, File mp4File) throws Exception {

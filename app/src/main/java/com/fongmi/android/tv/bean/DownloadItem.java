@@ -12,6 +12,7 @@ public class DownloadItem {
     public static final int SUCCESS = 2;
     public static final int ERROR = 3;
     public static final int CANCELED = 4;
+    public static final int PAUSED = 5;
 
     private final String id;
     private String name;
@@ -26,6 +27,7 @@ public class DownloadItem {
     private long speed;
     private String error;
     private volatile boolean canceled;
+    private volatile boolean paused;
 
     public DownloadItem() {
         this.id = UUID.randomUUID().toString();
@@ -138,7 +140,15 @@ public class DownloadItem {
         this.canceled = canceled;
     }
 
+    public boolean isPaused() {
+        return paused;
+    }
+
+    public void setPaused(boolean paused) {
+        this.paused = paused;
+    }
+
     public boolean isActive() {
-        return state == WAITING || state == DOWNLOADING;
+        return state == WAITING || state == DOWNLOADING || state == PAUSED;
     }
 }

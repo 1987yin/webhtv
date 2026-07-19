@@ -46,4 +46,14 @@ public class DownloadGroup {
         for (DownloadItem item : items) if (item.isActive()) return true;
         return false;
     }
+
+    public boolean isDownloading() {
+        for (DownloadItem item : items) if (item.getState() == DownloadItem.DOWNLOADING) return true;
+        return false;
+    }
+
+    public boolean isPaused() {
+        for (DownloadItem item : items) if (item.getState() == DownloadItem.PAUSED) return true;
+        return false;
+    }
 }

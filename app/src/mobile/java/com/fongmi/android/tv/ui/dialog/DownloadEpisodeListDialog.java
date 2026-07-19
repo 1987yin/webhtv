@@ -75,6 +75,10 @@ public class DownloadEpisodeListDialog extends BaseBottomSheetDialog {
             if (item.getState() == DownloadItem.SUCCESS && !TextUtils.isEmpty(item.getFilePath())) {
                 FileUtil.openFile(new File(item.getFilePath()));
             }
+        } else if (action == DownloadEpisodeListAdapter.ACTION_PAUSE) {
+            DownloadManager.get().pause(item.getId());
+        } else if (action == DownloadEpisodeListAdapter.ACTION_RESUME) {
+            DownloadManager.get().resume(item.getId());
         } else if (action == DownloadEpisodeListAdapter.ACTION_CANCEL) {
             DownloadManager.get().cancel(item.getId());
         } else if (action == DownloadEpisodeListAdapter.ACTION_DELETE) {
