@@ -2,6 +2,8 @@ package com.fongmi.android.tv.ui.dialog;
 
 import android.content.DialogInterface;
 import android.text.TextUtils;
+import android.view.LayoutInflater;
+import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
