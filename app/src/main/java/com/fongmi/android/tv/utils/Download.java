@@ -10,6 +10,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Map;
 import java.util.concurrent.Future;
 
 import okhttp3.Response;
@@ -21,6 +22,7 @@ public class Download {
     private Callback callback;
     private Future<?> future;
     private String tag;
+    private Map<String, String> headers;
     private volatile boolean canceled;
 
     public static Download create(String url, File file) {
@@ -35,6 +37,11 @@ public class Download {
 
     public Download tag(String tag) {
         this.tag = tag;
+        return this;
+    }
+
+    public Download headers(Map<String, String> headers) {
+        this.headers = headers;
         return this;
     }
 
@@ -59,7 +66,7 @@ public class Download {
     }
 
     private void doInBackground() {
-        try (Response res = OkHttp.newCall(url, tag).execute()) {
+        try (Response res = (headers != null ? OkHttp.newCall(url, headers, tag) : OkHttp.newCall(url, tag)).execute()) {
             if (!res.isSuccessful()) throw new IOException("Download failed: HTTP " + res.code());
             if (res.body() == null) throw new IOException("Download failed: empty response");
             boolean completed = download(res.body().byteStream(), getLength(res));

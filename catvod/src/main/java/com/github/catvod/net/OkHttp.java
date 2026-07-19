@@ -179,6 +179,12 @@ public class OkHttp {
         return client.newCall(new Request.Builder().url(url).tag(tag).build());
     }
 
+    public static Call newCall(String url, Map<String, String> headers, String tag) {
+        Request.Builder builder = new Request.Builder().url(url).tag(tag);
+        if (headers != null) for (Map.Entry<String, String> entry : headers.entrySet()) if (entry.getValue() != null) builder.addHeader(entry.getKey(), entry.getValue());
+        return client().newCall(builder.build());
+    }
+
     public static Call newCall(String url, Map<String, String> headers) {
         return client().newCall(new Request.Builder().url(url).headers(Headers.of(headers)).build());
     }

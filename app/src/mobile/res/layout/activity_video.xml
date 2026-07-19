@@ -590,6 +590,12 @@
                             android:text="@string/nav_setting"
                             app:drawableTopCompat="@drawable/ic_control_setting_shadow" />
 
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/download"
+                            style="@style/VideoActionButton"
+                            android:text="@string/download"
+                            app:drawableTopCompat="@drawable/ic_action_download_shadow" />
+
                     </androidx.appcompat.widget.LinearLayoutCompat>
 
                     <androidx.appcompat.widget.LinearLayoutCompat
