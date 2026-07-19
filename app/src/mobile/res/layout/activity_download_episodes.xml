@@ -13,7 +13,7 @@
         android:paddingTop="16dp"
         android:paddingEnd="16dp"
         android:paddingBottom="12dp"
-        android:textColor="@color/white"
+        android:textColor="?attr/colorOnSurface"
         android:textSize="16sp"
         android:textStyle="bold"
         tools:text="蜘蛛人" />

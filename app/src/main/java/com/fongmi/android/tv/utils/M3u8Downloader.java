@@ -79,8 +79,16 @@ public class M3u8Downloader {
         try {
             File tsFile = downloadSegments(item, headers, segments, dir, listener);
             if (item.isCanceled()) throw new CanceledException();
-            remuxToMp4(tsFile, targetMp4);
-            return targetMp4;
+            File out = targetMp4;
+            try {
+                remuxToMp4(tsFile, targetMp4);
+            } catch (Throwable e) {
+                if (targetMp4.exists()) targetMp4.delete();
+                File tsOut = new File(targetMp4.getParent(), targetMp4.getName().replaceAll("\\.mp4$", ".ts"));
+                copyFile(tsFile, tsOut);
+                out = tsOut;
+            }
+            return out;
         } finally {
             deleteDir(dir);
         }
@@ -357,5 +365,13 @@ public class M3u8Downloader {
         File[] files = dir.listFiles();
         if (files != null) for (File f : files) f.delete();
         dir.delete();
+    }
+
+    private static void copyFile(File src, File dst) throws Exception {
+        try (InputStream in = new FileInputStream(src); OutputStream out = new FileOutputStream(dst)) {
+            byte[] buf = new byte[64 * 1024];
+            int r;
+            while ((r = in.read(buf)) != -1) out.write(buf, 0, r);
+        }
     }
 }
