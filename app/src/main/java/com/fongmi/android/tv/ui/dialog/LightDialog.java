@@ -4,6 +4,8 @@ import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.InsetDrawable;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -12,6 +14,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 import androidx.core.widget.TextViewCompat;
 
@@ -24,6 +27,16 @@ import com.google.android.material.textview.MaterialTextView;
 public final class LightDialog {
 
     private LightDialog() {
+    }
+
+    public static void apply(AlertDialog dialog) {
+        if (dialog == null) return;
+        Window window = dialog.getWindow();
+        if (window == null) return;
+        Drawable background = ContextCompat.getDrawable(dialog.getContext(), R.drawable.shape_shell_proxy_dialog);
+        if (background == null) return;
+        int verticalInset = (int) (dialog.getContext().getResources().getDisplayMetrics().density * 24);
+        window.setBackgroundDrawable(new InsetDrawable(background, 0, verticalInset, 0, verticalInset));
     }
 
     public static Dialog create(Context context, CharSequence title, View content) {
