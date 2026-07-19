@@ -242,9 +242,10 @@ public class DownloadManager {
             }
         }
         if (target == null || target.getState() != DownloadItem.PAUSED) return;
+        final DownloadItem finalTarget = target;
         target.setPaused(false);
         File file = new File(target.getFilePath());
-        mExecutor.execute(() -> resumeDownload(target, file));
+        mExecutor.execute(() -> resumeDownload(finalTarget, file));
     }
 
     private void resumeDownload(DownloadItem item, File file) {
