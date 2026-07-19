@@ -167,8 +167,8 @@ public class M3u8Downloader {
         byte[][] buffers = new byte[total][];
         String tag = item.getId();
         long startTime = System.currentTimeMillis();
-        long lastNotify = startTime;
-        long lastBytes = 0;
+        AtomicLong lastNotify = new AtomicLong(startTime);
+        AtomicLong lastBytes = new AtomicLong(0);
 
         for (int i = 0; i < total; i++) {
             final int index = i;
@@ -181,12 +181,12 @@ public class M3u8Downloader {
                     buffers[index] = data;
                     long b = downloadedBytes.addAndGet(data.length);
                     long now = System.currentTimeMillis();
-                    if (now - lastNotify >= PROGRESS_INTERVAL) {
-                        lastNotify = now;
+                    if (now - lastNotify.get() >= PROGRESS_INTERVAL) {
+                        lastNotify.set(now);
                         long delta = Math.max(1, now - startTime);
-                        long speed = (b - lastBytes) * 1000 / Math.max(1, now - lastNotify + PROGRESS_INTERVAL);
+                        long speed = (b - lastBytes.get()) * 1000 / Math.max(1, now - lastNotify.get() + PROGRESS_INTERVAL);
                         if (listener != null) listener.onProgress((index + 1) * 100 / total, b, -1, speed);
-                        lastBytes = b;
+                        lastBytes.set(b);
                     }
                 } catch (Throwable e) {
                     failed.set(true);
