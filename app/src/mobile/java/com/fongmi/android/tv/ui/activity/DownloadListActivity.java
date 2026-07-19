@@ -13,6 +13,8 @@ import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.viewbinding.ViewBinding;
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.DownloadGroup;
 import com.fongmi.android.tv.databinding.ActivityDownloadListBinding;
@@ -66,6 +68,16 @@ public class DownloadListActivity extends BaseActivity implements DownloadVodAda
     @Override
     public void onItemClick(DownloadGroup group) {
         DownloadEpisodeListDialog.show(this, group);
+    }
+
+    @Override
+    public void onItemLongClick(DownloadGroup group) {
+        new MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_WebHTV_LightDialog)
+                .setTitle(R.string.download_remove)
+                .setMessage(R.string.download_delete_group)
+                .setNegativeButton(R.string.dialog_negative, null)
+                .setPositiveButton(R.string.dialog_positive, (d, w) -> DownloadManager.get().removeGroup(group.getKey()))
+                .show();
     }
 
     @Override

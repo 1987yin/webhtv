@@ -33,6 +33,8 @@ public class DownloadVodAdapter extends RecyclerView.Adapter<DownloadVodAdapter.
 
     public interface OnClickListener {
         void onItemClick(DownloadGroup group);
+
+        void onItemLongClick(DownloadGroup group);
     }
 
     @NonNull
@@ -52,6 +54,10 @@ public class DownloadVodAdapter extends RecyclerView.Adapter<DownloadVodAdapter.
             holder.binding.badge.setText(group.getDone() + "/" + group.getTotal());
         }
         holder.binding.getRoot().setOnClickListener(v -> mListener.onItemClick(group));
+        holder.binding.getRoot().setOnLongClickListener(v -> {
+            mListener.onItemLongClick(group);
+            return true;
+        });
     }
 
     @Override

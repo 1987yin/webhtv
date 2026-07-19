@@ -73,6 +73,9 @@
     <string name="download_done">下載完成</string>
     <string name="download_cancel">取消</string>
     <string name="download_remove">移除</string>
+    <string name="download_delete_episode">確定刪除該集？</string>
+    <string name="download_delete_group">確定刪除該劇全部已下載緩存？</string>
+    <string name="download_long_press_tip">長按集數可刪除</string>
     <string name="download_empty">暫無下載任務</string>
     <string name="download_clear_finished">清空已完成</string>
     <string name="play_fullscreen">全螢幕</string>

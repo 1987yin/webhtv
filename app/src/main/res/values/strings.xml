@@ -78,6 +78,9 @@
     <string name="download_remove">Remove</string>
     <string name="download_empty">No downloads yet</string>
     <string name="download_clear_finished">Clear completed</string>
+    <string name="download_delete_episode">Delete this episode?</string>
+    <string name="download_delete_group">Delete all downloaded episodes of this drama?</string>
+    <string name="download_long_press_tip">Long press an episode to delete</string>
     <string name="play_fullscreen">Fullscreen</string>
     <string name="play_exit_fullscreen">Exit full</string>
     <string name="play_invert">Invert</string>

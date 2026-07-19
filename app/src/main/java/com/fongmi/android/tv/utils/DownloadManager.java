@@ -229,6 +229,15 @@ public class DownloadManager {
         notifyChanged();
     }
 
+    public void removeGroup(String key) {
+        List<DownloadItem> toRemove = new ArrayList<>();
+        for (DownloadItem item : mItems) {
+            String k = TextUtils.isEmpty(item.getGroup()) ? item.getName() : item.getGroup();
+            if (k.equals(key)) toRemove.add(item);
+        }
+        for (DownloadItem item : toRemove) remove(item.getId());
+    }
+
     public void clearFinished() {
         mItems.removeIf(item -> !item.isActive());
         notifyChanged();
