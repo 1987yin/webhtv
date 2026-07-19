@@ -41,6 +41,11 @@ public class DownloadEpisodeListDialog extends BaseBottomSheetDialog {
     }
 
     @Override
+    protected boolean transparent() {
+        return true;
+    }
+
+    @Override
     protected void initView() {
         mAdapter = new DownloadEpisodeListAdapter(this::onAction);
         mBinding.recycler.setLayoutManager(new LinearLayoutManager(requireContext()));

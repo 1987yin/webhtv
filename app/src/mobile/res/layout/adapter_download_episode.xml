@@ -3,6 +3,7 @@
     android:id="@+id/text"
     android:layout_width="match_parent"
     android:layout_height="40dp"
+    android:layout_margin="4dp"
     android:background="@drawable/shape_video_episode_grid"
     android:ellipsize="start"
     android:gravity="center"
