@@ -145,6 +145,12 @@ public class DownloadManager {
         mDownloads.put(item.getId(), download);
         download.start(new Download.Callback() {
             @Override
+            public void progress(int progress) {
+                item.setProgress(progress);
+                notifyChanged();
+            }
+
+            @Override
             public void progress(int progress, long bytes, long total, long speed, long elapsed) {
                 item.setProgress(progress);
                 item.setTotal(total);
