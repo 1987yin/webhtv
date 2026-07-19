@@ -68,7 +68,7 @@ public class DownloadEpisodeAdapter extends RecyclerView.Adapter<DownloadEpisode
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         holder.binding.text.setText(mItems.get(position).getName());
-        holder.binding.text.setActivated(mSelected.contains(position));
+        holder.binding.text.setSelected(mSelected.contains(position));
     }
 
     @Override
