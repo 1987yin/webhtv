@@ -29,7 +29,7 @@
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
             android:paddingBottom="12dp"
-            tools:listitem="@layout/adapter_download" />
+            tools:listitem="@layout/adapter_download_vod" />
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/empty"

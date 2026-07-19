@@ -18,6 +18,8 @@ public class DownloadItem {
     private String url;
     private Map<String, String> headers;
     private String filePath;
+    private String cover;
+    private String group;
     private int state;
     private int progress;
     private long total;
@@ -70,6 +72,22 @@ public class DownloadItem {
 
     public void setFilePath(String filePath) {
         this.filePath = filePath;
+    }
+
+    public String getCover() {
+        return cover == null ? "" : cover;
+    }
+
+    public void setCover(String cover) {
+        this.cover = cover;
+    }
+
+    public String getGroup() {
+        return group == null ? "" : group;
+    }
+
+    public void setGroup(String group) {
+        this.group = group;
     }
 
     public int getState() {

@@ -31,6 +31,7 @@ import okhttp3.Response;
 public class M3u8Downloader {
 
     private static final int SEGMENT_THREADS = 4;
+    private static final int SEGMENT_RETRY = 3;
     private static final long PROGRESS_INTERVAL = 400;
 
     public interface ProgressListener {
@@ -251,15 +252,35 @@ public class M3u8Downloader {
         if (key == null || key.length < 16) throw new Exception("invalid aes key");
         SecretKeySpec keySpec = new SecretKeySpec(key, 0, 16, "AES");
         IvParameterSpec ivSpec = new IvParameterSpec(iv != null ? iv : new byte[16]);
-        Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
+        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
         cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec);
-        return cipher.doFinal(data);
+        try {
+            return cipher.doFinal(data);
+        } catch (javax.crypto.BadPaddingException e) {
+            // Some sources encrypt without PKCS7 padding; retry with NoPadding.
+            Cipher raw = Cipher.getInstance("AES/CBC/NoPadding");
+            raw.init(Cipher.DECRYPT_MODE, keySpec, ivSpec);
+            return raw.doFinal(data);
+        }
     }
 
     private static byte[] fetchBytes(String url, Map<String, String> headers, String tag) throws Exception {
-        try (Response res = OkHttp.newCall(url, headers, tag).execute()) {
-            if (!res.isSuccessful() || res.body() == null) throw new Exception("HTTP " + res.code());
-            return res.body().bytes();
+        int retry = 0;
+        while (true) {
+            try {
+                try (Response res = OkHttp.newCall(url, headers, tag).execute()) {
+                    if (!res.isSuccessful() || res.body() == null) throw new Exception("HTTP " + res.code());
+                    return res.body().bytes();
+                }
+            } catch (Throwable e) {
+                if (++retry >= SEGMENT_RETRY) throw e;
+                try {
+                    Thread.sleep(300 * retry);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
         }
     }
 

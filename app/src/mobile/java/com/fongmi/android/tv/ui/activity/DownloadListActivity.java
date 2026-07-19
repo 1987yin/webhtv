@@ -10,20 +10,21 @@ import android.view.View;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.widget.Toolbar;
-import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
-import com.fongmi.android.tv.bean.DownloadItem;
+import com.fongmi.android.tv.bean.DownloadGroup;
 import com.fongmi.android.tv.databinding.ActivityDownloadListBinding;
-import com.fongmi.android.tv.ui.adapter.DownloadAdapter;
+import com.fongmi.android.tv.ui.adapter.DownloadVodAdapter;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.dialog.DownloadEpisodeListDialog;
 import com.fongmi.android.tv.utils.DownloadManager;
 
-public class DownloadListActivity extends BaseActivity implements DownloadAdapter.OnClickListener {
+public class DownloadListActivity extends BaseActivity implements DownloadVodAdapter.OnClickListener {
 
     private ActivityDownloadListBinding mBinding;
-    private DownloadAdapter mAdapter;
+    private DownloadVodAdapter mAdapter;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, DownloadListActivity.class));
@@ -43,8 +44,8 @@ public class DownloadListActivity extends BaseActivity implements DownloadAdapte
     @Override
     protected void initView(Bundle savedInstanceState) {
         setSupportActionBar(mBinding.toolbar);
-        mBinding.recycler.setLayoutManager(new LinearLayoutManager(this));
-        mBinding.recycler.setAdapter(mAdapter = new DownloadAdapter(this));
+        mBinding.recycler.setLayoutManager(new GridLayoutManager(this, 3));
+        mBinding.recycler.setAdapter(mAdapter = new DownloadVodAdapter(this));
         refresh();
     }
 
@@ -56,20 +57,15 @@ public class DownloadListActivity extends BaseActivity implements DownloadAdapte
     private final DownloadManager.Callback mCallback = this::refresh;
 
     private void refresh() {
-        mAdapter.setItems(DownloadManager.get().getItems());
-        boolean empty = DownloadManager.get().getItems().isEmpty();
+        mAdapter.setItems(DownloadManager.get().getGroups());
+        boolean empty = DownloadManager.get().getGroups().isEmpty();
         mBinding.empty.setVisibility(empty ? View.VISIBLE : View.GONE);
         mBinding.recycler.setVisibility(empty ? View.GONE : View.VISIBLE);
     }
 
     @Override
-    public void onCancel(DownloadItem item) {
-        DownloadManager.get().cancel(item.getId());
-    }
-
-    @Override
-    public void onRemove(DownloadItem item) {
-        DownloadManager.get().remove(item.getId());
+    public void onItemClick(DownloadGroup group) {
+        DownloadEpisodeListDialog.show(this, group);
     }
 
     @Override

@@ -1757,6 +1757,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         String vodName = mBinding.name.getText().toString();
         DownloadEpisodeDialog.show(this, episodes, episode -> {
             DownloadItem item = DownloadItem.create(vodName + " " + episode.getName());
+            item.setGroup(getKey() + "$$" + vodName);
+            item.setCover(getPic());
             DownloadManager.get().enqueue(item, getKey(), flag.getFlag(), episode.getUrl());
         });
     }

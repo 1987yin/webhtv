@@ -72,6 +72,8 @@
     <string name="download_no_episode">No episodes available</string>
     <string name="download_waiting">Waiting…</string>
     <string name="download_done">Completed</string>
+    <string name="download_active">Downloading</string>
+    <string name="download_play">Play</string>
     <string name="download_cancel">Cancel</string>
     <string name="download_remove">Remove</string>
     <string name="download_empty">No downloads yet</string>

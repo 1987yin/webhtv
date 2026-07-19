@@ -45,6 +45,39 @@ public class DownloadManager {
         return new ArrayList<>(mItems);
     }
 
+    public List<DownloadGroup> getGroups() {
+        java.util.LinkedHashMap<String, List<DownloadItem>> map = new java.util.LinkedHashMap<>();
+        for (DownloadItem item : mItems) {
+            String key = TextUtils.isEmpty(item.getGroup()) ? item.getName() : item.getGroup();
+            map.computeIfAbsent(key, k -> new ArrayList<>()).add(item);
+        }
+        List<DownloadGroup> groups = new ArrayList<>();
+        for (java.util.Map.Entry<String, List<DownloadItem>> entry : map.entrySet()) {
+            List<DownloadItem> items = entry.getValue();
+            String cover = "";
+            for (DownloadItem it : items) {
+                if (!TextUtils.isEmpty(it.getCover())) {
+                    cover = it.getCover();
+                    break;
+                }
+            }
+            groups.add(new DownloadGroup(entry.getKey(), groupName(entry.getKey()), cover, items));
+        }
+        return groups;
+    }
+
+    public DownloadGroup getGroup(String key) {
+        for (DownloadGroup group : getGroups()) {
+            if (group.getKey().equals(key)) return group;
+        }
+        return null;
+    }
+
+    private static String groupName(String key) {
+        int idx = key.indexOf("$$");
+        return idx >= 0 ? key.substring(idx + 2) : key;
+    }
+
     public void register(Callback callback) {
         if (!mCallbacks.contains(callback)) mCallbacks.add(callback);
     }
