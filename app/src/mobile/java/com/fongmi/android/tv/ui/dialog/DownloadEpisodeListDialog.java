@@ -1,11 +1,13 @@
 package com.fongmi.android.tv.ui.dialog;
 
-import android.app.Activity;
-import android.os.Bundle;
+import android.content.DialogInterface;
 import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.bean.DownloadGroup;
 import com.fongmi.android.tv.bean.DownloadItem;
@@ -13,37 +15,38 @@ import com.fongmi.android.tv.databinding.ActivityDownloadEpisodesBinding;
 import com.fongmi.android.tv.ui.adapter.DownloadEpisodeAdapter;
 import com.fongmi.android.tv.utils.DownloadManager;
 import com.fongmi.android.tv.utils.FileUtil;
-import com.google.android.material.bottomsheet.BottomSheetDialog;
 
 import java.io.File;
 
-public class DownloadEpisodeListDialog extends BottomSheetDialog {
+public class DownloadEpisodeListDialog extends BaseBottomSheetDialog {
 
-    private final Activity mActivity;
-    private final String mKey;
     private ActivityDownloadEpisodesBinding mBinding;
     private DownloadEpisodeAdapter mAdapter;
+    private String mKey;
 
-    public static void show(Activity activity, DownloadGroup group) {
-        new DownloadEpisodeListDialog(activity, group.getKey()).show();
-    }
-
-    private DownloadEpisodeListDialog(Activity activity, String key) {
-        super(activity);
-        this.mActivity = activity;
-        this.mKey = key;
+    public static void show(FragmentActivity activity, DownloadGroup group) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed() || activity.getSupportFragmentManager().isStateSaved()) return;
+        DownloadEpisodeListDialog dialog = new DownloadEpisodeListDialog();
+        dialog.mKey = group.getKey();
+        dialog.show(activity.getSupportFragmentManager(), null);
     }
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        mBinding = ActivityDownloadEpisodesBinding.inflate(getLayoutInflater());
-        setContentView(mBinding.getRoot());
+    protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
+        return mBinding = ActivityDownloadEpisodesBinding.inflate(inflater, container, false);
+    }
+
+    @Override
+    protected void initView() {
         mAdapter = new DownloadEpisodeAdapter(this::onAction);
-        mBinding.recycler.setLayoutManager(new LinearLayoutManager(getContext()));
+        mBinding.recycler.setLayoutManager(new LinearLayoutManager(requireContext()));
         mBinding.recycler.setAdapter(mAdapter);
-        DownloadManager.get().register(mRefresh);
         refresh();
+    }
+
+    @Override
+    protected void initEvent() {
+        DownloadManager.get().register(mRefresh);
     }
 
     private final DownloadManager.Callback mRefresh = this::refresh;
@@ -72,8 +75,8 @@ public class DownloadEpisodeListDialog extends BottomSheetDialog {
     }
 
     @Override
-    public void dismiss() {
+    public void onDismiss(@NonNull DialogInterface dialog) {
         DownloadManager.get().unregister(mRefresh);
-        super.dismiss();
+        super.onDismiss(dialog);
     }
 }

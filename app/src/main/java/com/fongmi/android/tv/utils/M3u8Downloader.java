@@ -10,7 +10,9 @@ import com.github.catvod.net.OkHttp;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -165,7 +167,8 @@ public class M3u8Downloader {
         CountDownLatch latch = new CountDownLatch(total);
         AtomicBoolean failed = new AtomicBoolean(false);
         AtomicLong downloadedBytes = new AtomicLong(0);
-        byte[][] buffers = new byte[total][];
+        File[] segFiles = new File[total];
+        for (int i = 0; i < total; i++) segFiles[i] = new File(dir, "seg_" + i + ".ts");
         String tag = item.getId();
         long startTime = System.currentTimeMillis();
         AtomicLong lastNotify = new AtomicLong(startTime);
@@ -173,19 +176,21 @@ public class M3u8Downloader {
 
         for (int i = 0; i < total; i++) {
             final int index = i;
-            final Segment seg = segments.get(i);
+            final Segment seg = segments.get(index);
             pool.execute(() -> {
                 try {
                     if (item.isCanceled() || failed.get()) return;
                     byte[] data = fetchBytes(seg.uri, headers, tag);
                     if (seg.keyUri != null) data = decrypt(data, seg.keyUri, seg.iv, headers, tag);
-                    buffers[index] = data;
+                    try (OutputStream os = new BufferedOutputStream(new FileOutputStream(segFiles[index]))) {
+                        os.write(data);
+                    }
                     long b = downloadedBytes.addAndGet(data.length);
                     long now = System.currentTimeMillis();
                     if (now - lastNotify.get() >= PROGRESS_INTERVAL) {
                         lastNotify.set(now);
                         long delta = Math.max(1, now - startTime);
-                        long speed = (b - lastBytes.get()) * 1000 / Math.max(1, now - lastNotify.get() + PROGRESS_INTERVAL);
+                        long speed = (b - lastBytes.get()) * 1000 / delta;
                         if (listener != null) listener.onProgress((index + 1) * 100 / total, b, -1, speed);
                         lastBytes.set(b);
                     }
@@ -202,9 +207,14 @@ public class M3u8Downloader {
         if (failed.get()) throw new Exception("segment download failed");
 
         try (OutputStream os = new BufferedOutputStream(new FileOutputStream(tsFile))) {
+            byte[] buf = new byte[64 * 1024];
             for (int i = 0; i < total; i++) {
-                if (buffers[i] == null) throw new Exception("missing segment " + i);
-                os.write(buffers[i]);
+                File sf = segFiles[i];
+                if (!sf.exists()) throw new Exception("missing segment " + i);
+                try (InputStream is = new FileInputStream(sf)) {
+                    int r;
+                    while ((r = is.read(buf)) != -1) os.write(buf, 0, r);
+                }
             }
         }
         if (listener != null) listener.onProgress(100, downloadedBytes.get(), downloadedBytes.get(), 0);
