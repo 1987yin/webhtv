@@ -504,6 +504,14 @@ public class Setting {
         Prefers.put("web_home_fullscreen", fullscreen);
     }
 
+    public static boolean isHomeHistory() {
+        return Prefers.getBoolean("home_history", true);
+    }
+
+    public static void putHomeHistory(boolean homeHistory) {
+        Prefers.put("home_history", homeHistory);
+    }
+
     public static boolean isPlaybackArtworkWall() {
         return Prefers.getBoolean("playback_artwork_wall", true);
     }

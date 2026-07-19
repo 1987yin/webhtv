@@ -309,7 +309,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     private void setAdapter() {
         mHistoryAdapter = new ArrayObjectAdapter(mPresenter = new HistoryPresenter(this));
         mAdapter.add(new ListRow(mFuncAdapter = new ArrayObjectAdapter(new FuncPresenter(this))));
-        mAdapter.add(R.string.home_history);
+        if (Setting.isHomeHistory()) mAdapter.add(R.string.home_history);
         mAdapter.add(R.string.home_recommend);
     }
 
@@ -466,6 +466,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         items.add(Func.create(R.string.home_keep));
         items.add(Func.create(R.string.home_push));
         items.add(Func.create(R.string.home_setting));
+        if (!Setting.isHomeHistory()) items.add(Func.create(R.string.home_history_button));
         mFuncAdapter.setItems(items, new BaseDiffCallback<Func>());
     }
 
@@ -474,6 +475,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void getHistory(boolean renew) {
+        if (!Setting.isHomeHistory()) {
+            removeHistoryRows();
+            return;
+        }
         List<History> items = History.get();
         int historyIndex = getHistoryIndex();
         int recommendIndex = getRecommendIndex();
@@ -482,6 +487,15 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         if ((items.isEmpty() && exist) || (renew && exist)) mAdapter.removeItems(historyIndex, 1);
         if ((!items.isEmpty() && !exist) || (renew && exist)) mAdapter.add(historyIndex, new ListRow(mHistoryAdapter));
         mHistoryAdapter.setItems(items, new BaseDiffCallback<History>());
+    }
+
+    private void removeHistoryRows() {
+        int headerIndex = mAdapter.indexOf(R.string.home_history);
+        if (headerIndex == -1) return;
+        int recommendIndex = mAdapter.indexOf(R.string.home_recommend);
+        mAdapter.removeItems(headerIndex, recommendIndex - headerIndex);
+        mHistoryAdapter.clear();
+        mPresenter.setDelete(false);
     }
 
     private void setHistoryDelete(boolean delete) {
@@ -590,6 +604,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         else if (item.getResId() == R.string.home_push) PushActivity.start(this);
         else if (item.getResId() == R.string.home_search) SearchActivity.start(this);
         else if (item.getResId() == R.string.home_setting) SettingActivity.start(this);
+        else if (item.getResId() == R.string.home_history_button) HistoryActivity.start(this);
     }
 
     @Override
@@ -738,6 +753,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         super.onResume();
         mClock.start();
         if (mWeb != null) mWeb.onResume();
+        setFunc();
     }
 
     @Override

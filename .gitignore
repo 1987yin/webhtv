@@ -24,3 +24,4 @@ __pycache__/
 *.pyc
 third_party/sources/
 plans/
+/参考/

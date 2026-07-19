@@ -134,6 +134,20 @@
             android:screenOrientation="sensorLandscape" />
 
         <activity
+            android:name=".ui.activity.HistoryActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|navigation"
+            android:launchMode="singleTop"
+            android:parentActivityName=".ui.activity.HomeActivity"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name=".ui.activity.SettingPersonalActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|navigation"
+            android:launchMode="singleTop"
+            android:parentActivityName=".ui.activity.SettingActivity"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
             android:name=".ui.activity.KeepActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
             android:screenOrientation="sensorLandscape" />
