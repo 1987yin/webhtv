@@ -6,6 +6,7 @@ import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.api.SiteApi;
+import com.fongmi.android.tv.bean.DownloadGroup;
 import com.fongmi.android.tv.bean.DownloadItem;
 import com.fongmi.android.tv.bean.Result;
 import com.github.catvod.net.OkHttp;
