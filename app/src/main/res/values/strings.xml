@@ -69,6 +69,8 @@
     <string name="download_canceled">Download canceled</string>
     <string name="download_list">Downloads</string>
     <string name="download_select_episode">Select episodes to download</string>
+    <string name="download_select_all">Select all</string>
+    <string name="download_select_none">Deselect all</string>
     <string name="download_no_episode">No episodes available</string>
     <string name="download_waiting">Waiting…</string>
     <string name="download_done">Completed</string>
