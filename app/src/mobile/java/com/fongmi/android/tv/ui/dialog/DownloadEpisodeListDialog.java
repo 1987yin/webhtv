@@ -8,14 +8,14 @@ import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
-import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.DownloadGroup;
 import com.fongmi.android.tv.bean.DownloadItem;
 import com.fongmi.android.tv.databinding.ActivityDownloadEpisodesBinding;
-import com.fongmi.android.tv.ui.adapter.DownloadEpisodeGridAdapter;
+import com.fongmi.android.tv.ui.adapter.DownloadEpisodeListAdapter;
 import com.fongmi.android.tv.utils.DownloadManager;
 import com.fongmi.android.tv.utils.FileUtil;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -24,10 +24,8 @@ import java.io.File;
 
 public class DownloadEpisodeListDialog extends BaseBottomSheetDialog {
 
-    private static final int SPAN_COUNT = 4;
-
     private ActivityDownloadEpisodesBinding mBinding;
-    private DownloadEpisodeGridAdapter mAdapter;
+    private DownloadEpisodeListAdapter mAdapter;
     private String mKey;
 
     public static void show(FragmentActivity activity, DownloadGroup group) {
@@ -44,8 +42,8 @@ public class DownloadEpisodeListDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
-        mAdapter = new DownloadEpisodeGridAdapter(this::onAction);
-        mBinding.recycler.setLayoutManager(new GridLayoutManager(requireContext(), SPAN_COUNT));
+        mAdapter = new DownloadEpisodeListAdapter(this::onAction);
+        mBinding.recycler.setLayoutManager(new LinearLayoutManager(requireContext()));
         mBinding.recycler.setAdapter(mAdapter);
         refresh();
     }
@@ -68,13 +66,13 @@ public class DownloadEpisodeListDialog extends BaseBottomSheetDialog {
     }
 
     private void onAction(DownloadItem item, int action) {
-        if (action == DownloadEpisodeGridAdapter.ACTION_PLAY) {
+        if (action == DownloadEpisodeListAdapter.ACTION_PLAY) {
             if (item.getState() == DownloadItem.SUCCESS && !TextUtils.isEmpty(item.getFilePath())) {
                 FileUtil.openFile(new File(item.getFilePath()));
             }
-        } else if (action == DownloadEpisodeGridAdapter.ACTION_CANCEL) {
+        } else if (action == DownloadEpisodeListAdapter.ACTION_CANCEL) {
             DownloadManager.get().cancel(item.getId());
-        } else if (action == DownloadEpisodeGridAdapter.ACTION_DELETE) {
+        } else if (action == DownloadEpisodeListAdapter.ACTION_DELETE) {
             new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_LightDialog)
                     .setTitle(R.string.download_remove)
                     .setMessage(R.string.download_delete_episode)

@@ -70,7 +70,7 @@ public class DownloadEpisodeDialog extends AppCompatDialogFragment implements Do
         overlay.setBackgroundColor(Color.TRANSPARENT);
         overlay.setOnClickListener(v -> dismiss());
         binding.getRoot().setClickable(true);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(getWidth(), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, getHeight(), Gravity.BOTTOM);
         overlay.addView(binding.getRoot(), params);
         return overlay;
     }
@@ -81,9 +81,9 @@ public class DownloadEpisodeDialog extends AppCompatDialogFragment implements Do
         setRecyclerView();
     }
 
-    private int getWidth() {
-        int screen = ResUtil.getScreenWidth(requireContext());
-        return Math.max(ResUtil.dp2px(360), Math.min(ResUtil.dp2px(560), Math.round(screen * 0.44f)));
+    private int getHeight() {
+        int screen = ResUtil.getScreenHeight(requireContext());
+        return Math.max(ResUtil.dp2px(240), Math.round(screen * 0.33f));
     }
 
     private void configureWindow(Dialog dialog) {
@@ -104,6 +104,10 @@ public class DownloadEpisodeDialog extends AppCompatDialogFragment implements Do
         binding.episode.setItemAnimator(null);
         binding.episode.setAdapter(adapter = new DownloadEpisodeAdapter(this));
         adapter.addAll(episodes);
+        binding.downloadList.setOnClickListener(v -> {
+            DownloadListActivity.start(requireActivity());
+            dismiss();
+        });
         binding.selectAll.setOnClickListener(v -> {
             boolean all = !adapter.isAllSelected();
             adapter.selectAll(all);

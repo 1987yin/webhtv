@@ -58,6 +58,7 @@ public class DownloadVodAdapter extends RecyclerView.Adapter<DownloadVodAdapter.
             mListener.onItemLongClick(group);
             return true;
         });
+        holder.binding.delete.setOnClickListener(v -> mListener.onItemLongClick(group));
     }
 
     @Override
