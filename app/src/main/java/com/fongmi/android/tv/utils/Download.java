@@ -138,7 +138,6 @@ public class Download {
             long startTime = System.currentTimeMillis();
             long lastNotifyTime = startTime;
             long lastNotifyBytes = offset;
-            if (callback != null) App.post(() -> callback.progress(total > 0 ? (int) (totalBytes * 100.0 / total) : -1, totalBytes, total, 0, 0));
             while ((readBytes = input.read(buffer)) != -1) {
                 if (canceled || Thread.currentThread().isInterrupted()) return false;
                 if (paused) return false;
