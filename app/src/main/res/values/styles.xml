@@ -82,6 +82,8 @@
         <item name="backgroundTint">#174EA6</item>
     </style>
 
+    <style name="Widget.WebHTV" parent="@android:style/Widget" />
+
     <style name="Widget.WebHTV.LightDialog" />
 
     <style name="Widget.WebHTV.LightDialog.Label">
