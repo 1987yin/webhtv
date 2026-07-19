@@ -1378,4 +1378,44 @@
 
     <string name="player_audio_badge_queue">Queue</string>
     <string name="player_audio_repeat">Repeat</string>
+    <string name="setting_personal">Personal</string>
+    <string name="setting_play_back_to_detail">Return playback to detail</string>
+    <string name="setting_personal_recommendation">Personal recommendations</string>
+    <string name="setting_tmdb_episode_file_size">Keep file size in TMDB episodes</string>
+    <string name="setting_search_thread">Search threads</string>
+    <string name="setting_search_ui">Search layout</string>
+    <string name="setting_search_column">Search results per row</string>
+    <string name="setting_site_column">Site display mode</string>
+    <string name="setting_search_result_sort">Search result mode</string>
+    <string name="setting_tmdb_match_mode">TMDB match mode</string>
+    <string name="personal_recommendation_confirm_title">Enable personal recommendations</string>
+    <string name="personal_recommendation_confirm_message">Personal recommendations read movie and show titles from local viewing history, and may send the current title and history titles to TMDB or Douban as search keywords to build related lists.\n\nPlayback URLs, account information, source configuration, and playback progress are not sent. You can turn this off at any time.</string>
+
+    <string-array name="select_search_ui">
+        <item>Landscape</item>
+        <item>Portrait</item>
+    </string-array>
+
+    <string-array name="select_search_column">
+        <item>Auto</item>
+        <item>1 item</item>
+        <item>2 items</item>
+    </string-array>
+
+    <string-array name="select_tmdb_match_mode">
+        <item>Strict</item>
+        <item>Smart</item>
+        <item>Strict + dialog</item>
+        <item>Smart + dialog</item>
+    </string-array>
+
+    <string-array name="select_site_column">
+        <item>Single row</item>
+        <item>Double row</item>
+    </string-array>
+
+    <string-array name="select_search_result_sort">
+        <item>Dynamic (first returned first)</item>
+        <item>Fixed (by source order)</item>
+    </string-array>
 </resources>

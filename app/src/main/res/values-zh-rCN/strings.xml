@@ -1370,4 +1370,44 @@
 
     <string name="player_audio_badge_queue">队列</string>
     <string name="player_audio_repeat">循环</string>
+    <string name="setting_personal">个性设置</string>
+    <string name="setting_play_back_to_detail">播放返回详情</string>
+    <string name="setting_personal_recommendation">个性推荐</string>
+    <string name="setting_tmdb_episode_file_size">TMDB 剧集保留文件大小</string>
+    <string name="setting_search_thread">搜索线程</string>
+    <string name="setting_search_ui">搜索布局</string>
+    <string name="setting_search_column">搜索结果列数</string>
+    <string name="setting_site_column">站点展示模式</string>
+    <string name="setting_search_result_sort">搜索结果模式</string>
+    <string name="setting_tmdb_match_mode">TMDB 匹配模式</string>
+    <string name="personal_recommendation_confirm_title">启用个性推荐</string>
+    <string name="personal_recommendation_confirm_message">个性推荐会读取本机观看历史中的影片名称，并可能将当前影片名和历史影片名作为搜索关键词发送到 TMDB 或豆瓣，用于生成相关作品列表。\n\n不会发送播放地址、账号信息、站源配置或播放进度。你可以随时关闭此功能。</string>
+
+    <string-array name="select_search_ui">
+        <item>横屏</item>
+        <item>竖屏</item>
+    </string-array>
+
+    <string-array name="select_search_column">
+        <item>自适应</item>
+        <item>1个</item>
+        <item>2个</item>
+    </string-array>
+
+    <string-array name="select_tmdb_match_mode">
+        <item>严格</item>
+        <item>智能</item>
+        <item>严格 + 弹窗</item>
+        <item>智能 + 弹窗</item>
+    </string-array>
+
+    <string-array name="select_site_column">
+        <item>单行</item>
+        <item>双行</item>
+    </string-array>
+
+    <string-array name="select_search_result_sort">
+        <item>动态模式（谁快谁在前）</item>
+        <item>固定模式（按配置顺序）</item>
+    </string-array>
 </resources>

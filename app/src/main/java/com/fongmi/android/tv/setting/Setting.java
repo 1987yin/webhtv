@@ -716,4 +716,78 @@ public class Setting {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false;
         return new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:" + App.get().getPackageName())).resolveActivity(App.get().getPackageManager()) != null || new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION).resolveActivity(App.get().getPackageManager()) != null;
     }
+
+    public static final int TMDB_MATCH_STRICT = 0;
+    public static final int TMDB_MATCH_SMART = 1;
+    public static final int TMDB_MATCH_STRICT_DIALOG = 2;
+    public static final int TMDB_MATCH_SMART_DIALOG = 3;
+
+    private static int clampTmdbMatchMode(int mode) {
+        if (mode == TMDB_MATCH_STRICT || mode == TMDB_MATCH_SMART || mode == TMDB_MATCH_STRICT_DIALOG || mode == TMDB_MATCH_SMART_DIALOG) return mode;
+        return TMDB_MATCH_SMART;
+    }
+
+    public static int getTmdbMatchMode() {
+        if (Prefers.getPrefers().contains("tmdb_match_mode")) return clampTmdbMatchMode(Prefers.getInt("tmdb_match_mode", TMDB_MATCH_SMART));
+        if (Prefers.getPrefers().contains("tmdb_match_dialog")) return Prefers.getBoolean("tmdb_match_dialog", true) ? TMDB_MATCH_STRICT_DIALOG : TMDB_MATCH_STRICT;
+        return TMDB_MATCH_SMART;
+    }
+
+    public static void putTmdbMatchMode(int mode) {
+        Prefers.put("tmdb_match_mode", clampTmdbMatchMode(mode));
+    }
+
+    public static boolean isPersonalRecommendation() {
+        if (Prefers.getPrefers().contains("personal_recommendation")) return Prefers.getBoolean("personal_recommendation", false);
+        return Prefers.getBoolean("ai_recommendation", false);
+    }
+
+    public static void putPersonalRecommendation(boolean enabled) {
+        Prefers.put("personal_recommendation", enabled);
+        Prefers.put("ai_recommendation", enabled);
+    }
+
+    public static boolean isTmdbEpisodeFileSize() {
+        return Prefers.getBoolean("tmdb_episode_file_size", false);
+    }
+
+    public static void putTmdbEpisodeFileSize(boolean enabled) {
+        Prefers.put("tmdb_episode_file_size", enabled);
+    }
+
+    public static boolean isPlayBackToDetail() {
+        return Prefers.getBoolean("play_back_to_detail");
+    }
+
+    public static void putPlayBackToDetail(boolean backToDetail) {
+        Prefers.put("play_back_to_detail", backToDetail);
+    }
+
+    public static int getSearchUi() {
+        return Prefers.getInt("search_ui", 1) == 0 ? 0 : 1;
+    }
+
+    public static void putSearchUi(int ui) {
+        Prefers.put("search_ui", ui == 0 ? 0 : 1);
+    }
+
+    public static int getSearchThread() {
+        return clampSearchThread(Prefers.getInt("search_thread", 20));
+    }
+
+    public static void putSearchThread(int thread) {
+        Prefers.put("search_thread", clampSearchThread(thread));
+    }
+
+    private static int clampSearchThread(int thread) {
+        return Math.max(1, Math.min(thread, 100));
+    }
+
+    public static int getSearchResultSort() {
+        return Prefers.getInt("search_result_sort", 0);
+    }
+
+    public static void putSearchResultSort(int sort) {
+        Prefers.put("search_result_sort", sort == 0 ? 0 : 1);
+    }
 }
