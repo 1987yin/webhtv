@@ -82,4 +82,23 @@
         <item name="backgroundTint">#174EA6</item>
     </style>
 
+    <style name="Widget.WebHTV.LightDialog.Label">
+        <item name="android:textColor">#202124</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="Widget.WebHTV.LightDialog.Helper">
+        <item name="android:textColor">#5F6368</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <style name="Widget.WebHTV.LightDialog.Input">
+        <item name="android:background">@drawable/selector_dialog_input</item>
+        <item name="android:textColor">#202124</item>
+        <item name="android:textColorHint">#666666</item>
+        <item name="android:textCursorDrawable">@drawable/shape_cursor_dialog</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
 </resources>
