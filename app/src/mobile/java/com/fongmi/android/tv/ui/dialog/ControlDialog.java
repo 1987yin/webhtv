@@ -17,6 +17,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
+import androidx.fragment.app.FragmentManager;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.App;
@@ -316,6 +317,7 @@ binding.ending.setText(controls.ending.getText());
         binding.repeat.setOnClickListener(v -> active(binding.repeat, controls.repeat));
         binding.decode.setOnClickListener(v -> click(binding.decode, controls.decode));
         binding.codecCapability.setOnClickListener(v -> listener().onCodecCapabilityPanel());
+        binding.panDiagnostic.setOnClickListener(v -> onPanDiagnostic());
         binding.lut.setOnClickListener(v -> onLut());
         binding.ending.setOnClickListener(v -> click(binding.ending, controls.ending));
         binding.opening.setOnClickListener(v -> click(binding.opening, controls.opening));
@@ -326,6 +328,19 @@ binding.ending.setText(controls.ending.getText());
 
     private void onTimer(View view) {
         TimerDialog.create().show(getActivity());
+    }
+
+    private void onPanDiagnostic() {
+        FragmentActivity activity = getActivity();
+        PlayerManager current = player;
+        if (activity == null || current == null) return;
+        FragmentManager fragmentManager = activity.getSupportFragmentManager();
+        if (activity.isFinishing() || activity.isDestroyed() || fragmentManager.isStateSaved() || current.isReleased()) return;
+        dismissAllowingStateLoss();
+        App.post(() -> {
+            if (activity.isFinishing() || activity.isDestroyed() || fragmentManager.isStateSaved() || current.isReleased()) return;
+            PanNetworkDiagnosticDialog.show(activity, current);
+        }, 140);
     }
 
     private void setImmersiveAudio() {
@@ -348,11 +363,10 @@ binding.ending.setText(controls.ending.getText());
     }
 
     private void applySpeed(float speed) {
-        PlayerSetting.putDefaultSpeed(speed);
         controls.speed.setText(player.setSpeed(speed));
         setSpeedPresets();
         binding.speed.setValue(Math.max(player.getSpeed(), 0.5f));
-        if (history != null) history.setSpeed(player.getSpeed());
+        if (history != null) history.setUserSpeed(player.getSpeed());
     }
 
     private void setSpeedPreset(View view) {
