@@ -9,6 +9,7 @@ import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.Tracks;
+import androidx.media3.common.VideoSize;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.mpvplayer.MpvPlayer;
 import androidx.media3.mpvplayer.MpvPlayerConfig;
@@ -32,6 +33,7 @@ import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 
 import is.xyz.mpv.MPVLib;
 
@@ -44,10 +46,12 @@ public class MpvPlayerEngine implements PlayerEngine {
     private boolean retriedFormat;
     private boolean surfaceDirect;
     private Boolean surfaceDirectOverride;
+    private final BiConsumer<Integer, Integer> videoSizeProbeListener;
     private int decode;
 
-    public MpvPlayerEngine(int decode, Player.Listener listener) {
+    public MpvPlayerEngine(int decode, Player.Listener listener, BiConsumer<Integer, Integer> videoSizeProbeListener) {
         this.decode = decode;
+        this.videoSizeProbeListener = videoSizeProbeListener;
         this.player = buildPlayer(listener);
     }
 
@@ -184,6 +188,10 @@ public class MpvPlayerEngine implements PlayerEngine {
     @Override
     public Tracks getCurrentTracks() {
         return player.getCurrentTracksSnapshot();
+    }
+
+    public VideoSize getVideoSizeSnapshot() {
+        return player.getVideoSizeSnapshot();
     }
 
     @Override
@@ -389,6 +397,7 @@ public class MpvPlayerEngine implements PlayerEngine {
 
     private MpvPlayer buildPlayer(Player.Listener listener) {
         MpvPlayer player = new MpvPlayer(App.get(), buildConfig());
+        player.setVideoSizeProbeListener(videoSizeProbeListener);
         player.addListener(listener);
         return player;
     }
@@ -423,6 +432,7 @@ public class MpvPlayerEngine implements PlayerEngine {
         applySoftDecodeOptions(builder);
         if (surfaceDirect) {
             builder.vo("mediacodec_embed")
+                    .option("sid", "no")
                     .gpuApi("")
                     .openglEs(false);
         } else if (useVulkan) {

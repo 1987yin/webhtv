@@ -56,7 +56,7 @@ https://github.com/user-attachments/assets/984c274f-8a9b-4857-b641-d251e061f5cc
 - Android Intent、DLNA、MediaSession
 - CORS、Cookie 和网络策略
 
-WebHome 主页、扩展、模板、示例和 AI skills 统一放在 [webhome-devkit/](webhome-devkit/) （附 [独立CNB仓库](https://cnb.cool/fish2018/ext)）：
+WebHome 主页、扩展、模板、示例和 AI skills 统一放在 [webhome-devkit/](webhome-devkit/) （附 [独立 CNB 仓库](https://cnb.cool/fish2035/ext)）：
 
 - 扩展脚本开发指南见 [webhome-devkit/README.md](webhome-devkit/README.md)。
 - 扩展示例见 [webhome-devkit/examples/extensions/](webhome-devkit/examples/extensions/)。
@@ -327,21 +327,21 @@ adb install -r app/build/outputs/apk/mobileArm64_v8a/debug/app-mobile-arm64_v8a-
 
 仓库内置 `.github/workflows/android-release.yml`,只支持在 GitHub Actions 页面手动触发,不会在每次 push 代码时自动打包。默认 tag 会从 `app/build.gradle` 读取当前 `versionName`:稳定版生成 `v<versionName>-yyyyMMddHHmm`;在 `fongmi-sync` 分支选择 `auto` 通道时生成测试版 `v<versionName>-beta-yyyyMMddHHmm`,APK/JSON 文件名同步追加 `-beta`。
 
-工作流会构建 4 个 release APK,生成同名更新清单 JSON 并发布到 GitHub Release。启用 CNB 同步后,大 APK 会上传到同 tag 的 CNB Release 附件（单文件支持 64GB）,代码仓库的 `apk/` 目录只保存小型 JSON 清单,避免超过 100MB 时 Git 下载返回 413。正式发布前建议在 GitHub Secrets 配置:
+工作流会构建 4 个 release APK,生成同名更新清单 JSON 并发布到 GitHub Release。JSON 默认使用 GitHub Release 固定版本直链，不依赖 CNB 可用性。CNB 同步默认关闭，仅在确认内容权利、平台政策和流量用途后作为可选镜像手动开启。正式发布前建议在 GitHub Secrets 配置:
 
 ```text
 RELEASE_KEYSTORE_BASE64  # release keystore 的 base64 内容
 RELEASE_KEY_ALIAS        # key alias
 RELEASE_STORE_PASSWORD   # store password,key password 复用该值
 RELEASE_KEY_PASSWORD     # 可选,key password 与 store password 不同时配置
-CNB_TOKEN                # CNB 访问令牌,需要 repo-contents 读写权限
+CNB_TOKEN                # 可选，CNB 镜像令牌；仅存 GitHub Secret，需仓库读写权限
 ```
 
-CNB 默认同步到 `https://cnb.cool/fish2018/webhtv-release.git`,仓库标识为 `fish2018/webhtv-release`。`CNB Release Sync` 手动补同步时可通过输入参数临时指定其他仓库。更新 JSON 内的 APK 地址使用固定版本直链 `https://cnb.cool/<slug>/-/releases/download/<tag>/<apk>`，公开仓库可匿名下载并支持 Range/断点续传。
+CNB 可选镜像默认目标为 `https://cnb.cool/fish2035/webhtv-release.git`,仓库标识为 `fish2035/webhtv-release`。`CNB Release Sync` 手动补同步时可通过输入参数临时指定其他仓库。同步脚本只会在 CNB 镜像仓库内将 JSON 改写为 `https://cnb.cool/<slug>/-/releases/download/<tag>/<apk>`；GitHub Release 中的 JSON 仍指向 GitHub。
 
 GitHub Actions 正式发布必须配置签名 secrets,否则会直接失败,避免使用 runner 临时 debug key 生成无法覆盖安装的 APK。
 
-如果 CNB 同步失败,不需要重新打包。修正 `CNB_TOKEN` 或网络问题后,在 GitHub Actions 手动运行 `CNB Release Sync`,填写已有 `release_tag` 即可把该 GitHub Release 的 APK 上传到 CNB Release 附件,并把改写为 CNB 绝对下载地址的 JSON 补同步到代码仓库；`release_tag` 留空时同步最新 release。
+如果 CNB 同步失败,不需要重新打包，GitHub Release 和应用更新清单仍可独立使用。修正 `CNB_TOKEN` 或网络问题后,在 GitHub Actions 手动运行 `CNB Release Sync`,填写已有 `release_tag` 即可补同步；`release_tag` 留空时同步最新 release。令牌不得写入仓库、日志或 workflow 参数；曾在聊天、issue 或日志中暴露的令牌必须立即吊销。
 
 ### 签名
 

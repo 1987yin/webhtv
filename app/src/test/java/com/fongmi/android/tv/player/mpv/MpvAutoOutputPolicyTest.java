@@ -26,6 +26,24 @@ public class MpvAutoOutputPolicyTest {
     }
 
     @Test
+    public void evaluatesFourKBeforeTracksAreComplete() {
+        assertTrue(MpvAutoOutputPolicy.canEvaluateWithoutTracks(3840, 1606, false));
+    }
+
+    @Test
+    public void waitsForTracksWhenEarlyDecisionCouldLoseFeatures() {
+        assertFalse(MpvAutoOutputPolicy.canEvaluateWithoutTracks(1920, 1080, false));
+        assertFalse(MpvAutoOutputPolicy.canEvaluateWithoutTracks(3840, 2160, true));
+    }
+
+    @Test
+    public void ignoresAutoSelectedEmbeddedSubtitleButHonorsExplicitSubtitleDemand() {
+        assertFalse(MpvAutoOutputPolicy.requiresGpuSubtitle(false, false));
+        assertTrue(MpvAutoOutputPolicy.requiresGpuSubtitle(true, false));
+        assertTrue(MpvAutoOutputPolicy.requiresGpuSubtitle(false, true));
+    }
+
+    @Test
     public void keepsDirectOutputWhenNextItemRemainsEligible() {
         assertEquals(MpvAutoOutputPolicy.Transition.KEEP_SURFACE_DIRECT, MpvAutoOutputPolicy.transition(true, true));
     }

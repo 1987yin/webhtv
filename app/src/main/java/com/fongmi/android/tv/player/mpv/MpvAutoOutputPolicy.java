@@ -23,6 +23,14 @@ public final class MpvAutoOutputPolicy {
         return currentlyDirect ? Transition.LEAVE_SURFACE_DIRECT : Transition.KEEP_GPU;
     }
 
+    public static boolean canEvaluateWithoutTracks(int width, int height, boolean externalSubtitleActive) {
+        return !externalSubtitleActive && isHighResolution(width, height);
+    }
+
+    public static boolean requiresGpuSubtitle(boolean externalSubtitleActive, boolean userRequestedSubtitle) {
+        return externalSubtitleActive || userRequestedSubtitle;
+    }
+
     public enum Transition {
         KEEP_GPU,
         ENTER_SURFACE_DIRECT,
