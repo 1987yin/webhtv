@@ -247,7 +247,7 @@ public class DownloadManager {
         // m3u8 走 M3u8Downloader 的分片线程池，绝不能通过中断 future 来暂停：
         // 中断会让 download() 的 latch.await() 抛出 InterruptedException，被误判为“下载失败”。
         // 正确做法是置 paused 标记并取消 HTTP 请求，分片线程检测到后会自然退出并保留断点。
-        if (!isM3u8(id)) {
+        if (!isM3u8Item(id)) {
             Future<?> future = mFutures.get(id);
             if (future != null) future.cancel(true);
         }
@@ -286,7 +286,7 @@ public class DownloadManager {
             Future<?> old = mFutures.remove(id);
             if (old != null) {
                 // m3u8 任务不可中断（否则会被误判为失败），仅等待其自然退出；单文件可直接中断
-                if (!isM3u8(id)) old.cancel(true);
+                if (!isM3u8Item(id)) old.cancel(true);
                 try {
                     old.get();
                 } catch (Exception ignored) {
@@ -316,7 +316,7 @@ public class DownloadManager {
     public void cancel(String id) {
         Download download = mDownloads.remove(id);
         if (download != null) download.cancel();
-        boolean m3u8 = isM3u8(id);
+        boolean m3u8 = isM3u8Item(id);
         // 先标记状态，再取消任务，避免后台线程读到旧状态而误判
         for (DownloadItem item : mItems) {
             if (item.getId().equals(id)) {
@@ -381,7 +381,7 @@ public class DownloadManager {
         return file;
     }
 
-    private boolean isM3u8(String id) {
+    private boolean isM3u8Item(String id) {
         DownloadItem item = getItem(id);
         return item != null && isM3u8(item.getUrl());
     }
