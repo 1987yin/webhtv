@@ -130,7 +130,11 @@ public class Download {
 
     private boolean download(InputStream is, long offset, long total) throws IOException {
         boolean append = offset > 0;
-        try (BufferedInputStream input = new BufferedInputStream(is); FileOutputStream os = new FileOutputStream(Path.create(file), append)) {
+        File parent = file.getParentFile();
+        if (parent != null) parent.mkdirs();
+        // 不能用 Path.create(file)：文件已存在时会先删除再创建，导致 append 续传时文件被清空、
+        // 数据从位置 0 错位写入而损坏。这里直接以 append 模式打开已有文件。
+        try (BufferedInputStream input = new BufferedInputStream(is); FileOutputStream os = new FileOutputStream(file, append)) {
             byte[] buffer = new byte[16384];
             int readBytes;
             int lastProgress = -1;

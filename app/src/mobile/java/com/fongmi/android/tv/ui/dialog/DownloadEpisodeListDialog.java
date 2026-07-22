@@ -15,9 +15,9 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.DownloadGroup;
 import com.fongmi.android.tv.bean.DownloadItem;
 import com.fongmi.android.tv.databinding.ActivityDownloadEpisodesBinding;
+import com.fongmi.android.tv.ui.activity.VideoActivity;
 import com.fongmi.android.tv.ui.adapter.DownloadEpisodeListAdapter;
 import com.fongmi.android.tv.utils.DownloadManager;
-import com.fongmi.android.tv.utils.FileUtil;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.io.File;
@@ -78,7 +78,9 @@ public class DownloadEpisodeListDialog extends BaseBottomSheetDialog {
     private void onAction(DownloadItem item, int action) {
         if (action == DownloadEpisodeListAdapter.ACTION_PLAY) {
             if (item.getState() == DownloadItem.SUCCESS && !TextUtils.isEmpty(item.getFilePath())) {
-                FileUtil.openFile(new File(item.getFilePath()));
+                String uri = item.getFilePath();
+                if (!uri.startsWith("file://")) uri = "file://" + uri;
+                VideoActivity.start(requireActivity(), uri);
             }
         } else if (action == DownloadEpisodeListAdapter.ACTION_PAUSE) {
             DownloadManager.get().pause(item.getId());

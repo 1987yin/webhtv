@@ -318,6 +318,11 @@ public class DownloadManager {
                 item.setCanceled(true);
                 item.setPaused(false);
                 if (item.isActive()) item.setState(DownloadItem.CANCELED);
+                // m3u8 本地目录需连同样片一起清理
+                if (isM3u8(item.getUrl()) && !TextUtils.isEmpty(item.getFilePath())) {
+                    File f = new File(item.getFilePath());
+                    if (f.getParentFile() != null) Path.clear(f.getParentFile());
+                }
             }
         }
         notifyChanged();

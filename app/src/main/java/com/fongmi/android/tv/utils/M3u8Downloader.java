@@ -1,8 +1,5 @@
 package com.fongmi.android.tv.utils;
 
-import android.media.MediaExtractor;
-import android.media.MediaFormat;
-import android.media.MediaMuxer;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.bean.DownloadItem;
@@ -10,11 +7,10 @@ import com.github.catvod.net.OkHttp;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -58,12 +54,14 @@ public class M3u8Downloader {
         final String keyUri;
         final byte[] iv;
         final long sequence;
+        final double duration;
 
-        Segment(String uri, String keyUri, byte[] iv, long sequence) {
+        Segment(String uri, String keyUri, byte[] iv, long sequence, double duration) {
             this.uri = uri;
             this.keyUri = keyUri;
             this.iv = iv;
             this.sequence = sequence;
+            this.duration = duration;
         }
     }
 
@@ -79,48 +77,59 @@ public class M3u8Downloader {
         List<Segment> segments = parseSegments(playlist, m3u8Url);
         if (segments.isEmpty()) throw new Exception("no segments in playlist");
 
-        File dir = new File(targetMp4.getParentFile(), "tmp_" + item.getId());
-        if (!dir.exists() && !dir.mkdirs()) throw new Exception("create temp dir failed");
+        // 本地输出目录：与 targetMp4 同目录、同名 + "_hls"，内部保存各分片与 index.m3u8。
+        // 直接基于分片构建本地播放列表，无需整体合并/转封装，天然支持断点续传与本地播放。
+        File dir = new File(targetMp4.getParentFile(), targetMp4.getName().replaceAll("\\.mp4$", "") + "_hls");
+        if (!dir.exists() && !dir.mkdirs()) throw new Exception("create hls dir failed");
 
         try {
-            File tsFile = downloadSegments(item, headers, segments, dir, listener);
+            int total = segments.size();
+            // 统计已下载分片（续传），避免重复下载
+            int completed = 0;
+            long downloadedBytes = 0;
+            for (int i = 0; i < total; i++) {
+                File sf = new File(dir, "seg_" + i + ".ts");
+                if (sf.exists() && sf.length() > 0) {
+                    completed++;
+                    downloadedBytes += sf.length();
+                }
+            }
+            if (completed < total) {
+                downloadSegments(item, headers, segments, dir, completed, downloadedBytes, listener);
+            }
             if (item.isCanceled()) throw new CanceledException();
             if (item.isPaused()) throw new PausedException();
-            File out = targetMp4;
-            try {
-                remuxToMp4(tsFile, targetMp4);
-            } catch (Throwable e) {
-                if (targetMp4.exists()) targetMp4.delete();
-                File tsOut = new File(targetMp4.getParent(), targetMp4.getName().replaceAll("\\.mp4$", ".ts"));
-                copyFile(tsFile, tsOut);
-                out = tsOut;
-            }
-            deleteDir(dir);
+            writePlaylist(dir, segments);
+            File out = new File(dir, "index.m3u8");
+            long size = dirSize(dir);
+            if (listener != null) listener.onProgress(100, size, size, 0);
             return out;
         } catch (PausedException e) {
-            // Keep the temp dir so the download can be resumed.
+            // 保留目录以便续传
             throw e;
         } catch (CanceledException e) {
             deleteDir(dir);
             throw e;
         } catch (Throwable e) {
-            // Keep the temp dir for resume/retry; only cancel removes it.
+            // 保留目录用于续传/重试，仅取消会删除
             throw e;
         }
     }
 
     private static List<Segment> parseSegments(String playlist, String baseUrl) {
         List<Segment> segments = new ArrayList<>();
-        List<String> variants = new ArrayList<>();
         long mediaSequence = 0;
         String keyUri = null;
         byte[] keyIv = null;
         boolean pendingVariant = false;
+        double pendingDuration = 0;
         String[] lines = playlist.replace("\r\n", "\n").replace('\r', '\n').split("\n", -1);
         for (String raw : lines) {
             String line = raw.trim();
             if (line.isEmpty() || line.startsWith("#")) {
-                if (line.startsWith("#EXT-X-MEDIA-SEQUENCE:")) {
+                if (line.startsWith("#EXTINF")) {
+                    pendingDuration = parseExtinf(line);
+                } else if (line.startsWith("#EXT-X-MEDIA-SEQUENCE:")) {
                     try {
                         mediaSequence = Long.parseLong(line.substring("#EXT-X-MEDIA-SEQUENCE:".length()).trim());
                     } catch (Exception ignored) {
@@ -142,15 +151,28 @@ public class M3u8Downloader {
                 continue;
             }
             if (pendingVariant) {
-                variants.add(resolve(baseUrl, line));
                 pendingVariant = false;
             } else {
                 long seq = mediaSequence + segments.size();
                 byte[] iv = keyIv != null ? keyIv : sequenceToIv(seq);
-                segments.add(new Segment(resolve(baseUrl, line), keyUri, iv, seq));
+                segments.add(new Segment(resolve(baseUrl, line), keyUri, iv, seq, pendingDuration));
+                pendingDuration = 0;
             }
         }
         return segments;
+    }
+
+    private static double parseExtinf(String line) {
+        try {
+            int colon = line.indexOf(':');
+            if (colon < 0) return 0;
+            String val = line.substring(colon + 1);
+            int comma = val.indexOf(',');
+            if (comma >= 0) val = val.substring(0, comma);
+            return Double.parseDouble(val.trim());
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     private static String chooseVariant(String playlist, String baseUrl) {
@@ -183,28 +205,19 @@ public class M3u8Downloader {
         return best;
     }
 
-    private static File downloadSegments(DownloadItem item, Map<String, String> headers, List<Segment> segments, File dir, ProgressListener listener) throws Exception {
+    private static void downloadSegments(DownloadItem item, Map<String, String> headers, List<Segment> segments, File dir, int startCompleted, long startBytes, ProgressListener listener) throws Exception {
         int total = segments.size();
-        File tsFile = new File(dir, "merged.ts");
+        File[] segFiles = new File[total];
+        for (int i = 0; i < total; i++) segFiles[i] = new File(dir, "seg_" + i + ".ts");
         ExecutorService pool = Executors.newFixedThreadPool(SEGMENT_THREADS);
         CountDownLatch latch = new CountDownLatch(total);
         AtomicBoolean failed = new AtomicBoolean(false);
-        AtomicLong downloadedBytes = new AtomicLong(0);
-        AtomicInteger completed = new AtomicInteger(0);
-        File[] segFiles = new File[total];
-        for (int i = 0; i < total; i++) segFiles[i] = new File(dir, "seg_" + i + ".ts");
+        AtomicLong downloadedBytes = new AtomicLong(startBytes);
+        AtomicInteger completed = new AtomicInteger(startCompleted);
         String tag = item.getId();
         long startTime = System.currentTimeMillis();
         AtomicLong lastNotify = new AtomicLong(startTime);
-        AtomicLong lastBytes = new AtomicLong(0);
-
-        // Resume: count already-downloaded segments so progress continues from where it left off.
-        for (File sf : segFiles) {
-            if (sf.exists()) {
-                completed.incrementAndGet();
-                downloadedBytes.addAndGet(sf.length());
-            }
-        }
+        AtomicLong lastBytes = new AtomicLong(startBytes);
 
         for (int i = 0; i < total; i++) {
             final int index = i;
@@ -212,20 +225,22 @@ public class M3u8Downloader {
             pool.execute(() -> {
                 try {
                     if (item.isCanceled() || failed.get()) return;
-                    if (segFiles[index].exists()) {
-                        // Already downloaded in a previous session; skip it.
-                        onSegmentDone(completed, total, downloadedBytes, lastNotify, lastBytes, startTime, listener);
+                    if (segFiles[index].exists() && segFiles[index].length() > 0) {
+                        // 已下载（续传），直接跳过
                         return;
                     }
                     if (item.isPaused() || item.isCanceled()) return;
                     byte[] data = fetchBytes(seg.uri, headers, tag, item);
                     if (item.isPaused() || item.isCanceled()) return;
                     if (seg.keyUri != null) data = decrypt(data, seg.keyUri, seg.iv, headers, tag, item);
+                    if (item.isPaused() || item.isCanceled()) return;
                     try (OutputStream os = new BufferedOutputStream(new FileOutputStream(segFiles[index]))) {
                         os.write(data);
                     }
                     downloadedBytes.addAndGet(data.length);
                     onSegmentDone(completed, total, downloadedBytes, lastNotify, lastBytes, startTime, listener);
+                } catch (PausedException | CanceledException e) {
+                    // 暂停/取消：不标记为失败
                 } catch (Throwable e) {
                     failed.set(true);
                 } finally {
@@ -238,20 +253,6 @@ public class M3u8Downloader {
         if (item.isCanceled()) throw new CanceledException();
         if (item.isPaused()) throw new PausedException();
         if (failed.get()) throw new Exception("segment download failed");
-
-        try (OutputStream os = new BufferedOutputStream(new FileOutputStream(tsFile))) {
-            byte[] buf = new byte[64 * 1024];
-            for (int i = 0; i < total; i++) {
-                File sf = segFiles[i];
-                if (!sf.exists()) throw new Exception("missing segment " + i);
-                try (InputStream is = new FileInputStream(sf)) {
-                    int r;
-                    while ((r = is.read(buf)) != -1) os.write(buf, 0, r);
-                }
-            }
-        }
-        if (listener != null) listener.onProgress(100, downloadedBytes.get(), downloadedBytes.get(), 0);
-        return tsFile;
     }
 
     private static void onSegmentDone(AtomicInteger completed, int total, AtomicLong downloadedBytes, AtomicLong lastNotify, AtomicLong lastBytes, long startTime, ProgressListener listener) {
@@ -267,40 +268,31 @@ public class M3u8Downloader {
         }
     }
 
-    private static void remuxToMp4(File tsFile, File mp4File) throws Exception {
-        MediaExtractor extractor = new MediaExtractor();
-        extractor.setDataSource(tsFile.getAbsolutePath());
-        int trackCount = extractor.getTrackCount();
-        if (trackCount == 0) throw new Exception("no track in merged ts");
-        MediaMuxer muxer = new MediaMuxer(mp4File.getAbsolutePath(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
-        int[] muxTracks = new int[trackCount];
-        for (int i = 0; i < trackCount; i++) {
-            MediaFormat format = extractor.getTrackFormat(i);
-            muxTracks[i] = muxer.addTrack(format);
+    private static void writePlaylist(File dir, List<Segment> segments) throws Exception {
+        File m3u8 = new File(dir, "index.m3u8");
+        double maxDur = 0;
+        for (Segment seg : segments) {
+            if (seg.duration > maxDur) maxDur = seg.duration;
         }
-        muxer.start();
-        ByteBuffer buffer = ByteBuffer.allocate(1024 * 1024);
-        android.media.MediaCodec.BufferInfo info = new android.media.MediaCodec.BufferInfo();
-        for (int i = 0; i < trackCount; i++) extractor.selectTrack(i);
-        boolean eos = false;
-        while (!eos) {
-            int trackIndex = extractor.getSampleTrackIndex();
-            if (trackIndex < 0) break;
-            buffer.clear();
-            int size = extractor.readSampleData(buffer, 0);
-            if (size < 0) {
-                eos = true;
-                break;
-            }
-            info.size = size;
-            info.presentationTimeUs = extractor.getSampleTime();
-            info.flags = extractor.getSampleFlags();
-            muxer.writeSampleData(muxTracks[trackIndex], buffer, info);
-            extractor.advance();
+        StringBuilder sb = new StringBuilder();
+        sb.append("#EXTM3U\n");
+        sb.append("#EXT-X-VERSION:3\n");
+        sb.append("#EXT-X-TARGETDURATION:").append((long) Math.ceil(maxDur)).append("\n");
+        for (int i = 0; i < segments.size(); i++) {
+            sb.append("#EXTINF:").append(segments.get(i).duration).append(",\n");
+            sb.append("seg_").append(i).append(".ts\n");
         }
-        muxer.stop();
-        muxer.release();
-        extractor.release();
+        sb.append("#EXT-X-ENDLIST\n");
+        try (FileOutputStream os = new FileOutputStream(m3u8)) {
+            os.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private static long dirSize(File dir) {
+        long size = 0;
+        File[] files = dir.listFiles();
+        if (files != null) for (File f : files) if (f.isFile()) size += f.length();
+        return size;
     }
 
     private static byte[] decrypt(byte[] data, String keyUri, byte[] iv, Map<String, String> headers, String tag, DownloadItem item) throws Exception {
@@ -313,7 +305,7 @@ public class M3u8Downloader {
         try {
             return cipher.doFinal(data);
         } catch (javax.crypto.BadPaddingException e) {
-            // Some sources encrypt without PKCS7 padding; retry with NoPadding.
+            // 部分源未使用 PKCS7 填充，回退 NoPadding
             Cipher raw = Cipher.getInstance("AES/CBC/NoPadding");
             raw.init(Cipher.DECRYPT_MODE, keySpec, ivSpec);
             return raw.doFinal(data);
@@ -323,12 +315,14 @@ public class M3u8Downloader {
     private static byte[] fetchBytes(String url, Map<String, String> headers, String tag, DownloadItem item) throws Exception {
         int retry = 0;
         while (true) {
-            if (item.isPaused() || item.isCanceled()) throw new Exception("Paused");
+            if (item.isPaused() || item.isCanceled()) throw new PausedException();
             try {
                 try (Response res = OkHttp.newCall(url, headers, tag).execute()) {
                     if (!res.isSuccessful() || res.body() == null) throw new Exception("HTTP " + res.code());
                     return res.body().bytes();
                 }
+            } catch (PausedException e) {
+                throw e;
             } catch (Throwable e) {
                 if (++retry >= SEGMENT_RETRY) throw e;
                 try {
@@ -404,13 +398,5 @@ public class M3u8Downloader {
         File[] files = dir.listFiles();
         if (files != null) for (File f : files) f.delete();
         dir.delete();
-    }
-
-    private static void copyFile(File src, File dst) throws Exception {
-        try (InputStream in = new FileInputStream(src); OutputStream out = new FileOutputStream(dst)) {
-            byte[] buf = new byte[64 * 1024];
-            int r;
-            while ((r = in.read(buf)) != -1) out.write(buf, 0, r);
-        }
     }
 }
