@@ -7,6 +7,7 @@ import com.github.catvod.net.OkHttp;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -65,55 +66,71 @@ public class M3u8Downloader {
         }
     }
 
+    // 下载入口。targetMp4 为占位文件（name.mp4），实际产物为同目录的 name.ts（所有分片合并后的单文件）。
+    // 关键点：第一次解析 playlist 后，把“已解析的分片播放列表”与 baseUrl 持久化到 _hls 目录，
+    // 续传/重试时复用同一份列表，避免滑动窗口、签名 URL、按次变化的源导致分片列表不一致、
+    // 按索引重算“已完成”数量错乱而跳过下载。
     public static File download(DownloadItem item, Map<String, String> headers, File targetMp4, ProgressListener listener) throws Exception {
-        String m3u8Url = item.getUrl();
-        String playlist = fetchText(m3u8Url, headers);
-        if (isMaster(playlist)) {
-            String variant = chooseVariant(playlist, m3u8Url);
-            if (TextUtils.isEmpty(variant)) throw new Exception("no variant in master playlist");
-            playlist = fetchText(variant, headers);
-            m3u8Url = variant;
+        File dir = new File(targetMp4.getParentFile(), baseName(targetMp4) + "_hls");
+        if (!dir.exists() && !dir.mkdirs()) throw new Exception("create hls dir failed");
+        File playlistFile = new File(dir, "playlist.m3u8");
+        File baseUrlFile = new File(dir, "baseurl.txt");
+
+        String playlist;
+        String baseUrl;
+        if (playlistFile.exists() && baseUrlFile.exists()) {
+            // 续传：复用首次解析并保存的分片列表，保证索引与已下载的 seg_i.ts 一一对应
+            playlist = readFile(playlistFile);
+            baseUrl = readFile(baseUrlFile);
+        } else {
+            String m3u8Url = item.getUrl();
+            playlist = fetchText(m3u8Url, headers);
+            if (isMaster(playlist)) {
+                String variant = chooseVariant(playlist, m3u8Url);
+                if (TextUtils.isEmpty(variant)) throw new Exception("no variant in master playlist");
+                playlist = fetchText(variant, headers);
+                m3u8Url = variant;
+            }
+            baseUrl = m3u8Url;
+            writeFile(playlistFile, playlist);
+            writeFile(baseUrlFile, baseUrl);
         }
-        List<Segment> segments = parseSegments(playlist, m3u8Url);
+
+        List<Segment> segments = parseSegments(playlist, baseUrl);
         if (segments.isEmpty()) throw new Exception("no segments in playlist");
 
-        // 本地输出目录：与 targetMp4 同目录、同名 + "_hls"，内部保存各分片与 index.m3u8。
-        // 直接基于分片构建本地播放列表，无需整体合并/转封装，天然支持断点续传与本地播放。
-        File dir = new File(targetMp4.getParentFile(), targetMp4.getName().replaceAll("\\.mp4$", "") + "_hls");
-        if (!dir.exists() && !dir.mkdirs()) throw new Exception("create hls dir failed");
-
-        try {
-            int total = segments.size();
-            // 统计已下载分片（续传），避免重复下载
-            int completed = 0;
-            long downloadedBytes = 0;
-            for (int i = 0; i < total; i++) {
-                File sf = new File(dir, "seg_" + i + ".ts");
-                if (sf.exists() && sf.length() > 0) {
-                    completed++;
-                    downloadedBytes += sf.length();
-                }
+        int total = segments.size();
+        int completed = 0;
+        long downloadedBytes = 0;
+        for (int i = 0; i < total; i++) {
+            File sf = new File(dir, "seg_" + i + ".ts");
+            if (sf.exists() && sf.length() > 0) {
+                completed++;
+                downloadedBytes += sf.length();
             }
-            if (completed < total) {
-                downloadSegments(item, headers, segments, dir, completed, downloadedBytes, listener);
-            }
-            if (item.isCanceled()) throw new CanceledException();
-            if (item.isPaused()) throw new PausedException();
-            writePlaylist(dir, segments);
-            File out = new File(dir, "index.m3u8");
-            long size = dirSize(dir);
-            if (listener != null) listener.onProgress(100, size, size, 0);
-            return out;
-        } catch (PausedException e) {
-            // 保留目录以便续传
-            throw e;
-        } catch (CanceledException e) {
-            deleteDir(dir);
-            throw e;
-        } catch (Throwable e) {
-            // 保留目录用于续传/重试，仅取消会删除
-            throw e;
         }
+        if (completed < total) {
+            downloadSegments(item, headers, segments, dir, completed, downloadedBytes, listener);
+        }
+        if (item.isCanceled()) throw new CanceledException();
+        if (item.isPaused()) throw new PausedException();
+
+        // 完成前必须校验所有分片确实就绪，杜绝“部分缺失却标记成功”
+        for (int i = 0; i < total; i++) {
+            File sf = new File(dir, "seg_" + i + ".ts");
+            if (!sf.exists() || sf.length() == 0) throw new Exception("segment missing: " + i);
+        }
+
+        // 合并为单个 .ts：MPEG-TS 可直接拼接，单文件播放最稳、时长准确、无缺失分片问题
+        File merged = new File(targetMp4.getParentFile(), baseName(targetMp4) + ".ts");
+        mergeTs(dir, total, merged);
+        // 清理分片与临时文件（占位 mp4 亦无用）
+        deleteDir(dir);
+        File placeholder = targetMp4;
+        if (placeholder.exists()) placeholder.delete();
+
+        if (listener != null) listener.onProgress(100, merged.length(), merged.length(), 0);
+        return merged;
     }
 
     private static List<Segment> parseSegments(String playlist, String baseUrl) {
@@ -169,7 +186,9 @@ public class M3u8Downloader {
             String val = line.substring(colon + 1);
             int comma = val.indexOf(',');
             if (comma >= 0) val = val.substring(0, comma);
-            return Double.parseDouble(val.trim());
+            val = val.trim();
+            if (val.isEmpty()) return 0;
+            return Double.parseDouble(val);
         } catch (Exception e) {
             return 0;
         }
@@ -276,31 +295,17 @@ public class M3u8Downloader {
         }
     }
 
-    private static void writePlaylist(File dir, List<Segment> segments) throws Exception {
-        File m3u8 = new File(dir, "index.m3u8");
-        double maxDur = 0;
-        for (Segment seg : segments) {
-            if (seg.duration > maxDur) maxDur = seg.duration;
+    private static void mergeTs(File dir, int total, File out) throws Exception {
+        try (OutputStream os = new BufferedOutputStream(new FileOutputStream(out))) {
+            byte[] buf = new byte[64 * 1024];
+            for (int i = 0; i < total; i++) {
+                File sf = new File(dir, "seg_" + i + ".ts");
+                try (InputStream is = new FileInputStream(sf)) {
+                    int n;
+                    while ((n = is.read(buf)) > 0) os.write(buf, 0, n);
+                }
+            }
         }
-        StringBuilder sb = new StringBuilder();
-        sb.append("#EXTM3U\n");
-        sb.append("#EXT-X-VERSION:3\n");
-        sb.append("#EXT-X-TARGETDURATION:").append((long) Math.ceil(maxDur)).append("\n");
-        for (int i = 0; i < segments.size(); i++) {
-            sb.append("#EXTINF:").append(segments.get(i).duration).append(",\n");
-            sb.append("seg_").append(i).append(".ts\n");
-        }
-        sb.append("#EXT-X-ENDLIST\n");
-        try (FileOutputStream os = new FileOutputStream(m3u8)) {
-            os.write(sb.toString().getBytes(StandardCharsets.UTF_8));
-        }
-    }
-
-    private static long dirSize(File dir) {
-        long size = 0;
-        File[] files = dir.listFiles();
-        if (files != null) for (File f : files) if (f.isFile()) size += f.length();
-        return size;
     }
 
     private static byte[] decrypt(byte[] data, String keyUri, byte[] iv, Map<String, String> headers, String tag, DownloadItem item) throws Exception {
@@ -401,10 +406,30 @@ public class M3u8Downloader {
         return iv;
     }
 
+    private static String baseName(File f) {
+        String n = f.getName();
+        int dot = n.lastIndexOf('.');
+        return dot > 0 ? n.substring(0, dot) : n;
+    }
+
+    private static String readFile(File f) throws Exception {
+        try (InputStream is = new FileInputStream(f)) {
+            byte[] buf = new byte[(int) f.length()];
+            int n = is.read(buf);
+            return new String(buf, 0, n < 0 ? 0 : n, StandardCharsets.UTF_8);
+        }
+    }
+
+    private static void writeFile(File f, String s) throws Exception {
+        try (OutputStream os = new FileOutputStream(f)) {
+            os.write(s.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
     private static void deleteDir(File dir) {
         if (dir == null || !dir.exists()) return;
         File[] files = dir.listFiles();
-        if (files != null) for (File f : files) f.delete();
+        if (files != null) for (File f : files) deleteDir(f);
         dir.delete();
     }
 }
