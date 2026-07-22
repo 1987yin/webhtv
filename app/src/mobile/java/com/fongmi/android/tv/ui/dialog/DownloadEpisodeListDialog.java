@@ -46,6 +46,11 @@ public class DownloadEpisodeListDialog extends BaseBottomSheetDialog {
     }
 
     @Override
+    protected int getMaxHeight() {
+        return (int) (getResources().getDisplayMetrics().heightPixels * 0.6f);
+    }
+
+    @Override
     protected void initView() {
         mAdapter = new DownloadEpisodeListAdapter(this::onAction);
         mBinding.recycler.setLayoutManager(new LinearLayoutManager(requireContext()));

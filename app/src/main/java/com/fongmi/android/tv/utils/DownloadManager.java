@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public class DownloadManager {
 
@@ -29,6 +30,7 @@ public class DownloadManager {
     private final List<Callback> mCallbacks;
     private final ExecutorService mExecutor;
     private final Map<String, Download> mDownloads;
+    private final Map<String, Future<?>> mFutures;
 
     public static synchronized DownloadManager get() {
         if (sInstance == null) sInstance = new DownloadManager();
@@ -39,6 +41,7 @@ public class DownloadManager {
         mItems = new ArrayList<>();
         mCallbacks = new ArrayList<>();
         mDownloads = new ConcurrentHashMap<>();
+        mFutures = new ConcurrentHashMap<>();
         mExecutor = Executors.newFixedThreadPool(2);
     }
 
@@ -145,6 +148,11 @@ public class DownloadManager {
     }
 
     private void downloadM3u8(DownloadItem item, File file) {
+        Future<?> future = Task.submit(() -> runM3u8(item, file));
+        mFutures.put(item.getId(), future);
+    }
+
+    private void runM3u8(DownloadItem item, File file) {
         try {
             File mp4 = M3u8Downloader.download(item, item.getHeaders(), file, (percent, bytes, total, speed) -> {
                 item.setProgress(percent);
@@ -164,7 +172,7 @@ public class DownloadManager {
             item.setSpeed(0);
             notifyChanged();
         } catch (M3u8Downloader.PausedException e) {
-            if (item.getState() != DownloadItem.DOWNLOADING) {
+            if (item.isPaused()) {
                 item.setState(DownloadItem.PAUSED);
                 item.setSpeed(0);
             }
@@ -172,13 +180,16 @@ public class DownloadManager {
         } catch (Throwable e) {
             if (item.isCanceled()) {
                 item.setState(DownloadItem.CANCELED);
-            } else if (item.isPaused() && item.getState() != DownloadItem.DOWNLOADING) {
+            } else if (item.isPaused()) {
                 item.setState(DownloadItem.PAUSED);
+                item.setSpeed(0);
             } else {
                 item.setState(DownloadItem.ERROR);
                 item.setError(e.getMessage());
             }
             notifyChanged();
+        } finally {
+            mFutures.remove(item.getId());
         }
     }
 
@@ -221,6 +232,9 @@ public class DownloadManager {
     public void pause(String id) {
         Download download = mDownloads.get(id);
         if (download != null) download.pause();
+        Future<?> future = mFutures.get(id);
+        if (future != null) future.cancel(true);
+        OkHttp.cancel(id);
         for (DownloadItem item : mItems) {
             if (item.getId().equals(id)) {
                 if (item.isActive() && item.getState() != DownloadItem.PAUSED) {
@@ -244,8 +258,20 @@ public class DownloadManager {
         if (target == null || target.getState() != DownloadItem.PAUSED) return;
         final DownloadItem finalTarget = target;
         target.setPaused(false);
-        File file = new File(target.getFilePath());
-        mExecutor.execute(() -> resumeDownload(finalTarget, file));
+        mExecutor.execute(() -> {
+            // 取消并等待旧任务结束，避免与正在退出的下载并发操作同一文件/tmp 目录
+            Future<?> old = mFutures.remove(id);
+            if (old != null) {
+                old.cancel(true);
+                try {
+                    old.get();
+                } catch (Exception ignored) {
+                }
+            }
+            OkHttp.cancel(id);
+            mDownloads.remove(id);
+            resumeDownload(finalTarget, new File(finalTarget.getFilePath()));
+        });
     }
 
     private void resumeDownload(DownloadItem item, File file) {
@@ -266,6 +292,8 @@ public class DownloadManager {
     public void cancel(String id) {
         Download download = mDownloads.remove(id);
         if (download != null) download.cancel();
+        Future<?> future = mFutures.remove(id);
+        if (future != null) future.cancel(true);
         OkHttp.cancel(id);
         for (DownloadItem item : mItems) {
             if (item.getId().equals(id)) {

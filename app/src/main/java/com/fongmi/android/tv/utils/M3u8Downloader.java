@@ -104,7 +104,7 @@ public class M3u8Downloader {
             deleteDir(dir);
             throw e;
         } catch (Throwable e) {
-            deleteDir(dir);
+            // Keep the temp dir for resume/retry; only cancel removes it.
             throw e;
         }
     }
