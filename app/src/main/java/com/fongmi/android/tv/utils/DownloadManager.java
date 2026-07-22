@@ -244,8 +244,13 @@ public class DownloadManager {
     public void pause(String id) {
         Download download = mDownloads.get(id);
         if (download != null) download.pause();
-        Future<?> future = mFutures.get(id);
-        if (future != null) future.cancel(true);
+        // m3u8 走 M3u8Downloader 的分片线程池，绝不能通过中断 future 来暂停：
+        // 中断会让 download() 的 latch.await() 抛出 InterruptedException，被误判为“下载失败”。
+        // 正确做法是置 paused 标记并取消 HTTP 请求，分片线程检测到后会自然退出并保留断点。
+        if (!isM3u8(id)) {
+            Future<?> future = mFutures.get(id);
+            if (future != null) future.cancel(true);
+        }
         OkHttp.cancel(id);
         for (DownloadItem item : mItems) {
             if (item.getId().equals(id)) {
@@ -277,10 +282,11 @@ public class DownloadManager {
             finalTarget.setProgress(0);
         }
         mExecutor.execute(() -> {
-            // 取消并等待旧任务结束，避免与正在退出的下载并发操作同一文件/tmp 目录
+            // 等待旧任务结束，避免与正在退出的下载并发操作同一目录
             Future<?> old = mFutures.remove(id);
             if (old != null) {
-                old.cancel(true);
+                // m3u8 任务不可中断（否则会被误判为失败），仅等待其自然退出；单文件可直接中断
+                if (!isM3u8(id)) old.cancel(true);
                 try {
                     old.get();
                 } catch (Exception ignored) {
@@ -310,21 +316,30 @@ public class DownloadManager {
     public void cancel(String id) {
         Download download = mDownloads.remove(id);
         if (download != null) download.cancel();
-        Future<?> future = mFutures.remove(id);
-        if (future != null) future.cancel(true);
-        OkHttp.cancel(id);
+        boolean m3u8 = isM3u8(id);
+        // 先标记状态，再取消任务，避免后台线程读到旧状态而误判
         for (DownloadItem item : mItems) {
             if (item.getId().equals(id)) {
                 item.setCanceled(true);
                 item.setPaused(false);
                 if (item.isActive()) item.setState(DownloadItem.CANCELED);
-                // m3u8 本地目录需连同样片一起清理
-                if (isM3u8(item.getUrl()) && !TextUtils.isEmpty(item.getFilePath())) {
-                    File f = new File(item.getFilePath());
-                    if (f.getParentFile() != null) Path.clear(f.getParentFile());
-                }
             }
         }
+        if (m3u8) {
+            // m3u8：同样不要中断 future，让后台任务在 CanceledException 时自行 deleteDir 清理分片目录；
+            // 若任务已结束（暂停/已完成等，future 已不存在），此处直接清理本地分片目录，
+            // 注意只清理该任务的 _hls 目录，不能误删整个下载根目录。
+            if (!mFutures.containsKey(id)) {
+                DownloadItem item = getItem(id);
+                if (item != null && !TextUtils.isEmpty(item.getFilePath())) {
+                    Path.clear(hlsDirOf(item));
+                }
+            }
+        } else {
+            Future<?> future = mFutures.remove(id);
+            if (future != null) future.cancel(true);
+        }
+        OkHttp.cancel(id);
         notifyChanged();
     }
 
@@ -364,6 +379,28 @@ public class DownloadManager {
         int i = 1;
         while (file.exists()) file = new File(dir, base + "_" + (i++) + ext);
         return file;
+    }
+
+    private boolean isM3u8(String id) {
+        DownloadItem item = getItem(id);
+        return item != null && isM3u8(item.getUrl());
+    }
+
+    private DownloadItem getItem(String id) {
+        for (DownloadItem item : mItems) {
+            if (item.getId().equals(id)) return item;
+        }
+        return null;
+    }
+
+    // 还原 m3u8 的本地分片目录：与 buildFile 生成的占位文件（name.mp4）同目录、同名 + "_hls"。
+    // 若 filePath 已是 index.m3u8（下载完成后），其父目录即为 _hls 目录。
+    private File hlsDirOf(DownloadItem item) {
+        File f = new File(item.getFilePath());
+        File parent = f.getParentFile();
+        if (parent != null && parent.getName().endsWith("_hls")) return parent;
+        String base = f.getName().replaceAll("\\.(mp4|m3u8|m3u|ts)$", "");
+        return new File(parent, base + "_hls");
     }
 
     private boolean isM3u8(String url) {

@@ -248,8 +248,16 @@ public class M3u8Downloader {
                 }
             });
         }
-        latch.await();
-        pool.shutdown();
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            if (item.isCanceled()) throw new CanceledException();
+            if (item.isPaused()) throw new PausedException();
+            throw new Exception("interrupted");
+        } finally {
+            pool.shutdown();
+        }
         if (item.isCanceled()) throw new CanceledException();
         if (item.isPaused()) throw new PausedException();
         if (failed.get()) throw new Exception("segment download failed");
