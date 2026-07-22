@@ -173,9 +173,12 @@ public class DownloadManager {
                 notifyChanged();
                 return;
             }
+            // 走到这里说明 M3u8Downloader.download 已成功返回（分片全部就绪且播放列表已写出），
+            // 即下载“真正完成”。即便期间用户点了暂停，也以完成态为准，避免出现
+            // “显示已暂停、但分片其实已下完、点恢复又瞬间完成”的假象。
             item.setFilePath(mp4.getAbsolutePath());
-            // 若用户在此期间暂停/取消，保留其状态，避免后台完成覆盖 PAUSED
-            if (!item.isPaused() && !item.isCanceled()) {
+            if (!item.isCanceled()) {
+                item.setPaused(false);
                 item.setState(DownloadItem.SUCCESS);
                 item.setProgress(100);
                 item.setSpeed(0);
