@@ -21,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DownloadManager {
 
@@ -31,6 +32,7 @@ public class DownloadManager {
     private final ExecutorService mExecutor;
     private final Map<String, Download> mDownloads;
     private final Map<String, Future<?>> mFutures;
+    private final AtomicBoolean mNotifyPosted = new AtomicBoolean(false);
 
     public static synchronized DownloadManager get() {
         if (sInstance == null) sInstance = new DownloadManager();
@@ -91,9 +93,13 @@ public class DownloadManager {
     }
 
     private void notifyChanged() {
-        App.post(() -> {
-            for (Callback callback : new ArrayList<>(mCallbacks)) callback.onChanged();
-        });
+        // 合并高频进度刷新：若已有刷新在排队，则丢弃本次，避免主线程被刷新洪流占满导致界面卡顿/无法点击
+        if (mNotifyPosted.compareAndSet(false, true)) {
+            App.post(() -> {
+                mNotifyPosted.set(false);
+                for (Callback callback : new ArrayList<>(mCallbacks)) callback.onChanged();
+            });
+        }
     }
 
     public void enqueue(DownloadItem item, String siteKey, String flag, String episodeUrl) {
@@ -155,6 +161,7 @@ public class DownloadManager {
     private void runM3u8(DownloadItem item, File file) {
         try {
             File mp4 = M3u8Downloader.download(item, item.getHeaders(), file, (percent, bytes, total, speed) -> {
+                if (item.getState() != DownloadItem.DOWNLOADING) return;
                 item.setProgress(percent);
                 item.setTotal(bytes);
                 item.setSpeed(speed);
@@ -167,10 +174,13 @@ public class DownloadManager {
                 return;
             }
             item.setFilePath(mp4.getAbsolutePath());
-            item.setState(DownloadItem.SUCCESS);
-            item.setProgress(100);
-            item.setSpeed(0);
-            notifyChanged();
+            // 若用户在此期间暂停/取消，保留其状态，避免后台完成覆盖 PAUSED
+            if (!item.isPaused() && !item.isCanceled()) {
+                item.setState(DownloadItem.SUCCESS);
+                item.setProgress(100);
+                item.setSpeed(0);
+                notifyChanged();
+            }
         } catch (M3u8Downloader.PausedException e) {
             if (item.isPaused()) {
                 item.setState(DownloadItem.PAUSED);
@@ -199,12 +209,14 @@ public class DownloadManager {
         download.start(new Download.Callback() {
             @Override
             public void progress(int progress) {
+                if (item.getState() != DownloadItem.DOWNLOADING) return;
                 item.setProgress(progress);
                 notifyChanged();
             }
 
             @Override
             public void progress(int progress, long bytes, long total, long speed, long elapsed) {
+                if (item.getState() != DownloadItem.DOWNLOADING) return;
                 item.setProgress(progress);
                 item.setTotal(total);
                 item.setSpeed(speed);
@@ -255,9 +267,15 @@ public class DownloadManager {
                 break;
             }
         }
-        if (target == null || target.getState() != DownloadItem.PAUSED) return;
+        if (target == null) return;
+        int state = target.getState();
+        if (state != DownloadItem.PAUSED && state != DownloadItem.ERROR) return;
         final DownloadItem finalTarget = target;
-        target.setPaused(false);
+        finalTarget.setPaused(false);
+        if (state == DownloadItem.ERROR) {
+            finalTarget.setError(null);
+            finalTarget.setProgress(0);
+        }
         mExecutor.execute(() -> {
             // 取消并等待旧任务结束，避免与正在退出的下载并发操作同一文件/tmp 目录
             Future<?> old = mFutures.remove(id);

@@ -217,9 +217,10 @@ public class M3u8Downloader {
                         onSegmentDone(completed, total, downloadedBytes, lastNotify, lastBytes, startTime, listener);
                         return;
                     }
-                    if (item.isPaused()) return;
-                    byte[] data = fetchBytes(seg.uri, headers, tag);
-                    if (seg.keyUri != null) data = decrypt(data, seg.keyUri, seg.iv, headers, tag);
+                    if (item.isPaused() || item.isCanceled()) return;
+                    byte[] data = fetchBytes(seg.uri, headers, tag, item);
+                    if (item.isPaused() || item.isCanceled()) return;
+                    if (seg.keyUri != null) data = decrypt(data, seg.keyUri, seg.iv, headers, tag, item);
                     try (OutputStream os = new BufferedOutputStream(new FileOutputStream(segFiles[index]))) {
                         os.write(data);
                     }
@@ -302,8 +303,8 @@ public class M3u8Downloader {
         extractor.release();
     }
 
-    private static byte[] decrypt(byte[] data, String keyUri, byte[] iv, Map<String, String> headers, String tag) throws Exception {
-        byte[] key = fetchBytes(keyUri, headers, tag);
+    private static byte[] decrypt(byte[] data, String keyUri, byte[] iv, Map<String, String> headers, String tag, DownloadItem item) throws Exception {
+        byte[] key = fetchBytes(keyUri, headers, tag, item);
         if (key == null || key.length < 16) throw new Exception("invalid aes key");
         SecretKeySpec keySpec = new SecretKeySpec(key, 0, 16, "AES");
         IvParameterSpec ivSpec = new IvParameterSpec(iv != null ? iv : new byte[16]);
@@ -319,9 +320,10 @@ public class M3u8Downloader {
         }
     }
 
-    private static byte[] fetchBytes(String url, Map<String, String> headers, String tag) throws Exception {
+    private static byte[] fetchBytes(String url, Map<String, String> headers, String tag, DownloadItem item) throws Exception {
         int retry = 0;
         while (true) {
+            if (item.isPaused() || item.isCanceled()) throw new Exception("Paused");
             try {
                 try (Response res = OkHttp.newCall(url, headers, tag).execute()) {
                     if (!res.isSuccessful() || res.body() == null) throw new Exception("HTTP " + res.code());
