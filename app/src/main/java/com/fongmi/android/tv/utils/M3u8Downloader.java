@@ -51,6 +51,10 @@ public class M3u8Downloader {
     private static final int STALL_LIMIT = 6;
     // 每次刷新失败后的退避等待（毫秒），让限速冷却 / 签名窗口有机会恢复。
     private static final long REFRESH_BACKOFF = 1500;
+    // 极少数分片（如源内嵌的图片/封面轨道、或热链保护的个别分片）始终拉取失败时，
+    // 在充分重试后做“尽力合并”，避免整片在 90%+ 因个别分片失败而作废。
+    private static final int BEST_EFFORT_MISSING = 8;
+    private static final int MIN_BEST_EFFORT_REFRESH = 2;
     // 默认 UA：部分对象存储（OBS / AWS S3 预签名）会按 UA 放行或拦截，
     // 不带的默认 okhttp UA 容易被 403。播放器/本地代理也是用浏览器类 UA 拉通的。
     private static final String DEFAULT_UA = "Mozilla/5.0 (Linux; Android 11; WebHTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
@@ -113,6 +117,7 @@ public class M3u8Downloader {
         int refresh = 0;
         int lastCompleted = -1;
         int noProgress = 0;
+        boolean bestEffort = false;
         try {
         while (true) {
             // 刷新退避：给限速冷却 / 签名窗口恢复留出时间，避免对失效源空转；
@@ -186,7 +191,32 @@ public class M3u8Downloader {
             if (completed < total) {
                 AtomicReference<List<Segment>> segRef = new AtomicReference<>(segments);
                 try {
-                    downloadSegments(item, headers, segRef, dir, completed, downloadedBytes, listener);
+                    int failedCount = downloadSegments(item, headers, segRef, dir, completed, downloadedBytes, listener);
+                    if (failedCount > 0) {
+                        // 重新统计已落盘分片，得到真实缺失数（限速/个别死链分片都会落在这里）
+                        int newCompleted = 0;
+                        for (int i = 0; i < total; i++) {
+                            File sf = new File(dir, "seg_" + i + ".ts");
+                            if (sf.exists() && sf.length() > 0) newCompleted++;
+                        }
+                        int missing = total - newCompleted;
+                        if (missing <= BEST_EFFORT_MISSING && refresh >= MIN_BEST_EFFORT_REFRESH) {
+                            // 极少数分片（如源内嵌的图片/封面轨道、热链保护的个别分片）始终拉不下来，
+                            // 充分重试后仍缺失则“尽力合并”，避免整片在 90%+ 因个别分片失败而作废。
+                            SpiderDebug.log(TAG, "best-effort merge id=%s missing=%d/%d after %d refreshes", item.getId(), missing, total, refresh);
+                            bestEffort = true;
+                        } else if (shouldStop(refresh, m3u8Url, lastUrl)) {
+                            throw new Exception("segment download failed: " + missing + " segments missing");
+                        } else {
+                            SpiderDebug.log(TAG, "segment incomplete id=%s refresh=%d missing=%d retry", item.getId(), refresh, missing);
+                            refresh++;
+                            lastUrl = m3u8Url;
+                            refreshFromSite(item);
+                            m3u8Url = item.getUrl();
+                            headers = item.getHeaders();
+                            continue;
+                        }
+                    }
                 } catch (PausedException | CanceledException e) {
                     if (e instanceof CanceledException) throw e;
                     // 暂停时若分片已全部就绪，则视为“真正完成”（下方合并出文件），
@@ -205,27 +235,19 @@ public class M3u8Downloader {
                     m3u8Url = item.getUrl();
                     headers = item.getHeaders();
                     continue;
-                } catch (Throwable e) {
-                    // 分片下载失败（5xx / 网络抖动 / 空响应等）：对短有效期预签名源，刷新后通常可恢复，
-                    // 故同样走刷新重试；是否继续由 shouldStop 依据“上限 / 是否拿到新地址”决定。
-                    SpiderDebug.log(TAG, "segment failed id=%s refresh=%d url=%s msg=%s", item.getId(), refresh, logUrl(m3u8Url), e.getMessage());
-                    if (shouldStop(refresh, m3u8Url, lastUrl)) throw new Exception("segment download failed: " + e.getMessage());
-                    refresh++;
-                    lastUrl = m3u8Url;
-                    refreshFromSite(item);
-                    m3u8Url = item.getUrl();
-                    headers = item.getHeaders();
-                    continue;
                 }
             }
             if (item.isCanceled()) throw new CanceledException();
             // 暂停但分片已全部就绪 -> 视为完成；仍有缺失才保留暂停态
             if (item.isPaused() && !allSegmentsReady(dir, total)) throw new PausedException();
 
-            // 完成前必须校验所有分片确实就绪，杜绝“部分缺失却标记成功”
-            for (int i = 0; i < total; i++) {
-                File sf = new File(dir, "seg_" + i + ".ts");
-                if (!sf.exists() || sf.length() == 0) throw new Exception("segment missing: " + i);
+            // 完成前校验：非尽力模式下要求所有分片就绪，杜绝“部分缺失却标记成功”；
+            // 尽力模式下允许极少数分片缺失（下方合并时跳过）。
+            if (!bestEffort) {
+                for (int i = 0; i < total; i++) {
+                    File sf = new File(dir, "seg_" + i + ".ts");
+                    if (!sf.exists() || sf.length() == 0) throw new Exception("segment missing: " + i);
+                }
             }
 
             // 合并为单个 .ts：MPEG-TS 可直接拼接，单文件播放最稳、时长准确、无缺失分片问题
@@ -246,11 +268,11 @@ public class M3u8Downloader {
         }
     }
 
-    // 是否应当停止刷新：达到上限，或刷新后未拿到新地址（源未重新签名），避免对失效源空转。
+    // 是否应当停止刷新：仅以刷新上限为界。原先的“刷新后未拿到新地址即停止”会误杀“地址固定但仍在限速
+    // 续传/仅个别分片死链”的源（如本例 m3u8 地址不变、每次刷新还能多下 ~80 片），故移除该短链路。
+    // 真正的死源由 download() 内的连续无进展(noProgress)判定处理。
     private static boolean shouldStop(int refresh, String url, String lastUrl) {
-        if (refresh >= MAX_REFRESH) return true;
-        if (refresh > 2 && url.equals(lastUrl)) return true;
-        return false;
+        return refresh >= MAX_REFRESH;
     }
 
     // 校验所有分片确实已落盘（存在且非空）
@@ -366,7 +388,8 @@ public class M3u8Downloader {
         return best;
     }
 
-    private static void downloadSegments(DownloadItem item, Map<String, String> headers, AtomicReference<List<Segment>> segmentsRef, File dir, int startCompleted, long startBytes, ProgressListener listener) throws Exception {
+    // 返回本批次失败（无法落盘）的分片数，由外层决定是否重试或做“尽力合并”，而非一失败就抛。
+    private static int downloadSegments(DownloadItem item, Map<String, String> headers, AtomicReference<List<Segment>> segmentsRef, File dir, int startCompleted, long startBytes, ProgressListener listener) throws Exception {
         List<Segment> segments = segmentsRef.get();
         int total = segments.size();
         SpiderDebug.log(TAG, "segments start id=%s total=%d completed=%d", item.getId(), total, startCompleted);
@@ -374,7 +397,7 @@ public class M3u8Downloader {
         for (int i = 0; i < total; i++) segFiles[i] = new File(dir, "seg_" + i + ".ts");
         ExecutorService pool = Executors.newFixedThreadPool(SEGMENT_THREADS);
         CountDownLatch latch = new CountDownLatch(total);
-        AtomicBoolean failed = new AtomicBoolean(false);
+        AtomicInteger failedCount = new AtomicInteger(0);
         AtomicBoolean expired = new AtomicBoolean(false);
         AtomicLong downloadedBytes = new AtomicLong(startBytes);
         AtomicInteger completed = new AtomicInteger(startCompleted);
@@ -387,7 +410,7 @@ public class M3u8Downloader {
             final int index = i;
             pool.execute(() -> {
                 try {
-                    if (item.isCanceled() || failed.get() || expired.get()) return;
+                    if (item.isCanceled() || failedCount.get() > 0 || expired.get()) return;
                     if (segFiles[index].exists() && segFiles[index].length() > 0) {
                         // 已下载（续传），直接跳过
                         return;
@@ -411,7 +434,7 @@ public class M3u8Downloader {
                 } catch (PausedException | CanceledException e) {
                     // 暂停/取消：不标记为失败
                 } catch (Throwable e) {
-                    failed.set(true);
+                    failedCount.incrementAndGet();
                     SpiderDebug.log(TAG, "seg failed id=%s index=%d msg=%s", item.getId(), index, e.getMessage());
                 } finally {
                     latch.countDown();
@@ -431,7 +454,7 @@ public class M3u8Downloader {
         if (item.isCanceled()) throw new CanceledException();
         if (item.isPaused()) throw new PausedException();
         if (expired.get()) throw new PlaylistExpiredException("segment signature expired");
-        if (failed.get()) throw new Exception("segment download failed");
+        return failedCount.get();
     }
 
     private static void onSegmentDone(AtomicInteger completed, int total, AtomicLong downloadedBytes, AtomicLong lastNotify, AtomicLong lastBytes, long startTime, ProgressListener listener) {
@@ -452,6 +475,7 @@ public class M3u8Downloader {
             byte[] buf = new byte[64 * 1024];
             for (int i = 0; i < total; i++) {
                 File sf = new File(dir, "seg_" + i + ".ts");
+                if (!sf.exists() || sf.length() == 0) continue; // 尽力模式/续传残留：跳过缺失分片
                 try (InputStream is = new FileInputStream(sf)) {
                     int n;
                     while ((n = is.read(buf)) > 0) os.write(buf, 0, n);
