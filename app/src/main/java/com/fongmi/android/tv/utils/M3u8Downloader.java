@@ -442,6 +442,13 @@ public class M3u8Downloader {
             } catch (PausedException | PlaylistExpiredException e) {
                 throw e;
             } catch (Throwable e) {
+                // 请求被取消（暂停/取消时 cancelTag 触发 OkHttp 抛 IOException）：立即按当前标记重新
+                // 判定为“取消/暂停”，避免被误判为“下载失败”而走无效重试，也保证分片线程干净退出
+                // （暂停即时生效，恢复后不会“秒完成”假象）。
+                if (isCancelException(e)) {
+                    if (item.isCanceled()) throw new CanceledException();
+                    if (item.isPaused()) throw new PausedException();
+                }
                 // 某些源（带签名/鉴权的对象存储、需特定 UA 的 CDN）对“源自定义头 + 默认 okhttp UA”
                 // 的直连会 403，而播放器/本地代理是用默认 UA 且基本不带源头拉通的。
                 // 首次失败后改用“干净请求”（仅默认 UA、去掉源自定义头）重试，与播放路径一致。
@@ -455,6 +462,19 @@ public class M3u8Downloader {
                 }
             }
         }
+    }
+
+    // 判断异常是否由“请求被取消”引起（暂停/取消时 cancelTag 触发）。OkHttp 取消会抛
+    // IOException("Canceled") 或 InterruptedIOException，流重置为 StreamResetException("...CANCEL") 等，
+    // 这里按类型 + 关键字识别，以便即时把在途请求重新判定为暂停/取消而非失败。
+    private static boolean isCancelException(Throwable e) {
+        if (e instanceof java.io.InterruptedIOException) return true;
+        String msg = e.getMessage();
+        if (msg == null) return false;
+        String m = msg.toLowerCase();
+        return m.contains("cancel") || m.contains("socket closed")
+                || m.contains("stream closed") || m.contains("connection closed")
+                || m.contains("broken pipe") || m.contains("request aborted");
     }
 
     private static String fetchText(String url, Map<String, String> headers, DownloadItem item) throws Exception {

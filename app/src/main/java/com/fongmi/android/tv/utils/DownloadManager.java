@@ -253,17 +253,8 @@ public class DownloadManager {
     }
 
     public void pause(String id) {
-        Download download = mDownloads.get(id);
-        if (download != null) download.pause();
-        // m3u8 走 M3u8Downloader 的分片线程池，绝不能通过中断 future 来暂停：
-        // 中断会让 download() 的 latch.await() 抛出 InterruptedException，被误判为“下载失败”。
-        // 正确做法是置 paused 标记并取消 HTTP 请求，分片线程检测到后会自然退出并保留断点。
-        if (!isM3u8Item(id)) {
-            Future<?> future = mFutures.get(id);
-            if (future != null) future.cancel(true);
-        }
-        OkHttp.cancel(id);
-        M3u8Downloader.cancelTag(id);
+        // 必须先置暂停标记，再取消在途请求：否则取消触发的 IOException 会被 M3u8Downloader 误判为
+        // “下载失败”，进而走无效刷新重试，且分片线程无法干净退出（表现为暂停不灵、恢复后秒完成）。
         for (DownloadItem item : mItems) {
             if (item.getId().equals(id)) {
                 if (item.isActive() && item.getState() != DownloadItem.PAUSED) {
@@ -273,6 +264,16 @@ public class DownloadManager {
                 }
             }
         }
+        Download download = mDownloads.get(id);
+        if (download != null) download.pause();
+        if (!isM3u8Item(id)) {
+            Future<?> future = mFutures.get(id);
+            if (future != null) future.cancel(true);
+        }
+        // m3u8 通过取消 tag 中断在途 HTTP 请求（绝不中断 future，否则 latch.await 抛
+        // InterruptedException 被误判为失败），分片线程检测到暂停标记后自然退出并保留断点。
+        OkHttp.cancel(id);
+        M3u8Downloader.cancelTag(id);
         notifyChanged();
     }
 
