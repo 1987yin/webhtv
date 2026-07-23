@@ -21,6 +21,9 @@ public class DownloadItem {
     private String filePath;
     private String cover;
     private String group;
+    private String siteKey;
+    private String flag;
+    private String episodeUrl;
     private int state;
     private int progress;
     private long total;
@@ -90,6 +93,30 @@ public class DownloadItem {
 
     public void setGroup(String group) {
         this.group = group;
+    }
+
+    public String getSiteKey() {
+        return siteKey == null ? "" : siteKey;
+    }
+
+    public void setSiteKey(String siteKey) {
+        this.siteKey = siteKey;
+    }
+
+    public String getFlag() {
+        return flag == null ? "" : flag;
+    }
+
+    public void setFlag(String flag) {
+        this.flag = flag;
+    }
+
+    public String getEpisodeUrl() {
+        return episodeUrl == null ? "" : episodeUrl;
+    }
+
+    public void setEpisodeUrl(String episodeUrl) {
+        this.episodeUrl = episodeUrl;
     }
 
     public int getState() {

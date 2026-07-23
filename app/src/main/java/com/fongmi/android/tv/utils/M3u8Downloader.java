@@ -18,14 +18,17 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 
@@ -37,6 +40,10 @@ public class M3u8Downloader {
     // 默认 UA：部分对象存储（OBS / AWS S3 预签名）会按 UA 放行或拦截，
     // 不带的默认 okhttp UA 容易被 403。播放器/本地代理也是用浏览器类 UA 拉通的。
     private static final String DEFAULT_UA = "Mozilla/5.0 (Linux; Android 11; WebHTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+
+    // 下载专用客户端：复用播放器的拦截器配置，但把读超时从全局 30s 放宽到 180s，
+    // 避免大分片 / 限速（如 x-obs-traffic-limit）场景下的读超时失败。
+    private static OkHttpClient sDownloadClient;
 
     public interface ProgressListener {
         void onProgress(int percent, long bytes, long total, long speed);
@@ -51,6 +58,13 @@ public class M3u8Downloader {
     public static class PausedException extends Exception {
         PausedException() {
             super("Paused");
+        }
+    }
+
+    // 分片签名过期（HTTP 401/403）：触发外层重新拉取播放列表刷新签名后继续，而非直接判失败。
+    private static class PlaylistExpiredException extends Exception {
+        PlaylistExpiredException(String m) {
+            super(m);
         }
     }
 
@@ -71,70 +85,70 @@ public class M3u8Downloader {
     }
 
     // 下载入口。targetMp4 为占位文件（name.mp4），实际产物为同目录的 name.ts（所有分片合并后的单文件）。
-    // 关键点：第一次解析 playlist 后，把“已解析的分片播放列表”与 baseUrl 持久化到 _hls 目录，
-    // 续传/重试时复用同一份列表，避免滑动窗口、签名 URL、按次变化的源导致分片列表不一致、
-    // 按索引重算“已完成”数量错乱而跳过下载。
+    // 关键点：每次进入都重新拉取播放列表，以拿到“当下有效”的分片签名。
+    // OBS / AWS 预签名分片往往独立过期（约数十秒），复用首次解析出的旧分片 URL 会全部 403，
+    // 表现为“能播不能下 / 重试进度 0% 失败”。已下载的 seg_i.ts 按索引复用，不重复下载；
+    // 若分片签名中途过期（403），外层会重新拉列表刷新签名后继续。
     public static File download(DownloadItem item, Map<String, String> headers, File targetMp4, ProgressListener listener) throws Exception {
         File dir = new File(targetMp4.getParentFile(), baseName(targetMp4) + "_hls");
         if (!dir.exists() && !dir.mkdirs()) throw new Exception("create hls dir failed");
-        File playlistFile = new File(dir, "playlist.m3u8");
-        File baseUrlFile = new File(dir, "baseurl.txt");
 
-        String playlist;
-        String baseUrl;
-        if (playlistFile.exists() && baseUrlFile.exists()) {
-            // 续传：复用首次解析并保存的分片列表，保证索引与已下载的 seg_i.ts 一一对应
-            playlist = readFile(playlistFile);
-            baseUrl = readFile(baseUrlFile);
-        } else {
-            String m3u8Url = item.getUrl();
-            playlist = fetchText(m3u8Url, headers, item);
+        String m3u8Url = item.getUrl();
+        int refresh = 0;
+        final int MAX_REFRESH = 6;
+        while (true) {
+            // 始终重新拉播放列表，刷新分片签名（解决过期导致的 403 / 0% 失败）
+            String playlist = fetchText(m3u8Url, headers, item);
             if (isMaster(playlist)) {
                 String variant = chooseVariant(playlist, m3u8Url);
                 if (TextUtils.isEmpty(variant)) throw new Exception("no variant in master playlist");
                 playlist = fetchText(variant, headers, item);
                 m3u8Url = variant;
             }
-            baseUrl = m3u8Url;
-            writeFile(playlistFile, playlist);
-            writeFile(baseUrlFile, baseUrl);
-        }
+            String baseUrl = m3u8Url;
+            List<Segment> segments = parseSegments(playlist, baseUrl);
+            if (segments.isEmpty()) throw new Exception("no segments in playlist");
 
-        List<Segment> segments = parseSegments(playlist, baseUrl);
-        if (segments.isEmpty()) throw new Exception("no segments in playlist");
-
-        int total = segments.size();
-        int completed = 0;
-        long downloadedBytes = 0;
-        for (int i = 0; i < total; i++) {
-            File sf = new File(dir, "seg_" + i + ".ts");
-            if (sf.exists() && sf.length() > 0) {
-                completed++;
-                downloadedBytes += sf.length();
+            int total = segments.size();
+            int completed = 0;
+            long downloadedBytes = 0;
+            for (int i = 0; i < total; i++) {
+                File sf = new File(dir, "seg_" + i + ".ts");
+                if (sf.exists() && sf.length() > 0) {
+                    completed++;
+                    downloadedBytes += sf.length();
+                }
             }
-        }
-        if (completed < total) {
-            downloadSegments(item, headers, segments, dir, completed, downloadedBytes, listener);
-        }
-        if (item.isCanceled()) throw new CanceledException();
-        if (item.isPaused()) throw new PausedException();
+            if (completed < total) {
+                AtomicReference<List<Segment>> segRef = new AtomicReference<>(segments);
+                try {
+                    downloadSegments(item, headers, segRef, dir, completed, downloadedBytes, listener);
+                } catch (PlaylistExpiredException e) {
+                    // 分片签名过期：重新拉列表刷新签名后继续（已下分片按索引复用）
+                    if (++refresh > MAX_REFRESH) throw new Exception("segment signature expired, retry limit reached");
+                    continue;
+                }
+            }
+            if (item.isCanceled()) throw new CanceledException();
+            if (item.isPaused()) throw new PausedException();
 
-        // 完成前必须校验所有分片确实就绪，杜绝“部分缺失却标记成功”
-        for (int i = 0; i < total; i++) {
-            File sf = new File(dir, "seg_" + i + ".ts");
-            if (!sf.exists() || sf.length() == 0) throw new Exception("segment missing: " + i);
+            // 完成前必须校验所有分片确实就绪，杜绝“部分缺失却标记成功”
+            for (int i = 0; i < total; i++) {
+                File sf = new File(dir, "seg_" + i + ".ts");
+                if (!sf.exists() || sf.length() == 0) throw new Exception("segment missing: " + i);
+            }
+
+            // 合并为单个 .ts：MPEG-TS 可直接拼接，单文件播放最稳、时长准确、无缺失分片问题
+            File merged = new File(targetMp4.getParentFile(), baseName(targetMp4) + ".ts");
+            mergeTs(dir, total, merged);
+            // 清理分片与临时文件（占位 mp4 亦无用）
+            deleteDir(dir);
+            File placeholder = targetMp4;
+            if (placeholder.exists()) placeholder.delete();
+
+            if (listener != null) listener.onProgress(100, merged.length(), merged.length(), 0);
+            return merged;
         }
-
-        // 合并为单个 .ts：MPEG-TS 可直接拼接，单文件播放最稳、时长准确、无缺失分片问题
-        File merged = new File(targetMp4.getParentFile(), baseName(targetMp4) + ".ts");
-        mergeTs(dir, total, merged);
-        // 清理分片与临时文件（占位 mp4 亦无用）
-        deleteDir(dir);
-        File placeholder = targetMp4;
-        if (placeholder.exists()) placeholder.delete();
-
-        if (listener != null) listener.onProgress(100, merged.length(), merged.length(), 0);
-        return merged;
     }
 
     private static List<Segment> parseSegments(String playlist, String baseUrl) {
@@ -228,13 +242,15 @@ public class M3u8Downloader {
         return best;
     }
 
-    private static void downloadSegments(DownloadItem item, Map<String, String> headers, List<Segment> segments, File dir, int startCompleted, long startBytes, ProgressListener listener) throws Exception {
+    private static void downloadSegments(DownloadItem item, Map<String, String> headers, AtomicReference<List<Segment>> segmentsRef, File dir, int startCompleted, long startBytes, ProgressListener listener) throws Exception {
+        List<Segment> segments = segmentsRef.get();
         int total = segments.size();
         File[] segFiles = new File[total];
         for (int i = 0; i < total; i++) segFiles[i] = new File(dir, "seg_" + i + ".ts");
         ExecutorService pool = Executors.newFixedThreadPool(SEGMENT_THREADS);
         CountDownLatch latch = new CountDownLatch(total);
         AtomicBoolean failed = new AtomicBoolean(false);
+        AtomicBoolean expired = new AtomicBoolean(false);
         AtomicLong downloadedBytes = new AtomicLong(startBytes);
         AtomicInteger completed = new AtomicInteger(startCompleted);
         String tag = item.getId();
@@ -244,15 +260,16 @@ public class M3u8Downloader {
 
         for (int i = 0; i < total; i++) {
             final int index = i;
-            final Segment seg = segments.get(index);
             pool.execute(() -> {
                 try {
-                    if (item.isCanceled() || failed.get()) return;
+                    if (item.isCanceled() || failed.get() || expired.get()) return;
                     if (segFiles[index].exists() && segFiles[index].length() > 0) {
                         // 已下载（续传），直接跳过
                         return;
                     }
                     if (item.isPaused() || item.isCanceled()) return;
+                    // 每次都从最新引用取分片地址：外层刷新签名后会替换该引用
+                    Segment seg = segmentsRef.get().get(index);
                     byte[] data = fetchBytes(seg.uri, headers, tag, item);
                     if (item.isPaused() || item.isCanceled()) return;
                     if (seg.keyUri != null) data = decrypt(data, seg.keyUri, seg.iv, headers, tag, item);
@@ -262,6 +279,9 @@ public class M3u8Downloader {
                     }
                     downloadedBytes.addAndGet(data.length);
                     onSegmentDone(completed, total, downloadedBytes, lastNotify, lastBytes, startTime, listener);
+                } catch (PlaylistExpiredException e) {
+                    // 分片签名过期：标记后由外层重新拉列表刷新，不在本批次内重试
+                    expired.set(true);
                 } catch (PausedException | CanceledException e) {
                     // 暂停/取消：不标记为失败
                 } catch (Throwable e) {
@@ -283,6 +303,7 @@ public class M3u8Downloader {
         }
         if (item.isCanceled()) throw new CanceledException();
         if (item.isPaused()) throw new PausedException();
+        if (expired.get()) throw new PlaylistExpiredException("segment signature expired");
         if (failed.get()) throw new Exception("segment download failed");
     }
 
@@ -336,9 +357,14 @@ public class M3u8Downloader {
             if (item.isPaused() || item.isCanceled()) throw new PausedException();
             Map<String, String> useHeaders = clean ? null : headers;
             try (Response res = call(url, useHeaders, item)) {
-                if (!res.isSuccessful() || res.body() == null) throw new Exception("HTTP " + res.code());
+                if (!res.isSuccessful() || res.body() == null) {
+                    int code = res.code();
+                    // 401/403 视为签名过期：抛出专用异常，由外层重新拉列表刷新签名后继续。
+                    if (code == 401 || code == 403) throw new PlaylistExpiredException("HTTP " + code);
+                    throw new Exception("HTTP " + code);
+                }
                 return res.body().bytes();
-            } catch (PausedException e) {
+            } catch (PausedException | PlaylistExpiredException e) {
                 throw e;
             } catch (Throwable e) {
                 // 某些源（带签名/鉴权的对象存储、需特定 UA 的 CDN）对“源自定义头 + 默认 okhttp UA”
@@ -366,7 +392,7 @@ public class M3u8Downloader {
     }
 
     // 构造请求：始终带默认浏览器 UA（与播放器/本地代理一致），再叠加源自定义头。
-    // 复用 OkHttp.player() 客户端，与播放路径共享同一套拦截器/配置，最大化行为一致性。
+    // 使用下载专用客户端（读超时放宽），与播放路径共享同一套拦截器/配置，最大化行为一致性。
     private static Response call(String url, Map<String, String> headers, DownloadItem item) throws Exception {
         Request.Builder builder = new Request.Builder().url(url).tag(item.getId());
         boolean hasUa = false;
@@ -378,7 +404,24 @@ public class M3u8Downloader {
             }
         }
         if (!hasUa) builder.header("User-Agent", DEFAULT_UA);
-        return OkHttp.player().newCall(builder.build()).execute();
+        return downloadClient().newCall(builder.build()).execute();
+    }
+
+    // 下载专用客户端：在播放器客户端基础上放宽读超时，避免大分片/限速场景下的 30s 读超时失败。
+    private static synchronized OkHttpClient downloadClient() {
+        if (sDownloadClient == null) {
+            sDownloadClient = OkHttp.player().newBuilder()
+                    .connectTimeout(30, TimeUnit.SECONDS)
+                    .readTimeout(180, TimeUnit.SECONDS)
+                    .writeTimeout(30, TimeUnit.SECONDS)
+                    .build();
+        }
+        return sDownloadClient;
+    }
+
+    // 暂停/取消时取消下载客户端上对应 tag 的链接（与 OkHttp.cancel 互补，避免分片请求继续占用带宽）。
+    public static void cancelTag(String tag) {
+        if (sDownloadClient != null) OkHttp.cancel(sDownloadClient, tag);
     }
 
     private static String snippet(String text) {
@@ -455,20 +498,6 @@ public class M3u8Downloader {
         String n = f.getName();
         int dot = n.lastIndexOf('.');
         return dot > 0 ? n.substring(0, dot) : n;
-    }
-
-    private static String readFile(File f) throws Exception {
-        try (InputStream is = new FileInputStream(f)) {
-            byte[] buf = new byte[(int) f.length()];
-            int n = is.read(buf);
-            return new String(buf, 0, n < 0 ? 0 : n, StandardCharsets.UTF_8);
-        }
-    }
-
-    private static void writeFile(File f, String s) throws Exception {
-        try (OutputStream os = new FileOutputStream(f)) {
-            os.write(s.getBytes(StandardCharsets.UTF_8));
-        }
     }
 
     private static void deleteDir(File dir) {

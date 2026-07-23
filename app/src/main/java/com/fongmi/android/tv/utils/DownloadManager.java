@@ -103,25 +103,33 @@ public class DownloadManager {
     }
 
     public void enqueue(DownloadItem item, String siteKey, String flag, String episodeUrl) {
+        item.setSiteKey(siteKey);
+        item.setFlag(flag);
+        item.setEpisodeUrl(episodeUrl);
         mItems.add(0, item);
         notifyChanged();
         mExecutor.execute(() -> {
             try {
-                Result result = SiteApi.playerContent(siteKey, flag, episodeUrl);
-                if (item.isCanceled()) {
-                    item.setState(DownloadItem.CANCELED);
-                    notifyChanged();
-                    return;
-                }
-                item.setUrl(result.getRealUrl());
-                item.setHeaders(result.getHeader());
-                startDownload(item);
+                fetchAndStart(item);
             } catch (Throwable e) {
                 item.setState(DownloadItem.ERROR);
                 item.setError(e.getMessage());
                 notifyChanged();
             }
         });
+    }
+
+    // 向站点接口拉取最新播放地址与请求头（签名可能已过期，需刷新），随后开始下载。
+    private void fetchAndStart(DownloadItem item) throws Exception {
+        Result result = SiteApi.playerContent(item.getSiteKey(), item.getFlag(), item.getEpisodeUrl());
+        if (item.isCanceled()) {
+            item.setState(DownloadItem.CANCELED);
+            notifyChanged();
+            return;
+        }
+        item.setUrl(result.getRealUrl());
+        item.setHeaders(result.getHeader());
+        startDownload(item);
     }
 
     private void startDownload(DownloadItem item) {
@@ -255,6 +263,7 @@ public class DownloadManager {
             if (future != null) future.cancel(true);
         }
         OkHttp.cancel(id);
+        M3u8Downloader.cancelTag(id);
         for (DownloadItem item : mItems) {
             if (item.getId().equals(id)) {
                 if (item.isActive() && item.getState() != DownloadItem.PAUSED) {
@@ -296,7 +305,21 @@ public class DownloadManager {
                 }
             }
             OkHttp.cancel(id);
+            M3u8Downloader.cancelTag(id);
             mDownloads.remove(id);
+            // 错误重试：m3u8 预签名地址往往短则数十秒、长则几分钟就过期，
+            // 用旧 URL 直接续传会 403（表现为进度 0% 后失败）。这里重新向接口要一次最新签名。
+            if (state == DownloadItem.ERROR && !TextUtils.isEmpty(finalTarget.getSiteKey())) {
+                try {
+                    fetchAndStart(finalTarget);
+                    return;
+                } catch (Throwable e) {
+                    finalTarget.setState(DownloadItem.ERROR);
+                    finalTarget.setError(e.getMessage());
+                    notifyChanged();
+                    return;
+                }
+            }
             resumeDownload(finalTarget, new File(finalTarget.getFilePath()));
         });
     }
@@ -329,6 +352,8 @@ public class DownloadManager {
             }
         }
         if (m3u8) {
+            // 取消下载客户端上该 tag 的链接（与 OkHttp.cancel 互补，避免分片请求继续占用带宽）
+            M3u8Downloader.cancelTag(id);
             // m3u8：同样不要中断 future，让后台任务在 CanceledException 时自行 deleteDir 清理分片目录；
             // 若任务已结束（暂停/已完成等，future 已不存在），此处直接清理本地分片目录，
             // 注意只清理该任务的 _hls 目录，不能误删整个下载根目录。
