@@ -2,7 +2,9 @@ package com.fongmi.android.tv.utils;
 
 import android.text.TextUtils;
 
+import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.bean.DownloadItem;
+import com.fongmi.android.tv.bean.Result;
 import com.github.catvod.net.OkHttp;
 
 import java.io.BufferedOutputStream;
@@ -97,13 +99,25 @@ public class M3u8Downloader {
         int refresh = 0;
         final int MAX_REFRESH = 6;
         while (true) {
-            // 始终重新拉播放列表，刷新分片签名（解决过期导致的 403 / 0% 失败）
-            String playlist = fetchText(m3u8Url, headers, item);
-            if (isMaster(playlist)) {
-                String variant = chooseVariant(playlist, m3u8Url);
-                if (TextUtils.isEmpty(variant)) throw new Exception("no variant in master playlist");
-                playlist = fetchText(variant, headers, item);
-                m3u8Url = variant;
+            // 始终重新拉播放列表，刷新分片签名（解决过期导致的 403 / 0% 失败）。
+            // 若 m3u8 自身的预签名地址也已过期，则向站点接口重新要一份最新地址（含最新签名与请求头），
+            // 否则重拉播放列表会直接 403，表现为“快下完（~98%）才失败、需要手动点重试”。
+            String playlist;
+            try {
+                playlist = fetchText(m3u8Url, headers, item);
+                if (isMaster(playlist)) {
+                    String variant = chooseVariant(playlist, m3u8Url);
+                    if (TextUtils.isEmpty(variant)) throw new Exception("no variant in master playlist");
+                    playlist = fetchText(variant, headers, item);
+                    m3u8Url = variant;
+                }
+            } catch (PlaylistExpiredException e) {
+                // 播放列表/变体地址签名过期：重新向站点要最新地址与请求头后继续（已下分片按索引复用）
+                if (++refresh > MAX_REFRESH) throw new Exception("playlist signature expired, retry limit reached");
+                refreshFromSite(item);
+                m3u8Url = item.getUrl();
+                headers = item.getHeaders();
+                continue;
             }
             String baseUrl = m3u8Url;
             List<Segment> segments = parseSegments(playlist, baseUrl);
@@ -124,8 +138,11 @@ public class M3u8Downloader {
                 try {
                     downloadSegments(item, headers, segRef, dir, completed, downloadedBytes, listener);
                 } catch (PlaylistExpiredException e) {
-                    // 分片签名过期：重新拉列表刷新签名后继续（已下分片按索引复用）
+                    // 分片签名过期：向站点接口重新拉取最新播放列表地址与签名后继续（已下分片按索引复用）
                     if (++refresh > MAX_REFRESH) throw new Exception("segment signature expired, retry limit reached");
+                    refreshFromSite(item);
+                    m3u8Url = item.getUrl();
+                    headers = item.getHeaders();
                     continue;
                 }
             }
@@ -148,6 +165,19 @@ public class M3u8Downloader {
 
             if (listener != null) listener.onProgress(100, merged.length(), merged.length(), 0);
             return merged;
+        }
+    }
+
+    // 向站点接口重新拉取最新播放地址与请求头（预签名往往会过期），用于分片/播放列表签名过期时自愈，
+    // 避免“下到 ~98% 才 403 失败、只能手动点重试”的问题。无站点信息（直链下载）时静默跳过。
+    private static void refreshFromSite(DownloadItem item) {
+        try {
+            if (TextUtils.isEmpty(item.getSiteKey())) return;
+            Result result = SiteApi.playerContent(item.getSiteKey(), item.getFlag(), item.getEpisodeUrl());
+            if (result == null || TextUtils.isEmpty(result.getRealUrl())) return;
+            item.setUrl(result.getRealUrl());
+            if (result.getHeader() != null) item.setHeaders(result.getHeader());
+        } catch (Throwable ignored) {
         }
     }
 
@@ -385,7 +415,11 @@ public class M3u8Downloader {
     private static String fetchText(String url, Map<String, String> headers, DownloadItem item) throws Exception {
         try (Response res = call(url, headers, item)) {
             String text = res.body() != null ? res.body().string() : "";
-            if (!res.isSuccessful()) throw new Exception("playlist HTTP " + res.code() + " " + snippet(text));
+            if (!res.isSuccessful()) {
+                // 401/403 视为签名过期：抛出专用异常，由外层重新拉列表 / 重新向站点要地址刷新签名后继续。
+                if (res.code() == 401 || res.code() == 403) throw new PlaylistExpiredException("playlist HTTP " + res.code());
+                throw new Exception("playlist HTTP " + res.code() + " " + snippet(text));
+            }
             if (TextUtils.isEmpty(text)) throw new Exception("playlist HTTP " + res.code() + " empty");
             return text;
         }
