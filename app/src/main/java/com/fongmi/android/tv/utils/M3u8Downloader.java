@@ -26,6 +26,7 @@ import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import okhttp3.Request;
 import okhttp3.Response;
 
 public class M3u8Downloader {
@@ -33,6 +34,9 @@ public class M3u8Downloader {
     private static final int SEGMENT_THREADS = 4;
     private static final int SEGMENT_RETRY = 3;
     private static final long PROGRESS_INTERVAL = 400;
+    // 默认 UA：部分对象存储（OBS / AWS S3 预签名）会按 UA 放行或拦截，
+    // 不带的默认 okhttp UA 容易被 403。播放器/本地代理也是用浏览器类 UA 拉通的。
+    private static final String DEFAULT_UA = "Mozilla/5.0 (Linux; Android 11; WebHTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 
     public interface ProgressListener {
         void onProgress(int percent, long bytes, long total, long speed);
@@ -84,11 +88,11 @@ public class M3u8Downloader {
             baseUrl = readFile(baseUrlFile);
         } else {
             String m3u8Url = item.getUrl();
-            playlist = fetchText(m3u8Url, headers);
+            playlist = fetchText(m3u8Url, headers, item);
             if (isMaster(playlist)) {
                 String variant = chooseVariant(playlist, m3u8Url);
                 if (TextUtils.isEmpty(variant)) throw new Exception("no variant in master playlist");
-                playlist = fetchText(variant, headers);
+                playlist = fetchText(variant, headers, item);
                 m3u8Url = variant;
             }
             baseUrl = m3u8Url;
@@ -327,17 +331,21 @@ public class M3u8Downloader {
 
     private static byte[] fetchBytes(String url, Map<String, String> headers, String tag, DownloadItem item) throws Exception {
         int retry = 0;
+        boolean clean = false;
         while (true) {
             if (item.isPaused() || item.isCanceled()) throw new PausedException();
-            try {
-                try (Response res = OkHttp.newCall(url, headers, tag).execute()) {
-                    if (!res.isSuccessful() || res.body() == null) throw new Exception("HTTP " + res.code());
-                    return res.body().bytes();
-                }
+            Map<String, String> useHeaders = clean ? null : headers;
+            try (Response res = call(url, useHeaders, item)) {
+                if (!res.isSuccessful() || res.body() == null) throw new Exception("HTTP " + res.code());
+                return res.body().bytes();
             } catch (PausedException e) {
                 throw e;
             } catch (Throwable e) {
-                if (++retry >= SEGMENT_RETRY) throw e;
+                // 某些源（带签名/鉴权的对象存储、需特定 UA 的 CDN）对“源自定义头 + 默认 okhttp UA”
+                // 的直连会 403，而播放器/本地代理是用默认 UA 且基本不带源头拉通的。
+                // 首次失败后改用“干净请求”（仅默认 UA、去掉源自定义头）重试，与播放路径一致。
+                if (++retry > SEGMENT_RETRY) throw e;
+                clean = true;
                 try {
                     Thread.sleep(300 * retry);
                 } catch (InterruptedException ie) {
@@ -348,10 +356,35 @@ public class M3u8Downloader {
         }
     }
 
-    private static String fetchText(String url, Map<String, String> headers) throws Exception {
-        String text = OkHttp.string(url, headers);
-        if (TextUtils.isEmpty(text)) throw new Exception("empty playlist");
-        return text;
+    private static String fetchText(String url, Map<String, String> headers, DownloadItem item) throws Exception {
+        try (Response res = call(url, headers, item)) {
+            String text = res.body() != null ? res.body().string() : "";
+            if (!res.isSuccessful()) throw new Exception("playlist HTTP " + res.code() + " " + snippet(text));
+            if (TextUtils.isEmpty(text)) throw new Exception("playlist HTTP " + res.code() + " empty");
+            return text;
+        }
+    }
+
+    // 构造请求：始终带默认浏览器 UA（与播放器/本地代理一致），再叠加源自定义头。
+    // 复用 OkHttp.player() 客户端，与播放路径共享同一套拦截器/配置，最大化行为一致性。
+    private static Response call(String url, Map<String, String> headers, DownloadItem item) throws Exception {
+        Request.Builder builder = new Request.Builder().url(url).tag(item.getId());
+        boolean hasUa = false;
+        if (headers != null) {
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                if (entry.getValue() == null) continue;
+                if ("User-Agent".equalsIgnoreCase(entry.getKey())) hasUa = true;
+                builder.addHeader(entry.getKey(), entry.getValue());
+            }
+        }
+        if (!hasUa) builder.header("User-Agent", DEFAULT_UA);
+        return OkHttp.player().newCall(builder.build()).execute();
+    }
+
+    private static String snippet(String text) {
+        if (TextUtils.isEmpty(text)) return "";
+        int end = Math.min(text.length(), 200);
+        return text.substring(0, end).replace("\n", " ").replace("\r", " ");
     }
 
     private static boolean isMaster(String playlist) {
@@ -361,8 +394,20 @@ public class M3u8Downloader {
     private static String resolve(String base, String value) {
         try {
             okhttp3.HttpUrl baseUrl = okhttp3.HttpUrl.parse(base);
-            okhttp3.HttpUrl resolved = baseUrl == null ? null : baseUrl.resolve(value);
-            return resolved == null ? value : resolved.toString();
+            if (baseUrl == null) return value;
+            okhttp3.HttpUrl resolved = baseUrl.resolve(value);
+            if (resolved == null) return value;
+            // 对象存储预签名（OBS / AWS S3）把签名放在 query 上。RFC3986 下相对分片解析会丢弃
+            // base 的 query，导致分片 / EXT-X-KEY 请求缺失签名而 403。播放器（UriUtil.resolve）
+            // 会保留 base query，所以能播；这里在分片为“相对文件名”（非根相对、非绝对）时同样补回
+            // base 的 query，保持与播放路径一致。
+            if (TextUtils.isEmpty(resolved.query())
+                    && !TextUtils.isEmpty(baseUrl.query())
+                    && !value.contains("://")
+                    && !value.startsWith("/")) {
+                resolved = resolved.newBuilder().query(baseUrl.query()).build();
+            }
+            return resolved.toString();
         } catch (Exception e) {
             return value;
         }
