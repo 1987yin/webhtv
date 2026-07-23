@@ -2,6 +2,8 @@ package com.fongmi.android.tv.utils;
 
 import android.text.TextUtils;
 
+import com.github.catvod.crawler.SpiderDebug;
+
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.bean.DownloadItem;
 import com.fongmi.android.tv.bean.Result;
@@ -36,12 +38,19 @@ import okhttp3.Response;
 
 public class M3u8Downloader {
 
+    private static final String TAG = "M3u8Downloader";
+
     private static final int SEGMENT_THREADS = 4;
     private static final int SEGMENT_RETRY = 3;
     // 每个分片签名窗口约 300s，长视频（尤其限速源 x-obs-traffic-limit）需要多次刷新才能下完，
     // 故上限放宽到很大；同时用“刷新后是否有进展 / 是否拿到新地址”做死循环保护。
     private static final int MAX_REFRESH = 200;
     private static final long PROGRESS_INTERVAL = 400;
+    // 续传/重试时，若连续多次刷新后仍未有新分片完成才判定源不可达并停止，
+    // 给限速/冷却类源留出“签名窗口重置”的恢复机会（避免 99% 直接失败）。
+    private static final int STALL_LIMIT = 6;
+    // 每次刷新失败后的退避等待（毫秒），让限速冷却 / 签名窗口有机会恢复。
+    private static final long REFRESH_BACKOFF = 1500;
     // 默认 UA：部分对象存储（OBS / AWS S3 预签名）会按 UA 放行或拦截，
     // 不带的默认 okhttp UA 容易被 403。播放器/本地代理也是用浏览器类 UA 拉通的。
     private static final String DEFAULT_UA = "Mozilla/5.0 (Linux; Android 11; WebHTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
@@ -95,6 +104,7 @@ public class M3u8Downloader {
     // 表现为“能播不能下 / 重试进度 0% 失败”。已下载的 seg_i.ts 按索引复用，不重复下载；
     // 若分片签名中途过期（403），外层会重新拉列表刷新签名后继续。
     public static File download(DownloadItem item, Map<String, String> headers, File targetMp4, ProgressListener listener) throws Exception {
+        SpiderDebug.log(TAG, "download start id=%s name=%s url=%s", item.getId(), targetMp4.getName(), logUrl(item.getUrl()));
         File dir = new File(targetMp4.getParentFile(), baseName(targetMp4) + "_hls");
         if (!dir.exists() && !dir.mkdirs()) throw new Exception("create hls dir failed");
 
@@ -102,7 +112,21 @@ public class M3u8Downloader {
         String lastUrl = m3u8Url;
         int refresh = 0;
         int lastCompleted = -1;
+        int noProgress = 0;
+        try {
         while (true) {
+            // 刷新退避：给限速冷却 / 签名窗口恢复留出时间，避免对失效源空转；
+            // 同时尊重暂停/取消，及时退出。
+            if (refresh > 0) {
+                try {
+                    Thread.sleep(REFRESH_BACKOFF);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    if (item.isCanceled()) throw new CanceledException();
+                    if (item.isPaused()) throw new PausedException();
+                    throw new Exception("interrupted during refresh backoff");
+                }
+            }
             // 始终重新拉播放列表，刷新分片签名（解决过期导致的 403 / 0% 失败）。
             // 若 m3u8 自身的预签名地址也已过期，则向站点接口重新要一份最新地址（含最新签名与请求头），
             // 否则重拉播放列表会直接 403。
@@ -117,7 +141,11 @@ public class M3u8Downloader {
                 }
             } catch (PlaylistExpiredException e) {
                 // 播放列表/变体地址签名过期：重新向站点要最新地址与请求头后继续（已下分片按索引复用）
-                if (shouldStop(refresh, m3u8Url, lastUrl)) throw new Exception("playlist signature expired, retry limit reached");
+                if (shouldStop(refresh, m3u8Url, lastUrl)) {
+                    SpiderDebug.log(TAG, "playlist expired stop id=%s refresh=%d url=%s", item.getId(), refresh, logUrl(m3u8Url));
+                    throw new Exception("playlist signature expired, retry limit reached");
+                }
+                SpiderDebug.log(TAG, "playlist expired refresh id=%s refresh=%d -> refetch", item.getId(), refresh);
                 refresh++;
                 lastUrl = m3u8Url;
                 refreshFromSite(item);
@@ -139,11 +167,22 @@ public class M3u8Downloader {
                     downloadedBytes += sf.length();
                 }
             }
-            // 刷新后仍无任何新分片完成：说明刷新无效（源未重新签名 / 分片永久不可达），停止避免空转
+            // 续传/重试时先把已落盘分片折算成进度上报，避免“进度条停在 0% 看似卡死”
+            // （实际已在 99% 等最后几个分片，只是没有新分片完成时不会触发 onSegmentDone）。
+            if (listener != null && total > 0) listener.onProgress(completed * 100 / total, downloadedBytes, -1, 0);
+            SpiderDebug.log(TAG, "scan refresh=%d total=%d completed=%d progress=%d%% url=%s", refresh, total, completed, completed * 100 / total, logUrl(m3u8Url));
+            // 连续多次刷新后仍无新分片完成，才判定“源不可达/签名无法刷新”而停止，
+            // 给限速冷却类源留出恢复机会，避免仅一次刷新未即时生效就放弃 99% 的下载。
             if (refresh > 0 && completed <= lastCompleted) {
-                throw new Exception("download stalled: no progress after refresh");
+                noProgress++;
+            } else {
+                noProgress = 0;
             }
             lastCompleted = completed;
+            if (noProgress >= STALL_LIMIT) {
+                SpiderDebug.log(TAG, "stall stop id=%s completed=%d/%d noProgress=%d/%d", item.getId(), completed, total, noProgress, STALL_LIMIT);
+                throw new Exception("download stalled: no progress after " + noProgress + " refreshes");
+            }
             if (completed < total) {
                 AtomicReference<List<Segment>> segRef = new AtomicReference<>(segments);
                 try {
@@ -155,7 +194,11 @@ public class M3u8Downloader {
                     if (!allSegmentsReady(dir, total)) throw e;
                 } catch (PlaylistExpiredException e) {
                     // 分片签名过期：向站点接口重新拉取最新播放列表地址与签名后继续（已下分片按索引复用）
-                    if (shouldStop(refresh, m3u8Url, lastUrl)) throw new Exception("segment signature expired, retry limit reached");
+                    if (shouldStop(refresh, m3u8Url, lastUrl)) {
+                        SpiderDebug.log(TAG, "segment expired stop id=%s refresh=%d url=%s", item.getId(), refresh, logUrl(m3u8Url));
+                        throw new Exception("segment signature expired, retry limit reached");
+                    }
+                    SpiderDebug.log(TAG, "segment expired refresh id=%s refresh=%d -> refetch", item.getId(), refresh);
                     refresh++;
                     lastUrl = m3u8Url;
                     refreshFromSite(item);
@@ -165,6 +208,7 @@ public class M3u8Downloader {
                 } catch (Throwable e) {
                     // 分片下载失败（5xx / 网络抖动 / 空响应等）：对短有效期预签名源，刷新后通常可恢复，
                     // 故同样走刷新重试；是否继续由 shouldStop 依据“上限 / 是否拿到新地址”决定。
+                    SpiderDebug.log(TAG, "segment failed id=%s refresh=%d url=%s msg=%s", item.getId(), refresh, logUrl(m3u8Url), e.getMessage());
                     if (shouldStop(refresh, m3u8Url, lastUrl)) throw new Exception("segment download failed: " + e.getMessage());
                     refresh++;
                     lastUrl = m3u8Url;
@@ -193,7 +237,12 @@ public class M3u8Downloader {
             if (placeholder.exists()) placeholder.delete();
 
             if (listener != null) listener.onProgress(100, merged.length(), merged.length(), 0);
+            SpiderDebug.log(TAG, "download complete id=%s file=%s size=%d", item.getId(), merged.getAbsolutePath(), merged.length());
             return merged;
+        }
+        } catch (Throwable e) {
+            SpiderDebug.log(TAG, "download failed id=%s reason=%s", item.getId(), e.getMessage());
+            throw e;
         }
     }
 
@@ -320,6 +369,7 @@ public class M3u8Downloader {
     private static void downloadSegments(DownloadItem item, Map<String, String> headers, AtomicReference<List<Segment>> segmentsRef, File dir, int startCompleted, long startBytes, ProgressListener listener) throws Exception {
         List<Segment> segments = segmentsRef.get();
         int total = segments.size();
+        SpiderDebug.log(TAG, "segments start id=%s total=%d completed=%d", item.getId(), total, startCompleted);
         File[] segFiles = new File[total];
         for (int i = 0; i < total; i++) segFiles[i] = new File(dir, "seg_" + i + ".ts");
         ExecutorService pool = Executors.newFixedThreadPool(SEGMENT_THREADS);
@@ -357,10 +407,12 @@ public class M3u8Downloader {
                 } catch (PlaylistExpiredException e) {
                     // 分片签名过期：标记后由外层重新拉列表刷新，不在本批次内重试
                     expired.set(true);
+                    SpiderDebug.log(TAG, "seg expired id=%s index=%d", item.getId(), index);
                 } catch (PausedException | CanceledException e) {
                     // 暂停/取消：不标记为失败
                 } catch (Throwable e) {
                     failed.set(true);
+                    SpiderDebug.log(TAG, "seg failed id=%s index=%d msg=%s", item.getId(), index, e.getMessage());
                 } finally {
                     latch.countDown();
                 }
@@ -446,6 +498,7 @@ public class M3u8Downloader {
                 // 判定为“取消/暂停”，避免被误判为“下载失败”而走无效重试，也保证分片线程干净退出
                 // （暂停即时生效，恢复后不会“秒完成”假象）。
                 if (isCancelException(e)) {
+                    SpiderDebug.log(TAG, "fetch canceled id=%s url=%s msg=%s", item.getId(), logUrl(url), e.getMessage());
                     if (item.isCanceled()) throw new CanceledException();
                     if (item.isPaused()) throw new PausedException();
                 }
@@ -454,6 +507,7 @@ public class M3u8Downloader {
                 // 首次失败后改用“干净请求”（仅默认 UA、去掉源自定义头）重试，与播放路径一致。
                 if (++retry > SEGMENT_RETRY) throw e;
                 clean = true;
+                SpiderDebug.log(TAG, "fetch fallback clean id=%s url=%s retry=%d msg=%s", item.getId(), logUrl(url), retry, e.getMessage());
                 try {
                     Thread.sleep(300 * retry);
                 } catch (InterruptedException ie) {
@@ -527,6 +581,24 @@ public class M3u8Downloader {
         if (TextUtils.isEmpty(text)) return "";
         int end = Math.min(text.length(), 200);
         return text.substring(0, end).replace("\n", " ").replace("\r", " ");
+    }
+
+    // 日志脱敏：保留 host + path + 各 query 参数名，但把参数值清空，避免把预签名令牌/密钥写进日志。
+    private static String logUrl(String url) {
+        if (TextUtils.isEmpty(url)) return "";
+        int q = url.indexOf('?');
+        if (q < 0) return url;
+        String base = url.substring(0, q);
+        String query = url.substring(q + 1);
+        String[] pairs = query.split("&");
+        StringBuilder sb = new StringBuilder(base).append('?');
+        for (int i = 0; i < pairs.length; i++) {
+            if (i > 0) sb.append('&');
+            String p = pairs[i];
+            int eq = p.indexOf('=');
+            sb.append(eq >= 0 ? p.substring(0, eq) : p).append('=');
+        }
+        return sb.toString();
     }
 
     private static boolean isMaster(String playlist) {
