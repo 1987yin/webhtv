@@ -14,6 +14,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -161,6 +162,24 @@ public class M3u8Downloader {
             List<Segment> segments = parseSegments(playlist, baseUrl);
             if (segments.isEmpty()) throw new Exception("no segments in playlist");
 
+            // 续传/恢复健壮性：把“首次成功解析的播放列表”持久化到 dir/source.m3u8(+source.base)，
+            // 作为分片数量与索引映射的权威依据。部分代理/源重复拉取时返回的播放列表分片数会变化
+            // （如本例首次 554、暂停恢复后仅 26）；若直接信任本次较小的列表，会出现“瞬间 100% 且
+            // 本地 m3u8 被截断成 26 条”的回退。优先采用“更大”的列表（通常即首次持久化的完整列表），
+            // 用其原始分片地址继续补齐缺失分片；该地址仍有效即可下全，已过期则按选项 A 剔除缺失。
+            boolean authoritative = false;
+            List<Segment> baseSegments = loadBaseSegments(dir);
+            if (baseSegments != null && baseSegments.size() > segments.size()) {
+                segments = baseSegments;
+                authoritative = true;
+                SpiderDebug.log(TAG, "use persisted base playlist id=%s base=%d fresh=%d", item.getId(), baseSegments.size(), segments.size());
+            } else {
+                if (baseSegments == null || segments.size() > baseSegments.size()) {
+                    saveSourcePlaylist(dir, playlist, baseUrl);
+                }
+                authoritative = false;
+            }
+
             int total = segments.size();
             int completed = 0;
             long downloadedBytes = 0;
@@ -190,7 +209,7 @@ public class M3u8Downloader {
             if (completed < total) {
                 AtomicReference<List<Segment>> segRef = new AtomicReference<>(segments);
                 try {
-                    int failedCount = downloadSegments(item, headers, segRef, dir, completed, downloadedBytes, listener);
+                    int failedCount = downloadSegments(item, headers, segRef, dir, completed, downloadedBytes, listener, !authoritative);
                     if (failedCount > 0) {
                         // 重新统计已落盘分片，得到真实缺失数（限速/个别死链分片都会落在这里）
                         int newCompleted = 0;
@@ -199,7 +218,11 @@ public class M3u8Downloader {
                             if (sf.exists() && sf.length() > 0) newCompleted++;
                         }
                         int missing = total - newCompleted;
-                        if (missing <= BEST_EFFORT_MISSING && refresh >= MIN_BEST_EFFORT_REFRESH) {
+                        if (authoritative) {
+                            // 权威列表模式（采用持久化完整列表但本次拉到的列表更小）：重复拉取只会得到
+                            // 更小的列表、无法刷新签名，故不进入刷新死循环，直接按选项 A 剔除缺失分片。
+                            SpiderDebug.log(TAG, "authoritative skip-missing id=%s missing=%d/%d", item.getId(), missing, total);
+                        } else if (missing <= BEST_EFFORT_MISSING && refresh >= MIN_BEST_EFFORT_REFRESH) {
                             // 极少数分片（如源内嵌的图片/封面轨道、热链保护的个别分片）始终拉不下来，
                             // 充分重试后仍缺失则直接从本地播放列表剔除（选项 A），避免整片在 90%+ 因个别分片失败而作废。
                             SpiderDebug.log(TAG, "local m3u8 skip-missing id=%s missing=%d/%d after %d refreshes", item.getId(), missing, total, refresh);
@@ -377,7 +400,9 @@ public class M3u8Downloader {
     }
 
     // 返回本批次失败（无法落盘）的分片数，由外层决定是否重试或做“尽力合并”，而非一失败就抛。
-    private static int downloadSegments(DownloadItem item, Map<String, String> headers, AtomicReference<List<Segment>> segmentsRef, File dir, int startCompleted, long startBytes, ProgressListener listener) throws Exception {
+    // allowRefresh=false（权威列表模式）时，分片签名过期(401/403)不触发外层刷新（避免陷入“重复拉取
+    // 只会得到更小列表”的死循环），而是记一次失败，交由外层按选项 A 剔除缺失分片。
+    private static int downloadSegments(DownloadItem item, Map<String, String> headers, AtomicReference<List<Segment>> segmentsRef, File dir, int startCompleted, long startBytes, ProgressListener listener, boolean allowRefresh) throws Exception {
         List<Segment> segments = segmentsRef.get();
         int total = segments.size();
         SpiderDebug.log(TAG, "segments start id=%s total=%d completed=%d", item.getId(), total, startCompleted);
@@ -406,9 +431,9 @@ public class M3u8Downloader {
                     if (item.isPaused() || item.isCanceled()) return;
                     // 每次都从最新引用取分片地址：外层刷新签名后会替换该引用
                     Segment seg = segmentsRef.get().get(index);
-                    byte[] data = fetchBytes(seg.uri, headers, tag, item);
+                    byte[] data = fetchBytes(seg.uri, headers, tag, item, allowRefresh);
                     if (item.isPaused() || item.isCanceled()) return;
-                    if (seg.keyUri != null) data = decrypt(data, seg.keyUri, seg.iv, headers, tag, item);
+                    if (seg.keyUri != null) data = decrypt(data, seg.keyUri, seg.iv, headers, tag, item, allowRefresh);
                     if (item.isPaused() || item.isCanceled()) return;
                     try (OutputStream os = new BufferedOutputStream(new FileOutputStream(segFiles[index]))) {
                         os.write(data);
@@ -416,9 +441,16 @@ public class M3u8Downloader {
                     downloadedBytes.addAndGet(data.length);
                     onSegmentDone(completed, total, downloadedBytes, lastNotify, lastBytes, startTime, listener);
                 } catch (PlaylistExpiredException e) {
-                    // 分片签名过期：标记后由外层重新拉列表刷新，不在本批次内重试
-                    expired.set(true);
-                    SpiderDebug.log(TAG, "seg expired id=%s index=%d", item.getId(), index);
+                    if (allowRefresh) {
+                        // 分片签名过期：标记后由外层重新拉列表刷新，不在本批次内重试
+                        expired.set(true);
+                        SpiderDebug.log(TAG, "seg expired id=%s index=%d", item.getId(), index);
+                    } else {
+                        // 权威列表模式下不刷新（重复拉取只会得到更小的列表）：记一次失败，
+                        // 由外层按选项 A 剔除缺失分片，避免刷新死循环。
+                        failedCount.incrementAndGet();
+                        SpiderDebug.log(TAG, "seg expired(no-refresh) id=%s index=%d", item.getId(), index);
+                    }
                 } catch (PausedException | CanceledException e) {
                     // 暂停/取消：不标记为失败
                 } catch (Throwable e) {
@@ -488,6 +520,31 @@ public class M3u8Downloader {
         return out;
     }
 
+    // 持久化“首次成功解析的（已解析变体后的）播放列表”与其 baseUrl，作为续传/恢复时
+    // 分片数量与索引映射的权威依据（避免源重复拉取返回更小列表时被截断）。见 download() 内的采用逻辑。
+    private static void saveSourcePlaylist(File dir, String playlist, String baseUrl) {
+        try {
+            Files.write(new File(dir, "source.m3u8").toPath(), playlist.getBytes(StandardCharsets.UTF_8));
+            Files.write(new File(dir, "source.base").toPath(), baseUrl.getBytes(StandardCharsets.UTF_8));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // 读取持久化的权威播放列表；不存在或损坏时返回 null（退回使用本次拉到的列表）。
+    private static List<Segment> loadBaseSegments(File dir) {
+        File f = new File(dir, "source.m3u8");
+        File b = new File(dir, "source.base");
+        if (!f.exists() || !b.exists()) return null;
+        try {
+            String text = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+            String base = new String(Files.readAllBytes(b.toPath()), StandardCharsets.UTF_8).trim();
+            List<Segment> segs = parseSegments(text, base);
+            return segs.isEmpty() ? null : segs;
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
     private static long dirSize(File dir) {
         long total = 0;
         File[] files = dir.listFiles();
@@ -495,8 +552,8 @@ public class M3u8Downloader {
         return total;
     }
 
-    private static byte[] decrypt(byte[] data, String keyUri, byte[] iv, Map<String, String> headers, String tag, DownloadItem item) throws Exception {
-        byte[] key = fetchBytes(keyUri, headers, tag, item);
+    private static byte[] decrypt(byte[] data, String keyUri, byte[] iv, Map<String, String> headers, String tag, DownloadItem item, boolean allowRefresh) throws Exception {
+        byte[] key = fetchBytes(keyUri, headers, tag, item, allowRefresh);
         if (key == null || key.length < 16) throw new Exception("invalid aes key");
         SecretKeySpec keySpec = new SecretKeySpec(key, 0, 16, "AES");
         IvParameterSpec ivSpec = new IvParameterSpec(iv != null ? iv : new byte[16]);
@@ -512,7 +569,7 @@ public class M3u8Downloader {
         }
     }
 
-    private static byte[] fetchBytes(String url, Map<String, String> headers, String tag, DownloadItem item) throws Exception {
+    private static byte[] fetchBytes(String url, Map<String, String> headers, String tag, DownloadItem item, boolean allowRefresh) throws Exception {
         int retry = 0;
         boolean clean = false;
         while (true) {
@@ -522,7 +579,12 @@ public class M3u8Downloader {
                 if (!res.isSuccessful() || res.body() == null) {
                     int code = res.code();
                     // 401/403 视为签名过期：抛出专用异常，由外层重新拉列表刷新签名后继续。
-                    if (code == 401 || code == 403) throw new PlaylistExpiredException("HTTP " + code);
+                    // allowRefresh=false（权威列表模式）时不触发刷新（重复拉取只会得到更小的列表），
+                    // 直接作为失败交由上层按选项 A 剔除缺失分片。
+                    if (code == 401 || code == 403) {
+                        if (allowRefresh) throw new PlaylistExpiredException("HTTP " + code);
+                        throw new Exception("HTTP " + code);
+                    }
                     throw new Exception("HTTP " + code);
                 }
                 return res.body().bytes();
