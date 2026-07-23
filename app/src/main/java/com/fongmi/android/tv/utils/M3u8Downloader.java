@@ -38,6 +38,9 @@ public class M3u8Downloader {
 
     private static final int SEGMENT_THREADS = 4;
     private static final int SEGMENT_RETRY = 3;
+    // 每个分片签名窗口约 300s，长视频（尤其限速源 x-obs-traffic-limit）需要多次刷新才能下完，
+    // 故上限放宽到很大；同时用“刷新后是否有进展 / 是否拿到新地址”做死循环保护。
+    private static final int MAX_REFRESH = 200;
     private static final long PROGRESS_INTERVAL = 400;
     // 默认 UA：部分对象存储（OBS / AWS S3 预签名）会按 UA 放行或拦截，
     // 不带的默认 okhttp UA 容易被 403。播放器/本地代理也是用浏览器类 UA 拉通的。
@@ -96,12 +99,13 @@ public class M3u8Downloader {
         if (!dir.exists() && !dir.mkdirs()) throw new Exception("create hls dir failed");
 
         String m3u8Url = item.getUrl();
+        String lastUrl = m3u8Url;
         int refresh = 0;
-        final int MAX_REFRESH = 6;
+        int lastCompleted = -1;
         while (true) {
             // 始终重新拉播放列表，刷新分片签名（解决过期导致的 403 / 0% 失败）。
             // 若 m3u8 自身的预签名地址也已过期，则向站点接口重新要一份最新地址（含最新签名与请求头），
-            // 否则重拉播放列表会直接 403，表现为“快下完（~98%）才失败、需要手动点重试”。
+            // 否则重拉播放列表会直接 403。
             String playlist;
             try {
                 playlist = fetchText(m3u8Url, headers, item);
@@ -113,7 +117,9 @@ public class M3u8Downloader {
                 }
             } catch (PlaylistExpiredException e) {
                 // 播放列表/变体地址签名过期：重新向站点要最新地址与请求头后继续（已下分片按索引复用）
-                if (++refresh > MAX_REFRESH) throw new Exception("playlist signature expired, retry limit reached");
+                if (shouldStop(refresh, m3u8Url, lastUrl)) throw new Exception("playlist signature expired, retry limit reached");
+                refresh++;
+                lastUrl = m3u8Url;
                 refreshFromSite(item);
                 m3u8Url = item.getUrl();
                 headers = item.getHeaders();
@@ -133,13 +139,35 @@ public class M3u8Downloader {
                     downloadedBytes += sf.length();
                 }
             }
+            // 刷新后仍无任何新分片完成：说明刷新无效（源未重新签名 / 分片永久不可达），停止避免空转
+            if (refresh > 0 && completed <= lastCompleted) {
+                throw new Exception("download stalled: no progress after refresh");
+            }
+            lastCompleted = completed;
             if (completed < total) {
                 AtomicReference<List<Segment>> segRef = new AtomicReference<>(segments);
                 try {
                     downloadSegments(item, headers, segRef, dir, completed, downloadedBytes, listener);
+                } catch (PausedException | CanceledException e) {
+                    if (e instanceof CanceledException) throw e;
+                    // 暂停时若分片已全部就绪，则视为“真正完成”（下方合并出文件），
+                    // 避免“显示已暂停、点恢复却瞬间完成”的假象；仅当确有分片缺失才保留暂停态。
+                    if (!allSegmentsReady(dir, total)) throw e;
                 } catch (PlaylistExpiredException e) {
                     // 分片签名过期：向站点接口重新拉取最新播放列表地址与签名后继续（已下分片按索引复用）
-                    if (++refresh > MAX_REFRESH) throw new Exception("segment signature expired, retry limit reached");
+                    if (shouldStop(refresh, m3u8Url, lastUrl)) throw new Exception("segment signature expired, retry limit reached");
+                    refresh++;
+                    lastUrl = m3u8Url;
+                    refreshFromSite(item);
+                    m3u8Url = item.getUrl();
+                    headers = item.getHeaders();
+                    continue;
+                } catch (Throwable e) {
+                    // 分片下载失败（5xx / 网络抖动 / 空响应等）：对短有效期预签名源，刷新后通常可恢复，
+                    // 故同样走刷新重试；是否继续由 shouldStop 依据“上限 / 是否拿到新地址”决定。
+                    if (shouldStop(refresh, m3u8Url, lastUrl)) throw new Exception("segment download failed: " + e.getMessage());
+                    refresh++;
+                    lastUrl = m3u8Url;
                     refreshFromSite(item);
                     m3u8Url = item.getUrl();
                     headers = item.getHeaders();
@@ -147,7 +175,8 @@ public class M3u8Downloader {
                 }
             }
             if (item.isCanceled()) throw new CanceledException();
-            if (item.isPaused()) throw new PausedException();
+            // 暂停但分片已全部就绪 -> 视为完成；仍有缺失才保留暂停态
+            if (item.isPaused() && !allSegmentsReady(dir, total)) throw new PausedException();
 
             // 完成前必须校验所有分片确实就绪，杜绝“部分缺失却标记成功”
             for (int i = 0; i < total; i++) {
@@ -166,6 +195,22 @@ public class M3u8Downloader {
             if (listener != null) listener.onProgress(100, merged.length(), merged.length(), 0);
             return merged;
         }
+    }
+
+    // 是否应当停止刷新：达到上限，或刷新后未拿到新地址（源未重新签名），避免对失效源空转。
+    private static boolean shouldStop(int refresh, String url, String lastUrl) {
+        if (refresh >= MAX_REFRESH) return true;
+        if (refresh > 2 && url.equals(lastUrl)) return true;
+        return false;
+    }
+
+    // 校验所有分片确实已落盘（存在且非空）
+    private static boolean allSegmentsReady(File dir, int total) {
+        for (int i = 0; i < total; i++) {
+            File sf = new File(dir, "seg_" + i + ".ts");
+            if (!sf.exists() || sf.length() == 0) return false;
+        }
+        return true;
     }
 
     // 向站点接口重新拉取最新播放地址与请求头（预签名往往会过期），用于分片/播放列表签名过期时自愈，
