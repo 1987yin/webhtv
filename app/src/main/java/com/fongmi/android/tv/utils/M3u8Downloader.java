@@ -11,13 +11,12 @@ import com.github.catvod.net.OkHttp;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -52,7 +51,8 @@ public class M3u8Downloader {
     // 每次刷新失败后的退避等待（毫秒），让限速冷却 / 签名窗口有机会恢复。
     private static final long REFRESH_BACKOFF = 1500;
     // 极少数分片（如源内嵌的图片/封面轨道、或热链保护的个别分片）始终拉取失败时，
-    // 在充分重试后做“尽力合并”，避免整片在 90%+ 因个别分片失败而作废。
+    // 在充分重试后直接将其从本地播放列表剔除（选项 A：不写进 index.m3u8，播放器自然跳过这几秒），
+    // 避免整片在 90%+ 因个别分片失败而作废。
     private static final int BEST_EFFORT_MISSING = 8;
     private static final int MIN_BEST_EFFORT_REFRESH = 2;
     // 默认 UA：部分对象存储（OBS / AWS S3 预签名）会按 UA 放行或拦截，
@@ -102,7 +102,7 @@ public class M3u8Downloader {
         }
     }
 
-    // 下载入口。targetMp4 为占位文件（name.mp4），实际产物为同目录的 name.ts（所有分片合并后的单文件）。
+    // 下载入口。targetMp4 为占位文件（name.mp4）；实际产物为同目录的 name_hls/index.m3u8（本地播放列表）。
     // 关键点：每次进入都重新拉取播放列表，以拿到“当下有效”的分片签名。
     // OBS / AWS 预签名分片往往独立过期（约数十秒），复用首次解析出的旧分片 URL 会全部 403，
     // 表现为“能播不能下 / 重试进度 0% 失败”。已下载的 seg_i.ts 按索引复用，不重复下载；
@@ -117,7 +117,6 @@ public class M3u8Downloader {
         int refresh = 0;
         int lastCompleted = -1;
         int noProgress = 0;
-        boolean bestEffort = false;
         try {
         while (true) {
             // 刷新退避：给限速冷却 / 签名窗口恢复留出时间，避免对失效源空转；
@@ -202,9 +201,8 @@ public class M3u8Downloader {
                         int missing = total - newCompleted;
                         if (missing <= BEST_EFFORT_MISSING && refresh >= MIN_BEST_EFFORT_REFRESH) {
                             // 极少数分片（如源内嵌的图片/封面轨道、热链保护的个别分片）始终拉不下来，
-                            // 充分重试后仍缺失则“尽力合并”，避免整片在 90%+ 因个别分片失败而作废。
-                            SpiderDebug.log(TAG, "best-effort merge id=%s missing=%d/%d after %d refreshes", item.getId(), missing, total, refresh);
-                            bestEffort = true;
+                            // 充分重试后仍缺失则直接从本地播放列表剔除（选项 A），避免整片在 90%+ 因个别分片失败而作废。
+                            SpiderDebug.log(TAG, "local m3u8 skip-missing id=%s missing=%d/%d after %d refreshes", item.getId(), missing, total, refresh);
                         } else if (shouldStop(refresh, m3u8Url, lastUrl)) {
                             throw new Exception("segment download failed: " + missing + " segments missing");
                         } else {
@@ -241,26 +239,16 @@ public class M3u8Downloader {
             // 暂停但分片已全部就绪 -> 视为完成；仍有缺失才保留暂停态
             if (item.isPaused() && !allSegmentsReady(dir, total)) throw new PausedException();
 
-            // 完成前校验：非尽力模式下要求所有分片就绪，杜绝“部分缺失却标记成功”；
-            // 尽力模式下允许极少数分片缺失（下方合并时跳过）。
-            if (!bestEffort) {
-                for (int i = 0; i < total; i++) {
-                    File sf = new File(dir, "seg_" + i + ".ts");
-                    if (!sf.exists() || sf.length() == 0) throw new Exception("segment missing: " + i);
-                }
-            }
+            // 产出本地 m3u8（而非合并为单文件）：直接引用本地已解密的 seg_i.ts，
+            // 缺失/死链分片（如源内嵌的封面 .jpg）按选项 A 直接从播放列表剔除，播放器自然跳过这几秒。
+            File localM3u8 = writeLocalPlaylist(dir, segments, item.getId());
+            // 占位 mp4 从未实际落盘，存在则顺手清理
+            if (targetMp4.exists()) targetMp4.delete();
 
-            // 合并为单个 .ts：MPEG-TS 可直接拼接，单文件播放最稳、时长准确、无缺失分片问题
-            File merged = new File(targetMp4.getParentFile(), baseName(targetMp4) + ".ts");
-            mergeTs(dir, total, merged);
-            // 清理分片与临时文件（占位 mp4 亦无用）
-            deleteDir(dir);
-            File placeholder = targetMp4;
-            if (placeholder.exists()) placeholder.delete();
-
-            if (listener != null) listener.onProgress(100, merged.length(), merged.length(), 0);
-            SpiderDebug.log(TAG, "download complete id=%s file=%s size=%d", item.getId(), merged.getAbsolutePath(), merged.length());
-            return merged;
+            long size = dirSize(dir);
+            if (listener != null) listener.onProgress(100, size, size, 0);
+            SpiderDebug.log(TAG, "download complete id=%s m3u8=%s size=%d", item.getId(), localM3u8.getAbsolutePath(), size);
+            return localM3u8;
         }
         } catch (Throwable e) {
             SpiderDebug.log(TAG, "download failed id=%s reason=%s", item.getId(), e.getMessage());
@@ -470,18 +458,41 @@ public class M3u8Downloader {
         }
     }
 
-    private static void mergeTs(File dir, int total, File out) throws Exception {
-        try (OutputStream os = new BufferedOutputStream(new FileOutputStream(out))) {
-            byte[] buf = new byte[64 * 1024];
-            for (int i = 0; i < total; i++) {
-                File sf = new File(dir, "seg_" + i + ".ts");
-                if (!sf.exists() || sf.length() == 0) continue; // 尽力模式/续传残留：跳过缺失分片
-                try (InputStream is = new FileInputStream(sf)) {
-                    int n;
-                    while ((n = is.read(buf)) > 0) os.write(buf, 0, n);
-                }
+    // 生成本地播放列表（VOD 媒体播放列表），直接引用本地已解密的 seg_i.ts（相对路径）。
+    // 缺失/死链分片（如源内嵌的封面 .jpg）按选项 A 直接剔除，不写入列表；播放器遇到缺失条目
+    // 会自然跳过这几秒，而非整片卡死。因分片已本地解密，本地 m3u8 无需 EXT-X-KEY。
+    private static File writeLocalPlaylist(File dir, List<Segment> segments, String id) throws Exception {
+        File out = new File(dir, "index.m3u8");
+        int written = 0;
+        int skipped = 0;
+        StringBuilder sb = new StringBuilder();
+        sb.append("#EXTM3U\n");
+        for (int i = 0; i < segments.size(); i++) {
+            File sf = new File(dir, "seg_" + i + ".ts");
+            if (!sf.exists() || sf.length() == 0) {
+                // 选项 A：死链/缺失分片直接从本地播放列表剔除，播放器自然跳过这几秒
+                SpiderDebug.log(TAG, "local m3u8 skip missing index=%d id=%s", i, id);
+                skipped++;
+                continue;
             }
+            Segment s = segments.get(i);
+            sb.append("#EXTINF:").append(String.format(Locale.US, "%.3f", s.duration)).append(",\n");
+            sb.append("seg_").append(i).append(".ts\n");
+            written++;
         }
+        sb.append("#EXT-X-ENDLIST\n");
+        try (OutputStream os = new BufferedOutputStream(new FileOutputStream(out))) {
+            os.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        SpiderDebug.log(TAG, "local m3u8 written id=%s entries=%d skipped=%d file=%s", id, written, skipped, out.getAbsolutePath());
+        return out;
+    }
+
+    private static long dirSize(File dir) {
+        long total = 0;
+        File[] files = dir.listFiles();
+        if (files != null) for (File f : files) if (f.isFile()) total += f.length();
+        return total;
     }
 
     private static byte[] decrypt(byte[] data, String keyUri, byte[] iv, Map<String, String> headers, String tag, DownloadItem item) throws Exception {
@@ -695,10 +706,4 @@ public class M3u8Downloader {
         return dot > 0 ? n.substring(0, dot) : n;
     }
 
-    private static void deleteDir(File dir) {
-        if (dir == null || !dir.exists()) return;
-        File[] files = dir.listFiles();
-        if (files != null) for (File f : files) deleteDir(f);
-        dir.delete();
-    }
 }

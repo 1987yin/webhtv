@@ -177,7 +177,9 @@ public class DownloadManager {
             });
             if (item.isCanceled()) {
                 item.setState(DownloadItem.CANCELED);
-                Path.clear(mp4);
+                // mp4 现在指向 name_hls/index.m3u8，其父目录才是分片目录；整目录清理，避免残留分片孤儿文件
+                File hlsDir = mp4.getParentFile();
+                if (hlsDir != null) Path.clear(hlsDir);
                 notifyChanged();
                 return;
             }
