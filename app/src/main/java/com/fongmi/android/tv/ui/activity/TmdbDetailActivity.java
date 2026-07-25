@@ -6070,9 +6070,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         detailControlView(R.id.lock, View.class).setVisibility(inlineFullscreen ? View.VISIBLE : View.GONE);
         detailControlView(R.id.rotate, View.class).setVisibility(inlineFullscreen && !locked && !inlineShortDramaMode ? View.VISIBLE : View.GONE);
         detailControlView(R.id.pip, View.class).setVisibility(canShowInlinePiP(hasPlayer, locked) ? View.VISIBLE : View.GONE);
-        // 中间悬浮的上集/下集按钮：只根据集数显示，不受 PlayerButtonSetting 影响
-        detailControlView(R.id.prev, View.class).setVisibility(!locked && hasPlayer && episodeCount > 0 ? View.VISIBLE : View.GONE);
-        detailControlView(R.id.next, View.class).setVisibility(!locked && hasPlayer && episodeCount > 0 ? View.VISIBLE : View.GONE);
+        // 中间悬浮的上集/下集按钮：只根据集数显示（需≥2集，与 VideoActivity 一致），不受 PlayerButtonSetting 影响
+        detailControlView(R.id.prev, View.class).setVisibility(!locked && hasPlayer && episodeCount >= 2 ? View.VISIBLE : View.GONE);
+        detailControlView(R.id.next, View.class).setVisibility(!locked && hasPlayer && episodeCount >= 2 ? View.VISIBLE : View.GONE);
         // 顶部投屏按钮：只根据功能可用性显示，不受 PlayerButtonSetting 影响
         detailControlView(R.id.cast, View.class).setVisibility(!locked && hasInlineCast() ? View.VISIBLE : View.GONE);
         detailControlView(R.id.info, View.class).setVisibility(!locked && hasInlineInfo() ? View.VISIBLE : View.GONE);
