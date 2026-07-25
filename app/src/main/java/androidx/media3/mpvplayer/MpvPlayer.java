@@ -1562,6 +1562,8 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
         if (!initialized || surface == null || !surface.isValid()) return;
         try {
             if (surfaceAttached && attachedSurface == surface) {
+                // Re-read holder size on fast-path resize — surfaceChanged may not fire after fullscreen exit
+                if (surfaceHolder != null) updateSurfaceSize(surfaceHolder);
                 setRuntimeString("force-window", "yes");
                 applyAndroidSurfaceSize();
                 applySurfaceFrameRate();
