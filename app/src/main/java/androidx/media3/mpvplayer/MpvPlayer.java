@@ -809,7 +809,10 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
         // fontconfig provider. Keep this in native initialization because user configs
         // may replace the bundled defaults.
         setOption("sub-ass", "yes");
-        setOption("sub-ass-override", "yes");
+        // "scale" applies --sub-scale to ASS/SSA subtitles too. With plain "yes",
+        // sub-pos is honored but sub-scale is silently ignored for ASS/SSA, which is
+        // why subtitle position could be adjusted but text size could not.
+        setOption("sub-ass-override", "scale");
         setOption("embeddedfonts", "yes");
         setOption("sub-fix-timing", "yes");
         setOption("sub-use-margins", "yes");
@@ -3063,6 +3066,12 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
         safeSetPropertyDouble("sub-border-size", style.borderSize);
         safeSetPropertyDouble("sub-shadow-offset", style.shadowOffset);
         safeSetPropertyString("sub-ass-style-overrides", assStyleOverrides(style));
+        // Force MPV to re-render ASS/SSA subtitles with the new sub-scale value.
+        // Toggling sub-visibility triggers layout recalculation. Save and restore
+        // the original state so we don't accidentally enable subtitles if user disabled them.
+        boolean wasVisible = booleanProperty("sub-visibility", true);
+        safeSetPropertyBoolean("sub-visibility", false);
+        safeSetPropertyBoolean("sub-visibility", wasVisible);
     }
 
     private double subtitleScale() {
