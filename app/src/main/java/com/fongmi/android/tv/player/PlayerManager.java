@@ -45,7 +45,6 @@ import com.fongmi.android.tv.player.engine.PlayerCacheState;
 import com.fongmi.android.tv.player.engine.PlayerEngine;
 import com.fongmi.android.tv.player.engine.SystemPlayerEngine;
 import com.fongmi.android.tv.player.exo.TrackUtil;
-import com.fongmi.android.tv.player.exo.LocalProxyBypass;
 import com.fongmi.android.tv.player.danmaku.DanmakuUrlPolicy;
 import com.fongmi.android.tv.player.danmaku.LiveDanmakuBatcher;
 import com.fongmi.android.tv.player.danmaku.LiveDanmakuBuffer;
@@ -105,7 +104,6 @@ public class PlayerManager implements ParseCallback {
     private static final int LUT_WARMUP_RECOVERED_ERROR_REFRESH_THRESHOLD = 3;
     private static final long DANMAKU_FORCE_RELOAD_DEBOUNCE_MS = 10000;
     private static final long LIVE_DANMAKU_METRICS_INTERVAL_MS = 15000L;
-    private static final long EXO_DIRECT_PROXY_TIMEOUT_MS = 45_000L;
     private static final float[] SPEED_PRESETS = new float[]{0.5f, 0.75f, 1f, 1.2f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f, 5f};
     private static final DecimalFormat SPEED_FORMAT = new DecimalFormat("0.##x");
     private static final Pattern HTTP_STATUS = Pattern.compile("(?i)(?:response code|http status|http error)\\D+(\\d{3})");
@@ -152,7 +150,6 @@ public class PlayerManager implements ParseCallback {
     private boolean videoEffectsActive;
     private boolean videoEffectsDirty;
     private boolean parseHealthRecorded;
-    private boolean directLocalProxyBypassed;
     private boolean lutAppliedForItem;
     private boolean lutApplyInProgress;
     private boolean lutPipelineReadyForItem;
@@ -883,7 +880,6 @@ public class PlayerManager implements ParseCallback {
     public void reset() {
         App.removeCallbacks(runnable);
         localProxyRetry = 0;
-        directLocalProxyBypassed = false;
         resetPlayerFallback();
         hardDecodeSwitchRetryArmed = false;
         clearPendingSwitchRestore();
@@ -892,7 +888,6 @@ public class PlayerManager implements ParseCallback {
     public void clear() {
         prepareSeq++;
         lutApplySeq++;
-        directLocalProxyBypassed = false;
         resetMpvOutputRuntime();
         spec = null;
         clearPendingSwitchRestore();
@@ -1353,7 +1348,6 @@ public void resetTrack(int type) {
     public void start(PlaySpec spec, long timeout, boolean playWhenReady) {
         clearPendingSwitchRestore();
         clearDanmaku("start");
-        directLocalProxyBypassed = false;
         this.spec = spec;
         prepareMpvOutputForNewItem();
         beginPlaybackTrace("start");
@@ -1372,7 +1366,6 @@ public void resetTrack(int type) {
     public void parse(String key, Result result, boolean useParse, MediaMetadata metadata, boolean playWhenReady) {
         stopParse();
         clearPendingSwitchRestore();
-        directLocalProxyBypassed = false;
         clearDanmaku("parse");
         spec = PlaySpec.fromParse(result, key, metadata, useParse);
         prepareMpvOutputForNewItem();
@@ -1480,8 +1473,6 @@ public void resetTrack(int type) {
 
     private void setMediaItem(long timeout) {
         if (spec == null || spec.getUrl() == null) return;
-        applyEarlyLocalProxyBypass();
-        timeout = playbackTimeout(timeout, directLocalProxyBypassed, playerType == PlayerSetting.EXO);
         if (!ensurePlayerAvailableForPlayback()) return;
         int seq = ++prepareSeq;
         if (rejectMpvDrmMedia()) return;
@@ -1530,8 +1521,6 @@ public void resetTrack(int type) {
 
     private void setMediaItemNow(long timeout, boolean notifyPrepare) {
         if (spec == null || spec.getUrl() == null || engine == null) return;
-        applyEarlyLocalProxyBypass();
-        timeout = playbackTimeout(timeout, directLocalProxyBypassed, playerType == PlayerSetting.EXO);
         spec.setPlaybackTraceId(playbackTrace.ensure());
         spec.refreshPlaybackRoute();
         logPlaybackRoute();
@@ -2341,7 +2330,6 @@ public void resetTrack(int type) {
         if (headers != null) headers.remove(HttpHeaders.RANGE);
         if (spec != null) spec.setHeaders(headers);
         if (spec != null) spec.setUrl(url);
-        applyEarlyLocalProxyBypass();
         setMediaItem(Constant.TIMEOUT_PLAY);
         restoreAfterSwitchReparse();
     }
@@ -2832,28 +2820,6 @@ public void resetTrack(int type) {
     static boolean isCurrentDirectSwitchRefresh(boolean pending, int requestSeq, int currentSeq, int requestPlayerType, int currentPlayerType, PlaySpec requestSpec, PlaySpec currentSpec) {
         return pending && requestSeq == currentSeq && requestPlayerType == currentPlayerType && requestSpec == currentSpec;
     }
-    private void applyEarlyLocalProxyBypass() {
-        if (spec == null || playerType != PlayerSetting.EXO) return;
-        String url = spec.getUrl();
-        if (url == null) return;
-        Map<String, String> headers = spec.getHeaders();
-        if (headers == null) headers = new HashMap<>();
-        LocalProxyBypass.Target direct = LocalProxyBypass.maybeUnwrap(url, headers);
-        if (direct != null) {
-            spec.setUrl(direct.url());
-            spec.setHeaders(new HashMap<>(direct.headers()));
-            directLocalProxyBypassed = true;
-            if (SpiderDebug.isEnabled()) {
-                SpiderDebug.log("player", "bypass multi-thread local proxy player=EXO from=%s to=%s", url, direct.url());
-            }
-        }
-    }
-
-    static long playbackTimeout(long timeout, boolean directProxyBypassed, boolean exo) {
-        if (timeout <= 0 || !directProxyBypassed || !exo) return timeout;
-        return Math.max(timeout, EXO_DIRECT_PROXY_TIMEOUT_MS);
-    }
-
 
     static int httpStatus(Throwable error) {
         int depth = 0;

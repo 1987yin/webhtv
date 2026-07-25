@@ -133,28 +133,4 @@ public class PlayerManagerTest {
     public void httpStatus_returnsZeroWithoutResponseCode() {
         assertEquals(0, PlayerManager.httpStatus(new IOException("Socket closed")));
     }
-
-    @Test
-    public void playbackTimeout_extendsTimeoutForEXODirectProxyBypass() {
-        long result = PlayerManager.playbackTimeout(15000, true, true);
-        assertEquals(45000, result);
-    }
-
-    @Test
-    public void playbackTimeout_preservesLongerTimeout() {
-        long result = PlayerManager.playbackTimeout(90000, true, true);
-        assertEquals(90000, result);
-    }
-
-    @Test
-    public void playbackTimeout_noChangeWithoutBypass() {
-        long result = PlayerManager.playbackTimeout(15000, false, true);
-        assertEquals(15000, result);
-    }
-
-    @Test
-    public void playbackTimeout_noChangeForNonEXO() {
-        long result = PlayerManager.playbackTimeout(15000, true, false);
-        assertEquals(15000, result);
-    }
 }
