@@ -1386,7 +1386,7 @@ public void resetTrack(int type) {
     }
 
     private boolean reparseForPlayerSwitch(long position, float speed, boolean repeat) {
-        if (spec == null || !spec.canReparse()) return false;
+        if (spec == null || !spec.canReparse() || !spec.isParseSource()) return false;
         Result result = spec.getParseResult();
         boolean useParse = spec.isParseUseParse();
         MediaMetadata metadata = spec.getMetadata();
