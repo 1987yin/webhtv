@@ -3131,8 +3131,8 @@ private int mAudioBackgroundRandomNonce;
         mBinding.control.action.danmaku.setVisibility(DanmakuSetting.isLoad() ? View.VISIBLE : View.GONE);
         mBinding.control.action.adFeedback.setVisibility(isAdFeedbackEnabled() ? View.VISIBLE : View.GONE);
         applyActionButtonVisibility();
-        // 顶部的弹幕图标按钮：跟随播放器按钮设置
-        if (mBinding.control.getRoot().getVisibility() == View.VISIBLE) mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() || !PlayerButtonSetting.isVisible(PlayerButtonSetting.DANMAKU) ? View.GONE : View.VISIBLE);
+        // 顶部的弹幕图标按钮：只根据功能可用性显示，不受 PlayerButtonSetting 影响
+        if (mBinding.control.getRoot().getVisibility() == View.VISIBLE) mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() ? View.GONE : View.VISIBLE);
     }
 
     private void showControl() {
@@ -3141,14 +3141,14 @@ private int mAudioBackgroundRandomNonce;
         boolean shortDrama = isShortDramaSource();
         boolean showPiP = canShowPiP(shortDrama);
         hideWidgetOverlay();
-        // 顶部的弹幕图标按钮：跟随播放器按钮设置
-        mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() || !PlayerButtonSetting.isVisible(PlayerButtonSetting.DANMAKU) ? View.GONE : View.VISIBLE);
+        // 顶部的弹幕图标按钮：只根据功能可用性显示，不受 PlayerButtonSetting 影响
+        mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() ? View.GONE : View.VISIBLE);
         mBinding.control.setting.setVisibility(mHistory == null || (isFullscreen() && !shortDrama) ? View.GONE : View.VISIBLE);
         mBinding.control.right.getRoot().setVisibility(isFullscreen() || showPiP ? View.VISIBLE : View.GONE);
         mBinding.control.right.rotate.setVisibility(isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.right.pip.setVisibility(showPiP ? View.VISIBLE : View.GONE);
-        // 进度条旁的全屏按钮：跟随播放器按钮设置
-        mBinding.control.fullscreen.setVisibility(isLock() || shortDrama || !PlayerButtonSetting.isVisible(PlayerButtonSetting.FULLSCREEN) ? View.GONE : View.VISIBLE);
+        // 进度条旁的全屏按钮：只根据锁定状态和短剧判断，不受 PlayerButtonSetting 影响
+        mBinding.control.fullscreen.setVisibility(isLock() || shortDrama ? View.GONE : View.VISIBLE);
         mBinding.control.keep.setVisibility(mHistory == null ? View.GONE : View.VISIBLE);
         mBinding.control.nightMode.setVisibility(mHistory == null ? View.GONE : View.VISIBLE);
         mBinding.control.osdDiagnostics.setVisibility(PlayerSetting.isOsdDiagnostics() && !player().isEmpty() ? View.VISIBLE : View.GONE);
@@ -3162,8 +3162,8 @@ private int mAudioBackgroundRandomNonce;
         mBinding.control.action.getRoot().setVisibility(isLandscapeFullscreen || isFusionPlayerActionsDocked() ? View.VISIBLE : View.GONE);
         mBinding.control.right.lock.setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.info.setVisibility(player().isEmpty() ? View.GONE : View.VISIBLE);
-        // 顶部的投屏图标按钮：跟随播放器按钮设置
-        mBinding.control.cast.setVisibility(isFullscreen() && mHistory != null && !player().isEmpty() && PlayerButtonSetting.isVisible(PlayerButtonSetting.CAST) ? View.VISIBLE : View.GONE);
+        // 顶部的投屏图标按钮：只根据全屏状态和播放状态显示，不受 PlayerButtonSetting 影响
+        mBinding.control.cast.setVisibility(isFullscreen() && mHistory != null && !player().isEmpty() ? View.VISIBLE : View.GONE);
         mBinding.control.center.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.bottom.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.back.setVisibility(isLock() ? View.GONE : View.VISIBLE);
