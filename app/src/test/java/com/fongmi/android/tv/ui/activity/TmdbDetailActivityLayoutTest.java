@@ -134,6 +134,21 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void fusionOverlayButtonsDoNotFollowPlayerButtonSettings() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        // 融合模式全屏播放器的悬浮/图标按钮只根据集数、锁定、功能可用性显示，不受「播放器按钮设置」控制
+        // （PlayerButtonSetting 只控制 playerActionRow 的横向文字按钮）。这些按钮的可见性行在
+        // updateInlineButtons(...) 中，用 detailControlView(R.id.X).setVisibility(...) 更新。
+        for (String id : List.of("prev", "next", "fullscreen", "cast", "danmaku")) {
+            int line = source.indexOf("detailControlView(R.id." + id + ", View.class).setVisibility(");
+            assertTrue("missing detailControlView visibility line for R.id." + id, line >= 0);
+            int lineEnd = source.indexOf(';', line);
+            String stmt = source.substring(line, lineEnd);
+            assertFalse("fusion overlay button R.id." + id + " must not follow PlayerButtonSetting", stmt.contains("PlayerButtonSetting"));
+        }
+    }
+
+    @Test
     public void fusionInlineSettingsButtonOpensFullPlayerControls() throws Exception {
         String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
         int setup = source.indexOf("private void setupMobileInlineControl()");

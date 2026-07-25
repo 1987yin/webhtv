@@ -3168,10 +3168,6 @@ private int mAudioBackgroundRandomNonce;
         mBinding.control.bottom.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.back.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.top.setVisibility(isLock() ? View.GONE : View.VISIBLE);
-        // 动态更新中间悬浮按钮的可见性（只根据集数，不受 PlayerButtonSetting 影响）
-        int episodeCount = getCurrentEpisodeItems().size();
-        mBinding.control.prev.setVisibility(episodeCount < 2 ? View.GONE : View.VISIBLE);
-        mBinding.control.next.setVisibility(episodeCount < 2 ? View.GONE : View.VISIBLE);
         syncShortDramaControlLayout(shortDrama);
         mBinding.control.getRoot().setVisibility(View.VISIBLE);
         if (mOsd != null) mOsd.setControlsVisible(true);
