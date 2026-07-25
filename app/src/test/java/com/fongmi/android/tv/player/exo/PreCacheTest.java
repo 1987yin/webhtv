@@ -15,8 +15,7 @@ public class PreCacheTest {
 
     @Test
     public void canPreCache_allowsLocalProxyMediaLikeUpstream() {
-        // Note: LocalProxyBypass unwraps these URLs before PreCache sees them in normal flow.
-        // This test verifies PreCache doesn't reject loopback URLs if bypass fails.
+        // Local proxy URLs are passed through to ExoPlayer for jar-based multi-threading.
         assertTrue(PreCache.canPreCache("http", "http://127.0.0.1:9978/proxy?do=js"));
         assertTrue(PreCache.canPreCache("http", "http://localhost:9978/proxy?siteKey=drive"));
         assertTrue(PreCache.canPreCache("http", "http://[::1]:9978/proxy?do=py"));
