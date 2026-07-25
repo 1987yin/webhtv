@@ -5957,8 +5957,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private Map<String, View> inlinePlayerButtonMap() {
         Map<String, View> buttons = new LinkedHashMap<>();
-        buttons.put(PlayerButtonSetting.NEXT, binding.playerNext);
-        buttons.put(PlayerButtonSetting.PREV, binding.playerPrev);
+        // playerNext/playerPrev 不受 PlayerButtonSetting 控制，只根据集数显示（见 updateMobileInlineButtons）
+        // buttons.put(PlayerButtonSetting.NEXT, binding.playerNext);
+        // buttons.put(PlayerButtonSetting.PREV, binding.playerPrev);
         buttons.put(PlayerButtonSetting.EPISODES, binding.playerEpisodes);
         buttons.put(PlayerButtonSetting.RESET, binding.playerRefresh);
         buttons.put(PlayerButtonSetting.CHANGE, binding.playerChangeSource);
