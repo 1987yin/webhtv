@@ -2058,8 +2058,9 @@ private int mAudioBackgroundRandomNonce;
         mBinding.control.action.next.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
         mBinding.control.action.prev.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
         applyActionButtonVisibility();
-        mBinding.control.next.setVisibility(size < 2 || !PlayerButtonSetting.isVisible(PlayerButtonSetting.NEXT) ? View.GONE : View.VISIBLE);
-        mBinding.control.prev.setVisibility(size < 2 || !PlayerButtonSetting.isVisible(PlayerButtonSetting.PREV) ? View.GONE : View.VISIBLE);
+        // 中间悬浮的上集/下集按钮：只根据集数显示，不受 PlayerButtonSetting 影响
+        mBinding.control.next.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
+        mBinding.control.prev.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
         mBinding.reverse.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
         if (shouldUseUpstreamNativeEpisodeModule()) {
             setUpstreamNativeEpisodeItems(items);
@@ -3130,6 +3131,7 @@ private int mAudioBackgroundRandomNonce;
         mBinding.control.action.danmaku.setVisibility(DanmakuSetting.isLoad() ? View.VISIBLE : View.GONE);
         mBinding.control.action.adFeedback.setVisibility(isAdFeedbackEnabled() ? View.VISIBLE : View.GONE);
         applyActionButtonVisibility();
+        // 顶部的弹幕图标按钮：跟随播放器按钮设置
         if (mBinding.control.getRoot().getVisibility() == View.VISIBLE) mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() || !PlayerButtonSetting.isVisible(PlayerButtonSetting.DANMAKU) ? View.GONE : View.VISIBLE);
     }
 
@@ -3139,11 +3141,13 @@ private int mAudioBackgroundRandomNonce;
         boolean shortDrama = isShortDramaSource();
         boolean showPiP = canShowPiP(shortDrama);
         hideWidgetOverlay();
+        // 顶部的弹幕图标按钮：跟随播放器按钮设置
         mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() || !PlayerButtonSetting.isVisible(PlayerButtonSetting.DANMAKU) ? View.GONE : View.VISIBLE);
         mBinding.control.setting.setVisibility(mHistory == null || (isFullscreen() && !shortDrama) ? View.GONE : View.VISIBLE);
         mBinding.control.right.getRoot().setVisibility(isFullscreen() || showPiP ? View.VISIBLE : View.GONE);
         mBinding.control.right.rotate.setVisibility(isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.right.pip.setVisibility(showPiP ? View.VISIBLE : View.GONE);
+        // 进度条旁的全屏按钮：跟随播放器按钮设置
         mBinding.control.fullscreen.setVisibility(isLock() || shortDrama || !PlayerButtonSetting.isVisible(PlayerButtonSetting.FULLSCREEN) ? View.GONE : View.VISIBLE);
         mBinding.control.keep.setVisibility(mHistory == null ? View.GONE : View.VISIBLE);
         mBinding.control.nightMode.setVisibility(mHistory == null ? View.GONE : View.VISIBLE);
@@ -3158,11 +3162,16 @@ private int mAudioBackgroundRandomNonce;
         mBinding.control.action.getRoot().setVisibility(isLandscapeFullscreen || isFusionPlayerActionsDocked() ? View.VISIBLE : View.GONE);
         mBinding.control.right.lock.setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.info.setVisibility(player().isEmpty() ? View.GONE : View.VISIBLE);
+        // 顶部的投屏图标按钮：跟随播放器按钮设置
         mBinding.control.cast.setVisibility(isFullscreen() && mHistory != null && !player().isEmpty() && PlayerButtonSetting.isVisible(PlayerButtonSetting.CAST) ? View.VISIBLE : View.GONE);
         mBinding.control.center.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.bottom.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.back.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.top.setVisibility(isLock() ? View.GONE : View.VISIBLE);
+        // 动态更新中间悬浮按钮的可见性（只根据集数，不受 PlayerButtonSetting 影响）
+        int episodeCount = getCurrentEpisodeItems().size();
+        mBinding.control.prev.setVisibility(episodeCount < 2 ? View.GONE : View.VISIBLE);
+        mBinding.control.next.setVisibility(episodeCount < 2 ? View.GONE : View.VISIBLE);
         syncShortDramaControlLayout(shortDrama);
         mBinding.control.getRoot().setVisibility(View.VISIBLE);
         if (mOsd != null) mOsd.setControlsVisible(true);
