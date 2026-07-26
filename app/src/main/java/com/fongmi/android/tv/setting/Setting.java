@@ -1146,6 +1146,18 @@ public class Setting {
         Prefers.put("episode_history", episodeHistory);
     }
 
+    public static boolean isHistoryAggregationByTmdb() {
+        return isTmdbReady() && Prefers.getBoolean("history_aggregation_by_tmdb", true);
+    }
+
+    public static void putHistoryAggregationByTmdb(boolean value) {
+        Prefers.put("history_aggregation_by_tmdb", value);
+    }
+
+    public static boolean isHistoryAggregationEffective() {
+        return isHistoryAggregationByTmdb();
+    }
+
     public static boolean isHomeVodAutoLoad() {
         return Prefers.getBoolean("home_vod_auto_load", true);
     }

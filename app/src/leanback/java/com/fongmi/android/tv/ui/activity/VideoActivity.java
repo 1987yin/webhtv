@@ -847,6 +847,17 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         return (com.fongmi.android.tv.bean.TmdbItem) getIntent().getSerializableExtra("tmdbItem");
     }
 
+    /**
+     * 载入历史时可同步拿到的 TMDB ID：优先已匹配项，其次 intent 携带项（从 TMDB 详情进入）。
+     * 用于跨源续播——checkHistory 早于异步 autoMatch 执行，此处提供尽早可用的 tmdbId。
+     */
+    private int getMatchedTmdbId() {
+        if (!Setting.isHistoryAggregationEffective()) return 0;
+        com.fongmi.android.tv.bean.TmdbItem item = getMatchedTmdbItem();
+        if (item == null) item = getTmdbItem();
+        return item == null ? 0 : item.getTmdbId();
+    }
+
     private String getOsdTitle() {
         return EpisodeTitleFormatter.buildPlaybackTitle(getPlaybackName(), getCurrentEpisodeTitle());
     }
@@ -1684,7 +1695,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void prepareFastTmdbPlaybackHistory(Vod item, Flag flag, Episode episode) {
-        mHistory = History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags());
+        mHistory = History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), getMatchedTmdbId());
         mHistory = mHistory == null ? createHistory(item) : mHistory;
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
@@ -1706,8 +1717,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void updateFastTmdbPlaybackHistory(Flag flag, Episode episode) {
-        boolean sameEpisode = episode.matches(mHistory.getEpisode()) || episode.matchesName(mHistory.getEpisode());
-        boolean sameFlag = TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());
+        // 跨源续播：只按集名判断换集，避免因线路名不同而误判；集名格式跨线路/跨源不一致时再按集号兜底。
+        boolean crossSource = mHistory.isCrossSourcePlayback();
+        boolean sameEpisode = episode.matches(mHistory.getEpisode()) || episode.matchesName(mHistory.getEpisode()) || episode.matchesNumber(mHistory.getEpisode());
+        boolean sameFlag = crossSource || TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());
         if (!sameEpisode || !sameFlag) mIntroSkipPlayback.reset();
         if (!sameEpisode || !sameFlag) {
             EpisodePositionCache.EpisodePosition cached = EpisodePositionCache.get().get(getKey(), getId(), flag.getFlag(), episode.getName());
@@ -3728,7 +3741,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void checkHistory(Vod item) {
-        mHistory = History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags());
+        int tmdbId = getMatchedTmdbId();
+        mHistory = History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), tmdbId);
         mHistory = mHistory == null ? createHistory(item) : mHistory;
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
@@ -3825,8 +3839,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         Flag flag = findIntentPlaybackFlag(item.getFlags(), playFlag, playUrl);
         if (flag == null) return;
         Episode episode = findIntentPlaybackEpisode(flag, playName, playUrl);
-        boolean sameFlag = TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());
-        boolean sameEpisode = episode != null && episode.matches(mHistory.getEpisode());
+        // 跨源续播：线路名与剧集 URL 在不同源必然不同，只按集名判断是否同一集，避免误判换集而重置进度。
+        boolean crossSource = mHistory.isCrossSourcePlayback();
+        boolean sameFlag = crossSource || TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());
+        boolean sameEpisode = episode != null && (crossSource ? (episode.matchesName(mHistory.getEpisode()) || episode.matchesNumber(mHistory.getEpisode())) : episode.matches(mHistory.getEpisode()));
         if (!sameFlag || (episode != null && !sameEpisode)) {
             mHistory.setPosition(C.TIME_UNSET);
             mHistory.setDuration(C.TIME_UNSET);
@@ -3899,7 +3915,9 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void updateHistory(Episode item) {
-        boolean sameEpisode = item.matches(mHistory.getEpisode()) || item.matchesName(mHistory.getEpisode());
+        // 换线路时同一集在不同线路的 URL 与集名格式往往不同（如“第9集”与“[277.1MB] 9. xxx”），
+        // 仅靠 URL/集名严格比对会误判为换集而清空进度；补充集号匹配（与 seamless 的找集逻辑同源）。
+        boolean sameEpisode = item.matches(mHistory.getEpisode()) || item.matchesName(mHistory.getEpisode()) || item.matchesNumber(mHistory.getEpisode());
         boolean sameFlag = TextUtils.equals(mHistory.getVodFlag(), getFlag().getFlag());
         if (!sameEpisode || !sameFlag) mIntroSkipPlayback.reset();
         if ((!sameEpisode || !sameFlag) && service() != null) {
@@ -3987,6 +4005,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         }
         // 原生增强：TMDB 富集完成后回写题材/地区/演员/主创到 History（enrichVod 已填充 item），仅补空字段
         if (mHistory != null) mHistory.enrichMeta(item.getTypeName(), item.getArea(), item.getActor(), item.getDirector(), item.getYear());
+        // 跨源聚合：TMDB 匹配完成后把 tmdbId 盖章到 History，供列表去重与跨源续播使用（不依赖脆弱的名称回查缓存）
+        boolean tmdbIdStamped = stampHistoryTmdbId();
         updateFlag(getFlag(), item.getFlags());
         boolean episodeTitleChanged = refreshCurrentHistoryEpisodeTitle();
         CharSequence playbackTitle = getPlaybackControlTitle();
@@ -3994,13 +4014,30 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (pic) setArtwork(item.getPic());
         if (pic || name) setMetadata();
         // key 迁移后必须写回，避免 replace 删旧 key 后未 save 导致历史消失
-        if (keyChanged || pic || name || episodeTitleChanged) syncHistory();
+        if (keyChanged || pic || name || episodeTitleChanged || tmdbIdStamped) syncHistory();
         if (pic || name) updateKeep();
         if (id) updateNavigationKey();
         if (name) setPartAdapter();
         PlaybackEventCollector.get().updateHistory(mHistory);
         setText(item);
         if (shouldUseTmdbLayout()) suppressTmdbNativeTextFields();
+    }
+
+    /**
+     * TMDB 匹配完成后把 tmdbId/mediaType 盖章到当前 History。
+     * 直接用已匹配的 TmdbItem，绕开 enrichTmdbId 依赖的脆弱名称回查缓存，
+     * 保证每条历史都能可靠打上 tmdbId，供列表去重与跨源续播使用。
+     *
+     * @return 是否有写入（需要 syncHistory 持久化）
+     */
+    private boolean stampHistoryTmdbId() {
+        if (mHistory == null || !Setting.isHistoryAggregationEffective()) return false;
+        com.fongmi.android.tv.bean.TmdbItem item = getMatchedTmdbItem();
+        if (item == null || item.getTmdbId() <= 0) return false;
+        if (mHistory.getTmdbId() == item.getTmdbId()) return false;
+        mHistory.setTmdbId(item.getTmdbId());
+        mHistory.setMediaType(item.getMediaType());
+        return true;
     }
 
     private boolean shouldUseTmdbLayout() {
