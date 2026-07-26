@@ -1329,11 +1329,11 @@ public class Setting {
         Prefers.put("search_result_sort", sort == 0 ? 0 : 1);
     }
 
-    public static boolean isSearchPrecise() {
-        return Prefers.getBoolean("search_precise", false);
+    public static int getSearchSimilarity() {
+        return Prefers.getInt("search_similarity", 30);
     }
 
-    public static void putSearchPrecise(boolean enabled) {
-        Prefers.put("search_precise", enabled);
+    public static void putSearchSimilarity(int percent) {
+        Prefers.put("search_similarity", Math.max(0, Math.min(100, percent)));
     }
 }
