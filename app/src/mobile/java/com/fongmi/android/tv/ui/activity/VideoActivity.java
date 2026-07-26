@@ -4029,7 +4029,10 @@ private int mAudioBackgroundRandomNonce;
         if (isRedirect()) return;
         if (event.getType() == RefreshEvent.Type.DETAIL) getDetail();
         else if (event.getType() == RefreshEvent.Type.PLAYER) onRefresh();
-        else if (event.getType() == RefreshEvent.Type.VOD) {
+        else if (event.getType() == RefreshEvent.Type.VOD_CORE ||
+                 event.getType() == RefreshEvent.Type.VOD_RECOMMENDATIONS ||
+                 event.getType() == RefreshEvent.Type.VOD_PERSONAL ||
+                 event.getType() == RefreshEvent.Type.VOD_EPISODE_TITLES) {
             if (!isCurrentVodEvent(event.getVod())) {
                 SpiderDebug.log("tmdb-mobile", "drop stale vod event current=%s/%s event=%s/%s", getKey(), getId(), event.getVod() == null ? "" : event.getVod().getSiteKey(), event.getVod() == null ? "" : event.getVod().getId());
                 return;
