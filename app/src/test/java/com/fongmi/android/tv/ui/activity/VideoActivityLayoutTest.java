@@ -779,6 +779,41 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void mobileFullscreenTransitionsUseStablePlayerSnapshot() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int enter = source.indexOf("private void enterFullscreen()");
+        int schedule = source.indexOf("private void scheduleFullscreenControlReveal()", enter);
+        int exit = source.indexOf("private void exitFullscreen()", schedule);
+        int restore = source.indexOf("private void restoreEmbeddedVideoLayoutAfterFullscreen()", exit);
+        int transition = source.indexOf("private void setTransition()", restore);
+        int policy = source.indexOf("private boolean shouldAnimateVideoFrameTransition", transition);
+
+        assertTrue(sourcePath + " is missing fullscreen transition methods",
+                enter >= 0 && schedule > enter && exit > schedule && restore > exit && transition > restore && policy > transition);
+
+        String enterBody = source.substring(enter, schedule);
+        String exitBody = source.substring(exit, restore);
+        String transitionBody = source.substring(transition, policy);
+        assertTrue("fullscreen entry must snapshot the player before lifecycle-sensitive work",
+                enterBody.contains("PlayerManager current = player();")
+                        && enterBody.contains("if (current == null) return;")
+                        && enterBody.contains("current.isPortrait()"));
+        assertFalse("fullscreen entry must not repeatedly dereference a disconnectable service player",
+                enterBody.contains("player().isPortrait()"));
+        assertTrue("fullscreen exit must tolerate playback service disconnection",
+                exitBody.contains("PlayerManager current = player();")
+                        && exitBody.contains("current != null && isLand() && !current.isPortrait()"));
+        assertFalse("fullscreen exit must not repeatedly dereference a disconnectable service player",
+                exitBody.contains("player().isPortrait()"));
+        assertTrue("frame transitions must use the same stable player snapshot",
+                transitionBody.contains("PlayerManager current = player();")
+                        && transitionBody.contains("shouldAnimateVideoFrameTransition(current)"));
+        assertFalse("frame transitions must not dereference player() after the snapshot",
+                transitionBody.contains("player()."));
+    }
+
+    @Test
     public void mobileVideoTmdbMovableViewsKeepQualityBetweenFlagsAndEpisodes() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);

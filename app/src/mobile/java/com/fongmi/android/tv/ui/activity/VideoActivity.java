@@ -2020,6 +2020,8 @@ private int mAudioBackgroundRandomNonce;
     @Override
     public void onItemClick(Flag item) {
         if (item.isSelected()) return;
+        Flag previous = getFlag();
+        SpiderDebug.log("playback-action", "flag switch ui=mobile site=%s from=%s to=%s fullscreen=%s", getKey(), previous == null ? "" : previous.getFlag(), item.getFlag(), isFullscreen());
         mFlagAdapter.setSelected(item);
         scrollToPosition(mBinding.flag, mFlagAdapter.getPosition());
         setEpisodeAdapter(item.getEpisodes());
@@ -2993,16 +2995,17 @@ private int mAudioBackgroundRandomNonce;
 
     private void enterFullscreen() {
         if (isFullscreen()) return;
-        if (player() == null) return;
+        PlayerManager current = player();
+        if (current == null) return;
         logVideoFrame("enterFullscreen before");
         setFullscreen(true);
-        if (isLand() && !player().isPortrait()) setTransition();
+        if (isLand() && !current.isPortrait()) setTransition();
         mBinding.video.setLayoutParams(new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT));
         mBinding.video.bringToFront();
-        setRequestedOrientation(PlaybackOrientation.getEnterFullscreenOrientation(player().isPortrait()));
+        setRequestedOrientation(PlaybackOrientation.getEnterFullscreenOrientation(current.isPortrait()));
         mBinding.control.title.setVisibility(View.VISIBLE);
         setSizeText();
-        setRotate(player().isPortrait());
+        setRotate(current.isPortrait());
         mKeyDown.resetScale();
         App.post(mR3, 2000);
         hideControl();
@@ -3021,9 +3024,10 @@ private int mAudioBackgroundRandomNonce;
 
     private void exitFullscreen() {
         if (!isFullscreen()) return;
+        PlayerManager current = player();
         logVideoFrame("exitFullscreen before");
         setFullscreen(false);
-        if (isLand() && !player().isPortrait()) setTransition();
+        if (current != null && isLand() && !current.isPortrait()) setTransition();
         setRequestedOrientation(PlaybackOrientation.getExitFullscreenOrientation(isPort()));
         mBinding.episodeGroup.postDelayed(() -> scrollToPosition(mBinding.episodeGroup, mEpisodeGroupAdapter.getPosition()), 100);
         mBinding.episode.postDelayed(this::scrollEpisodeToSelected, 100);
@@ -3072,8 +3076,9 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private void setTransition() {
-        if (!shouldAnimateVideoFrameTransition()) {
-            Log.d(SIZE_TAG, "video transition skipped native player=" + player().getPlayerText());
+        PlayerManager current = player();
+        if (!shouldAnimateVideoFrameTransition(current)) {
+            Log.d(SIZE_TAG, "video transition skipped native player=" + current.getPlayerText());
             return;
         }
         ChangeBounds transition = new ChangeBounds();
@@ -3082,8 +3087,8 @@ private int mAudioBackgroundRandomNonce;
         TransitionManager.beginDelayedTransition(parent, transition);
     }
 
-    private boolean shouldAnimateVideoFrameTransition() {
-        return service() == null || !player().isNativePlayer();
+    private boolean shouldAnimateVideoFrameTransition(PlayerManager current) {
+        return current == null || !current.isNativePlayer();
     }
 
     private int getLockOrient() {

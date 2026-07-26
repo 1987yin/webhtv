@@ -2250,6 +2250,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     @Override
     public void onItemClick(Flag item) {
         if (mFlagAdapter.getItemCount() == 0 || item.isSelected()) return;
+        Flag previous = getFlag();
+        SpiderDebug.log("playback-action", "flag switch ui=leanback site=%s from=%s to=%s fullscreen=%s", getKey(), previous == null ? "" : previous.getFlag(), item.getFlag(), isFullscreen());
         int oldPosition = mFlagAdapter.getSelectedPosition();
         mFlagAdapter.setSelected(item);
         int newPosition = mFlagAdapter.getSelectedPosition();
