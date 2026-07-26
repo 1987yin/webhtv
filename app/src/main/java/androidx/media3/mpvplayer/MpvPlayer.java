@@ -214,6 +214,8 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
     private int cachedCacheBufferingState;
     private int surfaceWidth;
     private int surfaceHeight;
+    private int attachedSurfaceWidth = -1;  // -1 means not attached yet
+    private int attachedSurfaceHeight = -1;
     private String attachedVo;
     private String lastFailureLog;
     private int lastEndFileReason;
@@ -1563,22 +1565,38 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
         try {
             if (surfaceAttached && attachedSurface == surface) {
                 // Re-read holder size on fast-path resize — surfaceChanged may not fire after fullscreen exit
-                if (surfaceHolder != null) updateSurfaceSize(surfaceHolder);
-                setRuntimeString("force-window", "yes");
-                applyAndroidSurfaceSize();
-                applySurfaceFrameRate();
-                if (!TextUtils.equals(attachedVo, config.vo())) {
-                    safeSetPropertyString("vo", config.vo());
-                    attachedVo = config.vo();
+                boolean sizeValid = surfaceHolder != null && updateSurfaceSize(surfaceHolder);
+                if (!sizeValid) {
+                    Log.w(SIZE_TAG, "mpv fast-path size invalid, force reattach");
+                    detachMpvSurface();
+                    // Fall through to full attach below
+                } else {
+                    // Force full reattach if surface size changed — MPV gpu vo doesn't reliably reconfigure on property-only changes
+                    boolean sizeChanged = attachedSurfaceWidth != surfaceWidth || attachedSurfaceHeight != surfaceHeight;
+                    if (sizeChanged) {
+                        Log.i(SIZE_TAG, "mpv surface size changed " + attachedSurfaceWidth + "x" + attachedSurfaceHeight + " -> " + surfaceWidth + "x" + surfaceHeight + ", reattach");
+                        detachMpvSurface();
+                        // Fall through to full attach below
+                    } else {
+                        setRuntimeString("force-window", "yes");
+                        applyAndroidSurfaceSize();
+                        applySurfaceFrameRate();
+                        if (!TextUtils.equals(attachedVo, config.vo())) {
+                            safeSetPropertyString("vo", config.vo());
+                            attachedVo = config.vo();
+                        }
+                        Log.d(SIZE_TAG, "mpv resize attached surface cached=" + surfaceWidth + "x" + surfaceHeight + " vo=" + config.vo());
+                        SpiderDebug.log("mpv", "surface resized surface=%s size=%dx%d vo=%s", surface, surfaceWidth, surfaceHeight, config.vo());
+                        return;
+                    }
                 }
-                Log.d(SIZE_TAG, "mpv resize attached surface cached=" + surfaceWidth + "x" + surfaceHeight + " vo=" + config.vo());
-                SpiderDebug.log("mpv", "surface resized surface=%s size=%dx%d vo=%s", surface, surfaceWidth, surfaceHeight, config.vo());
-                return;
             }
             if (surfaceAttached) detachMpvSurface();
             MPVLib.attachSurface(surface);
             surfaceAttached = true;
             attachedSurface = surface;
+            attachedSurfaceWidth = surfaceWidth;
+            attachedSurfaceHeight = surfaceHeight;
             setRuntimeString("force-window", "yes");
             applyAndroidSurfaceSize();
             applySurfaceFrameRate();
@@ -1612,6 +1630,8 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
         }
         surfaceAttached = false;
         attachedSurface = null;
+        attachedSurfaceWidth = -1;
+        attachedSurfaceHeight = -1;
         attachedVo = null;
     }
 
@@ -1631,13 +1651,14 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
         Log.d(SIZE_TAG, "mpv updateSurfaceSize view=" + surfaceOutputName(view) + " size=" + surfaceWidth + "x" + surfaceHeight);
     }
 
-    private void updateSurfaceSize(SurfaceHolder holder) {
-        if (holder == null) return;
+    private boolean updateSurfaceSize(SurfaceHolder holder) {
+        if (holder == null) return false;
         Rect frame = holder.getSurfaceFrame();
-        if (frame == null || frame.width() <= 0 || frame.height() <= 0) return;
+        if (frame == null || frame.width() <= 0 || frame.height() <= 0) return false;
         surfaceWidth = frame.width();
         surfaceHeight = frame.height();
         Log.d(SIZE_TAG, "mpv updateSurfaceSize holder frame=" + frame.width() + "x" + frame.height());
+        return true;
     }
 
     private void updateSurfaceSize(int width, int height) {
