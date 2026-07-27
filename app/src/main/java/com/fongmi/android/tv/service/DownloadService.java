@@ -9,7 +9,7 @@ import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
-import android.os.ServiceInfo;
+import android.content.pm.ServiceInfo;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
