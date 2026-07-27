@@ -125,6 +125,7 @@ public class DownloadManager {
             App.post(() -> {
                 mNotifyPosted.set(false);
                 for (Callback callback : new ArrayList<>(mCallbacks)) callback.onChanged();
+                for (DownloadItem item : mItems) DownloadNotify.update(item);
             });
         }
     }
@@ -510,6 +511,7 @@ public class DownloadManager {
     public void remove(String id) {
         cancel(id);
         mItems.removeIf(item -> item.getId().equals(id));
+        DownloadNotify.cancel(id);
         notifyChanged();
     }
 
@@ -523,8 +525,17 @@ public class DownloadManager {
     }
 
     public void clearFinished() {
+        List<String> ids = new ArrayList<>();
+        for (DownloadItem item : mItems) if (!item.isActive()) ids.add(item.getId());
         mItems.removeIf(item -> !item.isActive());
+        for (String id : ids) DownloadNotify.cancel(id);
         notifyChanged();
+    }
+
+    public void cancelAll() {
+        List<String> ids = new ArrayList<>();
+        for (DownloadItem item : mItems) if (item.isActive()) ids.add(item.getId());
+        for (String id : ids) cancel(id);
     }
 
     public int getActiveCount() {

@@ -22,6 +22,7 @@ import com.fongmi.android.tv.ui.adapter.DownloadVodAdapter;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.DownloadEpisodeListDialog;
 import com.fongmi.android.tv.utils.DownloadManager;
+import com.fongmi.android.tv.utils.PermissionUtil;
 
 public class DownloadListActivity extends BaseActivity implements DownloadVodAdapter.OnClickListener {
 
@@ -49,6 +50,7 @@ public class DownloadListActivity extends BaseActivity implements DownloadVodAda
         mBinding.recycler.setLayoutManager(new GridLayoutManager(this, 3));
         mBinding.recycler.setAdapter(mAdapter = new DownloadVodAdapter(this));
         refresh();
+        PermissionUtil.requestNotify(this);
     }
 
     @Override
