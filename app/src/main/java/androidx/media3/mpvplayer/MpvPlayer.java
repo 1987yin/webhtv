@@ -214,6 +214,8 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
     private int cachedCacheBufferingState;
     private int surfaceWidth;
     private int surfaceHeight;
+    private int attachedSurfaceWidth = -1;  // -1 means not attached yet
+    private int attachedSurfaceHeight = -1;
     private String attachedVo;
     private String lastFailureLog;
     private int lastEndFileReason;
@@ -1562,21 +1564,49 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
         if (!initialized || surface == null || !surface.isValid()) return;
         try {
             if (surfaceAttached && attachedSurface == surface) {
-                setRuntimeString("force-window", "yes");
-                applyAndroidSurfaceSize();
-                applySurfaceFrameRate();
-                if (!TextUtils.equals(attachedVo, config.vo())) {
-                    safeSetPropertyString("vo", config.vo());
-                    attachedVo = config.vo();
+                // Re-read holder size on fast-path resize — surfaceChanged may not fire after fullscreen exit
+                boolean sizeValid = surfaceHolder != null && updateSurfaceSize(surfaceHolder);
+                if (!sizeValid) {
+                    Log.w(SIZE_TAG, "mpv fast-path size invalid, force reattach");
+                    detachMpvSurface();
+                    // Fall through to full attach below
+                } else {
+                    // MPV gpu vo grows its EGL viewport automatically when the surface enlarges, so a
+                    // property-only resize is enough (fast). Shrinking, however, leaves the viewport at
+                    // the old larger geometry and the video renders into the top-left corner — that case
+                    // needs a full reattach to rebuild the output. Only pay the reattach cost when shrinking.
+                    boolean shrinking = surfaceWidth < attachedSurfaceWidth || surfaceHeight < attachedSurfaceHeight;
+                    if (shrinking) {
+                        // Shrinking leaves mpv's gpu vo EGL surface at the old larger geometry and the video
+                        // renders into the top-left corner. mpv's gpu vo can only rebuild its output through a
+                        // full vo teardown (vo=null) + reattach — toggling `wid` alone collapses the vo to 0x0
+                        // and freezes the pipeline. Pay the full reattach cost here; it is the only correct path.
+                        Log.i(SIZE_TAG, "mpv surface shrank " + attachedSurfaceWidth + "x" + attachedSurfaceHeight + " -> " + surfaceWidth + "x" + surfaceHeight + ", reattach");
+                        detachMpvSurface();
+                        // Fall through to full attach below
+                    } else {
+                        setRuntimeString("force-window", "yes");
+                        applyAndroidSurfaceSize();
+                        applySurfaceFrameRate();
+                        if (!TextUtils.equals(attachedVo, config.vo())) {
+                            safeSetPropertyString("vo", config.vo());
+                            attachedVo = config.vo();
+                        }
+                        // Track the current size so a later shrink can be detected against it.
+                        attachedSurfaceWidth = surfaceWidth;
+                        attachedSurfaceHeight = surfaceHeight;
+                        Log.d(SIZE_TAG, "mpv resize attached surface cached=" + surfaceWidth + "x" + surfaceHeight + " vo=" + config.vo());
+                        SpiderDebug.log("mpv", "surface resized surface=%s size=%dx%d vo=%s", surface, surfaceWidth, surfaceHeight, config.vo());
+                        return;
+                    }
                 }
-                Log.d(SIZE_TAG, "mpv resize attached surface cached=" + surfaceWidth + "x" + surfaceHeight + " vo=" + config.vo());
-                SpiderDebug.log("mpv", "surface resized surface=%s size=%dx%d vo=%s", surface, surfaceWidth, surfaceHeight, config.vo());
-                return;
             }
             if (surfaceAttached) detachMpvSurface();
             MPVLib.attachSurface(surface);
             surfaceAttached = true;
             attachedSurface = surface;
+            attachedSurfaceWidth = surfaceWidth;
+            attachedSurfaceHeight = surfaceHeight;
             setRuntimeString("force-window", "yes");
             applyAndroidSurfaceSize();
             applySurfaceFrameRate();
@@ -1610,6 +1640,8 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
         }
         surfaceAttached = false;
         attachedSurface = null;
+        attachedSurfaceWidth = -1;
+        attachedSurfaceHeight = -1;
         attachedVo = null;
     }
 
@@ -1629,13 +1661,14 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
         Log.d(SIZE_TAG, "mpv updateSurfaceSize view=" + surfaceOutputName(view) + " size=" + surfaceWidth + "x" + surfaceHeight);
     }
 
-    private void updateSurfaceSize(SurfaceHolder holder) {
-        if (holder == null) return;
+    private boolean updateSurfaceSize(SurfaceHolder holder) {
+        if (holder == null) return false;
         Rect frame = holder.getSurfaceFrame();
-        if (frame == null || frame.width() <= 0 || frame.height() <= 0) return;
+        if (frame == null || frame.width() <= 0 || frame.height() <= 0) return false;
         surfaceWidth = frame.width();
         surfaceHeight = frame.height();
         Log.d(SIZE_TAG, "mpv updateSurfaceSize holder frame=" + frame.width() + "x" + frame.height());
+        return true;
     }
 
     private void updateSurfaceSize(int width, int height) {
