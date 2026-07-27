@@ -40,7 +40,12 @@ public class DownloadReceiver extends BroadcastReceiver {
     }
 
     private void openDownloads(Context context) {
-        Intent intent = new Intent(ACTION_OPEN).setPackage(context.getPackageName()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        // 注意：DownloadListActivity 的 intent-filter 含 CATEGORY_DEFAULT。
+        // startActivity() 隐式启动时会自动补加该 category，但 resolveActivity() 不会，
+        // 因此必须显式 addCategory，否则 resolveActivity 返回 null 而永不启动。
+        Intent intent = new Intent(ACTION_OPEN).setPackage(context.getPackageName())
+                .addCategory(Intent.CATEGORY_DEFAULT)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         if (intent.resolveActivity(context.getPackageManager()) != null) context.startActivity(intent);
     }
 }

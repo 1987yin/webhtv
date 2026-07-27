@@ -23,6 +23,7 @@ public class DownloadNotify {
 
     // 与 Notify.ID(9527) 区分的独立通知 id 区间
     private static final int BASE_ID = 6000;
+    private static final int MAX_STALE = 512;
     private static final Map<String, Integer> IDS = new ConcurrentHashMap<>();
     private static final AtomicInteger SEQ = new AtomicInteger(BASE_ID);
 
@@ -56,6 +57,14 @@ public class DownloadNotify {
         App.post(() -> {
             for (String id : IDS.keySet().toArray(new String[0])) doCancel(id);
         });
+    }
+
+    // 清理上次运行遗留的下载通知：进程重启后 IDS 映射已重置，但系统通知栏可能仍残留旧卡片。
+    // 启动时按 id 区间统一 cancel，并清空映射，避免旧 91% 等通知长期滞留。
+    public static void clearStale() {
+        NotificationManagerCompat nm = manager();
+        for (int id = BASE_ID + 1; id <= BASE_ID + MAX_STALE; id++) nm.cancel(id);
+        IDS.clear();
     }
 
     private static void doCancel(String id) {

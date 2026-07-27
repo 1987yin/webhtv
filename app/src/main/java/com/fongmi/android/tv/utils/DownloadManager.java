@@ -40,6 +40,7 @@ public class DownloadManager {
     private final Map<String, Download> mDownloads;
     private final Map<String, Future<?>> mFutures;
     private final AtomicBoolean mNotifyPosted = new AtomicBoolean(false);
+    private final AtomicBoolean mNotifyPostedNotify = new AtomicBoolean(false);
     private final int mMaxConcurrent;
     private final AtomicInteger mRunning = new AtomicInteger(0);
     // 等待名额的排队任务（item + 真正要执行的任务体）。
@@ -68,6 +69,8 @@ public class DownloadManager {
         mMaxConcurrent = DEFAULT_MAX_CONCURRENT;
         // 线程池至少能容纳上限数量的同时任务（fetch 阶段占用，真正的下载走 Task 线程池）。
         mExecutor = Executors.newFixedThreadPool(Math.max(1, mMaxConcurrent));
+        // 清理上次运行遗留的下载通知，避免旧会话的 91% 等卡片残留
+        DownloadNotify.clearStale();
     }
 
     public int getMaxConcurrent() {
@@ -120,11 +123,18 @@ public class DownloadManager {
     }
 
     private void notifyChanged() {
-        // 合并高频进度刷新：若已有刷新在排队，则丢弃本次，避免主线程被刷新洪流占满导致界面卡顿/无法点击
+        // UI 刷新合并节流，避免主线程被高频进度刷新占满导致界面卡顿/无法点击
         if (mNotifyPosted.compareAndSet(false, true)) {
             App.post(() -> {
                 mNotifyPosted.set(false);
                 for (Callback callback : new ArrayList<>(mCallbacks)) callback.onChanged();
+            });
+        }
+        // 通知刷新独立合并：状态/进度变化（含终态）一定反映到通知栏，不受 UI 合并窗口影响；
+        // 与下方终态分支的 DownloadNotify.update(item) 共同确保完成/失败/取消后通知不残留旧进度。
+        if (mNotifyPostedNotify.compareAndSet(false, true)) {
+            App.post(() -> {
+                mNotifyPostedNotify.set(false);
                 for (DownloadItem item : mItems) DownloadNotify.update(item);
             });
         }
@@ -142,11 +152,12 @@ public class DownloadManager {
 
     // 占用并发名额执行任务：若名额空闲立即执行，否则将任务放入等待队列并以 QUEUED 状态排队。
     private synchronized void acquire(DownloadItem item, Consumer<Runnable> task) {
-        if (item.isCanceled()) {
-            item.setState(DownloadItem.CANCELED);
-            notifyChanged();
-            return;
-        }
+            if (item.isCanceled()) {
+                item.setState(DownloadItem.CANCELED);
+                notifyChanged();
+                DownloadNotify.update(item);
+                return;
+            }
         if (mRunning.get() < mMaxConcurrent) {
             runWithSlot(item, task);
         } else {
@@ -283,6 +294,7 @@ public class DownloadManager {
                 item.setProgress(100);
                 item.setSpeed(0);
                 notifyChanged();
+                DownloadNotify.update(item);
             }
         } catch (M3u8Downloader.PausedException e) {
             if (item.isPaused()) {
@@ -290,6 +302,7 @@ public class DownloadManager {
                 item.setSpeed(0);
             }
             notifyChanged();
+            DownloadNotify.update(item);
         } catch (Throwable e) {
             if (item.isCanceled()) {
                 item.setState(DownloadItem.CANCELED);
@@ -301,6 +314,7 @@ public class DownloadManager {
                 item.setError(e.getMessage());
             }
             notifyChanged();
+            DownloadNotify.update(item);
         } finally {
             mFutures.remove(item.getId());
             // 下载线程退出（成功/失败/暂停/取消任意路径），释放并发名额。
@@ -334,6 +348,7 @@ public class DownloadManager {
                 item.setError(msg);
                 mDownloads.remove(item.getId());
                 notifyChanged();
+                DownloadNotify.update(item);
                 onDone.run();
             }
 
@@ -343,6 +358,7 @@ public class DownloadManager {
                 item.setProgress(100);
                 mDownloads.remove(item.getId());
                 notifyChanged();
+                DownloadNotify.update(item);
                 onDone.run();
             }
 
@@ -486,6 +502,7 @@ public class DownloadManager {
                 item.setCanceled(true);
                 item.setPaused(false);
                 if (item.isActive()) item.setState(DownloadItem.CANCELED);
+                DownloadNotify.update(item);
             }
         }
         if (m3u8) {
