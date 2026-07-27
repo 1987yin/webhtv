@@ -569,11 +569,6 @@ public class DownloadManager {
         return mItems.size();
     }
 
-    // 供 DownloadService 构建统一下载卡片时读取任务状态（返回副本，避免并发修改）。
-    public List<DownloadItem> getItems() {
-        return new ArrayList<>(mItems);
-    }
-
     private File buildFile(String name, String url) {
         File dir = new File(App.get().getExternalFilesDir(Environment.DIRECTORY_MOVIES), "WebHTV");
         if (!dir.exists() && !dir.mkdirs()) return null;
