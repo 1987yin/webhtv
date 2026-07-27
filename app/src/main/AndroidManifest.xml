@@ -118,7 +118,7 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.fongmi.android.tv.download.open" />
-                <action android:name="com.fongmi.android.tv.download.cancel" />
+                <action android:name="com.fongmi.android.tv.download.cancelAll" />
             </intent-filter>
         </receiver>
 

@@ -10,19 +10,25 @@ import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.content.pm.ServiceInfo;
+import android.text.format.Formatter;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.BuildConfig;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.bean.DownloadItem;
 import com.fongmi.android.tv.receiver.DownloadReceiver;
+import com.fongmi.android.tv.utils.DownloadManager;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.ResUtil;
 
 // 下载前台服务：在存在活动下载任务时保活进程，避免应用切后台后被系统回收导致下载中断。
-// 前台服务自带常驻通知（与 DownloadNotify 的逐任务进度通知相互独立），并持有
-// 部分唤醒锁与 Wifi 锁，确保后台下载时 CPU 与网络不被 Doze/省电策略限流。
+// 同时维护“唯一一张”下载通知卡片：统一展示所有任务的进度/速度，并提供打开列表与取消全部操作，
+// 不再为每个任务单独建卡片。卡片随前台服务存在，所有任务完成后服务停止、卡片消失。
 public class DownloadService extends Service {
 
     public static final int ID = Notify.ID + 3;
@@ -39,6 +45,14 @@ public class DownloadService extends Service {
         }
     }
 
+    // 状态/进度变化后刷新唯一卡片；服务未运行时直接返回（无卡片可刷）。
+    public static void update() {
+        if (!running) return;
+        Context context = App.get();
+        if (context == null) return;
+        NotificationManagerCompat.from(context).notify(ID, buildNotification(context));
+    }
+
     public static boolean isRunning() {
         return running;
     }
@@ -48,13 +62,11 @@ public class DownloadService extends Service {
         super.onCreate();
         running = true;
         acquireLocks();
-        startForegroundCompat(notification());
+        startForegroundCompat(buildNotification(this));
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // 若服务被系统回收，重启后由 DownloadManager 再次 sync 决定是否继续；
-        // 此处直接返回 STICKY 以保持前台保活语义。
         return START_STICKY;
     }
 
@@ -79,24 +91,62 @@ public class DownloadService extends Service {
         }
     }
 
-    private Notification notification() {
-        return new NotificationCompat.Builder(this, Notify.DEFAULT)
+    // 根据 DownloadManager 当前状态构建统一卡片内容
+    private static Notification buildNotification(Context context) {
+        DownloadManager dm = DownloadManager.get();
+        int active = dm.getActiveCount();
+        java.util.List<DownloadItem> items = dm.getItems();
+
+        DownloadItem current = null;
+        for (DownloadItem it : items) {
+            if (it.getState() == DownloadItem.DOWNLOADING) {
+                current = it;
+                break;
+            }
+        }
+
+        int progress;
+        boolean indeterminate;
+        String detail;
+        if (current != null) {
+            progress = current.getProgress();
+            indeterminate = false;
+            detail = current.getName() + "  ·  " + progress + "%  ·  " + Formatter.formatFileSize(context, current.getSpeed()) + "/s";
+        } else if (active > 0) {
+            progress = 0;
+            indeterminate = true;
+            detail = ResUtil.getString(R.string.download_active);
+        } else if (!items.isEmpty()) {
+            progress = 100;
+            indeterminate = false;
+            detail = ResUtil.getString(R.string.download_done);
+        } else {
+            progress = 0;
+            indeterminate = true;
+            detail = ResUtil.getString(R.string.download_active);
+        }
+
+        String title = ResUtil.getString(R.string.download) + (active > 0 ? " (" + active + ")" : "");
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, Notify.DEFAULT)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle(getString(R.string.download))
-                .setContentText(getString(R.string.download_active))
-                .setContentIntent(openIntent())
+                .setContentTitle(title)
+                .setContentText(detail)
+                .setContentIntent(openIntent(context))
+                .setProgress(100, progress, indeterminate)
                 .setOngoing(true)
                 .setSilent(true)
-                .build();
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, ResUtil.getString(R.string.download_cancel_all), DownloadReceiver.cancelAllIntent(context));
+        return builder.build();
     }
 
-    private PendingIntent openIntent() {
+    private static PendingIntent openIntent(Context context) {
         // 通知点击直接启动下载列表（隐式 Intent），系统对通知触发的 Activity 跳转始终放行。
         Intent intent = new Intent(DownloadReceiver.ACTION_OPEN)
-                .setPackage(getPackageName())
+                .setPackage(context.getPackageName())
                 .addCategory(Intent.CATEGORY_DEFAULT)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        return PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        return PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     private void acquireLocks() {

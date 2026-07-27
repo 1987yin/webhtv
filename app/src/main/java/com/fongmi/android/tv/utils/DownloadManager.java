@@ -70,8 +70,6 @@ public class DownloadManager {
         mMaxConcurrent = DEFAULT_MAX_CONCURRENT;
         // 线程池至少能容纳上限数量的同时任务（fetch 阶段占用，真正的下载走 Task 线程池）。
         mExecutor = Executors.newFixedThreadPool(Math.max(1, mMaxConcurrent));
-        // 清理上次运行遗留的下载通知，避免旧会话的 91% 等卡片残留
-        DownloadNotify.clearStale();
     }
 
     public int getMaxConcurrent() {
@@ -131,12 +129,11 @@ public class DownloadManager {
                 for (Callback callback : new ArrayList<>(mCallbacks)) callback.onChanged();
             });
         }
-        // 通知刷新独立合并：状态/进度变化（含终态）一定反映到通知栏，不受 UI 合并窗口影响；
-        // 与下方终态分支的 DownloadNotify.update(item) 共同确保完成/失败/取消后通知不残留旧进度。
+        // 通知刷新独立合并：状态/进度变化（含终态）一定反映到唯一的下载卡片，不受 UI 合并窗口影响。
         if (mNotifyPostedNotify.compareAndSet(false, true)) {
             App.post(() -> {
                 mNotifyPostedNotify.set(false);
-                for (DownloadItem item : mItems) DownloadNotify.update(item);
+                DownloadService.update();
             });
         }
         // 有活动下载则启动前台服务保活进程，避免应用挂后台被系统回收导致下载中断；
@@ -159,7 +156,7 @@ public class DownloadManager {
             if (item.isCanceled()) {
                 item.setState(DownloadItem.CANCELED);
                 notifyChanged();
-                DownloadNotify.update(item);
+
                 return;
             }
         if (mRunning.get() < mMaxConcurrent) {
@@ -298,7 +295,7 @@ public class DownloadManager {
                 item.setProgress(100);
                 item.setSpeed(0);
                 notifyChanged();
-                DownloadNotify.update(item);
+
             }
         } catch (M3u8Downloader.PausedException e) {
             if (item.isPaused()) {
@@ -306,7 +303,7 @@ public class DownloadManager {
                 item.setSpeed(0);
             }
             notifyChanged();
-            DownloadNotify.update(item);
+
         } catch (Throwable e) {
             if (item.isCanceled()) {
                 item.setState(DownloadItem.CANCELED);
@@ -318,7 +315,7 @@ public class DownloadManager {
                 item.setError(e.getMessage());
             }
             notifyChanged();
-            DownloadNotify.update(item);
+
         } finally {
             mFutures.remove(item.getId());
             // 下载线程退出（成功/失败/暂停/取消任意路径），释放并发名额。
@@ -352,7 +349,7 @@ public class DownloadManager {
                 item.setError(msg);
                 mDownloads.remove(item.getId());
                 notifyChanged();
-                DownloadNotify.update(item);
+
                 onDone.run();
             }
 
@@ -362,7 +359,7 @@ public class DownloadManager {
                 item.setProgress(100);
                 mDownloads.remove(item.getId());
                 notifyChanged();
-                DownloadNotify.update(item);
+
                 onDone.run();
             }
 
@@ -506,7 +503,7 @@ public class DownloadManager {
                 item.setCanceled(true);
                 item.setPaused(false);
                 if (item.isActive()) item.setState(DownloadItem.CANCELED);
-                DownloadNotify.update(item);
+
             }
         }
         if (m3u8) {
@@ -534,7 +531,6 @@ public class DownloadManager {
         cancel(id);
         if (item != null) deleteFiles(item);
         mItems.removeIf(it -> it.getId().equals(id));
-        DownloadNotify.cancel(id);
         notifyChanged();
     }
 
@@ -553,7 +549,6 @@ public class DownloadManager {
         mItems.removeIf(item -> !item.isActive());
         for (DownloadItem item : finished) {
             deleteFiles(item);
-            DownloadNotify.cancel(item.getId());
         }
         notifyChanged();
     }
@@ -568,6 +563,15 @@ public class DownloadManager {
         int count = 0;
         for (DownloadItem item : mItems) if (item.isActive()) count++;
         return count;
+    }
+
+    public int getTotalCount() {
+        return mItems.size();
+    }
+
+    // 供 DownloadService 构建统一下载卡片时读取任务状态（返回副本，避免并发修改）。
+    public List<DownloadItem> getItems() {
+        return new ArrayList<>(mItems);
     }
 
     private File buildFile(String name, String url) {

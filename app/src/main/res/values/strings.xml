@@ -25,6 +25,7 @@
     <string name="download_active">Downloading</string>
     <string name="download_play">Play</string>
     <string name="download_cancel">Cancel</string>
+    <string name="download_cancel_all">Cancel all</string>
     <string name="download_remove">Remove</string>
     <string name="download_empty">No downloads yet</string>
     <string name="download_clear_finished">Clear completed</string>

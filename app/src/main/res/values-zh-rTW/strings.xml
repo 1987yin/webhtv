@@ -25,6 +25,7 @@
     <string name="download_active">下載中</string>
     <string name="download_play">播放</string>
     <string name="download_cancel">取消</string>
+    <string name="download_cancel_all">取消全部</string>
     <string name="download_remove">移除</string>
     <string name="download_empty">暫無下載任務</string>
     <string name="download_clear_finished">清空已完成</string>
