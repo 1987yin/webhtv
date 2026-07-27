@@ -25,6 +25,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 public class DownloadManager {
 
@@ -46,9 +47,9 @@ public class DownloadManager {
 
     private static final class Slot {
         final DownloadItem item;
-        final Runnable task;
+        final Consumer<Runnable> task;
 
-        Slot(DownloadItem item, Runnable task) {
+        Slot(DownloadItem item, Consumer<Runnable> task) {
             this.item = item;
             this.task = task;
         }
@@ -135,11 +136,11 @@ public class DownloadManager {
         mItems.add(0, item);
         notifyChanged();
         // 占一个并发名额后拉取真实地址并开始下载；名额不足则进入排队队列。
-        acquire(item, () -> runFetch(item));
+        acquire(item, onDone -> runFetch(item, onDone));
     }
 
     // 占用并发名额执行任务：若名额空闲立即执行，否则将任务放入等待队列并以 QUEUED 状态排队。
-    private synchronized void acquire(DownloadItem item, Runnable task) {
+    private synchronized void acquire(DownloadItem item, Consumer<Runnable> task) {
         if (item.isCanceled()) {
             item.setState(DownloadItem.CANCELED);
             notifyChanged();
@@ -154,17 +155,16 @@ public class DownloadManager {
         }
     }
 
-    // 占用一个并发名额并在后台线程执行任务体，结束后释放名额并调度下一个排队任务。
-    private void runWithSlot(DownloadItem item, Runnable task) {
+    // 占用一个并发名额并在后台线程执行任务体。名额不在任务体结束时释放，而是交由后台下载真正
+    // 完成时通过 onDone 一次性释放，从而精确限制"同时进行的下载"数量（含 m3u8 分片下载）。
+    private void runWithSlot(DownloadItem item, Consumer<Runnable> task) {
         mRunning.incrementAndGet();
         item.setState(DownloadItem.WAITING);
-        mExecutor.execute(() -> {
-            try {
-                task.run();
-            } finally {
-                release();
-            }
-        });
+        AtomicBoolean released = new AtomicBoolean(false);
+        Runnable onDone = () -> {
+            if (released.compareAndSet(false, true)) release();
+        };
+        mExecutor.execute(() -> task.accept(onDone));
     }
 
     // 释放一个并发名额，并从等待队列中取出下一个未取消的任务执行。
@@ -182,10 +182,12 @@ public class DownloadManager {
         }
     }
 
-    // 拉取真实地址并启动下载，统一处理拉取阶段的异常。已取消的任务直接终止，不占用下载名额。
-    private void runFetch(DownloadItem item) {
+    // 拉取真实地址并启动下载；若成功启动后台下载则返回 true（名额由后台完成时释放），
+    // 否则返回 false（此处立即释放名额）。已取消的任务直接终止。
+    private void runFetch(DownloadItem item, Runnable onDone) {
+        boolean started;
         try {
-            fetchAndStart(item);
+            started = fetchAndStart(item, onDone);
         } catch (Throwable e) {
             if (item.isCanceled()) {
                 item.setState(DownloadItem.CANCELED);
@@ -194,38 +196,41 @@ public class DownloadManager {
                 item.setError(e.getMessage());
             }
             notifyChanged();
+            started = false;
         }
+        if (!started) onDone.run();
     }
 
     // 向站点接口拉取最新播放地址与请求头（签名可能已过期，需刷新），随后开始下载。
-    private void fetchAndStart(DownloadItem item) throws Exception {
+    // 返回是否成功启动了后台下载（true 时名额随下载完成释放；false 时由调用方释放）。
+    private boolean fetchAndStart(DownloadItem item, Runnable onDone) throws Exception {
         if (item.isCanceled()) {
             item.setState(DownloadItem.CANCELED);
             notifyChanged();
-            return;
+            return false;
         }
         Result result = SiteApi.playerContent(item.getSiteKey(), item.getFlag(), item.getEpisodeUrl());
         if (item.isCanceled()) {
             item.setState(DownloadItem.CANCELED);
             notifyChanged();
-            return;
+            return false;
         }
         item.setUrl(result.getRealUrl());
         item.setHeaders(result.getHeader());
-        startDownload(item);
+        return startDownload(item, onDone);
     }
 
-    private void startDownload(DownloadItem item) {
+    private boolean startDownload(DownloadItem item, Runnable onDone) {
         if (item.isCanceled()) {
             item.setState(DownloadItem.CANCELED);
             notifyChanged();
-            return;
+            return false;
         }
         if (TextUtils.isEmpty(item.getUrl())) {
             item.setState(DownloadItem.ERROR);
             item.setError("empty url");
             notifyChanged();
-            return;
+            return false;
         }
         item.setState(DownloadItem.DOWNLOADING);
         notifyChanged();
@@ -234,22 +239,23 @@ public class DownloadManager {
             item.setState(DownloadItem.ERROR);
             item.setError("create file failed");
             notifyChanged();
-            return;
+            return false;
         }
         item.setFilePath(file.getAbsolutePath());
         if (isM3u8(item.getUrl())) {
-            downloadM3u8(item, file);
+            downloadM3u8(item, file, onDone);
         } else {
-            downloadSingle(item, file);
+            downloadSingle(item, file, onDone);
         }
+        return true;
     }
 
-    private void downloadM3u8(DownloadItem item, File file) {
-        Future<?> future = Task.submit(() -> runM3u8(item, file));
+    private void downloadM3u8(DownloadItem item, File file, Runnable onDone) {
+        Future<?> future = Task.submit(() -> runM3u8(item, file, onDone));
         mFutures.put(item.getId(), future);
     }
 
-    private void runM3u8(DownloadItem item, File file) {
+    private void runM3u8(DownloadItem item, File file, Runnable onDone) {
         try {
             File mp4 = M3u8Downloader.download(item, item.getHeaders(), file, (percent, bytes, total, speed) -> {
                 if (item.getState() != DownloadItem.DOWNLOADING) return;
@@ -296,10 +302,12 @@ public class DownloadManager {
             notifyChanged();
         } finally {
             mFutures.remove(item.getId());
+            // 下载线程退出（成功/失败/暂停/取消任意路径），释放并发名额。
+            onDone.run();
         }
     }
 
-    private void downloadSingle(DownloadItem item, File file) {
+    private void downloadSingle(DownloadItem item, File file, Runnable onDone) {
         Download download = Download.create(item.getUrl(), file).headers(item.getHeaders()).tag(item.getId());
         mDownloads.put(item.getId(), download);
         download.start(new Download.Callback() {
@@ -325,6 +333,7 @@ public class DownloadManager {
                 item.setError(msg);
                 mDownloads.remove(item.getId());
                 notifyChanged();
+                onDone.run();
             }
 
             @Override
@@ -333,6 +342,13 @@ public class DownloadManager {
                 item.setProgress(100);
                 mDownloads.remove(item.getId());
                 notifyChanged();
+                onDone.run();
+            }
+
+            @Override
+            public void finish() {
+                // 单文件下载线程退出的一次性通知，与 success/error 共用同一个 onDone（内部去重）。
+                onDone.run();
             }
         });
     }
@@ -390,12 +406,13 @@ public class DownloadManager {
             finalTarget.setProgress(0);
         }
         // 恢复同样受并发上限约束：占名额执行，名额不足则进入排队（状态 QUEUED）。
-        acquire(finalTarget, () -> runResume(finalTarget, state));
+        acquire(finalTarget, onDone -> runResume(finalTarget, state, onDone));
     }
 
-    private void runResume(DownloadItem item, int prevState) {
+    private void runResume(DownloadItem item, int prevState, Runnable onDone) {
+        boolean started;
         try {
-            doResume(item, prevState);
+            started = doResume(item, prevState, onDone);
         } catch (Throwable e) {
             if (item.isCanceled()) {
                 item.setState(DownloadItem.CANCELED);
@@ -404,10 +421,12 @@ public class DownloadManager {
                 item.setError(e.getMessage());
             }
             notifyChanged();
+            started = false;
         }
+        if (!started) onDone.run();
     }
 
-    private void doResume(DownloadItem item, int prevState) {
+    private boolean doResume(DownloadItem item, int prevState, Runnable onDone) {
         // 等待旧任务结束，避免与正在退出的下载并发操作同一目录
         Future<?> old = mFutures.remove(item.getId());
         if (old != null) {
@@ -425,31 +444,31 @@ public class DownloadManager {
         // 用旧 URL 直接续传会 403（表现为进度 0% 后失败）。这里重新向接口要一次最新签名。
         if (prevState == DownloadItem.ERROR && !TextUtils.isEmpty(item.getSiteKey())) {
             try {
-                fetchAndStart(item);
-                return;
+                return fetchAndStart(item, onDone);
             } catch (Throwable e) {
                 item.setState(DownloadItem.ERROR);
                 item.setError(e.getMessage());
                 notifyChanged();
-                return;
+                return false;
             }
         }
-        resumeDownload(item, new File(item.getFilePath()));
+        return resumeDownload(item, new File(item.getFilePath()), onDone);
     }
 
-    private void resumeDownload(DownloadItem item, File file) {
+    private boolean resumeDownload(DownloadItem item, File file, Runnable onDone) {
         if (item.isCanceled()) {
             item.setState(DownloadItem.CANCELED);
             notifyChanged();
-            return;
+            return false;
         }
         item.setState(DownloadItem.DOWNLOADING);
         notifyChanged();
         if (isM3u8(item.getUrl())) {
-            downloadM3u8(item, file);
+            downloadM3u8(item, file, onDone);
         } else {
-            downloadSingle(item, file);
+            downloadSingle(item, file, onDone);
         }
+        return true;
     }
 
     public void cancel(String id) {
