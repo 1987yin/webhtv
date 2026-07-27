@@ -85,36 +85,41 @@ public class Download {
 
     private void doInBackground() {
         long offset = file.exists() ? file.length() : 0;
-        try (Response res = open(offset)) {
-            if (!res.isSuccessful()) throw new IOException("Download failed: HTTP " + res.code());
-            if (res.body() == null) throw new IOException("Download failed: empty response");
-            boolean partial = res.code() == 206;
-            long remaining = getLength(res);
-            long total;
-            if (partial) {
-                String contentRange = res.header(HttpHeaders.CONTENT_RANGE);
-                total = parseTotal(contentRange, offset + (remaining > 0 ? remaining : 0));
-            } else {
-                // Server ignored the Range header; restart from the beginning.
-                offset = 0;
-                total = remaining;
-            }
-            boolean completed = download(res.body().byteStream(), offset, total);
-            if (!completed || canceled) {
+        try {
+            try (Response res = open(offset)) {
+                if (!res.isSuccessful()) throw new IOException("Download failed: HTTP " + res.code());
+                if (res.body() == null) throw new IOException("Download failed: empty response");
+                boolean partial = res.code() == 206;
+                long remaining = getLength(res);
+                long total;
+                if (partial) {
+                    String contentRange = res.header(HttpHeaders.CONTENT_RANGE);
+                    total = parseTotal(contentRange, offset + (remaining > 0 ? remaining : 0));
+                } else {
+                    // Server ignored the Range header; restart from the beginning.
+                    offset = 0;
+                    total = remaining;
+                }
+                boolean completed = download(res.body().byteStream(), offset, total);
+                if (!completed || canceled) {
+                    if (paused) return;
+                    Path.clear(file);
+                    return;
+                }
+                if (callback != null) App.post(() -> {
+                    if (!canceled && !paused) callback.success(file);
+                });
+            } catch (Exception e) {
+                if (canceled) return;
                 if (paused) return;
+                if (isCanceled(e)) return;
                 Path.clear(file);
-                return;
+                if (callback != null) App.post(() -> callback.error(e.getMessage()));
+                else throw new RuntimeException(e.getMessage(), e);
             }
-            if (callback != null) App.post(() -> {
-                if (!canceled && !paused) callback.success(file);
-            });
-        } catch (Exception e) {
-            if (canceled) return;
-            if (paused) return;
-            if (isCanceled(e)) return;
-            Path.clear(file);
-            if (callback != null) App.post(() -> callback.error(e.getMessage()));
-            else throw new RuntimeException(e.getMessage(), e);
+        } finally {
+            // 无论成功/失败/暂停/取消，下载线程退出时都通知一次，便于上层释放并发名额。
+            if (callback != null) App.post(callback::finish);
         }
     }
 
@@ -203,5 +208,9 @@ public class Download {
         void error(String msg);
 
         void success(File file);
+
+        // 下载线程退出时（成功/失败/暂停/取消任意路径）回调一次，供上层释放并发名额。
+        default void finish() {
+        }
     }
 }
