@@ -5,6 +5,7 @@ import android.os.Environment;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.service.DownloadService;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.bean.DownloadGroup;
 import com.fongmi.android.tv.bean.DownloadItem;
@@ -138,6 +139,9 @@ public class DownloadManager {
                 for (DownloadItem item : mItems) DownloadNotify.update(item);
             });
         }
+        // 有活动下载则启动前台服务保活进程，避免应用挂后台被系统回收导致下载中断；
+        // 无活动下载则停止前台服务。sync 内部通过 running 标志幂等，可高频调用。
+        DownloadService.sync(App.get(), getActiveCount());
     }
 
     public void enqueue(DownloadItem item, String siteKey, String flag, String episodeUrl) {
@@ -526,8 +530,10 @@ public class DownloadManager {
     }
 
     public void remove(String id) {
+        DownloadItem item = getItem(id);
         cancel(id);
-        mItems.removeIf(item -> item.getId().equals(id));
+        if (item != null) deleteFiles(item);
+        mItems.removeIf(it -> it.getId().equals(id));
         DownloadNotify.cancel(id);
         notifyChanged();
     }
@@ -542,10 +548,13 @@ public class DownloadManager {
     }
 
     public void clearFinished() {
-        List<String> ids = new ArrayList<>();
-        for (DownloadItem item : mItems) if (!item.isActive()) ids.add(item.getId());
+        List<DownloadItem> finished = new ArrayList<>();
+        for (DownloadItem item : mItems) if (!item.isActive()) finished.add(item);
         mItems.removeIf(item -> !item.isActive());
-        for (String id : ids) DownloadNotify.cancel(id);
+        for (DownloadItem item : finished) {
+            deleteFiles(item);
+            DownloadNotify.cancel(item.getId());
+        }
         notifyChanged();
     }
 
@@ -593,6 +602,20 @@ public class DownloadManager {
         if (parent != null && parent.getName().endsWith("_hls")) return parent;
         String base = f.getName().replaceAll("\\.(mp4|m3u8|m3u|ts)$", "");
         return new File(parent, base + "_hls");
+    }
+
+    // 删除某任务对应的本地文件：单文件下载删 mp4；m3u8 下载删整个 _hls 分片目录。
+    // 供 remove / removeGroup / clearFinished 调用，确保从列表删除时磁盘文件一并清理。
+    private void deleteFiles(DownloadItem item) {
+        if (item == null || TextUtils.isEmpty(item.getFilePath())) return;
+        File file = new File(item.getFilePath());
+        if (isM3u8(item.getUrl())) {
+            // 下载完成产物为 name_hls/ 目录（index.m3u8 + seg_i.ts），占位 mp4 已清理
+            Path.clear(hlsDirOf(item));
+        } else {
+            // 单文件下载：直接删除产物文件；若父目录是 _hls（理论上不会）则整体清理
+            Path.clear(file);
+        }
     }
 
     private boolean isM3u8(String url) {

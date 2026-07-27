@@ -1,6 +1,8 @@
 package com.fongmi.android.tv.utils;
 
 import android.Manifest;
+import android.app.PendingIntent;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.text.TextUtils;
 import android.text.format.Formatter;
@@ -44,6 +46,16 @@ public class DownloadNotify {
         return NotificationManagerCompat.from(App.get());
     }
 
+    // 通知点击直接启动下载列表（隐式 Intent）。通知触发的 Activity 跳转系统始终允许，
+    // 比“广播→再 startActivity”可靠，后者在 Android 10+ 后台启动限制下可能被拦截。
+    private static PendingIntent openIntent() {
+        Intent intent = new Intent(DownloadReceiver.ACTION_OPEN)
+                .setPackage(App.get().getPackageName())
+                .addCategory(Intent.CATEGORY_DEFAULT)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        return PendingIntent.getActivity(App.get(), 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
     // 线程安全地刷新某个任务的通知（主线程构造并显示/移除）。
     public static void update(DownloadItem item) {
         App.post(() -> show(item));
@@ -82,7 +94,7 @@ public class DownloadNotify {
         NotificationCompat.Builder builder = new NotificationCompat.Builder(App.get(), Notify.DEFAULT)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(item.getName())
-                .setContentIntent(DownloadReceiver.openIntent(App.get()))
+                .setContentIntent(openIntent())
                 .setOnlyAlertOnce(true);
         switch (item.getState()) {
             case DownloadItem.DOWNLOADING:
