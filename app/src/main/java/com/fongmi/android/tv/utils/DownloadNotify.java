@@ -3,6 +3,7 @@ package com.fongmi.android.tv.utils;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.text.TextUtils;
+import android.text.format.Formatter;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
@@ -76,7 +77,7 @@ public class DownloadNotify {
                 .setOnlyAlertOnce(true);
         switch (item.getState()) {
             case DownloadItem.DOWNLOADING:
-                builder.setContentText(ResUtil.getString(R.string.download_active) + " " + item.getProgress() + "%  ·  " + FileUtil.getSpeed(item.getSpeed()));
+                builder.setContentText(ResUtil.getString(R.string.download_active) + " " + item.getProgress() + "%  ·  " + Formatter.formatFileSize(App.get(), item.getSpeed()) + "/s");
                 builder.setProgress(100, item.getProgress(), false);
                 builder.setOngoing(true);
                 builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, ResUtil.getString(R.string.download_cancel), DownloadReceiver.cancelIntent(App.get(), item.getId()));
