@@ -63,6 +63,10 @@ public interface PlayerEngine {
 
     void resetTrack();
 
+default void resetTrack(int type) {
+        resetTrack();
+    }
+
     default void restoreVideoTrack() {
     }
 

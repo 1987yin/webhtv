@@ -4,10 +4,8 @@ import android.text.TextUtils;
 
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.History;
-import com.fongmi.android.tv.playback.PlaybackRecord;
 import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.db.dao.HistoryDao;
-import com.fongmi.android.tv.db.dao.TrackDao;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.setting.Setting;
 import com.github.catvod.crawler.SpiderDebug;
@@ -66,9 +64,7 @@ public final class PlaybackProgressWriter {
             batch.add(PlaybackProgressApplyResult.failed((PlaybackProgressInput) null, "观影记录同步未开启"));
             return batch;
         }
-        int applied = 0;
         for (PlaybackProgressInput input : inputs) {
-            if (config != null && config.maxItems > 0 && applied >= config.maxItems) break;
             input.normalize();
             if (config != null && !config.matchesSite(input.siteKey)) {
                 batch.add(PlaybackProgressApplyResult.skipped(input, input.targetHistoryKey(targetCid(input)), "站点不匹配", 0));
@@ -76,13 +72,37 @@ public final class PlaybackProgressWriter {
                 batch.add(PlaybackProgressApplyResult.skipped(input, input.historyKey, "接口不匹配", 0));
             } else {
                 batch.add(applyInternal(input));
-                applied++;
             }
         }
         // 按服务端返回的"已删除墓碑"直接匹配本地记录身份并删除。
         // 无论该记录是本地原生创建还是从远端拉取，都能被正确删除。
         pruneByDeleted(deletedKeys);
         return batch;
+    }
+
+    // 按服务端返回的"已删除墓碑"（dedupeKey 集合）直接匹配本地记录身份并删除。
+    // 匹配基于与服务端完全一致的 dedupeKey 算法，
+    // 原生创建或拉取得到的记录都能被正确清理；且只删除服务端被删除过的记录，不会误删纯本地记录。
+    private static void pruneByDeleted(List<String> deletedKeys) {
+        if (deletedKeys == null || deletedKeys.isEmpty()) return;
+        Set<String> keys = new HashSet<>(deletedKeys);
+        HistoryDao dao = AppDatabase.get().getHistoryDao();
+        List<History> locals = dao.findAll();
+        if (locals.isEmpty()) return;
+        int removed = 0;
+        for (History item : locals) {
+            String dk = PlaybackRecord.dedupeKeyFor(item);
+            if (keys.contains(dk)) {
+                if (dao.delete(item.getCid(), item.getKey()) > 0) {
+                    AppDatabase.get().getTrackDao().delete(item.getKey());
+                    removed++;
+                }
+            }
+        }
+        if (removed > 0) {
+            RefreshEvent.history();
+            SpiderDebug.log("playback-remote-sync", "pruned-by-deleted removed=%s", removed);
+        }
     }
 
     private static PlaybackProgressBatchResult applyInternal(List<PlaybackProgressInput> inputs) {
@@ -114,7 +134,7 @@ public final class PlaybackProgressWriter {
         history.setEpisodeUrl(input.episodeUrl);
         history.setPosition(input.positionMs);
         history.setDuration(input.durationMs);
-        history.setSpeed(input.speed <= 0 ? 1f : input.speed);
+        applySpeed(history, input.speed, input.speedOverride);
         history.setCreateTime(input.updatedAt);
         if (local == null) {
             AppDatabase.get().getHistoryDao().insertOrUpdate(history);
@@ -126,28 +146,16 @@ public final class PlaybackProgressWriter {
         return PlaybackProgressApplyResult.updated(input, history.getKey());
     }
 
-    // 按服务端返回的"已删除墓碑"（dedupeKey 集合）直接匹配本地记录身份并删除。
-    // 匹配基于与服务端完全一致的 dedupeKey 算法，
-    // 原生创建或拉取得到的记录都能被正确清理；且只删除服务端被删除过的记录，不会误删纯本地记录。
-    private static void pruneByDeleted(List<String> deletedKeys) {
-        if (deletedKeys == null || deletedKeys.isEmpty()) return;
-        Set<String> keys = new HashSet<>(deletedKeys);
-        HistoryDao dao = AppDatabase.get().getHistoryDao();
-        List<History> locals = dao.findAll();
-        if (locals.isEmpty()) return;
-        int removed = 0;
-        for (History item : locals) {
-            String dk = PlaybackRecord.dedupeKeyFor(item);
-            if (keys.contains(dk)) {
-                if (dao.delete(item.getCid(), item.getKey()) > 0) {
-                    AppDatabase.get().getTrackDao().delete(item.getKey());
-                    removed++;
-                }
-            }
-        }
-        if (removed > 0) {
-            RefreshEvent.history();
-            SpiderDebug.log("playback-remote-sync", "pruned-by-deleted removed=%s", removed);
+    static void applySpeed(History history, float speed, Boolean speedOverride) {
+        if (history == null) return;
+        float value = speed <= 0 ? 1f : speed;
+        if (speedOverride == null) {
+            history.setSpeed(value);
+        } else if (speedOverride) {
+            history.setUserSpeed(value);
+        } else {
+            history.setSpeed(1f);
+            history.setSpeedOverride(false);
         }
     }
 

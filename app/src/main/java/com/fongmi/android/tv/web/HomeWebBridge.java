@@ -19,13 +19,13 @@ import com.fongmi.android.tv.ui.activity.KeepActivity;
 import com.fongmi.android.tv.ui.activity.LiveActivity;
 import com.fongmi.android.tv.ui.activity.SearchActivity;
 import com.fongmi.android.tv.ui.activity.VideoActivity;
+import com.fongmi.android.tv.utils.AppCache;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.web.ext.WebHomeExtensionRegistry;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Json;
-import com.github.catvod.utils.Prefers;
 import com.google.gson.JsonObject;
 
 import java.net.URLEncoder;
@@ -125,7 +125,7 @@ public class HomeWebBridge {
                 case "app.history" -> history();
                 case "pan.check" -> checkLinks(payload);
                 case "pan.play" -> playPan(payload);
-                case "cache.get" -> quote(Prefers.getString(cacheKey(payload)));
+                case "cache.get" -> quote(AppCache.get(cacheKey(payload)));
                 case "cache.set" -> cacheSet(payload);
                 case "cache.del" -> cacheDel(payload);
                 case "device.info" -> device();
@@ -161,7 +161,7 @@ public class HomeWebBridge {
         final String playWall = wall;
         final String playContent = content;
         SpiderDebug.log("webhome", "player.playUrl title=%s url=%s", playTitle, playUrl);
-        App.post(() -> VideoActivity.start(activity, SiteApi.PUSH, playUrl, playTitle, playPic, null, playWall, playContent));
+        App.post(() -> controller.prepareNativePlayback(() -> VideoActivity.start(activity, SiteApi.PUSH, playUrl, playTitle, playPic, null, playWall, playContent)));
         return "{}";
     }
 
@@ -172,12 +172,13 @@ public class HomeWebBridge {
         String pic = Json.safeString(payload, "pic");
         String wall = wallPic(payload);
         String content = content(payload);
-        App.post(() -> VideoActivity.start(activity, siteKey, vodId, title, pic, null, wall, content));
+        App.post(() -> controller.prepareNativePlayback(() -> VideoActivity.start(activity, siteKey, vodId, title, pic, null, wall, content)));
         return "{}";
     }
 
     private String playVodInline(JsonObject payload) {
-        String vodId = WebHomeInlineVodStore.put(payload, this::resolveInlineEpisode);
+        Site originSite = VodConfig.get().getHome();
+        String vodId = WebHomeInlineVodStore.put(payload, this::resolveInlineEpisode, originSite);
         String title = Json.safeString(payload, "title");
         if (TextUtils.isEmpty(title)) title = Json.safeString(payload, "vod_name");
         String pic = Json.safeString(payload, "pic");
@@ -191,7 +192,7 @@ public class HomeWebBridge {
         final String playWall = wall;
         final String playContent = content;
         SpiderDebug.log("webhome", "player.playVodInline title=%s id=%s mark=%s", playTitle, vodId, playMark);
-        App.post(() -> VideoActivity.start(activity, WebHomeInlineVodStore.KEY, vodId, playTitle, playPic, playMark, playWall, playContent));
+        App.post(() -> controller.prepareNativePlayback(() -> VideoActivity.start(activity, WebHomeInlineVodStore.KEY, vodId, playTitle, playPic, playMark, playWall, playContent)));
         JsonObject result = new JsonObject();
         result.addProperty("siteKey", WebHomeInlineVodStore.KEY);
         result.addProperty("vodId", vodId);
@@ -348,7 +349,7 @@ public class HomeWebBridge {
         final String playWall = wall;
         final String playContent = content;
         SpiderDebug.log("webhome", "pan.play route=%s type=%s title=%s url=%s", SiteApi.PUSH, type, playTitle, playUrl);
-        App.post(() -> VideoActivity.start(activity, SiteApi.PUSH, playUrl, playTitle, playPic, null, playWall, playContent));
+        App.post(() -> controller.prepareNativePlayback(() -> VideoActivity.start(activity, SiteApi.PUSH, playUrl, playTitle, playPic, null, playWall, playContent)));
         return "{}";
     }
 
@@ -357,19 +358,19 @@ public class HomeWebBridge {
     }
 
     private String cacheSet(JsonObject payload) {
-        Prefers.put(cacheKey(payload), Json.safeString(payload, "value"));
+        AppCache.put(cacheKey(payload), Json.safeString(payload, "value"));
         return "{}";
     }
 
     private String cacheDel(JsonObject payload) {
-        Prefers.remove(cacheKey(payload));
+        AppCache.remove(cacheKey(payload));
         return "{}";
     }
 
     private String cacheKey(JsonObject payload) {
         String rule = Json.safeString(payload, "rule");
         String key = Json.safeString(payload, "key");
-        return "cache_" + (TextUtils.isEmpty(rule) ? "" : rule + "_") + key;
+        return AppCache.key(rule, key);
     }
 
     private String device() {

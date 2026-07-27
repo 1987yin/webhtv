@@ -61,6 +61,7 @@ import com.fongmi.android.tv.ui.custom.PlayerOsdController;
 import com.fongmi.android.tv.ui.dialog.HistoryDialog;
 import com.fongmi.android.tv.ui.dialog.LiveDialog;
 import com.fongmi.android.tv.ui.dialog.PassDialog;
+import com.fongmi.android.tv.ui.dialog.PlayerOsdDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.utils.Clock;
@@ -122,6 +123,11 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Override
     protected boolean customWall() {
+        return false;
+    }
+
+    @Override
+    protected boolean isLutAllowed() {
         return false;
     }
 
@@ -206,12 +212,13 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         mBinding.control.action.scale.setOnClickListener(view -> onScale());
         mBinding.control.action.speed.setOnClickListener(view -> onSpeed());
         mBinding.control.action.config.setOnClickListener(view -> onConfig());
+        mBinding.control.action.osdSettings.setOnClickListener(view -> onOsd());
         mBinding.control.action.action.setOnClickListener(view -> onAction());
         mBinding.control.action.invert.setOnClickListener(view -> onInvert());
         mBinding.control.action.across.setOnClickListener(view -> onAcross());
         mBinding.control.action.change.setOnClickListener(view -> onChange());
         mBinding.control.action.player.setOnClickListener(view -> onPlayerKernel());
-        mBinding.control.action.player.setOnLongClickListener(view -> onChooseLong());
+        mBinding.control.action.player.setOnLongClickListener(view -> onPlayerKernelLong());
         mBinding.control.action.decode.setOnClickListener(view -> onDecode());
         mBinding.control.action.speed.setOnLongClickListener(view -> onSpeedLong());
         mBinding.video.setOnTouchListener((view, event) -> mKeyDown.onTouchEvent(event));
@@ -436,6 +443,17 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         hideControl();
     }
 
+    private void onOsd() {
+        PlayerOsdDialog.show(this, ResUtil.getStringArray(R.array.select_live_player_osd), PlayerSetting.getLiveDisplayChecked(), checked -> {
+            PlayerSetting.putLiveDisplayChecked(checked);
+            if (mOsd != null) {
+                mOsd.setDiagnosticsVisible(PlayerSetting.isOsdDiagnostics());
+                mOsd.start();
+            }
+        });
+        hideControl();
+    }
+
     private void onAction() {
         checkPlay();
     }
@@ -456,20 +474,30 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void onChoose() {
-        PlayerHelper.choose(this, player().getUrl(), player().getHeaders(), player().isVod(), player().getPosition(), mBinding.widget.title.getText());
-        setRedirect(true);
-    }
-
-    private boolean onChooseLong() {
-        onChoose();
-        return true;
+        String[] kernel = ResUtil.getStringArray(R.array.select_player_kernel);
+        String[] items = new String[kernel.length + 1];
+        System.arraycopy(kernel, 0, items, 0, kernel.length);
+        items[kernel.length] = "外调";
+        new androidx.appcompat.app.AlertDialog.Builder(this).setItems(items, (dialog, which) -> {
+            if (which < kernel.length) {
+                player().switchPlayerManually(which);
+                setPlayerKernel();
+                setDecode();
+            } else {
+                PlayerHelper.choose(this, player().getUrl(), player().getHeaders(), player().isVod(), player().getPosition(), mBinding.widget.title.getText());
+                setRedirect(true);
+            }
+        }).show();
     }
 
     private void onPlayerKernel() {
-        player().togglePlayer();
-        setPlayerKernel();
-        setDecode();
+        onChoose();
         setR1Callback();
+    }
+
+    private boolean onPlayerKernelLong() {
+        onPlayerKernel();
+        return true;
     }
 
     private void onDecode() {
@@ -505,12 +533,18 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
         @Override
         public void onStop() {
-            finish();
+            finishLivePlayback();
         }
     };
 
     @Override
     protected void onPrepare() {
+        setDecode();
+    }
+
+    @Override
+    protected void onPlayerRebuilt() {
+        setPlayerKernel();
         setDecode();
     }
 
@@ -629,7 +663,10 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     private void showControl(View view) {
         mBinding.control.getRoot().setVisibility(View.VISIBLE);
-        mBinding.widget.top.setVisibility(View.VISIBLE);
+        // OSD 启用时，不显示 widget.top（避免与 OSD 的 topLeft/topRight 重影）
+        if (!PlayerSetting.isOsdEnabled()) {
+            mBinding.widget.top.setVisibility(View.VISIBLE);
+        }
         if (mOsd != null) mOsd.setControlsVisible(true);
         App.post(view::requestFocus, 25);
         setR1Callback();
@@ -1155,9 +1192,16 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         } else if (isVisible(mBinding.recycler)) {
             hideUI();
         } else {
-            if (isTaskRoot()) startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
-            super.onBackInvoked();
+            finishLivePlayback();
         }
+    }
+
+    private void finishLivePlayback() {
+        markPlaybackExiting();
+        if (service() != null) service().shutdown();
+        else stopPlayback();
+        if (isTaskRoot()) startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+        finish();
     }
 
     @Override

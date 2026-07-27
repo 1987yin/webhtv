@@ -45,11 +45,13 @@ import com.fongmi.android.tv.event.ConfigEvent;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.event.ServerEvent;
 import com.fongmi.android.tv.impl.Callback;
+import com.fongmi.android.tv.impl.ConfigListener;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.service.DLNARendererService;
 import com.fongmi.android.tv.service.PlaybackService;
+import com.fongmi.android.tv.setting.AutoBackupPolicy;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.adapter.BaseDiffCallback;
 import com.fongmi.android.tv.ui.adapter.TypeAdapter;
@@ -57,6 +59,7 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.custom.CustomRowPresenter;
 import com.fongmi.android.tv.ui.custom.CustomSelector;
 import com.fongmi.android.tv.ui.custom.CustomTitleView;
+import com.fongmi.android.tv.ui.dialog.HistoryDialog;
 import com.fongmi.android.tv.ui.dialog.ExitConfirmDialog;
 import com.fongmi.android.tv.ui.dialog.SiteDialog;
 import com.fongmi.android.tv.ui.presenter.FuncPresenter;
@@ -89,7 +92,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
-public class HomeActivity extends BaseActivity implements CustomTitleView.Listener, VodPresenter.OnClickListener, FuncPresenter.OnClickListener, HistoryPresenter.OnClickListener, TypeAdapter.OnClickListener, HomeWebController.Listener {
+public class HomeActivity extends BaseActivity implements CustomTitleView.Listener, VodPresenter.OnClickListener, FuncPresenter.OnClickListener, HistoryPresenter.OnClickListener, TypeAdapter.OnClickListener, HomeWebController.Listener, ConfigListener {
 
     private static final String TV_NORMAL = "tv-normal";
     private static final String TV_TOOLBAR_HIDDEN = "tv-toolbar-hidden";
@@ -112,6 +115,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     private String webDefaultChromeMode = TV_FULL;
     private boolean webToolbarVisible = true;
     private boolean loadingHomeCategory;
+    private boolean pendingOpenVod; // 手动点击"点播"后等待数据加载完成再进分类页
 
     private Site getHome() {
         return VodConfig.get().getHome();
@@ -268,10 +272,21 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void setWebView() {
-        SpiderDebug.log("startup", "webview create start cost=%sms", System.currentTimeMillis() - App.time());
-        mWeb = new HomeWebController(this, getHomeWeb(), this);
-        mWeb.setViewport(tvViewport(webChromeMode));
-        SpiderDebug.log("startup", "webview create end cost=%sms", System.currentTimeMillis() - App.time());
+        try {
+            SpiderDebug.log("startup", "webview create start cost=%sms", System.currentTimeMillis() - App.time());
+            WebView webView = getHomeWeb();
+            if (webView == null) {
+                SpiderDebug.log("startup", "webview unavailable, web home disabled");
+                return;
+            }
+            mWeb = new HomeWebController(this, webView, this);
+            mWeb.setViewport(tvViewport(webChromeMode));
+            SpiderDebug.log("startup", "webview create end cost=%sms", System.currentTimeMillis() - App.time());
+        } catch (Throwable e) {
+            SpiderDebug.log("startup", "webview init failed: %s", e.toString());
+            mHomeWeb = null;
+            mWeb = null;
+        }
     }
 
     private void ensureWebView() {
@@ -280,12 +295,18 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     private WebView getHomeWeb() {
         if (mHomeWeb != null) return mHomeWeb;
-        mHomeWeb = new WebView(this);
-        mHomeWeb.setFocusable(true);
-        mHomeWeb.setFocusableInTouchMode(true);
-        mHomeWeb.setVisibility(View.GONE);
-        mBinding.webOverlay.addView(mHomeWeb, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        return mHomeWeb;
+        try {
+            mHomeWeb = new WebView(this);
+            mHomeWeb.setFocusable(true);
+            mHomeWeb.setFocusableInTouchMode(true);
+            mHomeWeb.setVisibility(View.GONE);
+            mBinding.webOverlay.addView(mHomeWeb, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            return mHomeWeb;
+        } catch (Throwable e) {
+            SpiderDebug.log("startup", "webview construction failed: %s", e.toString());
+            mHomeWeb = null;
+            return null;
+        }
     }
 
     private void setViewModel() {
@@ -299,6 +320,11 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             }
             mResult = result;
             addVideo(result);
+            // 如果用户手动点击了"点播"按钮，数据加载完成后自动进入分类页
+            if (pendingOpenVod && !result.getTypes().isEmpty()) {
+                pendingOpenVod = false;
+                onItemClick(result.getTypes().get(0));
+            }
         });
     }
 
@@ -314,7 +340,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void setTitle() {
-        List<String> items = Arrays.asList(getHome().getName(), getConfig().getName(), getString(R.string.app_name));
+        List<String> items = Arrays.asList(getHome().getDisplayName(), getConfig().getName(), getString(R.string.app_name));
         Optional<String> optional = items.stream().filter(s -> !TextUtils.isEmpty(s)).findFirst();
         optional.ifPresent(s -> mBinding.title.setText(s));
     }
@@ -403,6 +429,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         mResult = Result.empty();
         mHomeResult = Result.empty();
         loadingHomeCategory = false;
+        if (!Setting.isHomeVodAutoLoad()) mBinding.typeRecycler.setVisibility(View.GONE);
         clearRecommendRows();
         mAdapter.add("progress");
         mViewModel.homeContent();
@@ -424,7 +451,19 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             return;
         }
         mTypeAdapter.addAll(result.getTypes());
-        mBinding.typeRecycler.setVisibility(View.VISIBLE);
+        // 只有在"默认加载点播"开启时才显示分类按钮
+        updateTypeRecyclerVisibility();
+    }
+
+    private void updateTypeRecyclerVisibility() {
+        // 只有在有分类数据且"默认加载点播"开启时才显示分类按钮
+        if (mTypeAdapter.getItemCount() > 0) {
+            if (Setting.isHomeVodAutoLoad()) {
+                mBinding.typeRecycler.setVisibility(View.VISIBLE);
+            } else {
+                mBinding.typeRecycler.setVisibility(View.GONE);
+            }
+        }
     }
 
     private void addVideo(Result result) {
@@ -461,12 +500,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     private void setFunc() {
         List<Func> items = new ArrayList<>();
-        if (LiveConfig.hasUrl()) items.add(Func.create(R.string.home_live));
-        items.add(Func.create(R.string.home_search));
-        items.add(Func.create(R.string.home_keep));
-        items.add(Func.create(R.string.home_push));
-        if (!Setting.isHomeHistory()) items.add(Func.create(R.string.home_history_button));
-        items.add(Func.create(R.string.home_setting));
+        for (com.fongmi.android.tv.bean.HomeButton button : com.fongmi.android.tv.bean.HomeButton.getVisibleButtons()) {
+            items.add(Func.create(button.getResId()));
+        }
         mFuncAdapter.setItems(items, new BaseDiffCallback<Func>());
     }
 
@@ -479,6 +515,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             removeHistoryRows();
             return;
         }
+        int headerIndex = mAdapter.indexOf(R.string.home_history);
+        if (headerIndex == -1) mAdapter.add(getRecommendHeaderIndex(), R.string.home_history);
         List<History> items = History.get();
         int historyIndex = getHistoryIndex();
         int recommendIndex = getRecommendIndex();
@@ -496,6 +534,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         mAdapter.removeItems(headerIndex, recommendIndex - headerIndex);
         mHistoryAdapter.clear();
         mPresenter.setDelete(false);
+    }
+
+    private int getRecommendHeaderIndex() {
+        return mAdapter.indexOf(R.string.home_recommend);
     }
 
     private void setHistoryDelete(boolean delete) {
@@ -599,11 +641,23 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     @Override
     public void onItemClick(Func item) {
-        if (item.getResId() == R.string.home_live) LiveActivity.start(this);
+        if (item.getResId() == R.string.home_vod) {
+            // mHomeResult 才可靠保存首页分类（mResult 可能被分类内容结果覆盖）
+            Result homeResult = mHomeResult != null && !mHomeResult.getTypes().isEmpty() ? mHomeResult : mResult;
+            if (homeResult.getTypes().isEmpty()) {
+                // 内容未加载（如 Web 站源首页未拉取原生分类），强制加载原生数据后自动进分类页
+                pendingOpenVod = true;
+                getVideo(true);
+            } else {
+                // 内容已加载，进入第一个分类
+                onItemClick(homeResult.getTypes().get(0));
+            }
+        } else if (item.getResId() == R.string.home_live) LiveActivity.start(this);
         else if (item.getResId() == R.string.home_keep) KeepActivity.start(this);
         else if (item.getResId() == R.string.home_push) PushActivity.start(this);
         else if (item.getResId() == R.string.home_search) SearchActivity.start(this);
         else if (item.getResId() == R.string.home_setting) SettingActivity.start(this);
+        else if (item.getResId() == R.string.home_cast) PushActivity.start(this, 3);
         else if (item.getResId() == R.string.home_history_button) HistoryActivity.start(this);
     }
 
@@ -667,6 +721,21 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         SpiderDebug.log("site-dialog", "show returned delay=%sms", System.currentTimeMillis() - start);
     }
 
+    private void onHomeMenuKey() {
+        switch (Setting.getHomeMenuKey()) {
+            case 1 -> SiteDialog.create().action().show(this);
+            case 2 -> HistoryDialog.create().vod().show(this);
+            case 3 -> LiveActivity.start(this);
+            case 4 -> HistoryActivity.start(this);
+            case 5 -> SearchActivity.start(this);
+            case 6 -> PushActivity.start(this);
+            case 7 -> PushActivity.start(this, 3);
+            case 8 -> KeepActivity.start(this);
+            case 9 -> SettingActivity.start(this);
+            default -> showDialog();
+        }
+    }
+
     @Override
     public void onRefresh() {
         if (mWeb != null && mWeb.isVisible()) mWeb.reload();
@@ -675,7 +744,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     @Override
     public void reloadConfig() {
-        VodConfig.get().clear().config(getConfig()).load(new Callback() {
+        VodConfig.get().clear("leanback-home-reload").config(getConfig()).load(new Callback() {
             @Override
             public void start() {
                 mBinding.progressLayout.showProgress();
@@ -695,6 +764,16 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     @Override
+    public void setConfig(Config config) {
+        if (config.getType() != 0) return;
+        if (config.getUrl().startsWith("file")) {
+            PermissionUtil.requestFile(this, allGranted -> VodConfig.load(config, getCallback()));
+        } else {
+            VodConfig.load(config, getCallback());
+        }
+    }
+
+    @Override
     public void setSite(Site item) {
         SpiderDebug.log("site-dialog", "set site key=%s name=%s homePage=%s", item.getKey(), item.getName(), item.hasHomePage());
         VodConfig.get().setHome(item);
@@ -703,7 +782,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (KeyUtil.isMenuKey(event)) {
-            showDialog();
+            onHomeMenuKey();
             return true;
         }
         if (mWeb != null && mWeb.isVisible()) {
@@ -754,6 +833,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         mClock.start();
         if (mWeb != null) mWeb.onResume();
         setFunc();
+        // 根据设置更新分类按钮的可见性
+        updateTypeRecyclerVisibility();
     }
 
     @Override
@@ -804,8 +885,14 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         if (mWeb != null) mWeb.destroy();
         DLNARendererService.stop(this);
         LiveConfig.get().clear();
-        VodConfig.get().clear();
-        AppDatabase.backup();
+        VodConfig.get().clear("leanback-home-destroy");
+        if (AutoBackupPolicy.shouldRun(
+                Setting.isAutoBackup(),
+                Setting.hasFileAccess(),
+                isFinishing(),
+                isChangingConfigurations())) {
+            AppDatabase.autoBackup();
+        }
         OkHttp.get().clear();
         Source.get().exit();
         Server.get().stop();

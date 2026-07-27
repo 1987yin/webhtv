@@ -23,5 +23,9 @@ nostr_副本*.html
 __pycache__/
 *.pyc
 third_party/sources/
+app/signing/
+.gradle-user-home/
 plans/
-/参考/
+.tokensave
+.codebase-memory
+参考/*

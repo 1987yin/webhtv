@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -20,6 +22,7 @@ import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.utils.DanmakuSearchListFocusFixer;
 import com.fongmi.android.tv.utils.NsdDeviceDiscovery;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.WebViewDataDirectoryGuard;
 import com.fongmi.hook.Hook;
 import com.github.catvod.crawler.DebugLogStore;
 import com.github.catvod.crawler.SpiderDebug;
@@ -36,6 +39,9 @@ public class App extends Application implements Application.ActivityLifecycleCal
 
     private Activity activity;
     private Hook hook;
+
+    private Resources resources;
+    private int resourcesLanguage = Integer.MIN_VALUE;
 
     public App() {
         instance = this;
@@ -84,6 +90,7 @@ public class App extends Application implements Application.ActivityLifecycleCal
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
+        WebViewDataDirectoryGuard.clearStaleLock(base);
         Init.set(base);
     }
 
@@ -97,7 +104,12 @@ public class App extends Application implements Application.ActivityLifecycleCal
         ProxySetting.apply();
         DanmakuSearchListFocusFixer.start();
         registerActivityLifecycleCallbacks(this);
+        registerContentHandlers();
         post(this::startBackgroundServices, 1200);
+    }
+
+    private void registerContentHandlers() {
+        com.fongmi.android.tv.content.ContentDispatcher.registerHandler(new com.fongmi.android.tv.content.AudioContentHandler());
     }
 
     private void startBackgroundServices() {
@@ -117,6 +129,26 @@ public class App extends Application implements Application.ActivityLifecycleCal
     @Override
     public String getPackageName() {
         return hook != null ? hook.getPackageName() : getBaseContext().getPackageName();
+    }
+
+    @Override
+    @SuppressWarnings("deprecation")
+    public Resources getResources() {
+        int language = Setting.getLanguage();
+        if (resources == null || resourcesLanguage != language) {
+            Resources resources = super.getResources();
+            Configuration configuration = Setting.wrapLanguage(getBaseContext()).getResources().getConfiguration();
+            // WebView adds its resource package to the framework-owned AssetManager on Android 9.
+            resources.updateConfiguration(configuration, resources.getDisplayMetrics());
+            this.resources = resources;
+            resourcesLanguage = language;
+        }
+        return resources;
+    }
+
+    public void invalidateResources() {
+        resources = null;
+        resourcesLanguage = Integer.MIN_VALUE;
     }
 
     @Override

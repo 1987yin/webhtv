@@ -30,7 +30,7 @@ public class Download {
     private volatile boolean paused;
 
     public static Download create(String url, File file) {
-        return new Download(url, file);
+        return new Download(GithubProxy.apply(url), file);
     }
 
     public Download(String url, File file) {

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- TV版选集按钮 - 简单文本模式 -->
 <com.google.android.material.textview.MaterialTextView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/text"
@@ -9,9 +10,11 @@
     android:focusable="true"
     android:focusableInTouchMode="true"
     android:gravity="center"
+    android:marqueeRepeatLimit="marquee_forever"
     android:nextFocusUp="@id/array"
     android:nextFocusDown="@id/part"
+    android:scrollHorizontally="true"
     android:singleLine="true"
     android:textColor="@color/text"
     android:textSize="16sp"
-    tools:text="20" />
+    tools:text="第20集" />

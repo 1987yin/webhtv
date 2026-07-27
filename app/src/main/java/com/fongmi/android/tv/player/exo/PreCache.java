@@ -318,8 +318,10 @@ public class PreCache implements Player.Listener {
     private boolean canPreCache(MediaItem mediaItem) {
         if (mediaItem == null || mediaItem.localConfiguration == null) return false;
         MediaItem.LocalConfiguration local = mediaItem.localConfiguration;
-        String scheme = local.uri.getScheme();
-        String url = local.uri.toString();
+        return canPreCache(local.uri.getScheme(), local.uri.toString());
+    }
+
+    static boolean canPreCache(String scheme, String url) {
         return ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) && !MediaSourceFactory.isConcatenatingUrl(url);
     }
 

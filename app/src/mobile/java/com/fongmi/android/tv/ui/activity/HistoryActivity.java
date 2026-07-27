@@ -5,11 +5,13 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.Product;
@@ -58,6 +60,15 @@ public class HistoryActivity extends BaseActivity implements HistoryAdapter.OnCl
         mBinding.recycler.setHasFixedSize(true);
         mBinding.recycler.setLayoutManager(new GridLayoutManager(this, column));
         mBinding.recycler.setAdapter(mAdapter = new HistoryAdapter(this));
+        mBinding.recycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrollStateChanged(@NonNull RecyclerView recyclerView, int newState) {
+                recyclerView.post(() -> {
+                    if (newState == RecyclerView.SCROLL_STATE_IDLE) updateMarquee();
+                    else mAdapter.setMarqueeRange(RecyclerView.NO_POSITION, RecyclerView.NO_POSITION);
+                });
+            }
+        });
         mAdapter.setSize(Product.getSpec(this, column));
     }
 
@@ -65,7 +76,36 @@ public class HistoryActivity extends BaseActivity implements HistoryAdapter.OnCl
         mAdapter.setItems(History.get(), (hasChange) -> {
             mBinding.progressLayout.showContent(true, mAdapter.getItemCount());
             if (hasChange) mBinding.recycler.scrollToPosition(0);
+            mBinding.recycler.post(this::updateMarquee);
         });
+    }
+
+    private void updateMarquee() {
+        if (mBinding.recycler.getScrollState() != RecyclerView.SCROLL_STATE_IDLE) {
+            mAdapter.setMarqueeRange(RecyclerView.NO_POSITION, RecyclerView.NO_POSITION);
+            return;
+        }
+        int[] range = findMarqueeRange(mBinding.recycler);
+        mAdapter.setMarqueeRange(range[0], range[1]);
+    }
+
+    private int[] findMarqueeRange(RecyclerView recyclerView) {
+        int first = RecyclerView.NO_POSITION;
+        int last = RecyclerView.NO_POSITION;
+        int top = recyclerView.getPaddingTop();
+        int bottom = recyclerView.getHeight() - recyclerView.getPaddingBottom();
+        for (int i = 0; i < recyclerView.getChildCount(); i++) {
+            View child = recyclerView.getChildAt(i);
+            View info = child.findViewById(R.id.history_info);
+            int infoTop = child.getTop() + info.getTop();
+            int infoBottom = child.getTop() + info.getBottom();
+            if (infoBottom <= top || infoTop >= bottom) continue;
+            int position = recyclerView.getChildAdapterPosition(child);
+            if (position == RecyclerView.NO_POSITION) continue;
+            first = first == RecyclerView.NO_POSITION ? position : Math.min(first, position);
+            last = Math.max(last, position);
+        }
+        return new int[]{first, last};
     }
 
     private void onSync() {
@@ -87,13 +127,14 @@ public class HistoryActivity extends BaseActivity implements HistoryAdapter.OnCl
 
     @Override
     public void onItemClick(History item) {
-        VideoActivity.start(this, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), null, item.getWallPic());
+        VideoActivity.startFromHistory(this, item);
     }
 
     @Override
     public void onItemDelete(History item) {
         mAdapter.remove(item.delete(), () -> {
             if (mAdapter.getItemCount() == 0) mAdapter.setDelete(false);
+            mBinding.recycler.post(this::updateMarquee);
         });
     }
 
@@ -114,7 +155,14 @@ public class HistoryActivity extends BaseActivity implements HistoryAdapter.OnCl
         if (item.getItemId() == android.R.id.home) onBackInvoked();
         else if (item.getItemId() == R.id.delete) onDelete();
         else if (item.getItemId() == R.id.sync) onSync();
+        else if (item.getItemId() == R.id.report) onReport();
         return super.onOptionsItemSelected(item);
+    }
+
+    private void onReport() {
+        com.fongmi.android.tv.ui.dialog.ViewingReportRangeDialog.create(this)
+                .callback(range -> com.fongmi.android.tv.ui.activity.ViewingReportActivity.start(this, range))
+                .show();
     }
 
     @Override

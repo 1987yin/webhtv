@@ -56,4 +56,33 @@ public class Migrations {
             database.execSQL("ALTER TABLE History ADD COLUMN wallPic TEXT DEFAULT NULL");
         }
     };
+
+    public static final Migration MIGRATION_36_37 = new Migration(36, 37) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE History ADD COLUMN typeName TEXT DEFAULT NULL");
+            database.execSQL("ALTER TABLE History ADD COLUMN area TEXT DEFAULT NULL");
+            database.execSQL("ALTER TABLE History ADD COLUMN actor TEXT DEFAULT NULL");
+            database.execSQL("ALTER TABLE History ADD COLUMN director TEXT DEFAULT NULL");
+            database.execSQL("ALTER TABLE History ADD COLUMN year TEXT DEFAULT NULL");
+        }
+    };
+
+    public static final Migration MIGRATION_37_38 = new Migration(37, 38) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE History ADD COLUMN speedOverride INTEGER NOT NULL DEFAULT 0");
+            database.execSQL("UPDATE History SET speedOverride = 1 WHERE speed > 0 AND ABS(speed - 1.0) > 0.001");
+        }
+    };
+
+    public static final Migration MIGRATION_38_39 = new Migration(38, 39) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE History ADD COLUMN tmdbId INTEGER NOT NULL DEFAULT 0");
+            database.execSQL("ALTER TABLE History ADD COLUMN mediaType TEXT DEFAULT ''");
+            database.execSQL("ALTER TABLE History ADD COLUMN legacyKey TEXT DEFAULT ''");
+            database.execSQL("UPDATE History SET legacyKey = `key`");
+        }
+    };
 }

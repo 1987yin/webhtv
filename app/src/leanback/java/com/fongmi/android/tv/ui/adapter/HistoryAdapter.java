@@ -13,13 +13,9 @@ import com.fongmi.android.tv.databinding.AdapterVodBinding;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.ResUtil;
 
-import java.util.ArrayList;
-import java.util.List;
-
-public class HistoryAdapter extends RecyclerView.Adapter<HistoryAdapter.ViewHolder> {
+public class HistoryAdapter extends BaseDiffAdapter<History, HistoryAdapter.ViewHolder> {
 
     private final OnClickListener listener;
-    private final List<History> items = new ArrayList<>();
     private int width, height;
     private boolean delete;
 
@@ -53,31 +49,19 @@ public class HistoryAdapter extends RecyclerView.Adapter<HistoryAdapter.ViewHold
         notifyItemRangeChanged(0, getItemCount());
     }
 
-    public void setItems(List<History> list) {
-        items.clear();
-        if (list != null) items.addAll(list);
-        notifyDataSetChanged();
-    }
-
-    public void remove(History item) {
-        int index = items.indexOf(item);
-        if (index >= 0) {
-            items.remove(index);
-            notifyItemRemoved(index);
-        }
-    }
-
+    @Override
     public void clear() {
-        items.clear();
-        notifyDataSetChanged();
+        super.clear();
+        setDelete(false);
+        History.delete(com.fongmi.android.tv.api.config.VodConfig.getCid());
     }
 
-    public int getItemCount() {
-        return items.size();
-    }
-
-    public History getItem(int position) {
-        return items.get(position);
+    private void setClickListener(View root, History item) {
+        root.setOnLongClickListener(view -> listener.onLongClick());
+        root.setOnClickListener(view -> {
+            if (isDelete()) listener.onItemDelete(item);
+            else listener.onItemClick(item);
+        });
     }
 
     @NonNull
@@ -98,18 +82,22 @@ public class HistoryAdapter extends RecyclerView.Adapter<HistoryAdapter.ViewHold
         holder.binding.name.setText(item.getVodName());
         holder.binding.site.setText(item.getSiteName());
         holder.binding.remark.setText(remark);
+        holder.setMarquee(holder.itemView.hasFocus());
         holder.binding.site.setVisibility(item.getSiteVisible());
+        holder.binding.playback.setText(item.getPlaybackTimeText());
+        holder.binding.playback.setVisibility(!delete && item.hasPlaybackTime() ? View.VISIBLE : View.GONE);
+        setProgress(holder.binding, item);
         holder.binding.delete.setVisibility(!delete ? View.GONE : View.VISIBLE);
-        holder.binding.remark.setVisibility(delete || same ? View.GONE : View.VISIBLE);
+        holder.binding.remark.setVisibility(delete || same ? View.INVISIBLE : View.VISIBLE);
         ImgUtil.load(item.getVodName(), item.getVodPic(), holder.binding.image);
     }
 
-    private void setClickListener(View root, History item) {
-        root.setOnLongClickListener(view -> listener.onLongClick());
-        root.setOnClickListener(view -> {
-            if (isDelete()) listener.onItemDelete(item);
-            else listener.onItemClick(item);
-        });
+    private void setProgress(AdapterVodBinding binding, History item) {
+        int duration = (int) Math.min(Integer.MAX_VALUE, Math.max(0, item.getDuration()));
+        int progress = (int) Math.min(Integer.MAX_VALUE, Math.max(0, item.getPosition()));
+        binding.progress.setVisibility(View.VISIBLE);
+        binding.progress.setMax(duration > 0 ? duration : 1);
+        binding.progress.setProgress(duration > 0 ? Math.min(progress, duration) : 0, true);
     }
 
     public class ViewHolder extends RecyclerView.ViewHolder {
@@ -124,16 +112,20 @@ public class HistoryAdapter extends RecyclerView.Adapter<HistoryAdapter.ViewHold
 
         private void setFocusListener() {
             itemView.setOnFocusChangeListener((v, hasFocus) -> {
+                setMarquee(hasFocus);
                 if (hasFocus) {
                     v.animate().scaleX(1.1f).scaleY(1.1f).setDuration(150).start();
                     v.setTranslationZ(10f);
-                    v.setSelected(true);
                 } else {
                     v.animate().scaleX(1f).scaleY(1f).setDuration(150).start();
                     v.setTranslationZ(0f);
-                    v.setSelected(false);
                 }
             });
+        }
+
+        private void setMarquee(boolean active) {
+            binding.name.setSelected(active);
+            binding.remark.setSelected(active);
         }
     }
 }

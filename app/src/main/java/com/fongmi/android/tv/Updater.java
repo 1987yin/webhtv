@@ -9,12 +9,15 @@ import androidx.lifecycle.Lifecycle;
 import androidx.lifecycle.LifecycleEventObserver;
 
 import com.fongmi.android.tv.bean.Update;
+import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.impl.UpdateListener;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.dialog.UpdateDialog;
 import com.fongmi.android.tv.utils.Download;
+import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.FileUtil;
 import com.fongmi.android.tv.utils.AppVersion;
+import com.fongmi.android.tv.utils.GithubProxy;
 import com.fongmi.android.tv.utils.Github;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -203,7 +206,8 @@ public class Updater implements Download.Callback, UpdateListener {
     private Update readUpdate(String channel, String manifestUrl, String source, Map<String, String> headers, String fallbackNotes) {
         Update update = Update.empty(channel);
         try {
-            String text = headers == null ? OkHttp.string(manifestUrl, GITHUB_REQUEST_TIMEOUT_MS) : OkHttp.string(manifestUrl, headers, GITHUB_REQUEST_TIMEOUT_MS);
+            String proxiedUrl = GithubProxy.apply(manifestUrl);
+            String text = headers == null ? OkHttp.string(proxiedUrl, GITHUB_REQUEST_TIMEOUT_MS) : OkHttp.string(proxiedUrl, headers, GITHUB_REQUEST_TIMEOUT_MS);
             if (TextUtils.isEmpty(text)) throw new IllegalStateException("Empty update manifest: " + manifestUrl);
             JSONObject object = new JSONObject(text);
             update.name = object.optString("name");
@@ -302,7 +306,7 @@ public class Updater implements Download.Callback, UpdateListener {
 
     private String readReleaseNotes(String tag) {
         try {
-            return new JSONObject(OkHttp.string(Github.getReleaseApi(tag), GITHUB_API_HEADERS, GITHUB_REQUEST_TIMEOUT_MS)).optString("body");
+            return new JSONObject(OkHttp.string(GithubProxy.apply(Github.getReleaseApi(tag)), GITHUB_API_HEADERS, GITHUB_REQUEST_TIMEOUT_MS)).optString("body");
         } catch (Exception ignored) {
             return "";
         }
@@ -329,6 +333,48 @@ public class Updater implements Download.Callback, UpdateListener {
             return;
         }
         view.setEnabled(false);
+        showBackupConfirmDialog(view);
+    }
+
+    private void showBackupConfirmDialog(View view) {
+        FragmentActivity activity = activityRef == null ? null : activityRef.get();
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
+
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(activity, R.style.ThemeOverlay_WebHTV_LightDialog)
+                .setTitle(R.string.update_backup_title)
+                .setMessage(R.string.update_backup_message)
+                .setPositiveButton(R.string.update_backup_positive, (dialog, which) -> startBackupAndUpdate(view))
+                .setNegativeButton(R.string.update_backup_negative, (dialog, which) -> startUpdate(view))
+                .setNeutralButton(R.string.dialog_negative, (dialog, which) -> view.setEnabled(true))
+                .setCancelable(false)
+                .show();
+    }
+
+    private void startBackupAndUpdate(View view) {
+        Notify.show(R.string.update_backup_running);
+        PermissionUtil.requestFile(activityRef.get(), allGranted -> {
+            if (!allGranted) {
+                Notify.show(R.string.update_backup_permission_denied);
+                startUpdate(view);
+                return;
+            }
+            AppDatabase.backup(new com.fongmi.android.tv.impl.Callback() {
+                @Override
+                public void success() {
+                    Notify.show(R.string.update_backup_done);
+                    startUpdate(view);
+                }
+
+                @Override
+                public void error() {
+                    Notify.show(R.string.update_backup_failed);
+                    startUpdate(view);
+                }
+            });
+        });
+    }
+
+    private void startUpdate(View view) {
         downloading = true;
         canceled = false;
         fallbackAttempted = false;

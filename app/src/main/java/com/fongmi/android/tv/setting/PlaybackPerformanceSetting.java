@@ -8,7 +8,8 @@ public class PlaybackPerformanceSetting {
     public static final int PROFILE_COMPATIBLE = 1;
     public static final int PROFILE_CUSTOM = 2;
     public static final int PROFILE_LIGHTWEIGHT = 3;
-    public static final int PROFILE_AUTO = 4;
+    public static final int PROFILE_ORIGINAL = 4;
+    public static final int PROFILE_AUTO = 5;
 
     public static final String KEY_PROFILE = "playback_performance_profile";
     private static final String KEY_PROFILE_MIGRATED = "playback_performance_profile_per_kernel";
@@ -163,6 +164,26 @@ public class PlaybackPerformanceSetting {
         putCurrentProfile(PROFILE_LIGHTWEIGHT);
     }
 
+    public static void applyOriginal() {
+        KernelPerformanceSetting.applyOriginal(PlayerSetting.getPlayer());
+        put(KEY_CODEC_ASYNC_QUEUEING, false);
+        put(KEY_DYNAMIC_SCHEDULING, false);
+        put(KEY_VIDEO_DURATION_PROGRESS, false);
+        put(KEY_LATE_DROP_INPUT, false);
+        put(KEY_TRACK_LIMIT, false);
+        put(KEY_ADAPTIVE_DOWNGRADE, false);
+        put(KEY_LOAD_ONLY_SELECTED_TRACKS, false);
+        put(KEY_SURFACE_FIXED_SIZE, false);
+        put(KEY_DECODER_FALLBACK, true);
+        put(KEY_SOFT_VIDEO_TUNE, true);
+        put(KEY_HIGH_BUFFER, false);
+        put(KEY_BANDWIDTH_METER, false);
+        Prefers.put("render", PlayerSetting.RENDER_SURFACE);
+        Prefers.put("tunnel", false);
+        Prefers.put("exo_4k_compat", false);
+        putCurrentProfile(PROFILE_ORIGINAL);
+    }
+
     public static void markCustom() {
         ensureInitialized();
         putCurrentProfile(PROFILE_CUSTOM);
@@ -174,6 +195,7 @@ public class PlaybackPerformanceSetting {
             case PROFILE_COMPATIBLE -> "兼容";
             case PROFILE_LIGHTWEIGHT -> "轻量";
             case PROFILE_CUSTOM -> "自定义";
+            case PROFILE_ORIGINAL -> "原版";
             default -> "均衡";
         };
     }
@@ -349,7 +371,7 @@ public class PlaybackPerformanceSetting {
     }
 
     private static int clampProfile(int profile) {
-        return profile == PROFILE_COMPATIBLE || profile == PROFILE_CUSTOM || profile == PROFILE_LIGHTWEIGHT || profile == PROFILE_AUTO ? profile : PROFILE_RECOMMENDED;
+        return profile == PROFILE_COMPATIBLE || profile == PROFILE_CUSTOM || profile == PROFILE_LIGHTWEIGHT || profile == PROFILE_ORIGINAL || profile == PROFILE_AUTO ? profile : PROFILE_RECOMMENDED;
     }
 
     private static void put(String key, boolean value) {

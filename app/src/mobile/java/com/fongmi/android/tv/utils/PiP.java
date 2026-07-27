@@ -95,8 +95,12 @@ public class PiP {
     }
 
     public boolean enter(Activity activity, int width, int height, int scale) {
+        return enter(activity, width, height, scale, false);
+    }
+
+    public boolean enter(Activity activity, int width, int height, int scale, boolean force) {
         try {
-            if (noPiP() || activity.isInPictureInPictureMode() || !PlayerSetting.isBackgroundPiP()) return false;
+            if (noPiP() || activity.isInPictureInPictureMode() || (!force && !PlayerSetting.isBackgroundPiP())) return false;
             setAspectRatio(width, height, scale);
             setAutoEnter();
             return activity.enterPictureInPictureMode(builder.build());

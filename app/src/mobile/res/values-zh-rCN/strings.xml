@@ -15,6 +15,7 @@
     <string name="menu_search">搜索</string>
     <string name="menu_site">站点</string>
     <string name="menu_reset">重置</string>
+    <string name="menu_more">更多</string>
     <string name="menu_push_apk">推送apk</string>
     <string name="apk_push_preparing">正在准备APK…</string>
     <string name="apk_push_select_device">推送apk · 选择接收设备</string>

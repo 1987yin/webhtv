@@ -89,11 +89,5 @@ public abstract class BaseBottomSheetDialog extends BottomSheetDialogFragment {
         BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
         behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
         behavior.setSkipCollapsed(true);
-        int maxHeight = getMaxHeight();
-        if (maxHeight > 0) behavior.setMaxHeight(maxHeight);
-    }
-
-    protected int getMaxHeight() {
-        return 0;
     }
 }

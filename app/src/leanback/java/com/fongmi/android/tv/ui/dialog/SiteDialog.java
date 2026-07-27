@@ -4,6 +4,7 @@ import android.app.Dialog;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
@@ -12,12 +13,15 @@ import android.view.WindowManager;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.widget.LinearLayoutCompat;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.LiveConfig;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Config;
@@ -32,14 +36,16 @@ import com.fongmi.android.tv.utils.ResUtil;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickListener {
 
     private static final int GRID_COUNT = 3;
     private static final String TAG = "site_dialog";
-    private static final int ITEM_HEIGHT = 46;
-    private static final int ITEM_SPACE = 12;
-    private static final int MAX_HEIGHT = 344;
     private static final int INITIAL_BATCH = 48;
+
+    private static String selectedGroup = "";
 
     private RecyclerView.ItemDecoration decoration;
     private DialogSiteBinding binding;
@@ -47,6 +53,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     private Dialog directDialog;
     private SiteListener listener;
     private SiteAdapter adapter;
+    private List<String> groups;
     private long showStart;
     private boolean action;
     private boolean listLoaded;
@@ -77,10 +84,6 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
 
     private int getCount() {
         return GRID_COUNT;
-    }
-
-    private float getWidth() {
-        return action ? 0.92f : 0.9f;
     }
 
     @Override
@@ -164,6 +167,12 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         long start = System.currentTimeMillis();
         adapter = new SiteAdapter(this);
         adapter.setDisplayLimit(INITIAL_BATCH);
+        groups = getGroups();
+        normalizeSelectedGroup();
+        if (!TextUtils.isEmpty(selectedGroup)) {
+            adapter.filter(selectedGroup, "");
+            adapter.setDisplayLimit(INITIAL_BATCH);
+        }
         log("adapter created cost=%sms items=%s action=%s immediate=%s", cost(start), adapter.getTotalCount(), action, immediate);
         if (adapter.getTotalCount() == 0) {
             log("dismiss empty total=%sms", cost());
@@ -175,11 +184,13 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         setRecyclerView();
         setRecyclerHeight(adapter.getItemCount());
         setMode();
+        setGroupView();
         setActionEnabled(true);
         log("view configured cost=%sms total=%sms", cost(layoutStart), cost());
         runAfterFirstPreDraw("list preDraw", () -> {
             if (adapter != null) adapter.showAll();
             log("list expanded total=%sms items=%s", cost(), adapter == null ? -1 : adapter.getItemCount());
+            focusSelectedSite();
         });
     }
 
@@ -203,7 +214,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
                 if (adapter == null) return;
-                adapter.filter(s.toString());
+                adapter.filter(selectedGroup, s.toString());
                 setRecyclerView();
                 setRecyclerHeight(adapter.getItemCount());
                 setMode();
@@ -222,17 +233,17 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     }
 
     private void setRecyclerHeight(int count) {
-        int rows = Math.max(1, (int) Math.ceil((double) Math.max(1, count) / getCount()));
-        int height = rows * ResUtil.dp2px(ITEM_HEIGHT) + Math.max(0, rows - 1) * ResUtil.dp2px(ITEM_SPACE) + binding.recycler.getPaddingTop() + binding.recycler.getPaddingBottom();
+        // 全屏模式下，recycler 由布局 layout_weight 决定高度，无需动态计算
         ViewGroup.LayoutParams params = binding.recycler.getLayoutParams();
-        params.height = Math.min(height, ResUtil.dp2px(MAX_HEIGHT));
+        params.height = ViewGroup.LayoutParams.MATCH_PARENT;
         binding.recycler.setLayoutParams(params);
+        binding.recycler.setMaxHeight(Integer.MAX_VALUE);
     }
 
     private void setRootWidth() {
         ViewGroup.LayoutParams params = binding.getRoot().getLayoutParams();
         if (params == null) params = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.width = (int) (ResUtil.getScreenWidth() * getWidth());
+        params.width = ViewGroup.LayoutParams.MATCH_PARENT;
         binding.getRoot().setLayoutParams(params);
     }
 
@@ -251,7 +262,8 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     }
 
     private void setWidth() {
-        setWidth(getWidth());
+        Window window = directDialog != null ? directDialog.getWindow() : getDialog() == null ? null : getDialog().getWindow();
+        applyWindow(window);
     }
 
     private void onMode(View view) {
@@ -271,6 +283,14 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     public void onItemClick(Site item) {
         if (listener != null) listener.setSite(item);
         dismiss();
+    }
+
+    @Override
+    public boolean onItemKeyUp(int position) {
+        if (position >= getCount()) return false;
+        if (binding == null || binding.groupList.getChildCount() == 0) return false;
+        requestGroupFocus();
+        return true;
     }
 
     private void loadConfig(FragmentActivity activity, Config config) {
@@ -304,9 +324,10 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         window.setWindowAnimations(0);
         window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         WindowManager.LayoutParams params = window.getAttributes();
-        params.width = (int) (ResUtil.getScreenWidth() * getWidth());
-        params.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        params.width = WindowManager.LayoutParams.MATCH_PARENT;
+        params.height = WindowManager.LayoutParams.MATCH_PARENT;
         window.setAttributes(params);
+        window.setLayout(params.width, params.height);
     }
 
     private void runAfterFirstPreDraw(String label, Runnable action) {
@@ -352,4 +373,149 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         applyWindow(window);
         if (adapter.getItemCount() == 0) dismiss();
     }
+
+    private List<String> getGroups() {
+        return new ArrayList<>(Site.getGroups(VodConfig.get().getSites()));
+    }
+
+    private void normalizeSelectedGroup() {
+        if (groups == null || groups.isEmpty()) {
+            selectedGroup = "";
+            return;
+        }
+        if (!TextUtils.isEmpty(selectedGroup) && !groups.contains(selectedGroup)) selectedGroup = "";
+    }
+
+    private void setGroupView() {
+        if (groups == null || groups.isEmpty()) {
+            selectedGroup = "";
+            binding.groupScroll.setVisibility(View.GONE);
+            return;
+        }
+        binding.groupScroll.setVisibility(View.VISIBLE);
+        binding.groupList.removeAllViews();
+        binding.groupList.addView(getGroupView("", getDialogActivity().getString(R.string.site_group_all)));
+        for (String group : groups) binding.groupList.addView(getGroupView(group, group));
+        updateGroupView();
+        binding.groupList.post(this::requestGroupFocus);
+    }
+
+    private androidx.appcompat.widget.AppCompatTextView getGroupView(String group, String text) {
+        androidx.appcompat.widget.AppCompatTextView button = new androidx.appcompat.widget.AppCompatTextView(getDialogActivity());
+        LinearLayoutCompat.LayoutParams params = new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMarginEnd(ResUtil.dp2px(12));
+        button.setLayoutParams(params);
+        button.setTag(group);
+        button.setText(text);
+        button.setSingleLine(true);
+        button.setAllCaps(false);
+        button.setGravity(android.view.Gravity.CENTER);
+        button.setPadding(ResUtil.dp2px(16), ResUtil.dp2px(8), ResUtil.dp2px(16), ResUtil.dp2px(8));
+        button.setTextColor(ContextCompat.getColorStateList(getDialogActivity(), R.color.selector_group_text));
+        button.setBackgroundResource(R.drawable.selector_group_button);
+        button.setFocusable(true);
+        button.setClickable(true);
+        button.setNextFocusDownId(binding.recycler.getId());
+        button.setOnFocusChangeListener((v, hasFocus) -> {
+            if (hasFocus) selectGroup(group, button);
+        });
+        button.setOnClickListener(v -> onGroupClick(group, v));
+        return button;
+    }
+
+    private void requestGroupFocus() {
+        if (binding == null || binding.groupList.getChildCount() == 0) return;
+        View target = findGroupView(selectedGroup);
+        if (target == null) target = binding.groupList.getChildAt(0);
+        target.requestFocus();
+    }
+
+    private void onGroupClick(String group, View view) {
+        if (!TextUtils.isEmpty(group) && group.equals(selectedGroup)) {
+            View all = findGroupView("");
+            if (all != null && all.requestFocus()) return;
+            selectGroup("", all == null ? view : all);
+            return;
+        }
+        selectGroup(group, view);
+    }
+
+    private void selectGroup(String group, View view) {
+        if (binding == null || adapter == null) return;
+        if (group.equals(selectedGroup)) {
+            centerGroup(view);
+            return;
+        }
+        selectedGroup = group;
+        updateGroupView();
+        adapter.filter(selectedGroup, "");
+        setRecyclerHeight(adapter.getItemCount());
+        scrollRecyclerToTop();
+        if (!TextUtils.isEmpty(selectedGroup)) centerGroup(view);
+    }
+
+    private void scrollRecyclerToTop() {
+        RecyclerView.LayoutManager manager = binding.recycler.getLayoutManager();
+        if (manager != null) manager.scrollToPosition(0);
+    }
+
+    private void updateGroupView() {
+        if (binding == null) return;
+        for (int i = 0; i < binding.groupList.getChildCount(); i++) {
+            View view = binding.groupList.getChildAt(i);
+            String group = (String) view.getTag();
+            boolean selected = TextUtils.equals(group, selectedGroup);
+            view.setSelected(selected);
+        }
+    }
+
+    private View findGroupView(String group) {
+        if (binding == null) return null;
+        for (int i = 0; i < binding.groupList.getChildCount(); i++) {
+            View child = binding.groupList.getChildAt(i);
+            if (TextUtils.equals(group, (String) child.getTag())) return child;
+        }
+        return null;
+    }
+
+    private void centerGroup(View view) {
+        DialogSiteBinding current = binding;
+        if (current == null) return;
+        current.groupScroll.post(() -> {
+            if (binding != current) return;
+            current.groupScroll.smoothScrollTo(Math.max(0, view.getLeft() + view.getWidth() / 2 - current.groupScroll.getWidth() / 2), 0);
+        });
+    }
+
+    private void focusSelectedSite() {
+        if (binding == null || adapter == null) return;
+        int selectedPosition = getSelectedPosition();
+        if (selectedPosition >= 0) {
+            binding.recycler.post(() -> {
+                if (binding == null) return;
+                RecyclerView.LayoutManager manager = binding.recycler.getLayoutManager();
+                if (manager != null) manager.scrollToPosition(selectedPosition);
+                binding.recycler.post(() -> {
+                    if (binding == null) return;
+                    RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(selectedPosition);
+                    if (holder != null && holder.itemView != null) {
+                        holder.itemView.requestFocus();
+                        log("focused selected site position=%s total=%sms", selectedPosition, cost());
+                    }
+                });
+            });
+        } else {
+            requestGroupFocus();
+        }
+    }
+
+    private int getSelectedPosition() {
+        if (adapter == null) return -1;
+        List<Site> items = adapter.getItems();
+        for (int i = 0; i < items.size(); i++) {
+            if (items.get(i).isSelected()) return i;
+        }
+        return -1;
+    }
 }
+

@@ -1,0 +1,68 @@
+﻿app\src\main\java\com\fongmi\android\tv\bean\DownloadGroup.java:5: public class DownloadGroup {
+app\src\main\java\com\fongmi\android\tv\bean\DownloadGroup.java:12: public DownloadGroup(String key, String name, String cover, List<DownloadItem> items) {
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:9: import com.fongmi.android.tv.bean.DownloadGroup;
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:26: public class DownloadManager {
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:28: private static DownloadManager sInstance;
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:37: public static synchronized DownloadManager get() {
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:38: if (sInstance == null) sInstance = new DownloadManager();
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:42: private DownloadManager() {
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:54: public List<DownloadGroup> getGroups() {
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:60: List<DownloadGroup> groups = new ArrayList<>();
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:70: groups.add(new DownloadGroup(entry.getKey(), groupName(entry.getKey()), cover, items));
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:75: public DownloadGroup getGroup(String key) {
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:76: for (DownloadGroup group : getGroups()) {
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:171: File mp4 = M3u8Downloader.download(item, item.getHeaders(), file, (percent, bytes, total, speed) -> {
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:186: // 走到这里说明 M3u8Downloader.download 已成功返回（分片全部就绪且播放列表已写出），
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:197: } catch (M3u8Downloader.PausedException e) {
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:258: // 必须先置暂停标记，再取消在途请求：否则取消触发的 IOException 会被 M3u8Downloader 误判为
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:278: M3u8Downloader.cancelTag(id);
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:311: M3u8Downloader.cancelTag(id);
+app\src\main\java\com\fongmi\android\tv\utils\DownloadManager.java:359: M3u8Downloader.cancelTag(id);
+app\src\main\java\com\fongmi\android\tv\utils\M3u8Downloader.java:39: public class M3u8Downloader {
+app\src\main\java\com\fongmi\android\tv\utils\M3u8Downloader.java:41: private static final String TAG = "M3u8Downloader";
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:19: import com.fongmi.android.tv.bean.DownloadGroup;
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:23: import com.fongmi.android.tv.ui.dialog.DownloadEpisodeListDialog;
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:24: import com.fongmi.android.tv.utils.DownloadManager;
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:26: public class DownloadListActivity extends BaseActivity implements DownloadVodAdapter.OnClickListener {
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:32: activity.startActivity(new Intent(activity, DownloadListActivity.class));
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:56: DownloadManager.get().register(mCallback);
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:59: private final DownloadManager.Callback mCallback = this::refresh;
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:62: mAdapter.setItems(DownloadManager.get().getGroups());
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:63: boolean empty = DownloadManager.get().getGroups().isEmpty();
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:69: public void onItemClick(DownloadGroup group) {
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:70: DownloadEpisodeListDialog.show(this, group);
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:74: public void onItemLongClick(DownloadGroup group) {
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:79: .setPositiveButton(R.string.dialog_positive, (d, w) -> DownloadManager.get().removeGroup(group.getKey()))
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:95: DownloadManager.get().clearFinished();
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\DownloadListActivity.java:103: DownloadManager.get().unregister(mCallback);
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\VideoActivity.java:138: import com.fongmi.android.tv.ui.dialog.DownloadEpisodeDialog;
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\VideoActivity.java:151: import com.fongmi.android.tv.utils.DownloadManager;
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\VideoActivity.java:1757: DownloadEpisodeDialog.show(this, episodes, episode -> {
+app\src\mobile\java\com\fongmi\android\tv\ui\activity\VideoActivity.java:1761: DownloadManager.get().enqueue(item, getKey(), flag.getFlag(), episode.getUrl());
+app\src\mobile\java\com\fongmi\android\tv\ui\adapter\DownloadVodAdapter.java:10: import com.fongmi.android.tv.bean.DownloadGroup;
+app\src\mobile\java\com\fongmi\android\tv\ui\adapter\DownloadVodAdapter.java:20: private final List<DownloadGroup> mItems;
+app\src\mobile\java\com\fongmi\android\tv\ui\adapter\DownloadVodAdapter.java:28: public void setItems(List<DownloadGroup> items) {
+app\src\mobile\java\com\fongmi\android\tv\ui\adapter\DownloadVodAdapter.java:35: void onItemClick(DownloadGroup group);
+app\src\mobile\java\com\fongmi\android\tv\ui\adapter\DownloadVodAdapter.java:37: void onItemLongClick(DownloadGroup group);
+app\src\mobile\java\com\fongmi\android\tv\ui\adapter\DownloadVodAdapter.java:48: DownloadGroup group = mItems.get(position);
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeDialog.java:24: import com.fongmi.android.tv.ui.activity.DownloadListActivity;
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeDialog.java:31: public class DownloadEpisodeDialog extends AppCompatDialogFragment implements DownloadEpisodeAdapter.OnClickListener {
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeDialog.java:44: DownloadEpisodeDialog dialog = new DownloadEpisodeDialog();
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeDialog.java:108: DownloadListActivity.start(requireActivity());
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeDialog.java:119: if (!selected.isEmpty()) DownloadListActivity.start(requireActivity());
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeListDialog.java:15: import com.fongmi.android.tv.bean.DownloadGroup;
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeListDialog.java:20: import com.fongmi.android.tv.utils.DownloadManager;
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeListDialog.java:25: public class DownloadEpisodeListDialog extends BaseBottomSheetDialog {
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeListDialog.java:31: public static void show(FragmentActivity activity, DownloadGroup group) {
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeListDialog.java:33: DownloadEpisodeListDialog dialog = new DownloadEpisodeListDialog();
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeListDialog.java:63: DownloadManager.get().register(mRefresh);
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeListDialog.java:66: private final DownloadManager.Callback mRefresh = this::refresh;
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeListDialog.java:69: DownloadGroup group = DownloadManager.get().getGroup(mKey);
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeListDialog.java:86: DownloadManager.get().pause(item.getId());
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeListDialog.java:88: DownloadManager.get().resume(item.getId());
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeListDialog.java:90: DownloadManager.get().cancel(item.getId());
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeListDialog.java:96: .setPositiveButton(R.string.dialog_positive, (d, w) -> DownloadManager.get().remove(item.getId()))
+app\src\mobile\java\com\fongmi\android\tv\ui\dialog\DownloadEpisodeListDialog.java:104: DownloadManager.get().unregister(mRefresh);
+app\src\mobile\java\com\fongmi\android\tv\ui\fragment\VodFragment.java:48: import com.fongmi.android.tv.ui.activity.DownloadListActivity;
+app\src\mobile\java\com\fongmi\android\tv\ui\fragment\VodFragment.java:293: else if (item.getItemId() == R.id.download) DownloadListActivity.start(requireActivity());
+app\src\mobile\AndroidManifest.xml:111: android:name=".ui.activity.DownloadListActivity"

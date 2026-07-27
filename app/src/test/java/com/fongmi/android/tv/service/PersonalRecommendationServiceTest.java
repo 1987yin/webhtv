@@ -1,0 +1,288 @@
+package com.fongmi.android.tv.service;
+
+import com.fongmi.android.tv.bean.TmdbItem;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
+import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+public class PersonalRecommendationServiceTest {
+
+    @Test
+    public void parseDoubanSubjects_readsStructuredSuggestItems() {
+        String body = "[{\"id\":\"1291843\",\"title\":\"The Matrix\",\"type\":\"movie\",\"year\":\"1999\",\"img\":\"https://img1.doubanio.com/view/photo/s_ratio_poster/public/p451926968.jpg\"}]";
+
+        List<PersonalRecommendationService.DoubanSubject> subjects = PersonalRecommendationService.parseDoubanSubjects(body);
+
+        assertEquals(1, subjects.size());
+        PersonalRecommendationService.DoubanSubject subject = subjects.get(0);
+        assertEquals("1291843", subject.id);
+        assertEquals("The Matrix", subject.title);
+        assertEquals("movie", subject.mediaType);
+        assertEquals(1999, subject.year);
+        assertTrue(subject.posterUrl.contains("m_ratio_poster"));
+    }
+
+    @Test
+    public void parseDoubanRelatedSubjects_readsRexxarRelatedItems() {
+        String body = "{"
+                + "\"subjects\":[{"
+                + "\"id\":\"1292720\","
+                + "\"title\":\"阿甘正传\","
+                + "\"type\":\"movie\","
+                + "\"card_subtitle\":\"1994 / 美国 / 剧情\","
+                + "\"pic\":{\"large\":\"https://img1.doubanio.com/view/photo/m_ratio_poster/public/p2372307693.jpg\"},"
+                + "\"rating\":{\"value\":9.5}"
+                + "},{"
+                + "\"id\":\"30391241\","
+                + "\"title\":\"想见你\","
+                + "\"type\":\"tv\","
+                + "\"card_subtitle\":\"2019 / 中国台湾 / 爱情\","
+                + "\"cover_url\":\"https://img9.doubanio.com/view/photo/s_ratio_poster/public/p2576977981.jpg\","
+                + "\"rating\":{\"value\":\"9.2\"}"
+                + "}]}";
+
+        List<PersonalRecommendationService.DoubanSubject> subjects = PersonalRecommendationService.parseDoubanRelatedSubjects(body);
+
+        assertEquals(2, subjects.size());
+        assertEquals("1292720", subjects.get(0).id);
+        assertEquals("movie", subjects.get(0).mediaType);
+        assertEquals(1994, subjects.get(0).year);
+        assertEquals(9.5, subjects.get(0).rating, 0.01);
+        assertEquals("30391241", subjects.get(1).id);
+        assertEquals("tv", subjects.get(1).mediaType);
+        assertEquals(2019, subjects.get(1).year);
+        assertTrue(subjects.get(1).posterUrl.contains("m_ratio_poster"));
+    }
+
+    @Test
+    public void parseDoubanSubjects_marksEpisodeSuggestItemAsTv() {
+        String body = "[{\"id\":\"30468961\",\"title\":\"想见你\",\"type\":\"movie\",\"year\":\"2019\",\"episode\":\"13\"}]";
+
+        List<PersonalRecommendationService.DoubanSubject> subjects = PersonalRecommendationService.parseDoubanSubjects(body);
+
+        assertEquals(1, subjects.size());
+        assertEquals("tv", subjects.get(0).mediaType);
+    }
+
+    @Test
+    public void parseDoubanSubjectAbstract_readsCurrentRating() {
+        String body = "{"
+                + "\"r\":0,"
+                + "\"subject\":{"
+                + "\"id\":\"30468961\","
+                + "\"title\":\"想见你 想見你‎ (2019)\","
+                + "\"is_tv\":true,"
+                + "\"release_year\":\"2019\","
+                + "\"rate\":\"9.3\""
+                + "}}";
+
+        PersonalRecommendationService.DoubanRating rating = PersonalRecommendationService.parseDoubanSubjectAbstract(body);
+
+        assertFalse(rating.isEmpty());
+        assertEquals("30468961", rating.getId());
+        assertEquals("tv", rating.getMediaType());
+        assertEquals(2019, rating.getYear());
+        assertEquals(9.3, rating.getRating(), 0.01);
+    }
+
+    @Test
+    public void bestDoubanRating_prefersCurrentTitleYearAndType() {
+        String body = "[{"
+                + "\"id\":\"1292720\","
+                + "\"title\":\"想见你电影版\","
+                + "\"type\":\"movie\","
+                + "\"year\":\"2022\","
+                + "\"rating\":{\"value\":9.9}"
+                + "},{"
+                + "\"id\":\"30391241\","
+                + "\"title\":\"想见你\","
+                + "\"type\":\"tv\","
+                + "\"year\":\"2019\","
+                + "\"rating\":{\"value\":\"9.2\"}"
+                + "}]";
+
+        PersonalRecommendationService.DoubanRating rating = PersonalRecommendationService.bestDoubanRating(
+                "想见你", "tv", 2019, PersonalRecommendationService.parseDoubanSubjects(body));
+
+        assertFalse(rating.isEmpty());
+        assertEquals("30391241", rating.getId());
+        assertEquals("想见你", rating.getTitle());
+        assertEquals("tv", rating.getMediaType());
+        assertEquals(2019, rating.getYear());
+        assertEquals(9.2, rating.getRating(), 0.01);
+    }
+
+    @Test
+    public void withRating_addsFetchedDoubanRatingToRecommendationItem() {
+        TmdbItem item = new TmdbItem(-35316582, "tv", "折腰", "剧集 · 2025", "", "poster", "", "", 0.0);
+
+        TmdbItem rated = PersonalRecommendationService.withRating(item, 6.7);
+
+        assertEquals("折腰", rated.getTitle());
+        assertEquals("剧集 · 2025", rated.getSubtitle());
+        assertEquals("poster", rated.getPosterUrl());
+        assertEquals(6.7, rated.getRating(), 0.01);
+    }
+
+    @Test
+    public void rankCandidates_sortsByScoreAndBoostsDuplicateSignals() {
+        List<PersonalRecommendationService.RecommendationCandidate> candidates = List.of(
+                new PersonalRecommendationService.RecommendationCandidate(null, "movie:1", "low", 70.0, 0),
+                new PersonalRecommendationService.RecommendationCandidate(null, "movie:2", "high", 92.0, 1),
+                new PersonalRecommendationService.RecommendationCandidate(null, "movie:1", "low", 90.0, 2)
+        );
+
+        List<PersonalRecommendationService.RecommendationCandidate> ranked = PersonalRecommendationService.rankCandidates(candidates, 2);
+
+        assertEquals(2, ranked.size());
+        assertEquals("movie:1", ranked.get(0).key);
+        assertEquals("movie:2", ranked.get(1).key);
+    }
+
+    @Test
+    public void mergeTmdbPersonalCandidates_keepsHistoryWhenCurrentCandidatesOverflow() {
+        List<PersonalRecommendationService.RecommendationCandidate> current = List.of(
+                new PersonalRecommendationService.RecommendationCandidate(item(1, "Current 1"), "movie:1", "current1", 130.0, 0),
+                new PersonalRecommendationService.RecommendationCandidate(item(2, "Current 2"), "movie:2", "current2", 129.0, 1),
+                new PersonalRecommendationService.RecommendationCandidate(item(3, "Current 3"), "movie:3", "current3", 128.0, 2)
+        );
+        List<PersonalRecommendationService.RecommendationCandidate> history = List.of(
+                new PersonalRecommendationService.RecommendationCandidate(item(9, "History"), "movie:9", "history", 80.0, 3)
+        );
+
+        List<PersonalRecommendationService.RecommendationCandidate> ranked = PersonalRecommendationService.mergeTmdbPersonalCandidates(current, history, 3, 1);
+
+        assertEquals(3, ranked.size());
+        assertTrue(ranked.stream().anyMatch(candidate -> "movie:9".equals(candidate.key)));
+    }
+
+    @Test
+    public void mergeTmdbPersonalCandidates_prioritizesHistoryOverCurrentContext() {
+        List<PersonalRecommendationService.RecommendationCandidate> current = List.of(
+                new PersonalRecommendationService.RecommendationCandidate(item(1, "Current"), "movie:1", "current", 140.0, 0)
+        );
+        List<PersonalRecommendationService.RecommendationCandidate> history = List.of(
+                new PersonalRecommendationService.RecommendationCandidate(item(9, "History"), "movie:9", "history", 80.0, 1)
+        );
+
+        List<PersonalRecommendationService.RecommendationCandidate> ranked = PersonalRecommendationService.mergeTmdbPersonalCandidates(current, history, 2, 1);
+
+        assertEquals("movie:9", ranked.get(0).key);
+        assertEquals("movie:1", ranked.get(1).key);
+    }
+
+    @Test
+    public void rankTmdbItemsForContext_prefersGenreLanguageAndCountryMatches() {
+        JsonObject detail = JsonParser.parseString("{"
+                + "\"genres\":[{\"id\":9648,\"name\":\"悬疑\"}],"
+                + "\"original_language\":\"ko\","
+                + "\"origin_country\":[\"KR\"]"
+                + "}").getAsJsonObject();
+        TmdbItem highRated = item(1, "High Rated", 9.6, "en", "US", List.of(35));
+        TmdbItem contextual = item(2, "Contextual", 7.0, "ko", "KR", List.of(9648));
+
+        List<TmdbItem> ranked = PersonalRecommendationService.rankTmdbItemsForContext(detail, List.of(highRated, contextual), new ArrayList<>(), 2);
+
+        assertEquals("Contextual", ranked.get(0).getTitle());
+    }
+
+    @Test
+    public void recommendationPage_slicesRankedItemsWithoutLegacyCap() {
+        List<PersonalRecommendationService.RecommendationCandidate> candidates = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            candidates.add(new PersonalRecommendationService.RecommendationCandidate(item(i + 1, "Item " + i), "movie:" + i, "item" + i, 100 - i, i));
+        }
+
+        PersonalRecommendationService.RecommendationPage page = PersonalRecommendationService.pageItems(
+                PersonalRecommendationService.rankCandidates(candidates, 20), 12, 6, "history", false);
+
+        assertEquals(6, page.getItems().size());
+        assertEquals("Item 12", page.getItems().get(0).getTitle());
+        assertEquals("Item 17", page.getItems().get(5).getTitle());
+        assertEquals(18, page.getNextOffset());
+        assertTrue(page.hasMore());
+    }
+
+    @Test
+    public void recommendationPage_reportsMoreWhenSeedScanCanContinue() {
+        List<PersonalRecommendationService.RecommendationCandidate> candidates = List.of(
+                new PersonalRecommendationService.RecommendationCandidate(item(1, "Only"), "movie:1", "only", 100, 0)
+        );
+
+        PersonalRecommendationService.RecommendationPage page = PersonalRecommendationService.pageItems(
+                PersonalRecommendationService.rankCandidates(candidates, 20), 12, 6, "history", true);
+
+        assertTrue(page.getItems().isEmpty());
+        assertEquals(12, page.getNextOffset());
+        assertTrue(page.hasMore());
+    }
+
+    @Test
+    public void historySeedFingerprint_changesForSeedSetChangesOnly() {
+        String base = PersonalRecommendationService.historySeedFingerprint(List.of("A", "B"));
+        String added = PersonalRecommendationService.historySeedFingerprint(List.of("A", "B", "C"));
+        String renamed = PersonalRecommendationService.historySeedFingerprint(List.of("A", "B2"));
+        String sameAfterDuplicate = PersonalRecommendationService.historySeedFingerprint(List.of("A", "B", "A"));
+
+        assertFalse(base.equals(added));
+        assertFalse(base.equals(renamed));
+        assertEquals(base, sameAfterDuplicate);
+    }
+
+    @Test
+    public void normalizeTitle_removesCommonSeparators() {
+        assertEquals("thematrix1999", PersonalRecommendationService.normalizeTitle("The Matrix (1999)"));
+    }
+
+    @Test
+    public void shouldUseHistorySeed_filtersAudioSourcesForTmdbAndDouban() {
+        PersonalRecommendationService.SourceClassifier classifier = new PersonalRecommendationService.SourceClassifier() {
+            @Override
+            public boolean isAudio(String siteKey, String siteName) {
+                return true;
+            }
+
+            @Override
+            public boolean isShortDrama(String siteKey, String siteName) {
+                return false;
+            }
+        };
+
+        assertFalse(PersonalRecommendationService.shouldUseHistorySeed("fm", "凤凰FM[听]", false, classifier));
+        assertFalse(PersonalRecommendationService.shouldUseHistorySeed("fm", "凤凰FM[听]", true, classifier));
+    }
+
+    @Test
+    public void shouldUseHistorySeed_filtersShortDramaSourcesOnlyForTmdb() {
+        PersonalRecommendationService.SourceClassifier classifier = new PersonalRecommendationService.SourceClassifier() {
+            @Override
+            public boolean isAudio(String siteKey, String siteName) {
+                return false;
+            }
+
+            @Override
+            public boolean isShortDrama(String siteKey, String siteName) {
+                return true;
+            }
+        };
+
+        assertTrue(PersonalRecommendationService.shouldUseHistorySeed("mini", "荐片[APP]", false, classifier));
+        assertFalse(PersonalRecommendationService.shouldUseHistorySeed("mini", "荐片[APP]", true, classifier));
+    }
+
+    private static TmdbItem item(int id, String title) {
+        return item(id, title, 0.0, "", "", new ArrayList<>());
+    }
+
+    private static TmdbItem item(int id, String title, double rating, String language, String country, List<Integer> genres) {
+        return new TmdbItem(id, "movie", title, "", "", "", "", "", rating, language, country, genres);
+    }
+}

@@ -6,6 +6,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -18,6 +19,7 @@ import android.widget.ScrollView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
+import androidx.core.widget.TextViewCompat;
 import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
@@ -131,6 +133,7 @@ public final class PlaybackPerformanceDialog extends DialogFragment {
         scrollParams.topMargin = dp(16);
         root.addView(scroll, scrollParams);
         refreshRows();
+        syncProfileTabs();
         return root;
     }
 
@@ -213,6 +216,8 @@ public final class PlaybackPerformanceDialog extends DialogFragment {
     public void onDestroyView() {
         if (helpDialog != null) helpDialog.dismiss();
         helpDialog = null;
+        profileTabs = null;
+        syncingProfileTabs = false;
         super.onDestroyView();
     }
 
@@ -261,13 +266,16 @@ public final class PlaybackPerformanceDialog extends DialogFragment {
         button.setAllCaps(false);
         button.setText(text);
         button.setSingleLine(true);
+        button.setMaxLines(1);
         button.setGravity(Gravity.CENTER);
         button.setTextSize(14);
-        button.setMinWidth(dp(64));
+        button.setIncludeFontPadding(false);
+        TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(button, 10, 14, 1, TypedValue.COMPLEX_UNIT_SP);
+        button.setMinWidth(0);
         button.setMinimumWidth(0);
         button.setMinHeight(dp(36));
         button.setMinimumHeight(dp(36));
-        button.setPaddingRelative(dp(10), 0, dp(10), 0);
+        button.setPadding(dp(6), 0, dp(6), 0);
         button.setInsetLeft(0);
         button.setInsetRight(0);
         button.setInsetTop(0);
@@ -279,7 +287,7 @@ public final class PlaybackPerformanceDialog extends DialogFragment {
         button.setBackgroundTintList(ColorStateList.valueOf(Color.WHITE));
         button.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#8AB4F8")));
         button.setStrokeWidth(dp(1));
-        button.setOnFocusChangeListener((view, hasFocus) -> styleAction(button, hasFocus));
+        button.setOnFocusChangeListener((view, hasFocus) -> styleAction(button, hasFocus, button.isSelected()));
         button.setOnClickListener(listener);
         return button;
     }
@@ -306,17 +314,18 @@ public final class PlaybackPerformanceDialog extends DialogFragment {
         return button;
     }
 
-    private void styleAction(MaterialButton button, boolean focused) {
+    private void styleAction(MaterialButton button, boolean focused, boolean selected) {
         button.setTextColor(ColorStateList.valueOf(Color.parseColor(focused ? "#FFFFFF" : "#174EA6")));
-        button.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor(focused ? "#1A73E8" : "#FFFFFF")));
-        button.setStrokeColor(ColorStateList.valueOf(Color.parseColor(focused ? "#1A73E8" : "#8AB4F8")));
-        button.setStrokeWidth(dp(1));
+        button.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor(focused ? "#1A73E8" : selected ? "#D2E3FC" : "#FFFFFF")));
+        button.setStrokeColor(ColorStateList.valueOf(Color.parseColor(focused || selected ? "#1A73E8" : "#8AB4F8")));
+        button.setStrokeWidth(dp(selected && !focused ? 2 : 1));
     }
 
     private void apply(int profile) {
         if (profile == PlaybackPerformanceSetting.PROFILE_AUTO) PlaybackPerformanceSetting.applyAuto();
         else if (profile == PlaybackPerformanceSetting.PROFILE_COMPATIBLE) PlaybackPerformanceSetting.applyCompatible();
         else if (profile == PlaybackPerformanceSetting.PROFILE_LIGHTWEIGHT) PlaybackPerformanceSetting.applyLightweight();
+        else if (profile == PlaybackPerformanceSetting.PROFILE_ORIGINAL) PlaybackPerformanceSetting.applyOriginal();
         else PlaybackPerformanceSetting.applyRecommended();
         refresh();
     }
@@ -342,7 +351,7 @@ public final class PlaybackPerformanceDialog extends DialogFragment {
         tabs.setTabTextColors(Color.parseColor("#5F6368"), Color.parseColor("#1A73E8"));
         tabs.setTabRippleColor(ColorStateList.valueOf(Color.TRANSPARENT));
         tabs.setUnboundedRipple(false);
-        int[] labels = {R.string.player_performance_auto, R.string.player_performance_recommended, R.string.player_performance_compatible, R.string.player_performance_lightweight};
+        int[] labels = {R.string.player_performance_auto, R.string.player_performance_recommended, R.string.player_performance_compatible, R.string.player_performance_lightweight, R.string.player_performance_original};
         for (int label : labels) tabs.addTab(tabs.newTab().setText(label), false);
         tabs.setFocusable(false);
         tabs.post(() -> configureProfileTabFocus(tabs));
@@ -388,6 +397,7 @@ public final class PlaybackPerformanceDialog extends DialogFragment {
             case 1 -> PlaybackPerformanceSetting.PROFILE_RECOMMENDED;
             case 2 -> PlaybackPerformanceSetting.PROFILE_COMPATIBLE;
             case 3 -> PlaybackPerformanceSetting.PROFILE_LIGHTWEIGHT;
+            case 4 -> PlaybackPerformanceSetting.PROFILE_ORIGINAL;
             default -> PlaybackPerformanceSetting.PROFILE_AUTO;
         };
     }
@@ -398,6 +408,7 @@ public final class PlaybackPerformanceDialog extends DialogFragment {
             case PlaybackPerformanceSetting.PROFILE_RECOMMENDED -> 1;
             case PlaybackPerformanceSetting.PROFILE_COMPATIBLE -> 2;
             case PlaybackPerformanceSetting.PROFILE_LIGHTWEIGHT -> 3;
+            case PlaybackPerformanceSetting.PROFILE_ORIGINAL -> 4;
             default -> -1;
         };
     }

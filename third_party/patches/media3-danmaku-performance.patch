@@ -15,7 +15,7 @@ index 6ace9b4f77..13be3b9f22 100644
 @@ -153,7 +156,68 @@ public final class DanmakuController {
      fetchers.add(YoukuFetcher.INSTANCE);
    }
- 
+
 -  private static List<Danmaku> subList(Danmaku[] sorted, long fromMs, long toMs) {
 +  private static List<Danmaku> subList(Danmaku[] sorted, int fromIndex, int toIndex) {
 +    if (fromIndex >= toIndex) {
@@ -139,7 +139,7 @@ index 6ace9b4f77..13be3b9f22 100644
 +    }
 +    return sampled;
    }
- 
+
    private static int lowerBound(Danmaku[] sorted, long target) {
 @@ -371,23 +485,34 @@ public final class DanmakuController {
      replaceItems(items);
@@ -184,7 +184,7 @@ index 6ace9b4f77..13be3b9f22 100644
 +      });
 +    });
    }
- 
+
    public void clearItems() {
 @@ -535,7 +660,7 @@ public final class DanmakuController {
        long newFrom = sourceMs - windowBehindMs;
@@ -216,7 +216,7 @@ index 6ace9b4f77..13be3b9f22 100644
 @@ -588,12 +713,20 @@ public final class DanmakuController {
      scheduleNextLoad(loadGeneration.get());
    }
- 
+
 -  private void mergeItems(List<Danmaku> newItems) {
 -    if (newItems.isEmpty()) {
 +  private void applySortedItems(Danmaku[] items) {
@@ -277,7 +277,7 @@ index 6ace9b4f77..13be3b9f22 100644
 @@ -827,12 +962,12 @@ public final class DanmakuController {
      });
    }
- 
+
 -  private void onSegmentDelivered(Fetcher.Session session, int segNum, List<Danmaku> items, int generation) {
 +  private void onSegmentDelivered(Fetcher.Session session, int segNum, Danmaku[] items, int generation) {
      loadedSegments.add(segNum);

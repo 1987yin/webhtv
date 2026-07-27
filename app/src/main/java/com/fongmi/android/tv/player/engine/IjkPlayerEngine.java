@@ -1,8 +1,8 @@
 package com.fongmi.android.tv.player.engine;
 
+import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
-import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
@@ -71,17 +71,27 @@ public class IjkPlayerEngine implements PlayerEngine {
 
     @Override
     public void start(PlaySpec spec) {
-        start(spec, true);
+        start(spec, C.TIME_UNSET, true);
     }
 
     @Override
     public void start(PlaySpec spec, boolean playWhenReady) {
+        start(spec, C.TIME_UNSET, playWhenReady);
+    }
+
+    @Override
+    public void start(PlaySpec spec, long position, boolean playWhenReady) {
         this.spec = spec;
-        PlaybackTrace.log("player-engine", getPlaybackTraceId(), "start ijk decode=%d play=%s urlLen=%d headers=%d", decode, playWhenReady, spec.getUrl() == null ? 0 : spec.getUrl().length(), spec.getHeaders() == null ? 0 : spec.getHeaders().size());
-        player.setMediaItem(ExoUtil.getMediaItem(spec, decode));
+        PlaybackTrace.log("player-engine", getPlaybackTraceId(), "start ijk decode=%d position=%d play=%s urlLen=%d headers=%d", decode, position, playWhenReady, spec.getUrl() == null ? 0 : spec.getUrl().length(), spec.getHeaders() == null ? 0 : spec.getHeaders().size());
+        player.setMediaItem(ExoUtil.getMediaItem(spec, decode), position);
         player.prepare();
         if (playWhenReady) player.play();
         else player.pause();
+    }
+
+    @Override
+    public void restart(PlaySpec spec, long position, boolean playWhenReady) {
+        start(spec, position, playWhenReady);
     }
 
     @Override

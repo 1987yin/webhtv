@@ -2,7 +2,6 @@ package com.fongmi.android.tv.bean;
 
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.text.TextUtils;
 
 import androidx.annotation.Nullable;
 
@@ -21,14 +20,15 @@ public class Episode implements Parcelable, Diffable<Episode> {
     private String desc;
     @SerializedName("url")
     private String url;
+    private transient String displayName;
 
     private int index;
     private int number;
     private boolean selected;
-    private transient String displayName;
+    private TmdbEpisode tmdbEpisode;
 
     private Episode(String name, String desc, String url) {
-        this.number = Util.getNumber(name);
+        this.number = Util.getEpisodeNumber(name);
         this.name = name;
         this.desc = desc;
         this.url = url;
@@ -54,7 +54,7 @@ public class Episode implements Parcelable, Diffable<Episode> {
     }
 
     public String getName() {
-        return TextUtils.isEmpty(name) ? "" : name;
+        return isEmpty(name) ? "" : name;
     }
 
     public void setName(String name) {
@@ -62,7 +62,7 @@ public class Episode implements Parcelable, Diffable<Episode> {
     }
 
     public String getDesc() {
-        return TextUtils.isEmpty(desc) ? "" : desc;
+        return isEmpty(desc) ? "" : desc;
     }
 
     public String getRawDisplayName() {
@@ -70,7 +70,7 @@ public class Episode implements Parcelable, Diffable<Episode> {
     }
 
     public String getDisplayName() {
-        return TextUtils.isEmpty(displayName) ? getRawDisplayName() : displayName;
+        return isEmpty(displayName) ? getRawDisplayName() : displayName;
     }
 
     public void setDisplayName(String displayName) {
@@ -78,7 +78,7 @@ public class Episode implements Parcelable, Diffable<Episode> {
     }
 
     public String getUrl() {
-        return TextUtils.isEmpty(url) ? "" : url;
+        return isEmpty(url) ? "" : url;
     }
 
     public int getIndex() {
@@ -105,6 +105,14 @@ public class Episode implements Parcelable, Diffable<Episode> {
         setSelected(false);
     }
 
+    public TmdbEpisode getTmdbEpisode() {
+        return tmdbEpisode;
+    }
+
+    public void setTmdbEpisode(TmdbEpisode tmdbEpisode) {
+        this.tmdbEpisode = tmdbEpisode;
+    }
+
     public int getScore(String name, int number) {
         if (getName().equalsIgnoreCase(name)) return 100;
         if (number != -1 && getNumber() == number) return 80;
@@ -118,10 +126,26 @@ public class Episode implements Parcelable, Diffable<Episode> {
         return getName().equalsIgnoreCase(other.getName());
     }
 
+    /**
+     * 按集号匹配：不同线路/不同源对同一集的命名格式往往不同（如“第9集”与“[277.1MB] 9. xxx”），
+     * URL 与集名严格比对都会失败。与 Flag.find 的打分找集逻辑同源，用 Util.getEpisodeNumber
+     * 提取两侧集号，双方都能解析出有效集号且相等时视为同一集。
+     */
+    public boolean matchesNumber(Episode other) {
+        if (other == null) return false;
+        int mine = getNumber();
+        int theirs = other.getNumber() > 0 ? other.getNumber() : com.fongmi.android.tv.utils.Util.getEpisodeNumber(other.getName());
+        return mine > 0 && theirs > 0 && mine == theirs;
+    }
+
     public boolean matches(Episode other) {
         if (other == null) return false;
-        if (!TextUtils.isEmpty(getUrl()) && !TextUtils.isEmpty(other.getUrl())) return getUrl().equals(other.getUrl());
+        if (!isEmpty(getUrl()) && !isEmpty(other.getUrl())) return getUrl().equals(other.getUrl());
         return matchesName(other);
+    }
+
+    private boolean isEmpty(String value) {
+        return value == null || value.length() == 0;
     }
 
     public Episode trans() {
