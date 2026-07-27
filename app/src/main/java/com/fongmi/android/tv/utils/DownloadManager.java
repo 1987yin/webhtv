@@ -13,7 +13,9 @@ import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Path;
 
 import java.io.File;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -22,8 +24,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class DownloadManager {
+
+    // 同时进行的下载任务数上限（含拉取真实地址阶段），默认 3。
+    public static final int DEFAULT_MAX_CONCURRENT = 3;
 
     private static DownloadManager sInstance;
 
@@ -33,6 +39,20 @@ public class DownloadManager {
     private final Map<String, Download> mDownloads;
     private final Map<String, Future<?>> mFutures;
     private final AtomicBoolean mNotifyPosted = new AtomicBoolean(false);
+    private final int mMaxConcurrent;
+    private final AtomicInteger mRunning = new AtomicInteger(0);
+    // 等待名额的排队任务（item + 真正要执行的任务体）。
+    private final Deque<Slot> mPending = new ArrayDeque<>();
+
+    private static final class Slot {
+        final DownloadItem item;
+        final Runnable task;
+
+        Slot(DownloadItem item, Runnable task) {
+            this.item = item;
+            this.task = task;
+        }
+    }
 
     public static synchronized DownloadManager get() {
         if (sInstance == null) sInstance = new DownloadManager();
@@ -44,7 +64,13 @@ public class DownloadManager {
         mCallbacks = new ArrayList<>();
         mDownloads = new ConcurrentHashMap<>();
         mFutures = new ConcurrentHashMap<>();
-        mExecutor = Executors.newFixedThreadPool(2);
+        mMaxConcurrent = DEFAULT_MAX_CONCURRENT;
+        // 线程池至少能容纳上限数量的同时任务（fetch 阶段占用，真正的下载走 Task 线程池）。
+        mExecutor = Executors.newFixedThreadPool(Math.max(1, mMaxConcurrent));
+    }
+
+    public int getMaxConcurrent() {
+        return mMaxConcurrent;
     }
 
     public List<DownloadItem> getItems() {
@@ -108,19 +134,76 @@ public class DownloadManager {
         item.setEpisodeUrl(episodeUrl);
         mItems.add(0, item);
         notifyChanged();
+        // 占一个并发名额后拉取真实地址并开始下载；名额不足则进入排队队列。
+        acquire(item, () -> runFetch(item));
+    }
+
+    // 占用并发名额执行任务：若名额空闲立即执行，否则将任务放入等待队列并以 QUEUED 状态排队。
+    private synchronized void acquire(DownloadItem item, Runnable task) {
+        if (item.isCanceled()) {
+            item.setState(DownloadItem.CANCELED);
+            notifyChanged();
+            return;
+        }
+        if (mRunning.get() < mMaxConcurrent) {
+            runWithSlot(item, task);
+        } else {
+            item.setState(DownloadItem.QUEUED);
+            notifyChanged();
+            mPending.add(new Slot(item, task));
+        }
+    }
+
+    // 占用一个并发名额并在后台线程执行任务体，结束后释放名额并调度下一个排队任务。
+    private void runWithSlot(DownloadItem item, Runnable task) {
+        mRunning.incrementAndGet();
+        item.setState(DownloadItem.WAITING);
         mExecutor.execute(() -> {
             try {
-                fetchAndStart(item);
-            } catch (Throwable e) {
-                item.setState(DownloadItem.ERROR);
-                item.setError(e.getMessage());
-                notifyChanged();
+                task.run();
+            } finally {
+                release();
             }
         });
     }
 
+    // 释放一个并发名额，并从等待队列中取出下一个未取消的任务执行。
+    private synchronized void release() {
+        if (mRunning.decrementAndGet() < 0) mRunning.set(0);
+        Slot next;
+        while ((next = mPending.poll()) != null) {
+            if (next.item.isCanceled()) {
+                next.item.setState(DownloadItem.CANCELED);
+                notifyChanged();
+                continue;
+            }
+            runWithSlot(next.item, next.task);
+            return;
+        }
+    }
+
+    // 拉取真实地址并启动下载，统一处理拉取阶段的异常。已取消的任务直接终止，不占用下载名额。
+    private void runFetch(DownloadItem item) {
+        try {
+            fetchAndStart(item);
+        } catch (Throwable e) {
+            if (item.isCanceled()) {
+                item.setState(DownloadItem.CANCELED);
+            } else {
+                item.setState(DownloadItem.ERROR);
+                item.setError(e.getMessage());
+            }
+            notifyChanged();
+        }
+    }
+
     // 向站点接口拉取最新播放地址与请求头（签名可能已过期，需刷新），随后开始下载。
     private void fetchAndStart(DownloadItem item) throws Exception {
+        if (item.isCanceled()) {
+            item.setState(DownloadItem.CANCELED);
+            notifyChanged();
+            return;
+        }
         Result result = SiteApi.playerContent(item.getSiteKey(), item.getFlag(), item.getEpisodeUrl());
         if (item.isCanceled()) {
             item.setState(DownloadItem.CANCELED);
@@ -184,8 +267,8 @@ public class DownloadManager {
                 return;
             }
             // 走到这里说明 M3u8Downloader.download 已成功返回（分片全部就绪且播放列表已写出），
-            // 即下载“真正完成”。即便期间用户点了暂停，也以完成态为准，避免出现
-            // “显示已暂停、但分片其实已下完、点恢复又瞬间完成”的假象。
+            // 即下载"真正完成"。即便期间用户点了暂停，也以完成态为准，避免出现
+            // "显示已暂停、但分片其实已下完、点恢复又瞬间完成"的假象。
             item.setFilePath(mp4.getAbsolutePath());
             if (!item.isCanceled()) {
                 item.setPaused(false);
@@ -256,9 +339,19 @@ public class DownloadManager {
 
     public void pause(String id) {
         // 必须先置暂停标记，再取消在途请求：否则取消触发的 IOException 会被 M3u8Downloader 误判为
-        // “下载失败”，进而走无效刷新重试，且分片线程无法干净退出（表现为暂停不灵、恢复后秒完成）。
+        // "下载失败"，进而走无效刷新重试，且分片线程无法干净退出（表现为暂停不灵、恢复后秒完成）。
         for (DownloadItem item : mItems) {
             if (item.getId().equals(id)) {
+                if (item.getState() == DownloadItem.QUEUED) {
+                    // 仍在排队：移出等待队列并标记为已暂停，恢复时再重新调度。
+                    synchronized (this) {
+                        mPending.removeIf(slot -> slot.item.getId().equals(id));
+                    }
+                    item.setPaused(true);
+                    item.setState(DownloadItem.PAUSED);
+                    item.setSpeed(0);
+                    break;
+                }
                 if (item.isActive() && item.getState() != DownloadItem.PAUSED) {
                     item.setPaused(true);
                     item.setState(DownloadItem.PAUSED);
@@ -296,35 +389,52 @@ public class DownloadManager {
             finalTarget.setError(null);
             finalTarget.setProgress(0);
         }
-        mExecutor.execute(() -> {
-            // 等待旧任务结束，避免与正在退出的下载并发操作同一目录
-            Future<?> old = mFutures.remove(id);
-            if (old != null) {
-                // m3u8 任务不可中断（否则会被误判为失败），仅等待其自然退出；单文件可直接中断
-                if (!isM3u8Item(id)) old.cancel(true);
-                try {
-                    old.get();
-                } catch (Exception ignored) {
-                }
+        // 恢复同样受并发上限约束：占名额执行，名额不足则进入排队（状态 QUEUED）。
+        acquire(finalTarget, () -> runResume(finalTarget, state));
+    }
+
+    private void runResume(DownloadItem item, int prevState) {
+        try {
+            doResume(item, prevState);
+        } catch (Throwable e) {
+            if (item.isCanceled()) {
+                item.setState(DownloadItem.CANCELED);
+            } else {
+                item.setState(DownloadItem.ERROR);
+                item.setError(e.getMessage());
             }
-            OkHttp.cancel(id);
-            M3u8Downloader.cancelTag(id);
-            mDownloads.remove(id);
-            // 错误重试：m3u8 预签名地址往往短则数十秒、长则几分钟就过期，
-            // 用旧 URL 直接续传会 403（表现为进度 0% 后失败）。这里重新向接口要一次最新签名。
-            if (state == DownloadItem.ERROR && !TextUtils.isEmpty(finalTarget.getSiteKey())) {
-                try {
-                    fetchAndStart(finalTarget);
-                    return;
-                } catch (Throwable e) {
-                    finalTarget.setState(DownloadItem.ERROR);
-                    finalTarget.setError(e.getMessage());
-                    notifyChanged();
-                    return;
-                }
+            notifyChanged();
+        }
+    }
+
+    private void doResume(DownloadItem item, int prevState) {
+        // 等待旧任务结束，避免与正在退出的下载并发操作同一目录
+        Future<?> old = mFutures.remove(item.getId());
+        if (old != null) {
+            // m3u8 任务不可中断（否则会被误判为失败），仅等待其自然退出；单文件可直接中断
+            if (!isM3u8Item(item.getId())) old.cancel(true);
+            try {
+                old.get();
+            } catch (Exception ignored) {
             }
-            resumeDownload(finalTarget, new File(finalTarget.getFilePath()));
-        });
+        }
+        OkHttp.cancel(item.getId());
+        M3u8Downloader.cancelTag(item.getId());
+        mDownloads.remove(item.getId());
+        // 错误重试：m3u8 预签名地址往往短则数十秒、长则几分钟就过期，
+        // 用旧 URL 直接续传会 403（表现为进度 0% 后失败）。这里重新向接口要一次最新签名。
+        if (prevState == DownloadItem.ERROR && !TextUtils.isEmpty(item.getSiteKey())) {
+            try {
+                fetchAndStart(item);
+                return;
+            } catch (Throwable e) {
+                item.setState(DownloadItem.ERROR);
+                item.setError(e.getMessage());
+                notifyChanged();
+                return;
+            }
+        }
+        resumeDownload(item, new File(item.getFilePath()));
     }
 
     private void resumeDownload(DownloadItem item, File file) {
@@ -343,6 +453,10 @@ public class DownloadManager {
     }
 
     public void cancel(String id) {
+        // 若任务仍在等待队列（QUEUED）中，先从队列移除，避免其被调度后泄漏名额。
+        synchronized (this) {
+            mPending.removeIf(slot -> slot.item.getId().equals(id));
+        }
         Download download = mDownloads.remove(id);
         if (download != null) download.cancel();
         boolean m3u8 = isM3u8Item(id);

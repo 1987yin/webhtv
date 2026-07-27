@@ -76,6 +76,12 @@ public class DownloadEpisodeListAdapter extends RecyclerView.Adapter<DownloadEpi
             holder.binding.speed.setText("");
             holder.binding.btnAction.setVisibility(View.VISIBLE);
             holder.binding.btnAction.setText(R.string.download_cancel);
+        } else if (state == DownloadItem.QUEUED) {
+            holder.binding.state.setText(R.string.download_queued);
+            holder.binding.progress.setProgress(0);
+            holder.binding.speed.setText("");
+            holder.binding.btnAction.setVisibility(View.VISIBLE);
+            holder.binding.btnAction.setText(R.string.download_cancel);
         } else if (state == DownloadItem.ERROR) {
             holder.binding.state.setText(R.string.download_failed);
             holder.binding.progress.setProgress(item.getProgress());
@@ -113,7 +119,7 @@ public class DownloadEpisodeListAdapter extends RecyclerView.Adapter<DownloadEpi
                 if (s == DownloadItem.SUCCESS) listener.onAction(item, ACTION_PLAY);
                 else if (s == DownloadItem.DOWNLOADING) listener.onAction(item, ACTION_PAUSE);
                 else if (s == DownloadItem.PAUSED) listener.onAction(item, ACTION_RESUME);
-                else if (s == DownloadItem.WAITING) listener.onAction(item, ACTION_CANCEL);
+                else if (s == DownloadItem.WAITING || s == DownloadItem.QUEUED) listener.onAction(item, ACTION_CANCEL);
                 else if (s == DownloadItem.ERROR) listener.onAction(item, ACTION_RESUME);
             };
             binding.getRoot().setOnClickListener(primary);

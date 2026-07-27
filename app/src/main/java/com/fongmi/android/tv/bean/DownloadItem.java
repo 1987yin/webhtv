@@ -13,6 +13,7 @@ public class DownloadItem {
     public static final int ERROR = 3;
     public static final int CANCELED = 4;
     public static final int PAUSED = 5;
+    public static final int QUEUED = 6;
 
     private final String id;
     private String name;
@@ -176,6 +177,6 @@ public class DownloadItem {
     }
 
     public boolean isActive() {
-        return state == WAITING || state == DOWNLOADING || state == PAUSED;
+        return state == WAITING || state == DOWNLOADING || state == PAUSED || state == QUEUED;
     }
 }
