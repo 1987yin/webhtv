@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.adapter;
 
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -67,8 +68,20 @@ public class DownloadEpisodeAdapter extends RecyclerView.Adapter<DownloadEpisode
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        holder.binding.text.setText(mItems.get(position).getName());
-        holder.binding.text.setSelected(mSelected.contains(position));
+        Episode item = mItems.get(position);
+        boolean selected = mSelected.contains(position);
+        boolean focused = holder.binding.text.isFocused();
+        // 与详情页选集保持一致：优先展示压缩后的名称（开启“短显”时生效）。
+        holder.binding.text.setText(EpisodeAdapter.getNativeTitle(item));
+        holder.binding.text.setHorizontallyScrolling(true);
+        holder.binding.text.setMarqueeRepeatLimit(-1);
+        holder.binding.text.setSelected(focused || selected);
+        // 未开启“短显”时名称可能较长，聚焦时使用跑马灯滚动展示完整名称。
+        holder.binding.text.setEllipsize(focused ? TextUtils.TruncateAt.MARQUEE : TextUtils.TruncateAt.START);
+        holder.binding.text.setOnFocusChangeListener((v, hasFocus) -> {
+            holder.binding.text.setEllipsize(hasFocus ? TextUtils.TruncateAt.MARQUEE : TextUtils.TruncateAt.START);
+            holder.binding.text.setSelected(hasFocus || selected);
+        });
     }
 
     @Override

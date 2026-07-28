@@ -23,6 +23,7 @@ import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.databinding.DialogDownloadEpisodeBinding;
 import com.fongmi.android.tv.ui.activity.DownloadListActivity;
 import com.fongmi.android.tv.ui.adapter.DownloadEpisodeAdapter;
+import com.fongmi.android.tv.utils.EpisodeTitleCompact;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Util;
 
@@ -103,6 +104,8 @@ public class DownloadEpisodeDialog extends AppCompatDialogFragment implements Do
         binding.episode.setHasFixedSize(true);
         binding.episode.setItemAnimator(null);
         binding.episode.setAdapter(adapter = new DownloadEpisodeAdapter(this));
+        // 与详情页选集保持一致：根据“短显”设置计算压缩名称。
+        EpisodeTitleCompact.apply(episodes);
         adapter.addAll(episodes);
         binding.downloadList.setOnClickListener(v -> {
             DownloadListActivity.start(requireActivity());
