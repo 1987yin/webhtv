@@ -174,6 +174,9 @@ public class PlayerManager implements ParseCallback {
     private int lutApplySeq;
     private long parseHealthStartedAt;
     private boolean[] playerFallbackTried;
+    private boolean[] ffmpegModeFallbackTried;
+    private boolean ffmpegModeEngineRefreshPending;
+    private int ffmpegModeEngine = PlayerSetting.NONE;
     private int lutWarmupRecoveredErrors;
     private int mpvOutputEvaluationSeq;
     private int mpvAutoOutputProbeAttempts;
@@ -199,6 +202,7 @@ public class PlayerManager implements ParseCallback {
         };
         this.playerType = PlayerSetting.getPlayer();
         this.playerFallbackTried = new boolean[PLAYER_COUNT];
+        clearFfmpegModeFallbackState();
         this.engine = buildEngine(playerType, PlayerEngine.HARD);
         this.player = engine.getPlayer();
         this.callback = callback;
@@ -208,6 +212,8 @@ public class PlayerManager implements ParseCallback {
         prepareSeq++;
         exoSpeedRestoreState.clear();
         lutApplySeq++;
+        clearFfmpegModeFallbackState();
+        ffmpegModeEngine = PlayerSetting.NONE;
         player.removeListener(listener);
         App.removeCallbacks(runnable);
         stopNativeAudioSession();
@@ -1215,6 +1221,8 @@ public void resetTrack(int type) {
     private void rebuildPlayer(boolean resetVideoSurface) {
         stopNativeAudioSession();
         player = engine.rebuild(listener);
+        ffmpegModeEngine = playerType == PlayerSetting.EXO ? PlayerSetting.getEffectiveFFmpegMode() : PlayerSetting.NONE;
+        ffmpegModeEngineRefreshPending = false;
         videoEffectsActive = false;
         videoEffectsDirty = false;
         lutAppliedForItem = false;
@@ -1383,7 +1391,7 @@ public void resetTrack(int type) {
 
     private PlayerEngine buildEngine(int type, int decode) {
         if (type != PlayerSetting.EXO) exoSpeedRestoreState.clear();
-        return switch (type) {
+        PlayerEngine next = switch (type) {
             case PlayerSetting.IJK -> new IjkPlayerEngine(decode, listener);
             case PlayerSetting.SYSTEM -> new SystemPlayerEngine(decode, listener);
             case PlayerSetting.MPV -> new MpvPlayerEngine(decode, listener, this::onMpvVideoSizeProbed);
@@ -1404,6 +1412,9 @@ public void resetTrack(int type) {
                 }
             });
         };
+        ffmpegModeEngine = type == PlayerSetting.EXO ? PlayerSetting.getEffectiveFFmpegMode() : PlayerSetting.NONE;
+        ffmpegModeEngineRefreshPending = false;
+        return next;
     }
 
     public void browse(PlaySpec spec) {
@@ -1427,6 +1438,7 @@ public void resetTrack(int type) {
         manualPlayerSwitchPending = false;
         localProxyRetry = 0;
         resetPlayerFallback();
+        refreshFfmpegModeEngineIfNeeded();
         hardDecodeSwitchRetryArmed = false;
         setMediaItem(timeout);
     }
@@ -1448,6 +1460,7 @@ public void resetTrack(int type) {
         parseHealthStartedAt = System.currentTimeMillis();
         parseHealthRecorded = false;
         resetPlayerFallback();
+        refreshFfmpegModeEngineIfNeeded();
         hardDecodeSwitchRetryArmed = false;
         parseJob = ParseJob.create(this).start(result, useParse);
     }
@@ -2802,11 +2815,50 @@ public void resetTrack(int type) {
 
     private boolean fallbackPlayback(PlaybackException e) {
         if (engine == null) return false;
+        if (fallbackFfmpegMode(e)) return true;
         return switch (nextFallbackAction(PlayerSetting.getFailureFallback(), engine.getDecode())) {
             case FALLBACK_DECODE -> fallbackDecode(e);
             case FALLBACK_PLAYER -> fallbackPlayer(e);
             default -> false;
         };
+    }
+
+    // AUTO 模式：失败时在当前解码下遍历下一个未试过的 FFmpeg 模式，用尽后交回解码/内核降级链。
+    private boolean fallbackFfmpegMode(PlaybackException e) {
+        if (spec == null || spec.getUrl() == null || engine == null) return false;
+        if (playerType != PlayerSetting.EXO || !PlayerSetting.isAutoFFmpegMode()) return false;
+        int current = ffmpegModeEngine;
+        markFfmpegModeTried(current);
+        int next = nextUntriedFfmpegMode();
+        if (next == PlayerSetting.NONE) return false;
+        markFfmpegModeTried(next);
+        PlayerSetting.setFFmpegModeOverride(next);
+        SpiderDebug.log("player", "fallback ffmpeg-mode from=%d to=%d decode=%d spec=%s cause=%s", current, next, engine.getDecode(), debugSpec(), causeChain(e));
+        App.removeCallbacks(runnable);
+        localProxyRetry = 0;
+        hardDecodeSwitchRetryArmed = false;
+        switchEngine(playerType, false, true, true, engine.getDecode());
+        return true;
+    }
+
+    private void markFfmpegModeTried(int mode) {
+        for (int i = 0; i < PlayerSetting.FFMPEG_AUTO_ORDER.length; i++) {
+            if (PlayerSetting.FFMPEG_AUTO_ORDER[i] == mode) {
+                ffmpegModeFallbackTried[i] = true;
+                return;
+            }
+        }
+    }
+
+    private int nextUntriedFfmpegMode() {
+        return nextUntriedFfmpegMode(PlayerSetting.FFMPEG_AUTO_ORDER, ffmpegModeFallbackTried);
+    }
+
+    static int nextUntriedFfmpegMode(int[] order, boolean[] tried) {
+        for (int i = 0; i < order.length; i++) {
+            if (!tried[i]) return order[i];
+        }
+        return PlayerSetting.NONE;
     }
 
     private boolean fallbackDecode(PlaybackException e) {
@@ -2815,6 +2867,7 @@ public void resetTrack(int type) {
         App.removeCallbacks(runnable);
         localProxyRetry = 0;
         hardDecodeSwitchRetryArmed = false;
+        resetFfmpegModeFallback();
         switchEngine(playerType, false, true, true, PlayerEngine.SOFT);
         return true;
     }
@@ -2904,6 +2957,7 @@ public void resetTrack(int type) {
 
     private void resetPlayerFallback() {
         playerFallbackTried = new boolean[PLAYER_COUNT];
+        resetFfmpegModeFallback();
     }
 
     private void markPlayerFallbackTried(int type) {
@@ -2912,6 +2966,24 @@ public void resetTrack(int type) {
 
     private boolean isPlayerFallbackTried(int type) {
         return type >= 0 && type < playerFallbackTried.length && playerFallbackTried[type];
+    }
+
+    private void resetFfmpegModeFallback() {
+        ffmpegModeFallbackTried = new boolean[PlayerSetting.FFMPEG_AUTO_ORDER.length];
+        PlayerSetting.clearFFmpegModeOverride();
+        ffmpegModeEngineRefreshPending = playerType == PlayerSetting.EXO && ffmpegModeEngine != PlayerSetting.getEffectiveFFmpegMode();
+    }
+
+    private void refreshFfmpegModeEngineIfNeeded() {
+        if (!ffmpegModeEngineRefreshPending || playerType != PlayerSetting.EXO || engine == null || player == null) return;
+        SpiderDebug.log("player", "refresh ffmpeg-mode engine from=%d to=%d decode=%d", ffmpegModeEngine, PlayerSetting.getEffectiveFFmpegMode(), engine.getDecode());
+        rebuildPlayer();
+    }
+
+    private void clearFfmpegModeFallbackState() {
+        ffmpegModeFallbackTried = new boolean[PlayerSetting.FFMPEG_AUTO_ORDER.length];
+        ffmpegModeEngineRefreshPending = false;
+        PlayerSetting.clearFFmpegModeOverride();
     }
 
     static boolean shouldStopOnManualSwitchFailure(boolean manualSwitchPending, PlayerEngine.ErrorAction action) {
