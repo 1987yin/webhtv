@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.adapter;
 
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -67,8 +68,23 @@ public class DownloadEpisodeAdapter extends RecyclerView.Adapter<DownloadEpisode
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        holder.binding.text.setText(mItems.get(position).getName());
-        holder.binding.text.setSelected(mSelected.contains(position));
+        Episode item = mItems.get(position);
+        boolean selected = mSelected.contains(position);
+        // 下载选集始终展示完整名称（忽略“短显”压缩的 displayName，直接拼接 desc+name）。
+        String title = TextUtils.isEmpty(item.getDesc()) || item.getName().startsWith(item.getDesc())
+                ? item.getName()
+                : item.getDesc().concat(item.getName());
+        holder.binding.text.setText(title);
+        // 名称较长时所有项开启跑马灯，方便查看完整名称。
+        holder.binding.text.setHorizontallyScrolling(true);
+        holder.binding.text.setMarqueeRepeatLimit(-1);
+        holder.binding.text.setEllipsize(TextUtils.TruncateAt.MARQUEE);
+        // 下载选中态用 state_activated 驱动背景与文字高亮；state_selected 仅用于触发跑马灯。
+        holder.binding.text.setActivated(selected);
+        // 先置 false 再于布局完成后置 true，确保 startMarquee 在视图完成测量后可靠触发
+        // （setSelected(true) 在已选中态为 no-op，无法重启跑马灯动画）。
+        holder.binding.text.setSelected(false);
+        holder.binding.text.post(() -> holder.binding.text.setSelected(true));
     }
 
     @Override

@@ -315,8 +315,74 @@ public class VideoActivityLayoutTest {
         assertTrue("configured audio-source launches must explicitly activate the immersive session",
                 source.contains("mImmersiveAudioRequested = true;")
                         && source.indexOf("mImmersiveAudioRequested = true;") > source.indexOf("private void prepareImmersiveAudioPlayback("));
+        String modeBody = methodBody(source, "public void onImmersiveAudioModeChanged()", "private boolean dispatchAudioStageKey");
         assertTrue("manual playback-style selection must explicitly update the immersive session",
-                source.contains("mImmersiveAudioRequested = PlayerSetting.isImmersiveAudioMode();"));
+                modeBody.contains("mImmersiveAudioRequested = enabled;"));
+    }
+
+    @Test
+    public void leanbackImmersiveAudioSelectionPersistsForMatchingPlayback() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        Path settingPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "setting", "PlayerSetting.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        String setting = new String(Files.readAllBytes(settingPath), StandardCharsets.UTF_8);
+        String initBody = methodBody(source, "protected void initView(Bundle savedInstanceState)", "protected void initEvent()");
+        String newIntentBody = methodBody(source, "protected void onNewIntent(Intent intent)", "protected void initView(Bundle savedInstanceState)");
+        String restoreBody = methodBody(source, "private void restoreImmersiveAudioRequest()", "private Site getSite()");
+        String modeBody = methodBody(source, "public void onImmersiveAudioModeChanged()", "private boolean dispatchAudioStageKey");
+        String launchBody = methodBody(source, "private void prepareImmersiveAudioPlayback(AudioPlaybackResolver.Resolved resolved)", "private void applyImmersiveAudioSelection");
+
+        assertTrue("the explicit TV immersive-audio request must have a playback-scoped preference",
+                setting.contains("private static final String KEY_IMMERSIVE_AUDIO_PLAYBACK = \"immersive_audio_playback\";")
+                        && setting.contains("public static boolean isImmersiveAudioPlayback(String playbackKey)")
+                        && setting.contains("public static void putImmersiveAudioPlayback(String playbackKey)"));
+        assertTrue("a recreated TV playback must restore only the matching explicit request",
+                restoreBody.contains("mImmersiveAudioRequested = PlayerSetting.isImmersiveAudioPlayback(getHistoryKey());"));
+        assertFalse("restoring an explicit request must not fall back to title or early-track guesses",
+                restoreBody.contains("isAudioOnly()") || restoreBody.contains("isMusicLike()"));
+        assertTrue("TV initialization must restore the playback-scoped request before playback setup",
+                initBody.indexOf("restoreImmersiveAudioRequest();") >= 0
+                        && initBody.indexOf("restoreImmersiveAudioRequest();") < initBody.indexOf("super.initView(savedInstanceState);"));
+
+        int replaceIntent = newIntentBody.indexOf("getIntent().putExtras(intent);");
+        int hideOldStage = newIntentBody.indexOf("setAudioStageVisible(false);");
+        int restoreNewRequest = newIntentBody.indexOf("restoreImmersiveAudioRequest();");
+        assertTrue("singleTop playback changes must hide the old stage and recompute the request for the new content",
+                replaceIntent >= 0 && hideOldStage > replaceIntent && restoreNewRequest > hideOldStage);
+        assertTrue("manual selection must remember or clear the current playback identity",
+                modeBody.contains("boolean enabled = PlayerSetting.isImmersiveAudioMode();")
+                        && modeBody.contains("mImmersiveAudioRequested = enabled;")
+                        && modeBody.contains("PlayerSetting.putImmersiveAudioPlayback(enabled ? getHistoryKey() : \"\");"));
+
+        int launchIdentity = launchBody.indexOf("getIntent().putExtra(\"id\", resolved.getVodId());");
+        int rememberLaunch = launchBody.indexOf("PlayerSetting.putImmersiveAudioPlayback(getHistoryKey());");
+        assertTrue("configured audio-source launches must also remember their resolved playback identity",
+                launchIdentity >= 0 && rememberLaunch > launchIdentity);
+    }
+
+    @Test
+    public void leanbackImmersiveAudioHighlightReflectsActivePlayback() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        Path dialogPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "ControlDialog.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        String dialog = new String(Files.readAllBytes(dialogPath), StandardCharsets.UTF_8);
+        String actionBody = methodBody(source, "private void updateImmersiveAudioAction()", "private void toggleImmersiveAudioMode()");
+        String toggleBody = methodBody(source, "private void toggleImmersiveAudioMode()", "private int getEpisodeColumn()");
+        String dialogInit = methodBody(dialog, "protected void initView()", "protected void initEvent()");
+        String dialogToggle = methodBody(dialog, "private void setImmersiveAudio()", "private void onTrack(View view)");
+
+        assertTrue("the TV action highlight must represent the active playback session, not only the global preference",
+                actionBody.contains("mBinding.control.action.immersiveAudio.setSelected(shouldUseImmersiveAudio());"));
+        assertFalse("the TV action must not remain highlighted while the current playback request is absent",
+                actionBody.contains("setSelected(PlayerSetting.isImmersiveAudioMode())"));
+        assertTrue("clicking an inactive highlighted-capable action must enable this playback instead of disabling the global preference",
+                toggleBody.contains("PlayerSetting.putImmersiveAudioMode(!shouldUseImmersiveAudio());"));
+        assertTrue("the control dialog must initialize from the current playback action state",
+                dialogInit.contains("binding.immersiveAudio.setSelected(parent.control.action.immersiveAudio.isSelected());"));
+        assertTrue("the control dialog must toggle its actual session state rather than a stale global value",
+                dialogToggle.contains("boolean enabled = !binding.immersiveAudio.isSelected();")
+                        && dialogToggle.contains("PlayerSetting.putImmersiveAudioMode(enabled);")
+                        && dialogToggle.contains("binding.immersiveAudio.setSelected(enabled);"));
     }
 
     @Test
@@ -329,6 +395,25 @@ public class VideoActivityLayoutTest {
         int stateFastPath = visibilityBody.indexOf("if (mAudioStageVisible == visible)");
         assertTrue("TV audio stage must reconcile the real View before trusting its cached visibility flag",
                 reconcileView >= 0 && stateFastPath > reconcileView);
+    }
+
+    @Test
+    public void leanbackVisibleAudioStageReclaimsForegroundOnSongChange() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        String visibilityBody = methodBody(source, "private void setAudioStageVisible(boolean visible)", "private boolean shouldUseImmersiveAudio()");
+
+        int stateFastPath = visibilityBody.indexOf("if (mAudioStageVisible == visible)");
+        int bringToFront = visibilityBody.indexOf("mBinding.audioStage.bringToFront();");
+        int hideProgress = visibilityBody.indexOf("hideProgress();");
+        int hideControl = visibilityBody.indexOf("hideControl();");
+        int hideInfo = visibilityBody.indexOf("hideInfo();");
+        assertTrue("TV song changes must reclaim the audio-stage foreground even when its cached visibility is already true",
+                stateFastPath >= 0
+                        && bringToFront >= 0 && bringToFront < stateFastPath
+                        && hideProgress >= 0 && hideProgress < stateFastPath
+                        && hideControl >= 0 && hideControl < stateFastPath
+                        && hideInfo >= 0 && hideInfo < stateFastPath);
     }
 
     @Test
@@ -364,7 +449,7 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
-    public void leanbackDisabledAudioStageStaysHiddenBeforeFirstFrame() throws Exception {
+    public void leanbackAudioStageRestoreProtectionDoesNotClearActiveSession() throws Exception {
         Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         Element audioStage = findAndroidId(findLeanbackResPath().resolve(Path.of("layout", "activity_video.xml")).toFile(), "audioStage");
@@ -374,10 +459,10 @@ public class VideoActivityLayoutTest {
                         && "false".equals(audioStage.getAttribute("android:saveEnabled"))
                         && source.contains("mBinding.audioStage.setSaveFromParentEnabled(false);"));
         int onResume = source.indexOf("protected void onResume()");
-        int hideStage = source.indexOf("setAudioStageVisible(false);", onResume);
-        int superResume = source.indexOf("super.onResume();", onResume);
-        assertTrue("TV audio stage must be hidden in onResume before Android draws the first frame",
-                onResume >= 0 && hideStage > onResume && superResume > hideStage);
+        int nextOverride = onResume >= 0 ? source.indexOf("\n    @Override", onResume + 1) : -1;
+        String resumeBody = onResume < 0 ? "" : source.substring(onResume, nextOverride > onResume ? nextOverride : source.length());
+        assertFalse("TV resume must not clear an explicitly activated immersive-audio session",
+                resumeBody.contains("setAudioStageVisible(false);"));
     }
 
     @Test
@@ -596,6 +681,28 @@ public class VideoActivityLayoutTest {
                 episodeClick.contains("syncCurrentAudioPlaylistMetadata();")
                         && episodeClick.contains("applyAudioQueueMetadata(item);")
                         && episodeClick.indexOf("syncCurrentAudioPlaylistMetadata();") < episodeClick.indexOf("mFlagAdapter.toggle(item);"));
+    }
+
+    @Test
+    public void autoFfmpegFallbackResetRebuildsExoBeforeNextItem() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "player", "PlayerManager.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        String resetFallback = methodBody(source, "private void resetFfmpegModeFallback()", "static boolean shouldStopOnManualSwitchFailure");
+        String start = methodBody(source, "public void start(PlaySpec spec, long timeout, boolean playWhenReady)", "public void parse(String key, Result result, boolean useParse, MediaMetadata metadata)");
+        String parse = methodBody(source, "public void parse(String key, Result result, boolean useParse, MediaMetadata metadata, boolean playWhenReady)", "private void stopParse()");
+        String release = methodBody(source, "public void release()", "private void resetLutRuntimeState");
+
+        assertTrue("clearing an AUTO override must remember that the current EXO engine was built with a stale renderer mode",
+                resetFallback.contains("ffmpegModeEngineRefreshPending =")
+                        && resetFallback.contains("PlayerSetting.clearFFmpegModeOverride();"));
+        assertTrue("direct playback must refresh a stale AUTO-mode EXO engine before preparing the next item",
+                start.contains("refreshFfmpegModeEngineIfNeeded();")
+                        && start.indexOf("refreshFfmpegModeEngineIfNeeded();") < start.indexOf("setMediaItem(timeout);"));
+        assertTrue("parsed playback must also refresh a stale AUTO-mode EXO engine before starting parse work",
+                parse.contains("refreshFfmpegModeEngineIfNeeded();")
+                        && parse.indexOf("refreshFfmpegModeEngineIfNeeded();") < parse.indexOf("ParseJob.create(this).start(result, useParse);"));
+        assertTrue("destroying the manager must clear the process-wide AUTO override without scheduling another rebuild",
+                release.contains("clearFfmpegModeFallbackState();"));
     }
 
     @Test
@@ -1025,6 +1132,102 @@ public class VideoActivityLayoutTest {
                         && source.indexOf("mBinding.episodeGrid.post(this::updateUpstreamNativeEpisodeGridViewport);", bind) > bind);
     }
 
+    @Test
+    public void leanbackNativeEpisodeGridRefreshesDecorationForCurrentSpanCount() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int viewport = source.indexOf("private void updateUpstreamNativeEpisodeGridViewport()");
+        int nextMethod = source.indexOf("private int getUpstreamNativeEpisodeGridHeight", viewport);
+        String body = viewport >= 0 && nextMethod > viewport ? source.substring(viewport, nextMethod) : "";
+        int remove = body.indexOf("clearEpisodeGridDecoration();");
+        int add = body.indexOf("mBinding.episodeGrid.addItemDecoration(episodeGridDecoration = new SpaceItemDecoration(spanCount, 12));");
+
+        assertTrue(sourcePath + " is missing the native episode grid viewport updater", viewport >= 0);
+        assertTrue("native episode spacing must replace the old decoration when the adaptive span count changes", remove >= 0 && add > remove);
+        assertFalse("a one-shot decoration guard leaves offsets calculated with a stale span count", source.contains("episodeGridSpacingAdded"));
+    }
+
+    @Test
+    public void leanbackLeavingNativeEpisodeGridClearsNativeDecoration() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int clear = source.indexOf("private void clearEpisodeGridDecoration()");
+        int normalViewport = source.indexOf("private void updateEpisodeGridViewport()");
+        int nativeViewport = source.indexOf("private void updateUpstreamNativeEpisodeGridViewport()", normalViewport);
+        int clearAdapters = source.indexOf("private void clearDetailAdapters()");
+        int nextClearMethod = source.indexOf("\n    private ", clear + 1);
+        int nextNormalMethod = source.indexOf("\n    private ", normalViewport + 1);
+        int nextAdaptersMethod = source.indexOf("\n    private ", clearAdapters + 1);
+        String clearBody = clear >= 0 && nextClearMethod > clear ? source.substring(clear, nextClearMethod) : "";
+        String normalBody = normalViewport >= 0 && nextNormalMethod > normalViewport ? source.substring(normalViewport, nextNormalMethod) : "";
+        String adaptersBody = clearAdapters >= 0 && nextAdaptersMethod > clearAdapters ? source.substring(clearAdapters, nextAdaptersMethod) : "";
+
+        assertTrue(sourcePath + " must provide one decoration cleanup path", clear >= 0);
+        assertTrue("decoration cleanup must remove and forget the native grid decoration",
+                clearBody.contains("mBinding.episodeGrid.removeItemDecoration(episodeGridDecoration);")
+                        && clearBody.contains("episodeGridDecoration = null;"));
+        assertTrue("normal/TMDB episode viewport must drop native spacing before laying out cards",
+                normalBody.contains("clearEpisodeGridDecoration();"));
+        assertTrue("reusing VideoActivity for another detail must not retain native spacing",
+                adaptersBody.contains("clearEpisodeGridDecoration();"));
+        assertTrue("normal viewport must be parsed before the native viewport", nativeViewport > normalViewport);
+    }
+
+    @Test
+    public void leanbackFastTmdbPlaybackKeepsEpisodesHiddenUntilEpisodeMetadataFinishes() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int setEpisode = source.indexOf("private void setEpisodeAdapter(List<Episode> items, boolean scrollToCurrent)");
+        int nextMethod = source.indexOf("private void setUpstreamNativeEpisodeItems", setEpisode);
+        String body = setEpisode >= 0 && nextMethod > setEpisode ? source.substring(setEpisode, nextMethod) : "";
+        int metadata = body.indexOf("boolean tmdbEpisodeMetadataLoaded = mTmdbUIAdapter != null && mTmdbUIAdapter.isEpisodeMetadataLoaded();");
+        int pending = body.indexOf("boolean tmdbEpisodeEnrichmentPending = !mTmdbEpisodeFallbackReleased", metadata);
+        int pendingCondition = body.indexOf("&& (mTmdbDetailLoading || (tmdbAdapterReady && !tmdbEpisodeMetadataLoaded));", pending);
+        int wait = body.indexOf("EpisodeDisplayPolicy.shouldWaitForTmdbEpisodes(tmdbMode, tmdbEpisodeEnrichmentPending, tmdbAdapterReady, tmdbEpisodeMetadataLoaded, items);", pendingCondition);
+        int hide = body.indexOf("setEpisodeContentVisible(false);", wait);
+        int finishLoading = source.indexOf("private void finishEpisodeLoading()");
+        int refreshTitles = source.indexOf("private void refreshEpisodeTitles()", finishLoading);
+        String finishBody = finishLoading >= 0 && refreshTitles > finishLoading ? source.substring(finishLoading, refreshTitles) : "";
+        int metadataGuard = finishBody.indexOf("!mTmdbUIAdapter.isEpisodeMetadataLoaded()");
+
+        assertTrue(sourcePath + " is missing setEpisodeAdapter", setEpisode >= 0);
+        assertTrue("native-enhanced playback must track episode metadata separately from core TMDB detail", metadata >= 0);
+        assertTrue("the episode area must remain pending after core detail loads but before episode metadata finishes", pending > metadata && pendingCondition > pending && wait > pendingCondition);
+        assertTrue("the temporary native text row must stay hidden while TMDB episode enrichment is pending", hide > wait);
+        assertTrue("core TMDB completion must not trigger the plain-list fallback while episode metadata is still loading", metadataGuard >= 0);
+    }
+
+    @Test
+    public void leanbackTmdbEpisodeLoadingTimesOutToNativeFallback() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int timeoutField = source.indexOf("private Runnable mTmdbEpisodeTimeout;");
+        int fallbackField = source.indexOf("private boolean mTmdbEpisodeFallbackReleased;");
+        int init = source.indexOf("mTmdbEpisodeTimeout = this::showTmdbEpisodeFallback;");
+        int setDetail = source.indexOf("private void setDetail(Vod item)");
+        int reset = source.indexOf("mTmdbEpisodeFallbackReleased = false;", setDetail);
+        int schedule = source.indexOf("App.post(mTmdbEpisodeTimeout, TMDB_DETAIL_LOAD_TIMEOUT);", reset);
+        int setEpisode = source.indexOf("private void setEpisodeAdapter(List<Episode> items, boolean scrollToCurrent)");
+        int terminalCancel = source.indexOf("if (tmdbEpisodeMetadataLoaded) App.removeCallbacks(mTmdbEpisodeTimeout);", setEpisode);
+        int fallbackAwarePending = source.indexOf("boolean tmdbEpisodeEnrichmentPending = !mTmdbEpisodeFallbackReleased", setEpisode);
+        int fallback = source.indexOf("private void showTmdbEpisodeFallback()");
+        int indicatorGuard = source.indexOf("mBinding.episodeLoadingIndicator.getVisibility() != View.VISIBLE", fallback);
+        int release = source.indexOf("mTmdbEpisodeFallbackReleased = true;", indicatorGuard);
+        int finish = source.indexOf("finishEpisodeLoading();", release);
+        int finishMethod = source.indexOf("private void finishEpisodeLoading()");
+        int allowTimedFallback = source.indexOf("&& !mTmdbEpisodeFallbackReleased", finishMethod);
+        int destroy = source.indexOf("protected void onDestroy()");
+        int destroyCancel = source.indexOf("App.removeCallbacks(mTmdbEpisodeTimeout);", destroy);
+
+        assertTrue(sourcePath + " must own an independent TMDB episode timeout", timeoutField >= 0 && fallbackField > timeoutField && init > fallbackField);
+        assertTrue("each enhanced detail load must reset and schedule the episode fallback", reset > setDetail && schedule > reset);
+        assertTrue("completed episode metadata must cancel the fallback timer", terminalCancel > setEpisode);
+        assertTrue("once timeout fallback is released, later core-detail refreshes must not hide the native list again", fallbackAwarePending > terminalCancel);
+        assertTrue("the timeout must only release a visible placeholder, then reveal the native episode list",
+                fallback >= 0 && indicatorGuard > fallback && release > indicatorGuard && finish > release);
+        assertTrue("finishEpisodeLoading must allow the explicit timeout fallback through its metadata guard", allowTimedFallback > finishMethod);
+        assertTrue("episode timeout callback must be removed when the activity is destroyed", destroyCancel > destroy);
+    }
     @Test
     public void vodEventPageSuffixStripPreservesLeadingSlashIds() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "helper", "VodEventGuard.java"));
@@ -1810,8 +2013,8 @@ public class VideoActivityLayoutTest {
                             && body.contains("if (keyChanged) mHistory.replace(nextKey)"));
             assertFalse(sourcePath + " must not unconditionally replace history on every id update",
                     body.contains("if (id) mHistory.replace(getHistoryKey())"));
-            assertTrue(sourcePath + " must sync history after key migration or an async episode-title refresh",
-                    body.contains("if (keyChanged || pic || name || episodeTitleChanged) syncHistory()"));
+            assertTrue(sourcePath + " must sync history after key migration or an async metadata refresh",
+                    body.contains("if (keyChanged || pic || name || episodeTitleChanged || tmdbIdStamped) syncHistory()"));
         }
     }
 
