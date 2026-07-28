@@ -70,18 +70,17 @@ public class DownloadEpisodeAdapter extends RecyclerView.Adapter<DownloadEpisode
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         Episode item = mItems.get(position);
         boolean selected = mSelected.contains(position);
-        boolean focused = holder.binding.text.isFocused();
         // 与详情页选集保持一致：优先展示压缩后的名称（开启“短显”时生效）。
         holder.binding.text.setText(EpisodeAdapter.getNativeTitle(item));
+        // 未开启“短显”时名称可能较长：所有项均开启跑马灯，方便查看完整名称。
         holder.binding.text.setHorizontallyScrolling(true);
         holder.binding.text.setMarqueeRepeatLimit(-1);
-        holder.binding.text.setSelected(focused || selected);
-        // 未开启“短显”时名称可能较长，聚焦时使用跑马灯滚动展示完整名称。
-        holder.binding.text.setEllipsize(focused ? TextUtils.TruncateAt.MARQUEE : TextUtils.TruncateAt.START);
-        holder.binding.text.setOnFocusChangeListener((v, hasFocus) -> {
-            holder.binding.text.setEllipsize(hasFocus ? TextUtils.TruncateAt.MARQUEE : TextUtils.TruncateAt.START);
-            holder.binding.text.setSelected(hasFocus || selected);
-        });
+        holder.binding.text.setEllipsize(TextUtils.TruncateAt.MARQUEE);
+        // 下载选中态用 state_activated 驱动背景与文字高亮；state_selected 留给跑马灯使用。
+        holder.binding.text.setActivated(selected);
+        holder.binding.text.setSelected(true);
+        // 绑定后再次触发，确保布局完成后再启动跑马灯动画。
+        holder.binding.text.post(() -> holder.binding.text.setSelected(true));
     }
 
     @Override
