@@ -359,14 +359,8 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
 
     private void focusPosition(BaseGridView grid, int position) {
         if (grid.getAdapter() == null || grid.getAdapter().getItemCount() == 0) return;
-        position = Math.max(0, Math.min(position, grid.getAdapter().getItemCount() - 1));
-        int target = position;
-        grid.setSelectedPosition(target);
-        grid.post(() -> {
-            RecyclerView.ViewHolder holder = grid.findViewHolderForAdapterPosition(target);
-            if (holder != null) holder.itemView.requestFocus();
-            else grid.requestFocus();
-        });
+        int target = Math.max(0, Math.min(position, grid.getAdapter().getItemCount() - 1));
+        grid.setSelectedPosition(target, holder -> holder.itemView.requestFocus());
     }
 
     private boolean isVisible(View view) {

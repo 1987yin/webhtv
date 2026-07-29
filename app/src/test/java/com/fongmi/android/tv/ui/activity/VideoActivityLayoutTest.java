@@ -1783,18 +1783,27 @@ public class VideoActivityLayoutTest {
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int selected = source.indexOf("private void scrollToSelectedEpisode()");
         int selectedEnd = source.indexOf("private void scrollToSegment(int episodePosition)", selected);
+        int focus = source.indexOf("private void focusPosition(BaseGridView grid, int position)");
+        int focusEnd = source.indexOf("\n    private ", focus + 1);
         int scroll = source.indexOf("private void scrollToEpisode(int position, boolean requestFocus)");
         int scrollEnd = source.indexOf("\n    @Override", scroll);
         String selectedBody = selected >= 0 && selectedEnd > selected ? source.substring(selected, selectedEnd) : "";
+        String focusBody = focus >= 0 && focusEnd > focus ? source.substring(focus, focusEnd) : "";
         String scrollBody = scroll >= 0 && scrollEnd > scroll ? source.substring(scroll, scrollEnd) : "";
 
-        assertTrue(sourcePath + " is missing current episode focus hooks", selected >= 0 && scroll >= 0);
+        assertTrue(sourcePath + " is missing current episode focus hooks", selected >= 0 && focus >= 0 && scroll >= 0);
         assertTrue("episode dialog must resolve and reveal the currently playing episode when it opens",
                 selectedBody.contains("int position = getSelectedEpisodePosition(allEpisodes);")
                         && selectedBody.contains("scrollToSegment(position);")
                         && selectedBody.contains("scrollToEpisode(position - getSegmentStart(selectedSegment), true);"));
         assertTrue("episode dialog must focus the current episode card instead of the grid's default child",
                 scrollBody.contains("if (requestFocus) focusPosition(binding.episode, position);"));
+        assertTrue("episode dialog must wait until Leanback has attached the current episode card before requesting focus",
+                focusBody.contains("grid.setSelectedPosition(target, holder -> holder.itemView.requestFocus());"));
+        assertFalse("episode dialog must not use a one-shot post that can run before the current episode card is attached",
+                focusBody.contains("grid.post("));
+        assertFalse("episode dialog must not fall back to container focus because it can select the wrong episode",
+                focusBody.contains("grid.requestFocus();"));
         assertFalse("episode dialog must not rely on container focus because it can select the first or previously focused card",
                 scrollBody.contains("if (requestFocus) binding.episode.requestFocus();"));
     }
