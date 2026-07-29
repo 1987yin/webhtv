@@ -171,6 +171,24 @@ public class PlayerPlaybackRegressionSourceTest {
     }
 
     @Test
+    public void mobileRotateButtonRequestsOrientationFromTheToggledState() throws Exception {
+        String source = readMobileJava("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java");
+        int rotate = source.indexOf("private void onRotate()");
+        int rotateEnd = source.indexOf("\n    private ", rotate + 1);
+        int toggle = source.indexOf("setRotate(!isRotate());", rotate);
+        int request = source.indexOf("PlaybackOrientation.getRotateOrientation(isRotate())", rotate);
+
+        assertTrue("mobile rotate button must choose the requested orientation after toggling its state",
+                rotate >= 0
+                        && rotateEnd > rotate
+                        && toggle > rotate
+                        && request > toggle
+                        && request < rotateEnd);
+        assertFalse("mobile rotate button must not re-request the current portrait layout orientation",
+                source.substring(rotate, rotateEnd).contains("PlaybackOrientation.getRotateOrientation(isPort())"));
+    }
+
+    @Test
     public void mobileFullscreenExitRebindsEpisodesAfterOrientationSettles() throws Exception {
         String source = readMobileJava("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java");
         int restore = source.indexOf("private void restoreEmbeddedVideoLayoutAfterFullscreen()");
