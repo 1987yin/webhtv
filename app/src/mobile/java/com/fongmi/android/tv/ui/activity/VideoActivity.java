@@ -2593,7 +2593,7 @@ private int mAudioBackgroundRandomNonce;
     private void onRotate() {
         setR1Callback();
         setRotate(!isRotate());
-        setRequestedOrientation(PlaybackOrientation.getRotateOrientation(isPort()));
+        setRequestedOrientation(PlaybackOrientation.getRotateOrientation(isRotate()));
     }
 
     private void onFullscreen() {
