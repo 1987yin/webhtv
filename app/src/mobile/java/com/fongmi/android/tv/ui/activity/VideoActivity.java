@@ -836,6 +836,11 @@ private int mAudioBackgroundRandomNonce;
         return mEpisodeAdapter == null || mEpisodeAdapter.isEmpty() ? null : mEpisodeAdapter.getActivated();
     }
 
+    private String getDanmakuEpisodeName() {
+        Episode episode = getEpisode();
+        return episode == null ? "" : episode.getName();
+    }
+
     private boolean isTmdbMode() {
         return getIntent().getBooleanExtra("tmdbMode", false);
     }
@@ -2636,7 +2641,7 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private void onDanmaku() {
-        DanmakuDialog.create().player(player()).identity(getKey(), getId(), mHistory == null ? "" : mHistory.getVodName(), getEpisode().getName()).show(this);
+        DanmakuDialog.create().player(player()).identity(getKey(), getId(), mHistory == null ? "" : mHistory.getVodName(), getDanmakuEpisodeName()).show(this);
         hideControl();
     }
 
@@ -2655,7 +2660,7 @@ private int mAudioBackgroundRandomNonce;
 
     @Override
     public void onDanmakuPanel() {
-        DanmakuDialog.create().player(player()).identity(getKey(), getId(), mHistory == null ? "" : mHistory.getVodName(), getEpisode().getName()).show(this);
+        DanmakuDialog.create().player(player()).identity(getKey(), getId(), mHistory == null ? "" : mHistory.getVodName(), getDanmakuEpisodeName()).show(this);
     }
 
     @Override
