@@ -14,7 +14,6 @@ import com.fongmi.android.tv.bean.Cache;
 import com.fongmi.android.tv.bean.Class;
 import com.fongmi.android.tv.bean.Filter;
 import com.fongmi.android.tv.databinding.FragmentFolderBinding;
-import com.fongmi.android.tv.ui.activity.VodActivity;
 import com.fongmi.android.tv.ui.base.BaseFragment;
 
 import java.util.HashMap;
@@ -22,7 +21,13 @@ import java.util.Optional;
 
 public class FolderFragment extends BaseFragment {
 
+    public interface FilterHost {
+
+        void closeFilter();
+    }
+
     private FragmentFolderBinding mBinding;
+    private Boolean pendingFilterVisible;
     private Class mType;
 
     public static FolderFragment newInstance(String key, Class type) {
@@ -46,8 +51,8 @@ public class FolderFragment extends BaseFragment {
         return (TypeFragment) getChildFragmentManager().findFragmentById(R.id.container);
     }
 
-    private VodActivity getParent() {
-        return (VodActivity) getActivity();
+    private FilterHost getParent() {
+        return getActivity() instanceof FilterHost host ? host : null;
     }
 
     @Override
@@ -58,7 +63,9 @@ public class FolderFragment extends BaseFragment {
     @Override
     protected void initView() {
         mType = getType();
-        getChildFragmentManager().beginTransaction().replace(R.id.container, TypeFragment.newInstance(getKey(), mType.getTypeId(), mType.getStyle(), getExtend(), mType.isFolder())).commit();
+        FragmentTransaction transaction = getChildFragmentManager().beginTransaction().replace(R.id.container, TypeFragment.newInstance(getKey(), mType.getTypeId(), mType.getStyle(), getExtend(), mType.isFolder()));
+        transaction.runOnCommit(this::applyPendingFilter);
+        transaction.commit();
     }
 
     private HashMap<String, String> getExtend() {
@@ -70,7 +77,7 @@ public class FolderFragment extends BaseFragment {
     public void openFolder(String typeId, HashMap<String, String> extend) {
         TypeFragment next = TypeFragment.newInstance(getKey(), typeId, mType.getStyle(), extend, mType.isFolder());
         FragmentTransaction ft = getChildFragmentManager().beginTransaction();
-        Optional.ofNullable(getParent()).ifPresent(VodActivity::closeFilter);
+        Optional.ofNullable(getParent()).ifPresent(FilterHost::closeFilter);
         Optional.ofNullable(getChild()).ifPresent(ft::hide);
         ft.add(R.id.container, next);
         ft.addToBackStack(null);
@@ -78,7 +85,16 @@ public class FolderFragment extends BaseFragment {
     }
 
     public void toggleFilter(boolean visible) {
-        Optional.ofNullable(getChild()).ifPresent(f -> f.toggleFilter(visible));
+        pendingFilterVisible = visible;
+        applyPendingFilter();
+    }
+
+    private void applyPendingFilter() {
+        if (pendingFilterVisible == null) return;
+        TypeFragment child = getChild();
+        if (child == null) return;
+        child.toggleFilter(pendingFilterVisible);
+        pendingFilterVisible = null;
     }
 
     public boolean requestContentFocus() {
