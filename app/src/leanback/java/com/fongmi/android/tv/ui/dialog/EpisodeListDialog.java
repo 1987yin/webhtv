@@ -417,7 +417,7 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
         binding.episode.post(() -> {
             if (binding == null) return;
             binding.episode.setSelectedPosition(position);
-            if (requestFocus) binding.episode.requestFocus();
+            if (requestFocus) focusPosition(binding.episode, position);
             alignEpisodeScroll(position);
         });
     }

@@ -1778,6 +1778,28 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void leanbackPlaybackEpisodeDialogFocusesCurrentEpisodeOnOpen() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "EpisodeListDialog.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int selected = source.indexOf("private void scrollToSelectedEpisode()");
+        int selectedEnd = source.indexOf("private void scrollToSegment(int episodePosition)", selected);
+        int scroll = source.indexOf("private void scrollToEpisode(int position, boolean requestFocus)");
+        int scrollEnd = source.indexOf("\n    @Override", scroll);
+        String selectedBody = selected >= 0 && selectedEnd > selected ? source.substring(selected, selectedEnd) : "";
+        String scrollBody = scroll >= 0 && scrollEnd > scroll ? source.substring(scroll, scrollEnd) : "";
+
+        assertTrue(sourcePath + " is missing current episode focus hooks", selected >= 0 && scroll >= 0);
+        assertTrue("episode dialog must resolve and reveal the currently playing episode when it opens",
+                selectedBody.contains("int position = getSelectedEpisodePosition(allEpisodes);")
+                        && selectedBody.contains("scrollToSegment(position);")
+                        && selectedBody.contains("scrollToEpisode(position - getSegmentStart(selectedSegment), true);"));
+        assertTrue("episode dialog must focus the current episode card instead of the grid's default child",
+                scrollBody.contains("if (requestFocus) focusPosition(binding.episode, position);"));
+        assertFalse("episode dialog must not rely on container focus because it can select the first or previously focused card",
+                scrollBody.contains("if (requestFocus) binding.episode.requestFocus();"));
+    }
+
+    @Test
     public void leanbackNativeEnhancedEpisodeGridExpandsWithDetailScroll() throws Exception {
         Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
