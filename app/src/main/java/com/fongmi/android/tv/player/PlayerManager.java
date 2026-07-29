@@ -120,6 +120,7 @@ public class PlayerManager implements ParseCallback {
     private final LiveDanmakuBuffer liveDanmakuBuffer;
     private final LiveDanmakuMetrics liveDanmakuMetrics;
     private final SpeedToggleState speedToggleState;
+    private final ExoSpeedRestoreState exoSpeedRestoreState;
     private DanmakuController danmakuController;
     private LiveDanmakuWebSocketSession liveDanmakuSession;
     private PlayerEngine engine;
@@ -186,6 +187,7 @@ public class PlayerManager implements ParseCallback {
         this.liveDanmakuMetrics = new LiveDanmakuMetrics();
         this.liveDanmakuBatcher = new LiveDanmakuBatcher(liveDanmakuBuffer, this::onLiveDanmakuBatch);
         this.speedToggleState = new SpeedToggleState();
+        this.exoSpeedRestoreState = new ExoSpeedRestoreState();
         this.dynamicLutEffect = new DynamicLutEffect();
         this.audioFocusChangeListener = this::onNativeAudioFocusChanged;
         this.noisyReceiver = new BroadcastReceiver() {
@@ -204,6 +206,7 @@ public class PlayerManager implements ParseCallback {
 
     public void release() {
         prepareSeq++;
+        exoSpeedRestoreState.clear();
         lutApplySeq++;
         player.removeListener(listener);
         App.removeCallbacks(runnable);
@@ -320,7 +323,8 @@ public class PlayerManager implements ParseCallback {
     }
 
     public float getSpeed() {
-        return player.getPlaybackParameters().speed;
+        float speed = player.getPlaybackParameters().speed;
+        return isExo() ? exoSpeedRestoreState.effectiveSpeed(speed) : speed;
     }
 
     public boolean isEmpty() {
@@ -742,7 +746,11 @@ public class PlayerManager implements ParseCallback {
             realtime.disable();
             Notify.show(R.string.subtitle_realtime_speed_disabled);
         }
-        player.setPlaybackParameters(player.getPlaybackParameters().withSpeed(speed));
+        if (isExo() && exoSpeedRestoreState.deferSpeed(speed)) {
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "exo speed deferred target=%.2f", speed);
+            return getSpeedText();
+        }
+        setActualPlaybackSpeed(speed);
         return getSpeedText();
     }
 
@@ -805,6 +813,52 @@ public class PlayerManager implements ParseCallback {
         }
     }
 
+    static final class ExoSpeedRestoreState {
+
+        private int generation = -1;
+        private float targetSpeed = Float.NaN;
+
+        float beginPrepare(int generation, float desiredSpeed) {
+            this.generation = generation;
+            this.targetSpeed = desiredSpeed;
+            return 1.0f;
+        }
+
+        void cancelPrepare(int generation) {
+            if (this.generation == generation) this.generation = -1;
+        }
+
+        boolean deferSpeed(float speed) {
+            if (!hasDeferredSpeed()) return false;
+            targetSpeed = speed;
+            return true;
+        }
+
+        float effectiveSpeed(float actualSpeed) {
+            return hasDeferredSpeed() ? targetSpeed : actualSpeed;
+        }
+
+        float takeReadySpeed(int generation) {
+            if (!isPending() || this.generation != generation) return Float.NaN;
+            float speed = targetSpeed;
+            clear();
+            return speed;
+        }
+
+        void clear() {
+            generation = -1;
+            targetSpeed = Float.NaN;
+        }
+
+        private boolean hasDeferredSpeed() {
+            return !Float.isNaN(targetSpeed);
+        }
+
+        private boolean isPending() {
+            return generation >= 0 && hasDeferredSpeed();
+        }
+    }
+
     private float nextPresetSpeed() {
         float speed = getSpeed();
         for (float preset : SPEED_PRESETS) if (speed < preset - 0.01f) return preset;
@@ -842,6 +896,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void clearMediaItems() {
+        engine.cancelPendingPrepare();
         stopNativeAudioSession();
         clearDanmaku("clear_media_items");
         player.clearMediaItems();
@@ -887,6 +942,7 @@ public class PlayerManager implements ParseCallback {
 
     public void clear() {
         prepareSeq++;
+        if (engine != null) engine.cancelPendingPrepare();
         lutApplySeq++;
         resetMpvOutputRuntime();
         spec = null;
@@ -1326,11 +1382,27 @@ public void resetTrack(int type) {
     }
 
     private PlayerEngine buildEngine(int type, int decode) {
+        if (type != PlayerSetting.EXO) exoSpeedRestoreState.clear();
         return switch (type) {
             case PlayerSetting.IJK -> new IjkPlayerEngine(decode, listener);
             case PlayerSetting.SYSTEM -> new SystemPlayerEngine(decode, listener);
             case PlayerSetting.MPV -> new MpvPlayerEngine(decode, listener, this::onMpvVideoSizeProbed);
-            default -> new ExoPlayerEngine(decode, listener);
+            default -> new ExoPlayerEngine(decode, listener, new ExoPlayerEngine.PrepareListener() {
+                @Override
+                public void onPrepareStarted(int generation) {
+                    prepareExoSpeedForMediaItem(generation);
+                }
+
+                @Override
+                public void onPrepareReady(int generation) {
+                    restoreExoSpeedAfterPrepare(generation);
+                }
+
+                @Override
+                public void onPrepareCanceled(int generation) {
+                    cancelExoSpeedPrepare(generation);
+                }
+            });
         };
     }
 
@@ -1517,6 +1589,35 @@ public void resetTrack(int type) {
                 setMediaItemNow(timeout, true);
             });
         });
+    }
+
+    private void prepareExoSpeedForMediaItem(int generation) {
+        if (!isExo() || player == null || !player.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH)) {
+            exoSpeedRestoreState.clear();
+            return;
+        }
+        float actualSpeed = player.getPlaybackParameters().speed;
+        float targetSpeed = getSpeed();
+        // Avoid configuring MediaCodec with an accelerated operating rate on affected Android TV decoders.
+        setActualPlaybackSpeed(exoSpeedRestoreState.beginPrepare(generation, targetSpeed));
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "exo speed prepare generation=%d target=%.2f previous=%.2f", generation, targetSpeed, actualSpeed);
+    }
+
+    private void restoreExoSpeedAfterPrepare(int generation) {
+        if (!isExo() || player == null || !player.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH)) return;
+        float speed = exoSpeedRestoreState.takeReadySpeed(generation);
+        if (Float.isNaN(speed)) return;
+        setActualPlaybackSpeed(speed);
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "exo speed restored generation=%d target=%.2f", generation, speed);
+    }
+
+    private void cancelExoSpeedPrepare(int generation) {
+        exoSpeedRestoreState.cancelPrepare(generation);
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "exo speed prepare canceled generation=%d", generation);
+    }
+
+    private void setActualPlaybackSpeed(float speed) {
+        player.setPlaybackParameters(player.getPlaybackParameters().withSpeed(speed));
     }
 
     private void setMediaItemNow(long timeout, boolean notifyPrepare) {
