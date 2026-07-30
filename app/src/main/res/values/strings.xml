@@ -2272,4 +2272,5 @@
 
 <string name="player_audio_repeat">Repeat</string>
 
+    <string name="web_theme_detail_loading">正在加载详情页…</string>
 </resources>

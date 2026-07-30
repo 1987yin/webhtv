@@ -660,7 +660,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         startDirect(activity, key, id, name, pic, mark, playFlag, playEpisodeName, playEpisodeUrl, false);
     }
 
-    private static void startDirect(Activity activity, String key, String id, String name, String pic, String mark,
+    public static void startDirect(Activity activity, String key, String id, String name, String pic, String mark,
                                     String playFlag, String playEpisodeName, String playEpisodeUrl, boolean resumeFromHistory) {
         if (AudioActivity.startSite(activity, key, id, name, pic, mark)) return;
         Intent intent = new Intent(activity, VideoActivity.class);
