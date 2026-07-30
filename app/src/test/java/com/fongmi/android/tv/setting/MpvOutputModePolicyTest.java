@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.setting;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -23,5 +24,11 @@ public class MpvOutputModePolicyTest {
         assertFalse(MpvPerformanceSetting.resolveSurfaceDirect(MpvPerformanceSetting.OUTPUT_AUTO, true, true, true));
         assertFalse(MpvPerformanceSetting.resolveSurfaceDirect(MpvPerformanceSetting.OUTPUT_AUTO, false, true, true));
         assertFalse(MpvPerformanceSetting.resolveSurfaceDirect(MpvPerformanceSetting.OUTPUT_AUTO, true, false, true));
+    }
+
+    @Test
+    public void stabilityGuardDisablesSurfaceFrameRateSwitching() {
+        assertEquals(MpvPerformanceSetting.FRAME_RATE_OFF, MpvPerformanceSetting.resolveFrameRateMode(MpvPerformanceSetting.FRAME_RATE_SEAMLESS));
+        assertEquals(MpvPerformanceSetting.FRAME_RATE_OFF, MpvPerformanceSetting.resolveFrameRateMode(MpvPerformanceSetting.FRAME_RATE_OFF));
     }
 }

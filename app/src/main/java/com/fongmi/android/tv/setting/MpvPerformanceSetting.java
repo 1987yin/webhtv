@@ -176,7 +176,12 @@ public final class MpvPerformanceSetting {
     }
 
     public static int getFrameRateMode() {
-        return clamp(Prefers.getInt(KEY_FRAME_RATE, FRAME_RATE_SEAMLESS), FRAME_RATE_OFF, FRAME_RATE_SEAMLESS);
+        return resolveFrameRateMode(Prefers.getInt(KEY_FRAME_RATE, FRAME_RATE_SEAMLESS));
+    }
+
+    static int resolveFrameRateMode(int value) {
+        int mode = clamp(value, FRAME_RATE_OFF, FRAME_RATE_SEAMLESS);
+        return STABILITY_GUARD_ENABLED ? FRAME_RATE_OFF : mode;
     }
 
     public static void putFrameRateMode(int value) {
