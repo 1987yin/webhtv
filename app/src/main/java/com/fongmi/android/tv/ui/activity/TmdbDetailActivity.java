@@ -5557,8 +5557,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private boolean isHistoryEpisode(Episode episode, History item) {
         if (episode == null || item == null) return false;
+        Episode saved = item.getEpisode();
+        if (item.getTmdbEpisodeNumber() > 0 && episode.getTmdbEpisode() != null && episode.getTmdbEpisode().getNumber() > 0) {
+            return episode.matchesPlayback(saved);
+        }
         if (!TextUtils.isEmpty(item.getEpisodeUrl()) && item.getEpisodeUrl().equals(episode.getUrl())) return true;
-        return episode.matchesName(item.getEpisode()) || episode.getDisplayName().equals(item.getVodRemarks()) || historyEpisodeTitle(episode).equals(item.getVodRemarks());
+        return episode.matchesName(saved) || episode.getDisplayName().equals(item.getVodRemarks()) || historyEpisodeTitle(episode).equals(item.getVodRemarks());
     }
 
     private String historyEpisodeTitle(Episode episode) {
@@ -5589,11 +5593,18 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         History saved = History.find(getHistoryKey());
         if (saved == null || !isHistoryEpisode(selectedEpisode, saved)) return;
         String title = historyEpisodeTitle(selectedEpisode);
-        if (TextUtils.isEmpty(title) || title.equals(saved.getVodRemarks())) return;
+        boolean changed = selectedEpisode.getTmdbEpisode() != null && saved.setTmdbEpisodePosition(selectedEpisode);
+        if (!TextUtils.isEmpty(title) && !title.equals(saved.getVodRemarks())) {
+            saved.setVodRemarks(title);
+            changed = true;
+        }
+        if (!TextUtils.equals(selectedEpisode.getUrl(), saved.getEpisodeUrl())) {
+            saved.setEpisodeUrl(selectedEpisode.getUrl());
+            changed = true;
+        }
+        if (!changed) return;
         saved.setVodName(playbackHistoryName());
         saved.setVodPic(playbackHistoryPic());
-        saved.setVodRemarks(title);
-        saved.setEpisodeUrl(selectedEpisode.getUrl());
         saved.save();
         history = saved;
         syncDanmakuCompatHistory();
@@ -9367,6 +9378,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         history.setVodFlag(selectedFlag.getFlag());
         history.setVodRemarks(historyEpisodeTitle(item));
         history.setEpisodeUrl(item.getUrl());
+        if (item.getTmdbEpisode() != null || !sameEpisode) history.setTmdbEpisodePosition(item);
         history.setVodPic(playbackHistoryPic());
         // 富集字段：TMDB 优先，回退源站 Vod。仅补空字段，避免匹配失败时用空值覆盖已有数据（老记录也可补齐）
         history.enrichMeta(

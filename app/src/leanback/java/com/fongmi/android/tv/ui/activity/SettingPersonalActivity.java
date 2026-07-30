@@ -38,6 +38,7 @@ public class SettingPersonalActivity extends BaseActivity {
     private String[] searchColumn;
     private String[] searchResultSort;
     private String[] tmdbMatchMode;
+    private String[] globalHistoryMode;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, SettingPersonalActivity.class));
@@ -68,6 +69,7 @@ public class SettingPersonalActivity extends BaseActivity {
         mBinding.homeMenuKey.setOnClickListener(this::setHomeMenuKey);
         mBinding.playBackToDetail.setOnClickListener(this::setPlayBackToDetail);
         mBinding.episodeHistory.setOnClickListener(this::setEpisodeHistory);
+        mBinding.globalHistory.setOnClickListener(this::setGlobalHistory);
         mBinding.historyAggregation.setOnClickListener(this::setHistoryAggregation);
         mBinding.playSpeed.setOnClickListener(this::setPlaySpeed);
         mBinding.tmdbMatchMode.setOnClickListener(this::setTmdbMatchMode);
@@ -96,6 +98,7 @@ public class SettingPersonalActivity extends BaseActivity {
         mBinding.homeMenuKeyText.setText((homeMenuKey = getResources().getStringArray(R.array.select_home_menu_key))[Setting.getHomeMenuKey()]);
         mBinding.playBackToDetailText.setText(getSwitch(Setting.isPlayBackToDetail()));
         mBinding.episodeHistoryText.setText(getSwitch(Setting.isEpisodeHistory()));
+        mBinding.globalHistoryText.setText((globalHistoryMode = getResources().getStringArray(R.array.select_global_history_mode))[Setting.getGlobalHistoryMode()]);
         mBinding.historyAggregation.setVisibility(Setting.isTmdbReady() ? View.VISIBLE : View.GONE);
         mBinding.historyAggregationText.setText(getSwitch(Setting.isHistoryAggregationByTmdb()));
         mBinding.playSpeedText.setText(getSpeedText(PlayerSetting.getDefaultSpeed()));
@@ -172,6 +175,12 @@ public class SettingPersonalActivity extends BaseActivity {
 
     private void setEpisodeHistory(View view) {
         Setting.putEpisodeHistory(!Setting.isEpisodeHistory());
+        setText();
+    }
+
+    private void setGlobalHistory(View view) {
+        Setting.putGlobalHistoryMode((Setting.getGlobalHistoryMode() + 1) % globalHistoryMode.length);
+        RefreshEvent.history();
         setText();
     }
 

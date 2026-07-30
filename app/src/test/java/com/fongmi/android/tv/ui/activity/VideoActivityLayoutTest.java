@@ -662,7 +662,7 @@ public class VideoActivityLayoutTest {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         String init = methodBody(source, "protected void initView(Bundle savedInstanceState)", "private void setupIntroSkipConfirmListener()");
-        String checkFlag = methodBody(source, "private void checkFlag(Vod item)", "private void checkHistory(Vod item)");
+        String checkFlag = methodBody(source, "private void checkFlag(Vod item)", "private boolean checkHistory(Vod item)");
         String episodeClick = methodBody(source, "public void onItemClick(Episode item)", "public void onItemClick(EpisodeGroupAdapter.Group item)");
 
         assertTrue("mobile recreation must remember that an existing service playback should be preserved",
@@ -706,7 +706,7 @@ public class VideoActivityLayoutTest {
         String mobileControl = new String(Files.readAllBytes(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "ControlDialog.java"))), StandardCharsets.UTF_8);
         String leanbackControl = new String(Files.readAllBytes(findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "ControlDialog.java"))), StandardCharsets.UTF_8);
         String playerManager = new String(Files.readAllBytes(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "player", "PlayerManager.java"))), StandardCharsets.UTF_8);
-        String mobileCheckHistory = methodBody(mobile, "private void checkHistory(Vod item)", "private void enrichHistoryMeta(Vod item)");
+        String mobileCheckHistory = methodBody(mobile, "private boolean checkHistory(Vod item)", "private void enrichHistoryMeta(Vod item)");
         String mobileSetSpeed = methodBody(mobile, "private void setSpeed()", "private void checkOrientation()");
         String mobilePlaybackSpeed = methodBody(mobile, "private float getPlaybackSpeed()", "private void checkOrientation()");
         String mobileSaveUserSpeed = methodBody(mobile, "private void saveUserSpeed()", "private void onReset()");
@@ -714,7 +714,7 @@ public class VideoActivityLayoutTest {
         String mobileSpeedEnd = methodBody(mobile, "public void onSpeedEnd()", "public void onBright(int progress)");
         String mobileApplySpeed = methodBody(mobileControl, "private void applySpeed(float speed)", "private void setSpeedPreset(View view)");
         String leanbackFastHistory = methodBody(leanback, "private void prepareFastTmdbPlaybackHistory(Vod item, Flag flag, Episode episode)", "private void selectFastTmdbPlaybackEpisode(Vod item, Flag selectedFlag, Episode selectedEpisode)");
-        String leanbackCheckHistory = methodBody(leanback, "private void checkHistory(Vod item)", "private void enrichHistoryMeta(Vod item)");
+        String leanbackCheckHistory = methodBody(leanback, "private boolean checkHistory(Vod item)", "private void enrichHistoryMeta(Vod item)");
         String leanbackSetSpeed = methodBody(leanback, "private void setSpeed()", "private void checkEnded(boolean notify)");
         String leanbackPlaybackSpeed = methodBody(leanback, "private float getPlaybackSpeed()", "private void checkEnded(boolean notify)");
         String leanbackSaveUserSpeed = methodBody(leanback, "private void saveUserSpeed()", "private void onReset()");
@@ -2448,7 +2448,7 @@ public class VideoActivityLayoutTest {
         String historyStartBody = historyStart >= 0 && historyStartEnd > historyStart ? video.substring(historyStart, historyStartEnd).replaceAll("\\s+", " ") : "";
 
         assertTrue("history clicks must use the history-aware playback entry point",
-                compactHistory.contains("VideoActivity.startFromHistory(this, item)"));
+                compactHistory.contains("HistoryResumeCoordinator.open(this, item)"));
         assertTrue("history playback must respect the configured standalone detail mode",
                 historyStartBody.contains("if (shouldOpenLegacyTmdbDetail(item.getSiteKey(), item.getVodId()))"));
         assertTrue("standalone detail mode must use the normal detail-aware start path",
@@ -2471,7 +2471,7 @@ public class VideoActivityLayoutTest {
         String historyStartBody = historyStart >= 0 && historyStartEnd > historyStart ? video.substring(historyStart, historyStartEnd).replaceAll("\\s+", " ") : "";
 
         assertTrue("TV history clicks must use the history-aware playback entry point",
-                compactHistory.contains("VideoActivity.startFromHistory(this, item)"));
+                compactHistory.contains("HistoryResumeCoordinator.open(this, item)"));
         assertTrue("TV history playback must respect the configured standalone detail mode",
                 historyStartBody.contains("if (shouldOpenLegacyTmdbDetail(item.getSiteKey(), item.getVodId(), false))"));
         assertTrue("TV standalone detail mode must use the normal detail-aware start path",

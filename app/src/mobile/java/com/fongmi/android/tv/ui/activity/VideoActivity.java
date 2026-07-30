@@ -319,6 +319,8 @@ private int mAudioBackgroundRandomNonce;
     private static final String EXTRA_TMDB_PLAY_EPISODE_NAME = "tmdb_play_episode_name";
     private static final String EXTRA_TMDB_PLAY_EPISODE_URL = "tmdb_play_episode_url";
     private static final String EXTRA_RESUME_FROM_HISTORY = "resume_from_history";
+    private static final String EXTRA_RESUME_HISTORY_CID = "resume_history_cid";
+    private static final String EXTRA_RESUME_HISTORY_KEY = "resume_history_key";
     private static final String EXTRA_TMDB_VOD_CACHE_KEY = "tmdb_vod_cache_key";
     private static final String EXTRA_TMDB_DETAIL_THEME = "tmdb_detail_theme";
     private static final String EXTRA_IMMERSIVE_AUDIO_CACHE_KEY = "immersive_audio_cache_key";
@@ -613,13 +615,31 @@ private int mAudioBackgroundRandomNonce;
         start(activity, key, id, name, pic, mark, false, tmdbItem);
     }
 
-    static void startFromHistory(Activity activity, History item) {
+    public static void startFromHistory(Activity activity, History item) {
         if (shouldOpenLegacyTmdbDetail(item.getSiteKey(), item.getVodId())) {
             start(activity, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), item.getVodRemarks());
             return;
         }
         startDirect(activity, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), item.getVodRemarks(),
                 item.getVodFlag(), item.getVodRemarks(), item.getEpisodeUrl(), true);
+    }
+
+    public static void startFromResolvedHistory(Activity activity, History source, Vod target, Flag flag, Episode episode) {
+        if (source == null || target == null || flag == null || episode == null) return;
+        Intent intent = new Intent(activity, VideoActivity.class);
+        intent.putExtra("collect", false);
+        intent.putExtra("mark", episode.getName());
+        intent.putExtra("name", target.getName());
+        intent.putExtra("pic", target.getPic());
+        intent.putExtra("wallPic", source.getWallPic());
+        intent.putExtra("key", target.getSiteKey());
+        intent.putExtra("id", target.getId());
+        intent.putExtra(EXTRA_RESUME_FROM_HISTORY, true);
+        intent.putExtra(EXTRA_RESUME_HISTORY_CID, source.getCid());
+        intent.putExtra(EXTRA_RESUME_HISTORY_KEY, source.getKey());
+        putIntentPlaybackSelection(intent, flag.getFlag(), episode.getName(), episode.getUrl());
+        putDetailVodCache(intent, target);
+        activity.startActivity(intent);
     }
 
     public static void startDirect(Activity activity, String key, String id, String name, String pic) {
@@ -810,6 +830,16 @@ private int mAudioBackgroundRandomNonce;
         return getIntent().getBooleanExtra(EXTRA_RESUME_FROM_HISTORY, false);
     }
 
+    private History getIntentResumeHistory() {
+        String key = Objects.toString(getIntent().getStringExtra(EXTRA_RESUME_HISTORY_KEY), "");
+        if (key.isEmpty()) return null;
+        return History.find(getIntent().getIntExtra(EXTRA_RESUME_HISTORY_CID, VodConfig.getCid()), key);
+    }
+
+    private boolean hasIntentResumeHistory() {
+        return !TextUtils.isEmpty(getIntent().getStringExtra(EXTRA_RESUME_HISTORY_KEY));
+    }
+
     private String getTmdbVodCacheKey() {
         return Objects.toString(getIntent().getStringExtra(EXTRA_TMDB_VOD_CACHE_KEY), "");
     }
@@ -885,14 +915,13 @@ private int mAudioBackgroundRandomNonce;
     }
 
     /**
-     * 跨源聚合：取当前已知的 TMDB ID（优先适配器匹配结果，其次 intent 携带的 tmdbItem）。
-     * 从 TMDB 详情进入播放时 intent 已带 tmdbItem，checkHistory 阶段即可拿到，用于首次进入就跨源续播。
+     * 跨源聚合必须携带完整 TMDB 身份（mediaType + tmdbId），避免电影与剧集数字 ID 相同时串进度。
      */
-    private int getMatchedTmdbId() {
-        if (!Setting.isHistoryAggregationEffective()) return 0;
-        com.fongmi.android.tv.bean.TmdbItem item = mTmdbUIAdapter == null ? null : mTmdbUIAdapter.getTmdbItem();
+    private TmdbItem getHistoryTmdbItem() {
+        if (!Setting.isHistoryAggregationEffective()) return null;
+        TmdbItem item = mTmdbUIAdapter == null ? null : mTmdbUIAdapter.getTmdbItem();
         if (item == null) item = getTmdbItem();
-        return item == null ? 0 : item.getTmdbId();
+        return item;
     }
 
     /**
@@ -902,10 +931,10 @@ private int mAudioBackgroundRandomNonce;
      */
     private boolean stampHistoryTmdbId() {
         if (mHistory == null || !Setting.isHistoryAggregationEffective()) return false;
-        com.fongmi.android.tv.bean.TmdbItem item = mTmdbUIAdapter == null ? null : mTmdbUIAdapter.getTmdbItem();
+        TmdbItem item = mTmdbUIAdapter == null ? null : mTmdbUIAdapter.getTmdbItem();
         if (item == null) item = getTmdbItem();
         if (item == null || item.getTmdbId() <= 0) return false;
-        if (mHistory.getTmdbId() == item.getTmdbId()) return false;
+        if (mHistory.getTmdbId() == item.getTmdbId() && TextUtils.equals(mHistory.getMediaType(), item.getMediaType())) return false;
         mHistory.setTmdbId(item.getTmdbId());
         mHistory.setMediaType(item.getMediaType());
         return true;
@@ -1023,6 +1052,8 @@ private int mAudioBackgroundRandomNonce;
         getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_NAME);
         getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_URL);
         getIntent().removeExtra(EXTRA_RESUME_FROM_HISTORY);
+        getIntent().removeExtra(EXTRA_RESUME_HISTORY_CID);
+        getIntent().removeExtra(EXTRA_RESUME_HISTORY_KEY);
         getIntent().putExtras(intent);
         if (mTmdbUIAdapter != null) mTmdbUIAdapter.beginDetailRequest();
         setOrient();
@@ -1722,7 +1753,7 @@ private int mAudioBackgroundRandomNonce;
         }
         mFlagAdapter.addAll(item.getFlags());
         App.removeCallbacks(mR4);
-        checkHistory(item);
+        if (!checkHistory(item)) return;
         checkFlag(item);
         checkKeepImg();
         updateTmdbKeepState();
@@ -3452,24 +3483,34 @@ private int mAudioBackgroundRandomNonce;
         mRestoringConfigurationPlayback = false;
     }
 
-    private void checkHistory(Vod item) {
-        int tmdbId = getMatchedTmdbId();
-        mHistory = History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), tmdbId);
+    private boolean checkHistory(Vod item) {
+        TmdbItem tmdbItem = getHistoryTmdbItem();
+        History resumeHistory = getIntentResumeHistory();
+        if (hasIntentResumeHistory() && resumeHistory == null) {
+            Notify.show(R.string.history_record_missing);
+            finish();
+            return false;
+        }
+        mHistory = resumeHistory == null
+                ? History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), tmdbItem)
+                : resumeHistory.forPlaybackKey(getHistoryKey(), VodConfig.getCid());
         mHistory = mHistory == null ? createHistory(item) : mHistory;
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
         applyIntentPlaybackSelection(item);
-        if (Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
+        if (resumeHistory == null && Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
         mBinding.control.action.opening.setText(mHistory.getOpening() <= 0 ? getString(R.string.play_op) : Util.timeMs(mHistory.getOpening()));
         mBinding.control.action.ending.setText(mHistory.getEnding() <= 0 ? getString(R.string.play_ed) : Util.timeMs(mHistory.getEnding()));
         // 如果历史记录中已有有效倍速，使用历史倍速；否则使用默认播放倍速
         float speed = getPlaybackSpeed();
         mBinding.control.action.speed.setText(player().setSpeed(speed));
         mHistory.setVodName(item.getName());
+        mHistory.setVodPic(getInitialArtwork(item));
         enrichHistoryMeta(item);
         PlaybackEventCollector.get().updateHistory(mHistory);
         setArtwork(getInitialArtwork(item));
         setScale(getScale());
+        return true;
     }
 
     /**
@@ -3567,6 +3608,7 @@ private int mAudioBackgroundRandomNonce;
         if (episode == null) return;
         mHistory.setVodRemarks(getHistoryEpisodeName(episode));
         mHistory.setEpisodeUrl(episode.getUrl());
+        if (episode.getTmdbEpisode() != null || !sameEpisode) mHistory.setTmdbEpisodePosition(episode);
     }
 
     private Flag findIntentPlaybackFlag(List<Flag> flags, String playFlag, String playUrl) {
@@ -3669,6 +3711,7 @@ private int mAudioBackgroundRandomNonce;
         mHistory.setVodFlag(getFlag().getFlag());
         mHistory.setVodRemarks(getHistoryEpisodeName(item));
         mHistory.setEpisodeUrl(item.getUrl());
+        if (item.getTmdbEpisode() != null || !sameEpisode) mHistory.setTmdbEpisodePosition(item);
         PlaybackEventCollector.get().updateHistory(mHistory);
     }
 
@@ -3808,10 +3851,16 @@ private int mAudioBackgroundRandomNonce;
         Episode episode = flag.find(mHistory.getEpisode(), true);
         if (episode == null) return false;
         String title = getHistoryEpisodeName(episode);
-        if (TextUtils.isEmpty(title) || TextUtils.equals(title, mHistory.getVodRemarks())) return false;
-        mHistory.setVodRemarks(title);
-        mHistory.setEpisodeUrl(episode.getUrl());
-        return true;
+        boolean changed = episode.getTmdbEpisode() != null && mHistory.setTmdbEpisodePosition(episode);
+        if (!TextUtils.isEmpty(title) && !TextUtils.equals(title, mHistory.getVodRemarks())) {
+            mHistory.setVodRemarks(title);
+            changed = true;
+        }
+        if (!TextUtils.equals(episode.getUrl(), mHistory.getEpisodeUrl())) {
+            mHistory.setEpisodeUrl(episode.getUrl());
+            changed = true;
+        }
+        return changed;
     }
 
     private void updateFlag(Flag activated, List<Flag> items) {

@@ -663,7 +663,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         }
         int headerIndex = mAdapter.indexOf(R.string.home_history);
         if (headerIndex == -1) mAdapter.add(getRecommendHeaderIndex(), R.string.home_history);
-        List<History> items = History.get();
+        List<History> items = History.getForDisplay();
         int historyIndex = getHistoryIndex();
         int recommendIndex = getRecommendIndex();
         boolean exist = recommendIndex - historyIndex == 2;
@@ -692,8 +692,21 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void clearHistory() {
+        if (!Setting.isGlobalHistoryEnabled()) {
+            performClearHistory();
+            return;
+        }
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(R.string.dialog_delete_record)
+                .setMessage(R.string.dialog_delete_global_history)
+                .setNegativeButton(R.string.dialog_negative, null)
+                .setPositiveButton(R.string.dialog_positive, (dialog, which) -> performClearHistory())
+                .show();
+    }
+
+    private void performClearHistory() {
         mAdapter.removeItems(getHistoryIndex(), 1);
-        History.delete(VodConfig.getCid());
+        History.deleteForDisplay();
         mPresenter.setDelete(false);
         mHistoryAdapter.clear();
     }
@@ -885,12 +898,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     @Override
     public void onItemClick(History item) {
-        VideoActivity.start(this, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), null, item.getWallPic());
+        HistoryResumeCoordinator.open(this, item);
     }
 
     @Override
     public void onItemDelete(History item) {
-        mHistoryAdapter.remove(item.delete());
+        mHistoryAdapter.remove(item.deleteDisplayItem());
         if (mHistoryAdapter.size() > 0) return;
         mAdapter.removeItems(getHistoryIndex(), 1);
         mPresenter.setDelete(false);

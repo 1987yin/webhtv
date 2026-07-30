@@ -34,6 +34,7 @@ public class SettingPersonalFragment extends BaseFragment {
     private String[] searchColumn;
     private String[] siteColumn;
     private String[] tmdbMatchMode;
+    private String[] globalHistoryMode;
     private String[] searchResultSort;
 
     public static SettingPersonalFragment newInstance() {
@@ -60,6 +61,7 @@ public class SettingPersonalFragment extends BaseFragment {
         mBinding.autoBackup.setOnClickListener(this::setAutoBackup);
         mBinding.playBackToDetail.setOnClickListener(this::setPlayBackToDetail);
         mBinding.episodeHistory.setOnClickListener(this::setEpisodeHistory);
+        mBinding.globalHistory.setOnClickListener(this::setGlobalHistory);
         mBinding.historyAggregation.setOnClickListener(this::setHistoryAggregation);
         mBinding.playSpeed.setOnClickListener(this::setPlaySpeed);
         mBinding.tmdbMatchMode.setOnClickListener(this::setTmdbMatchMode);
@@ -78,6 +80,7 @@ public class SettingPersonalFragment extends BaseFragment {
         mBinding.autoBackupText.setText(getSwitch(isAutoBackupEnabled()));
         mBinding.playBackToDetailText.setText(getSwitch(Setting.isPlayBackToDetail()));
         mBinding.episodeHistoryText.setText(getSwitch(Setting.isEpisodeHistory()));
+        mBinding.globalHistoryText.setText((globalHistoryMode = getResources().getStringArray(R.array.select_global_history_mode))[Setting.getGlobalHistoryMode()]);
         mBinding.historyAggregation.setVisibility(Setting.isTmdbReady() ? View.VISIBLE : View.GONE);
         mBinding.historyAggregationText.setText(getSwitch(Setting.isHistoryAggregationByTmdb()));
         mBinding.playSpeedText.setText(getSpeedText(PlayerSetting.getDefaultSpeed()));
@@ -142,6 +145,12 @@ public class SettingPersonalFragment extends BaseFragment {
 
     private void setEpisodeHistory(View view) {
         Setting.putEpisodeHistory(!Setting.isEpisodeHistory());
+        setText();
+    }
+
+    private void setGlobalHistory(View view) {
+        Setting.putGlobalHistoryMode((Setting.getGlobalHistoryMode() + 1) % globalHistoryMode.length);
+        RefreshEvent.history();
         setText();
     }
 
