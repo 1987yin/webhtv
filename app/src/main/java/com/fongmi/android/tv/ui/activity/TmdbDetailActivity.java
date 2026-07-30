@@ -654,10 +654,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         personalTmdbAdapter = new TmdbRailAdapter(this::openRelatedItem);
         personalDoubanAdapter = new TmdbRailAdapter(this::openRelatedItem);
         personalAiAdapter = new TmdbRailAdapter(this::openRelatedItem);
-        personalAiAdapter.setOnItemLongClickListener(item -> {
-            com.fongmi.android.tv.ui.dialog.AiRecommendationInfoDialog.show(this, item);
-            return true;
-        });
+        relatedAdapter.setOnItemLongClickListener(item -> onRecommendationLongClick(item, "related"));
+        personalTmdbAdapter.setOnItemLongClickListener(item -> onRecommendationLongClick(item, "tmdb"));
+        personalDoubanAdapter.setOnItemLongClickListener(item -> onRecommendationLongClick(item, "douban"));
+        personalAiAdapter.setOnItemLongClickListener(item -> onRecommendationLongClick(item, "ai"));
         personalAiAdapter.setOnItemFocusListener(this::showAiRecommendationReason);
         castAdapter.setCinema(isCinemaMode());
         creatorAdapter.setCinema(isCinemaMode());
@@ -2270,7 +2270,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 item.getOriginalLanguage(),
                 item.getOriginCountry(),
                 item.getGenreIds(),
-                item.getDepartment());
+                item.getDepartment(),
+                item.getTmdbRating(),
+                item.getDoubanRating(),
+                item.getRecommendationReason());
     }
 
     private String tmdbDetailTitle(TmdbItem item, JsonObject detail) {
@@ -2294,6 +2297,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             List<TmdbItem> related = new ArrayList<>();
             List<TmdbItem> personalTmdb = new ArrayList<>();
             List<TmdbItem> personalDouban = new ArrayList<>();
+            PersonalRecommendationService recommendationService = new PersonalRecommendationService(tmdbService, tmdbConfig);
             try {
                 cast = tmdbService.cast(bundle.detail(), tmdbConfig);
             } catch (Throwable ignored) {
@@ -2314,8 +2318,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             }
             try {
                 if (Setting.isPersonalRecommendation()) {
-                    PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
-                    PersonalRecommendationService.RecommendationPages pages = service.loadPage(currentVod, bundle.item(), bundle.detail(), 0, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
+                    PersonalRecommendationService.RecommendationPages pages = recommendationService.loadPage(currentVod, bundle.item(), bundle.detail(), 0, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
                     personalTmdb = TmdbRecommendationRows.personalTmdb(pages.getTmdb().getItems(), related);
                     personalDouban = TmdbRecommendationRows.personalDouban(pages.getDouban().getItems(), related, personalTmdb);
                 }
@@ -2347,6 +2350,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 bindTmdbSection();
                 loadTmdbPersonalAi(bundle, currentVod, finalRelated, finalPersonalTmdb, finalPersonalDouban, generation);
             });
+            recommendationService.enrichTmdbRatingsAsync(finalRelated,
+                    enriched -> applyTmdbRatingEnrichment(bundle, relatedItems, enriched, generation));
+            recommendationService.enrichTmdbRatingsAsync(finalPersonalTmdb,
+                    enriched -> applyTmdbRatingEnrichment(bundle, personalTmdbItems, enriched, generation));
         });
     }
 
@@ -2361,6 +2368,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 List<TmdbItem> cachedAi = TmdbRecommendationRows.personalAi(cached.getPage().getItems(), List.of(), List.of(), List.of());
                 SpiderDebug.log("tmdb", "detail personal ai early cache hit exact=%s resolved=%s cost=%dms count=%d title=%s", cached.isExact(), cached.isResolved(), System.currentTimeMillis() - start, cachedAi.size(), bundle.item().getTitle());
                 applyTmdbPersonalAi(bundle, cachedAi, generation, false);
+
+                service.enrichTmdbPageRatingsAsync(cached.getPage(), enrichedPage -> {
+                    List<TmdbItem> enrichedAi = TmdbRecommendationRows.personalAi(enrichedPage.getItems(), List.of(), List.of(), List.of());
+                    SpiderDebug.log("tmdb", "detail personal ai early ratings cost=%dms count=%d title=%s", System.currentTimeMillis() - start, enrichedAi.size(), bundle.item().getTitle());
+                    applyTmdbRatingEnrichment(bundle, personalAiItems, enrichedAi, generation);
+                });
             } catch (Throwable e) {
                 SpiderDebug.log("tmdb", "detail personal ai early cache failed error=%s", e.getMessage());
             }
@@ -2390,9 +2403,21 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             } catch (Throwable e) {
                 SpiderDebug.log("tmdb", "detail personal ai failed error=%s", e.getMessage());
             }
-            List<TmdbItem> personalAi = TmdbRecommendationRows.personalAi(page.getItems(), related, personalTmdb, personalDouban);
+            PersonalRecommendationService.RecommendationPage loadedPage = page;
+            List<TmdbItem> personalAi = TmdbRecommendationRows.personalAi(loadedPage.getItems(), related, personalTmdb, personalDouban);
             SpiderDebug.log("tmdb", "detail personal ai async mode=%s cost=%dms count=%d title=%s", mode, System.currentTimeMillis() - start, personalAi.size(), bundle.item().getTitle());
             applyTmdbPersonalAi(bundle, personalAi, generation, !cached.hasItems());
+            service.enrichTmdbPageRatingsAsync(loadedPage, enrichedPage -> {
+                List<TmdbItem> enrichedAi = TmdbRecommendationRows.personalAi(enrichedPage.getItems(), related, personalTmdb, personalDouban);
+                applyTmdbRatingEnrichment(bundle, personalAiItems, enrichedAi, generation);
+            });
+        });
+    }
+
+    private void applyTmdbRatingEnrichment(TmdbBundle bundle, List<TmdbItem> target, List<TmdbItem> enriched, int generation) {
+        runOnAliveUi(() -> {
+            if (generation != loadGeneration || bundle == null || bundle.item() != matchedTmdbItem) return;
+            if (mergeRecommendationRatings(target, enriched)) bindTmdbSection();
         });
     }
 
@@ -4595,6 +4620,46 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return seasonNumbers.get(seasonNumbers.size() - 1);
     }
 
+    private boolean onRecommendationLongClick(TmdbItem item, String source) {
+        com.fongmi.android.tv.ui.dialog.AiRecommendationInfoDialog.show(this, item, source, this::onRecommendationNotInterested);
+        return true;
+    }
+
+    private void onRecommendationNotInterested(TmdbItem item) {
+        relatedItems.removeIf(candidate -> sameRecommendationItem(candidate, item));
+        personalTmdbItems.removeIf(candidate -> sameRecommendationItem(candidate, item));
+        personalDoubanItems.removeIf(candidate -> sameRecommendationItem(candidate, item));
+        personalAiItems.removeIf(candidate -> sameRecommendationItem(candidate, item));
+        relatedAdapter.removeItem(item);
+        personalTmdbAdapter.removeItem(item);
+        personalDoubanAdapter.removeItem(item);
+        personalAiAdapter.removeItem(item);
+        showAiRecommendationReason(item, false);
+        bindTmdbSection();
+    }
+
+    private boolean sameRecommendationItem(TmdbItem first, TmdbItem second) {
+        return TmdbRecommendationRows.sameIdentity(first, second);
+    }
+
+    private boolean mergeRecommendationRatings(List<TmdbItem> current, List<TmdbItem> enriched) {
+        if (current == null || enriched == null || current.isEmpty() || enriched.isEmpty()) return false;
+        boolean changed = false;
+        for (TmdbItem candidate : enriched) {
+            if (candidate == null || candidate.getDoubanRating() <= 0) continue;
+            for (int index = 0; index < current.size(); index++) {
+                TmdbItem existing = current.get(index);
+                if (!sameRecommendationItem(existing, candidate)) continue;
+                if (Double.compare(existing.getDoubanRating(), candidate.getDoubanRating()) != 0) {
+                    current.set(index, candidate);
+                    changed = true;
+                }
+                break;
+            }
+        }
+        return changed;
+    }
+
     private void bindTmdbSection() {
         if (!isTmdbAllowedForCurrentSite()) {
             binding.tmdbSection.setVisibility(View.GONE);
@@ -4678,7 +4743,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void showAiRecommendationReason(TmdbItem item, boolean focused) {
         if (binding == null) return;
-        String reason = item == null ? "" : item.getOverview();
+        String reason = item == null ? "" : item.getRecommendationReason();
+        if (TextUtils.isEmpty(reason) && item != null) reason = item.getOverview();
         if (!focused || TextUtils.isEmpty(reason)) {
             binding.personalAiReason.setText("");
             binding.personalAiReason.setVisibility(View.GONE);
@@ -6189,20 +6255,17 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         detailControlView(R.id.center, View.class).setVisibility(locked ? View.GONE : View.VISIBLE);
         detailControlView(R.id.bottom, View.class).setVisibility(locked ? View.GONE : View.VISIBLE);
         detailControlView(R.id.back, View.class).setVisibility(locked ? View.GONE : View.VISIBLE);
-        // 进度条旁的全屏按钮：只根据锁定状态显示，不受 PlayerButtonSetting 影响
-        detailControlView(R.id.fullscreen, View.class).setVisibility(locked ? View.GONE : View.VISIBLE);
+        // 浮层快捷按钮与动作栏共用同一套播放器按钮可见性设置。
+        detailControlView(R.id.fullscreen, View.class).setVisibility(locked || !PlayerButtonSetting.isVisible(PlayerButtonSetting.FULLSCREEN) ? View.GONE : View.VISIBLE);
         detailControlView(R.id.lock, View.class).setVisibility(inlineFullscreen ? View.VISIBLE : View.GONE);
         detailControlView(R.id.rotate, View.class).setVisibility(inlineFullscreen && !locked && !inlineShortDramaMode ? View.VISIBLE : View.GONE);
         detailControlView(R.id.pip, View.class).setVisibility(canShowInlinePiP(hasPlayer, locked) ? View.VISIBLE : View.GONE);
-        // 中间悬浮的上集/下集按钮：只根据集数显示（需≥2集，与 VideoActivity 一致），不受 PlayerButtonSetting 影响
-        detailControlView(R.id.prev, View.class).setVisibility(!locked && hasPlayer && episodeCount >= 2 ? View.VISIBLE : View.GONE);
-        detailControlView(R.id.next, View.class).setVisibility(!locked && hasPlayer && episodeCount >= 2 ? View.VISIBLE : View.GONE);
-        // 顶部投屏按钮：只根据功能可用性显示，不受 PlayerButtonSetting 影响
-        detailControlView(R.id.cast, View.class).setVisibility(!locked && hasInlineCast() ? View.VISIBLE : View.GONE);
+        detailControlView(R.id.prev, View.class).setVisibility(!locked && hasPlayer && episodeCount >= 2 && PlayerButtonSetting.isVisible(PlayerButtonSetting.PREV) ? View.VISIBLE : View.GONE);
+        detailControlView(R.id.next, View.class).setVisibility(!locked && hasPlayer && episodeCount >= 2 && PlayerButtonSetting.isVisible(PlayerButtonSetting.NEXT) ? View.VISIBLE : View.GONE);
+        detailControlView(R.id.cast, View.class).setVisibility(!locked && hasInlineCast() && PlayerButtonSetting.isVisible(PlayerButtonSetting.CAST) ? View.VISIBLE : View.GONE);
         detailControlView(R.id.info, View.class).setVisibility(!locked && hasInlineInfo() ? View.VISIBLE : View.GONE);
         detailControlView(R.id.setting, View.class).setVisibility(!locked && hasPlayer ? View.VISIBLE : View.GONE);
-        // 顶部弹幕按钮：只根据功能可用性显示，不受 PlayerButtonSetting 影响
-        detailControlView(R.id.danmaku, View.class).setVisibility(!locked && hasPlayer && inlineControlController.hasDanmakuControl() ? View.VISIBLE : View.GONE);
+        detailControlView(R.id.danmaku, View.class).setVisibility(!locked && hasPlayer && inlineControlController.hasDanmakuControl() && PlayerButtonSetting.isVisible(PlayerButtonSetting.DANMAKU) ? View.VISIBLE : View.GONE);
         detailControlView(R.id.parse, RecyclerView.class).setVisibility(!locked && inlineFullscreen && useParse && !VodConfig.get().getParses().isEmpty() && PlayerButtonSetting.isVisible(PlayerButtonSetting.PARSE) ? View.VISIBLE : View.GONE);
         if (inlineParseAdapter != null) inlineParseAdapter.notifyDataSetChanged();
         detailActionView(R.id.player, View.class).setVisibility(hasPlayer ? View.VISIBLE : View.GONE);
@@ -10279,7 +10342,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 displayOverview(),
                 TextUtils.isEmpty(matchedTmdbItem.getPosterUrl()) ? vod.getPic() : matchedTmdbItem.getPosterUrl(),
                 matchedTmdbItem.getBackdropUrl(),
-                matchedTmdbItem.getCredit());
+                matchedTmdbItem.getCredit(),
+                matchedTmdbItem.getRating(),
+                matchedTmdbItem.getOriginalLanguage(),
+                matchedTmdbItem.getOriginCountry(),
+                matchedTmdbItem.getGenreIds(),
+                matchedTmdbItem.getDepartment(),
+                matchedTmdbItem.getTmdbRating(),
+                matchedTmdbItem.getDoubanRating(),
+                matchedTmdbItem.getRecommendationReason());
     }
 
     private Vod playbackTmdbVod() {

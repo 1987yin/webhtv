@@ -4445,8 +4445,9 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         clearNativePersonalRecommendations();
         Task.execute(() -> {
             PersonalRecommendationService.RecommendationPages recommendations = PersonalRecommendationService.RecommendationPages.empty();
+            PersonalRecommendationService service = new PersonalRecommendationService();
             try {
-                recommendations = new PersonalRecommendationService().loadPage(item, null, null, 0, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
+                recommendations = service.loadPage(item, null, null, 0, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
             } catch (Throwable e) {
                 SpiderDebug.log("personal-rec", "tv native core failed error=%s", e.getMessage());
             }
@@ -4455,6 +4456,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 if (isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
                 bindNativePersonalRecommendations(loaded);
             });
+            service.enrichTmdbPageRatingsAsync(loaded.getTmdb(), enriched -> applyNativePersonalTmdbRatings(enriched, generation));
         });
         Task.execute(() -> {
             PersonalRecommendationService.RecommendationPage page;
@@ -4489,6 +4491,27 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         setNativePersonalRecommendationFocus(hasTmdb, hasDouban, hasAi);
     }
 
+    private void applyNativePersonalTmdbRatings(PersonalRecommendationService.RecommendationPage page, int generation) {
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration || page == null) return;
+            List<TmdbItem> current = new ArrayList<>();
+            if (mPersonalTmdbObjectAdapter != null) {
+                for (int index = 0; index < mPersonalTmdbObjectAdapter.size(); index++) {
+                    Object item = mPersonalTmdbObjectAdapter.get(index);
+                    if (item instanceof TmdbItem) current.add((TmdbItem) item);
+                }
+            }
+            if (mPersonalTmdbObjectAdapter == null) return;
+            boolean changed = com.fongmi.android.tv.ui.helper.TmdbUIAdapter.mergeRecommendationRatings(current, page.getItems());
+            mNativePersonalTmdbPage = page.withItems(current);
+            if (changed && mPersonalTmdbObjectAdapter != null) {
+                for (int index = 0; index < Math.min(current.size(), mPersonalTmdbObjectAdapter.size()); index++) {
+                    mPersonalTmdbObjectAdapter.replace(index, current.get(index));
+                }
+            }
+        });
+    }
+
     private boolean bindRecommendationGrid(HorizontalGridView grid, View label, List<TmdbItem> items) {
         return bindRecommendationGrid(grid, label, items, RecommendationRow.NONE);
     }
@@ -4501,11 +4524,19 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             if (row == RecommendationRow.PERSONAL_AI) showAiRecommendationReason(null, false);
             return false;
         }
-        ArrayObjectAdapter adapter = new ArrayObjectAdapter(
-            row == RecommendationRow.PERSONAL_AI
-                    ? new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick, this::onAiRecommendationLongClick, this::onAiRecommendationFocus)
-                    : new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick)
-        );
+        com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter presenter;
+        if (row == RecommendationRow.PERSONAL_AI) {
+            presenter = new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick, item -> onRecommendationLongClick(item, "ai"), this::onAiRecommendationFocus);
+        } else if (row == RecommendationRow.PERSONAL_TMDB) {
+            presenter = new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick, item -> onRecommendationLongClick(item, "tmdb"), null);
+        } else if (row == RecommendationRow.PERSONAL_DOUBAN) {
+            presenter = new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick, item -> onRecommendationLongClick(item, "douban"), null);
+        } else if (row == RecommendationRow.RECOMMENDATIONS) {
+            presenter = new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick, item -> onRecommendationLongClick(item, "related"), null);
+        } else {
+            presenter = new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick);
+        }
+        ArrayObjectAdapter adapter = new ArrayObjectAdapter(presenter);
         adapter.addAll(0, items);
         grid.setAdapter(new ItemBridgeAdapter(adapter));
         rememberRecommendationAdapter(row, adapter);
@@ -4538,9 +4569,19 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         setNativePersonalRecommendationFocus(false, false, false);
     }
 
-    private boolean onAiRecommendationLongClick(TmdbItem item) {
-        com.fongmi.android.tv.ui.dialog.AiRecommendationInfoDialog.show(this, item);
+    private boolean onRecommendationLongClick(TmdbItem item, String source) {
+        com.fongmi.android.tv.ui.dialog.AiRecommendationInfoDialog.show(this, item, source, this::onRecommendationNotInterested);
         return true;
+    }
+
+    private void onRecommendationNotInterested(TmdbItem item) {
+        if (mTmdbUIAdapter != null) mTmdbUIAdapter.removeRecommendation(item);
+        if (mTmdbRecommendationsObjectAdapter != null) mTmdbRecommendationsObjectAdapter.remove(item);
+        if (mPersonalTmdbObjectAdapter != null) mPersonalTmdbObjectAdapter.remove(item);
+        if (mPersonalDoubanObjectAdapter != null) mPersonalDoubanObjectAdapter.remove(item);
+        if (mPersonalAiObjectAdapter != null) mPersonalAiObjectAdapter.remove(item);
+        showAiRecommendationReason(item, false);
+        if (mVod != null) loadNativePersonalRecommendations(mVod);
     }
 
     private void onAiRecommendationFocus(TmdbItem item, boolean focused) {
@@ -4548,12 +4589,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void showAiRecommendationReason(TmdbItem item, boolean focused) {
-        if (!focused || item == null || TextUtils.isEmpty(item.getOverview())) {
+        String text = item == null ? "" : item.getRecommendationReason();
+        if (TextUtils.isEmpty(text) && item != null) text = item.getOverview();
+        if (!focused || TextUtils.isEmpty(text)) {
             mBinding.tmdbPersonalAiReason.setVisibility(View.GONE);
             mBinding.tmdbPersonalAiReason.setText("");
             return;
         }
-        mBinding.tmdbPersonalAiReason.setText(getString(R.string.ai_recommendation_reason_preview, item.getOverview()));
+        mBinding.tmdbPersonalAiReason.setText(getString(R.string.ai_recommendation_reason_preview, text));
         mBinding.tmdbPersonalAiReason.setVisibility(View.VISIBLE);
     }
 
@@ -4626,10 +4669,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         else mNativePersonalDoubanLoading = true;
         Task.execute(() -> {
             PersonalRecommendationService.RecommendationPage nextPage;
+            PersonalRecommendationService service = new PersonalRecommendationService();
             try {
                 nextPage = tmdb
-                        ? new PersonalRecommendationService().loadTmdbPage(mVod, null, null, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE)
-                        : new PersonalRecommendationService().loadDoubanPage(mVod, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE);
+                        ? service.loadTmdbPage(mVod, null, null, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE)
+                        : service.loadDoubanPage(mVod, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE);
             } catch (Throwable e) {
                 SpiderDebug.log("personal-rec", "tv native load more failed tmdb=%s error=%s", tmdb, e.getMessage());
                 nextPage = page;
@@ -4647,6 +4691,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                     appendLeanbackItems(mPersonalDoubanObjectAdapter, loadedPage.getItems());
                 }
             });
+            if (tmdb) service.enrichTmdbPageRatingsAsync(loadedPage, enriched -> applyNativePersonalTmdbRatings(enriched, generation));
         });
     }
 

@@ -1238,6 +1238,7 @@ private int mAudioBackgroundRandomNonce;
             mBinding.tmdbPersonalTmdbRecommendations.addItemDecoration(new SpaceItemDecoration(8));
             mBinding.tmdbPersonalTmdbRecommendations.setAdapter(mPersonalTmdbRecommendationAdapter = new TmdbRecommendationAdapter());
             mPersonalTmdbRecommendationAdapter.setOnItemClickListener(this::onPersonalRecommendationClick);
+            mPersonalTmdbRecommendationAdapter.setOnItemLongClickListener(item -> onPersonalRecommendationLongClick(item, "tmdb"));
             mBinding.tmdbPersonalTmdbRecommendations.addOnScrollListener(new RecyclerView.OnScrollListener() {
                 @Override
                 public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
@@ -1251,6 +1252,7 @@ private int mAudioBackgroundRandomNonce;
             mBinding.tmdbPersonalDoubanRecommendations.addItemDecoration(new SpaceItemDecoration(8));
             mBinding.tmdbPersonalDoubanRecommendations.setAdapter(mPersonalDoubanRecommendationAdapter = new TmdbRecommendationAdapter());
             mPersonalDoubanRecommendationAdapter.setOnItemClickListener(this::onPersonalRecommendationClick);
+            mPersonalDoubanRecommendationAdapter.setOnItemLongClickListener(item -> onPersonalRecommendationLongClick(item, "douban"));
             mBinding.tmdbPersonalDoubanRecommendations.addOnScrollListener(new RecyclerView.OnScrollListener() {
                 @Override
                 public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
@@ -1264,10 +1266,7 @@ private int mAudioBackgroundRandomNonce;
             mBinding.tmdbPersonalAiRecommendations.addItemDecoration(new SpaceItemDecoration(8));
             mBinding.tmdbPersonalAiRecommendations.setAdapter(mPersonalAiRecommendationAdapter = new TmdbRecommendationAdapter());
             mPersonalAiRecommendationAdapter.setOnItemClickListener(this::onPersonalRecommendationClick);
-            mPersonalAiRecommendationAdapter.setOnItemLongClickListener(item -> {
-                com.fongmi.android.tv.ui.dialog.AiRecommendationInfoDialog.show(this, item);
-                return true;
-            });
+            mPersonalAiRecommendationAdapter.setOnItemLongClickListener(item -> onPersonalRecommendationLongClick(item, "ai"));
         }
         mBinding.episodeGroup.setHasFixedSize(true);
         mBinding.episodeGroup.setItemAnimator(null);
@@ -2107,9 +2106,9 @@ private int mAudioBackgroundRandomNonce;
         mBinding.control.action.next.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
         mBinding.control.action.prev.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
         applyActionButtonVisibility();
-        // 中间悬浮的上集/下集按钮：只根据集数显示，不受 PlayerButtonSetting 影响
-        mBinding.control.next.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
-        mBinding.control.prev.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
+        // 中间悬浮按钮与动作栏共用同一套播放器按钮可见性设置。
+        mBinding.control.next.setVisibility(size < 2 || !PlayerButtonSetting.isVisible(PlayerButtonSetting.NEXT) ? View.GONE : View.VISIBLE);
+        mBinding.control.prev.setVisibility(size < 2 || !PlayerButtonSetting.isVisible(PlayerButtonSetting.PREV) ? View.GONE : View.VISIBLE);
         mBinding.reverse.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
         if (shouldUseUpstreamNativeEpisodeModule()) {
             setUpstreamNativeEpisodeItems(items);
@@ -3183,8 +3182,8 @@ private int mAudioBackgroundRandomNonce;
         mBinding.control.action.danmaku.setVisibility(DanmakuSetting.isLoad() ? View.VISIBLE : View.GONE);
         mBinding.control.action.adFeedback.setVisibility(isAdFeedbackEnabled() ? View.VISIBLE : View.GONE);
         applyActionButtonVisibility();
-        // 顶部的弹幕图标按钮：只根据功能可用性显示，不受 PlayerButtonSetting 影响
-        if (mBinding.control.getRoot().getVisibility() == View.VISIBLE) mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() ? View.GONE : View.VISIBLE);
+        // 顶部弹幕图标与动作栏共用同一套播放器按钮可见性设置。
+        if (mBinding.control.getRoot().getVisibility() == View.VISIBLE) mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() || !PlayerButtonSetting.isVisible(PlayerButtonSetting.DANMAKU) ? View.GONE : View.VISIBLE);
     }
 
     private void showControl() {
@@ -3193,14 +3192,14 @@ private int mAudioBackgroundRandomNonce;
         boolean shortDrama = isShortDramaSource();
         boolean showPiP = canShowPiP(shortDrama);
         hideWidgetOverlay();
-        // 顶部的弹幕图标按钮：只根据功能可用性显示，不受 PlayerButtonSetting 影响
-        mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() ? View.GONE : View.VISIBLE);
+        // 顶部弹幕图标与动作栏共用同一套播放器按钮可见性设置。
+        mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() || !PlayerButtonSetting.isVisible(PlayerButtonSetting.DANMAKU) ? View.GONE : View.VISIBLE);
         mBinding.control.setting.setVisibility(mHistory == null || (isFullscreen() && !shortDrama) ? View.GONE : View.VISIBLE);
         mBinding.control.right.getRoot().setVisibility(isFullscreen() || showPiP ? View.VISIBLE : View.GONE);
         mBinding.control.right.rotate.setVisibility(isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.right.pip.setVisibility(showPiP ? View.VISIBLE : View.GONE);
-        // 进度条旁的全屏按钮：只根据锁定状态和短剧判断，不受 PlayerButtonSetting 影响
-        mBinding.control.fullscreen.setVisibility(isLock() || shortDrama ? View.GONE : View.VISIBLE);
+        // 进度条旁的全屏按钮也服从统一的播放器按钮设置。
+        mBinding.control.fullscreen.setVisibility(isLock() || shortDrama || !PlayerButtonSetting.isVisible(PlayerButtonSetting.FULLSCREEN) ? View.GONE : View.VISIBLE);
         mBinding.control.keep.setVisibility(mHistory == null ? View.GONE : View.VISIBLE);
         mBinding.control.nightMode.setVisibility(mHistory == null ? View.GONE : View.VISIBLE);
         mBinding.control.osdDiagnostics.setVisibility(PlayerSetting.isOsdDiagnostics() && !player().isEmpty() ? View.VISIBLE : View.GONE);
@@ -3214,8 +3213,8 @@ private int mAudioBackgroundRandomNonce;
         mBinding.control.action.getRoot().setVisibility(isLandscapeFullscreen || isFusionPlayerActionsDocked() ? View.VISIBLE : View.GONE);
         mBinding.control.right.lock.setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.info.setVisibility(player().isEmpty() ? View.GONE : View.VISIBLE);
-        // 顶部的投屏图标按钮：只根据全屏状态和播放状态显示，不受 PlayerButtonSetting 影响
-        mBinding.control.cast.setVisibility(isFullscreen() && mHistory != null && !player().isEmpty() ? View.VISIBLE : View.GONE);
+        // 顶部投屏图标也服从统一的播放器按钮设置。
+        mBinding.control.cast.setVisibility(isFullscreen() && mHistory != null && !player().isEmpty() && PlayerButtonSetting.isVisible(PlayerButtonSetting.CAST) ? View.VISIBLE : View.GONE);
         mBinding.control.center.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.bottom.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.back.setVisibility(isLock() ? View.GONE : View.VISIBLE);
@@ -4763,8 +4762,9 @@ private int mAudioBackgroundRandomNonce;
         clearNativePersonalRecommendations();
         Task.execute(() -> {
             PersonalRecommendationService.RecommendationPages recommendations = PersonalRecommendationService.RecommendationPages.empty();
+            PersonalRecommendationService service = new PersonalRecommendationService();
             try {
-                recommendations = new PersonalRecommendationService().loadPage(item, null, null, 0, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
+                recommendations = service.loadPage(item, null, null, 0, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
             } catch (Throwable e) {
                 SpiderDebug.log("personal-rec", "mobile native core failed error=%s", e.getMessage());
             }
@@ -4773,6 +4773,7 @@ private int mAudioBackgroundRandomNonce;
                 if (isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
                 bindNativePersonalRecommendations(loaded);
             });
+            service.enrichTmdbPageRatingsAsync(loaded.getTmdb(), enriched -> applyNativePersonalTmdbRatings(enriched, generation));
         });
         Task.execute(() -> {
             PersonalRecommendationService.RecommendationPage page;
@@ -4800,6 +4801,19 @@ private int mAudioBackgroundRandomNonce;
     private void bindNativePersonalAiRecommendation(PersonalRecommendationService.RecommendationPage page) {
         mNativePersonalAiPage = page == null ? PersonalRecommendationService.RecommendationPage.empty("") : page;
         bindNativePersonalRecommendationRow(mBinding.tmdbPersonalAiRecommendationsLabel, mBinding.tmdbPersonalAiRecommendations, mPersonalAiRecommendationAdapter, mNativePersonalAiPage.getItems());
+    }
+
+    private void applyNativePersonalTmdbRatings(PersonalRecommendationService.RecommendationPage page, int generation) {
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration || page == null) return;
+            List<TmdbItem> current = mPersonalTmdbRecommendationAdapter == null
+                    ? new ArrayList<>()
+                    : mPersonalTmdbRecommendationAdapter.getItems();
+            if (mPersonalTmdbRecommendationAdapter == null) return;
+            boolean changed = com.fongmi.android.tv.ui.helper.TmdbUIAdapter.mergeRecommendationRatings(current, page.getItems());
+            mNativePersonalTmdbPage = page.withItems(current);
+            if (changed && mPersonalTmdbRecommendationAdapter != null) mPersonalTmdbRecommendationAdapter.setItems(current);
+        });
     }
 
     private void bindNativePersonalRecommendationRow(View label, View recycler, TmdbRecommendationAdapter adapter, List<TmdbItem> items) {
@@ -4841,6 +4855,18 @@ private int mAudioBackgroundRandomNonce;
         TmdbNavigation.open(this, item, getSite());
     }
 
+    private boolean onPersonalRecommendationLongClick(TmdbItem item, String source) {
+        com.fongmi.android.tv.ui.dialog.AiRecommendationInfoDialog.show(this, item, source, this::onRecommendationNotInterested);
+        return true;
+    }
+
+    private void onRecommendationNotInterested(TmdbItem item) {
+        if (mPersonalTmdbRecommendationAdapter != null) mPersonalTmdbRecommendationAdapter.removeItem(item);
+        if (mPersonalDoubanRecommendationAdapter != null) mPersonalDoubanRecommendationAdapter.removeItem(item);
+        if (mPersonalAiRecommendationAdapter != null) mPersonalAiRecommendationAdapter.removeItem(item);
+        refreshPersonalRecommendationsForHistory();
+    }
+
     private void refreshPersonalRecommendationsForHistory() {
         if (!Setting.isPersonalRecommendation() || mVod == null) return;
         if (mTmdbHeaderView != null && mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded() && !mTmdbFallbackToNative) {
@@ -4866,10 +4892,11 @@ private int mAudioBackgroundRandomNonce;
         else mNativePersonalDoubanLoading = true;
         Task.execute(() -> {
             PersonalRecommendationService.RecommendationPage nextPage;
+            PersonalRecommendationService service = new PersonalRecommendationService();
             try {
                 nextPage = tmdb
-                        ? new PersonalRecommendationService().loadTmdbPage(mVod, null, null, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE)
-                        : new PersonalRecommendationService().loadDoubanPage(mVod, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE);
+                        ? service.loadTmdbPage(mVod, null, null, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE)
+                        : service.loadDoubanPage(mVod, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE);
             } catch (Throwable e) {
                 SpiderDebug.log("personal-rec", "native load more failed tmdb=%s error=%s", tmdb, e.getMessage());
                 nextPage = page;
@@ -4887,6 +4914,7 @@ private int mAudioBackgroundRandomNonce;
                     if (mPersonalDoubanRecommendationAdapter != null) mPersonalDoubanRecommendationAdapter.appendItems(loadedPage.getItems());
                 }
             });
+            if (tmdb) service.enrichTmdbPageRatingsAsync(loadedPage, enriched -> applyNativePersonalTmdbRatings(enriched, generation));
         });
     }
 

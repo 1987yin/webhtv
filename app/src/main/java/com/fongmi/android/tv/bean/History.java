@@ -168,6 +168,13 @@ public class History implements Diffable<History> {
         return items;
     }
 
+    public static List<History> getAll() {
+        List<History> items = AppDatabase.get().getHistoryDao().findAll();
+        if (Setting.isHistoryAggregationEffective()) return deduplicateByTmdbId(items);
+        items.sort((first, second) -> Long.compare(second.getCreateTime(), first.getCreateTime()));
+        return items;
+    }
+
     private static List<History> deduplicateByTmdbId(List<History> items) {
         // 整剧级折叠：同一 tmdbId 的多源记录合并为一条，保留最近播放的那条（含其集名/进度）。
         // 这样跨源看同一部剧在「最近观看」只显示一张卡，展示全剧最新进度，而非每集/每源各一张。
