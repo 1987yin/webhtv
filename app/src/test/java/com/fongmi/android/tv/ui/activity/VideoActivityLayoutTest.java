@@ -155,33 +155,27 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
-    public void mobileOverlayButtonsIgnorePlayerButtonSetting() throws Exception {
+    public void mobileOverlayButtonsFollowPlayerButtonSetting() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
 
-        // 悬浮/图标按钮（中间上下集、进度条旁全屏、顶部弹幕/投屏）只受集数、锁定、功能可用性控制，
-        // 不受「播放器按钮设置」影响——那是仅面向底部横向动作栏的偏好。锁定这些可见性表达式，
-        // 防止有人再次把 PlayerButtonSetting 判断加回悬浮按钮（历史回归点）。
-        assertTrue("middle overlay next button must depend only on episode count",
-                source.contains("mBinding.control.next.setVisibility(size < 2 ? View.GONE : View.VISIBLE);"));
-        assertTrue("middle overlay prev button must depend only on episode count",
-                source.contains("mBinding.control.prev.setVisibility(size < 2 ? View.GONE : View.VISIBLE);"));
-        assertTrue("seekbar fullscreen button must depend only on lock and short-drama state",
-                source.contains("mBinding.control.fullscreen.setVisibility(isLock() || shortDrama ? View.GONE : View.VISIBLE);"));
-        assertTrue("top cast button must depend only on fullscreen and playback state",
-                source.contains("mBinding.control.cast.setVisibility(isFullscreen() && mHistory != null && !player().isEmpty() ? View.VISIBLE : View.GONE);"));
-        assertTrue("top danmaku button must depend only on lock and danmaku availability",
-                source.contains("mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() ? View.GONE : View.VISIBLE);"));
-
-        // 逐个提取每个悬浮按钮的可见性语句，确认其中不含 PlayerButtonSetting（防止把偏好判断加回来）。
-        for (String id : List.of("next", "prev", "fullscreen", "cast", "danmaku")) {
+        String[][] controls = {
+                {"next", "NEXT"},
+                {"prev", "PREV"},
+                {"fullscreen", "FULLSCREEN"},
+                {"cast", "CAST"},
+                {"danmaku", "DANMAKU"}
+        };
+        for (String[] control : controls) {
+            String id = control[0];
+            String setting = control[1];
             int line = source.indexOf("mBinding.control." + id + ".setVisibility(");
             assertTrue("missing overlay visibility line for mBinding.control." + id, line >= 0);
             String stmt = source.substring(line, source.indexOf(';', line));
-            assertFalse("overlay button mBinding.control." + id + " must not gate on PlayerButtonSetting", stmt.contains("PlayerButtonSetting"));
+            assertTrue("overlay button mBinding.control." + id + " must follow PlayerButtonSetting." + setting,
+                    stmt.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting." + setting + ")"));
         }
 
-        // 底部横向动作栏按钮仍必须通过 addActionButton 跟随设置，确认解耦没有误伤动作栏。
         assertTrue("bottom action bar fullscreen must still follow PlayerButtonSetting",
                 source.contains("addActionButton(PlayerButtonSetting.FULLSCREEN, mBinding.control.action.fullscreen);"));
         assertTrue("bottom action bar prev must still follow PlayerButtonSetting",
@@ -668,7 +662,7 @@ public class VideoActivityLayoutTest {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         String init = methodBody(source, "protected void initView(Bundle savedInstanceState)", "private void setupIntroSkipConfirmListener()");
-        String checkFlag = methodBody(source, "private void checkFlag(Vod item)", "private void checkHistory(Vod item)");
+        String checkFlag = methodBody(source, "private void checkFlag(Vod item)", "private boolean checkHistory(Vod item)");
         String episodeClick = methodBody(source, "public void onItemClick(Episode item)", "public void onItemClick(EpisodeGroupAdapter.Group item)");
 
         assertTrue("mobile recreation must remember that an existing service playback should be preserved",
@@ -712,7 +706,7 @@ public class VideoActivityLayoutTest {
         String mobileControl = new String(Files.readAllBytes(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "ControlDialog.java"))), StandardCharsets.UTF_8);
         String leanbackControl = new String(Files.readAllBytes(findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "ControlDialog.java"))), StandardCharsets.UTF_8);
         String playerManager = new String(Files.readAllBytes(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "player", "PlayerManager.java"))), StandardCharsets.UTF_8);
-        String mobileCheckHistory = methodBody(mobile, "private void checkHistory(Vod item)", "private void enrichHistoryMeta(Vod item)");
+        String mobileCheckHistory = methodBody(mobile, "private boolean checkHistory(Vod item)", "private void enrichHistoryMeta(Vod item)");
         String mobileSetSpeed = methodBody(mobile, "private void setSpeed()", "private void checkOrientation()");
         String mobilePlaybackSpeed = methodBody(mobile, "private float getPlaybackSpeed()", "private void checkOrientation()");
         String mobileSaveUserSpeed = methodBody(mobile, "private void saveUserSpeed()", "private void onReset()");
@@ -720,7 +714,7 @@ public class VideoActivityLayoutTest {
         String mobileSpeedEnd = methodBody(mobile, "public void onSpeedEnd()", "public void onBright(int progress)");
         String mobileApplySpeed = methodBody(mobileControl, "private void applySpeed(float speed)", "private void setSpeedPreset(View view)");
         String leanbackFastHistory = methodBody(leanback, "private void prepareFastTmdbPlaybackHistory(Vod item, Flag flag, Episode episode)", "private void selectFastTmdbPlaybackEpisode(Vod item, Flag selectedFlag, Episode selectedEpisode)");
-        String leanbackCheckHistory = methodBody(leanback, "private void checkHistory(Vod item)", "private void enrichHistoryMeta(Vod item)");
+        String leanbackCheckHistory = methodBody(leanback, "private boolean checkHistory(Vod item)", "private void enrichHistoryMeta(Vod item)");
         String leanbackSetSpeed = methodBody(leanback, "private void setSpeed()", "private void checkEnded(boolean notify)");
         String leanbackPlaybackSpeed = methodBody(leanback, "private float getPlaybackSpeed()", "private void checkEnded(boolean notify)");
         String leanbackSaveUserSpeed = methodBody(leanback, "private void saveUserSpeed()", "private void onReset()");
@@ -2064,7 +2058,7 @@ public class VideoActivityLayoutTest {
                             && body.contains("if (keyChanged) mHistory.replace(nextKey)"));
             assertFalse(sourcePath + " must not unconditionally replace history on every id update",
                     body.contains("if (id) mHistory.replace(getHistoryKey())"));
-            assertTrue(sourcePath + " must sync history after key migration or an async metadata refresh",
+            assertTrue(sourcePath + " must sync history after key migration, an async metadata refresh, or TMDB identity stamping",
                     body.contains("if (keyChanged || pic || name || episodeTitleChanged || tmdbIdStamped) syncHistory()"));
         }
     }
@@ -2454,7 +2448,7 @@ public class VideoActivityLayoutTest {
         String historyStartBody = historyStart >= 0 && historyStartEnd > historyStart ? video.substring(historyStart, historyStartEnd).replaceAll("\\s+", " ") : "";
 
         assertTrue("history clicks must use the history-aware playback entry point",
-                compactHistory.contains("VideoActivity.startFromHistory(this, item)"));
+                compactHistory.contains("HistoryResumeCoordinator.open(this, item)"));
         assertTrue("history playback must respect the configured standalone detail mode",
                 historyStartBody.contains("if (shouldOpenLegacyTmdbDetail(item.getSiteKey(), item.getVodId()))"));
         assertTrue("standalone detail mode must use the normal detail-aware start path",
@@ -2477,7 +2471,7 @@ public class VideoActivityLayoutTest {
         String historyStartBody = historyStart >= 0 && historyStartEnd > historyStart ? video.substring(historyStart, historyStartEnd).replaceAll("\\s+", " ") : "";
 
         assertTrue("TV history clicks must use the history-aware playback entry point",
-                compactHistory.contains("VideoActivity.startFromHistory(this, item)"));
+                compactHistory.contains("HistoryResumeCoordinator.open(this, item)"));
         assertTrue("TV history playback must respect the configured standalone detail mode",
                 historyStartBody.contains("if (shouldOpenLegacyTmdbDetail(item.getSiteKey(), item.getVodId(), false))"));
         assertTrue("TV standalone detail mode must use the normal detail-aware start path",
