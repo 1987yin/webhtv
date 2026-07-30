@@ -26,6 +26,39 @@ public class MpvStabilityGuardSourceTest {
         assertTrue(method.contains("automaticOutput && MpvPerformanceSetting.isAutoSurfaceDirectEnabled()"));
     }
 
+    @Test
+    public void engineOverrideCannotBypassZeroCopyDeviceGuard() throws Exception {
+        String method = methodBody(readMpvPlayerEngine(), "private MpvPlayerConfig buildConfig()", "private void applySoftDecodeOptions");
+
+        assertTrue(method.contains("surfaceDirectOverride && decode == HARD && !zeroCopyBlocked"));
+        assertTrue(method.contains("String hwdec = surfaceDirect ? \"mediacodec\""));
+        assertTrue(method.contains(".hwdec(hwdec)"));
+    }
+
+    @Test
+    public void postInitSafetyOverrideCannotBeReplacedByMpvConfig() throws Exception {
+        String source = readMpvPlayer();
+        String postInit = methodBody(source, "private void applyPostInitOptions()", "private void applyHardwareSafetyOptions()");
+        String safety = methodBody(source, "private void applyHardwareSafetyOptions()", "private int applyPerformanceOptionOverlay()");
+
+        assertTrue(postInit.contains("applyHardwareSafetyOptions()"));
+        assertTrue(safety.contains("MpvPerformanceSetting.isZeroCopyBlocked()"));
+        assertTrue(safety.contains("if (!\"no\".equals(config.hwdec())) setRuntimeString(\"hwdec\", \"mediacodec-copy\")"));
+        assertTrue(safety.contains("setRuntimeString(\"vo\", config.vo())"));
+    }
+
+    private static String readMpvPlayer() throws IOException {
+        Path root = Path.of("").toAbsolutePath();
+        Path source = root.resolve(Path.of("app", "src", "main", "java", "androidx", "media3", "mpvplayer", "MpvPlayer.java"));
+        if (!Files.exists(source)) source = root.resolve(Path.of("src", "main", "java", "androidx", "media3", "mpvplayer", "MpvPlayer.java"));
+        return Files.readString(source, StandardCharsets.UTF_8).replace("\r\n", "\n");
+    }
+    private static String readMpvPlayerEngine() throws IOException {
+        Path root = Path.of("").toAbsolutePath();
+        Path source = root.resolve(Path.of("app", "src", "main", "java", "com", "fongmi", "android", "tv", "player", "engine", "MpvPlayerEngine.java"));
+        if (!Files.exists(source)) source = root.resolve(Path.of("src", "main", "java", "com", "fongmi", "android", "tv", "player", "engine", "MpvPlayerEngine.java"));
+        return Files.readString(source, StandardCharsets.UTF_8).replace("\r\n", "\n");
+    }
     private static String readPlayerManager() throws IOException {
         Path root = Path.of("").toAbsolutePath();
         Path source = root.resolve(Path.of("app", "src", "main", "java", "com", "fongmi", "android", "tv", "player", "PlayerManager.java"));
