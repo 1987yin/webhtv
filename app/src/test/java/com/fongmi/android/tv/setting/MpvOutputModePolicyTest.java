@@ -19,8 +19,8 @@ public class MpvOutputModePolicyTest {
     }
 
     @Test
-    public void autoModeRequiresTvAndEligibleContent() {
-        assertTrue(MpvPerformanceSetting.resolveSurfaceDirect(MpvPerformanceSetting.OUTPUT_AUTO, true, true, true));
+    public void autoModeStaysOnGpuDuringStabilityGuard() {
+        assertFalse(MpvPerformanceSetting.resolveSurfaceDirect(MpvPerformanceSetting.OUTPUT_AUTO, true, true, true));
         assertFalse(MpvPerformanceSetting.resolveSurfaceDirect(MpvPerformanceSetting.OUTPUT_AUTO, false, true, true));
         assertFalse(MpvPerformanceSetting.resolveSurfaceDirect(MpvPerformanceSetting.OUTPUT_AUTO, true, false, true));
     }

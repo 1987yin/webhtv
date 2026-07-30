@@ -27,6 +27,8 @@ public final class MpvPerformanceSetting {
     public static final int PRIORITY_PERFORMANCE = 0;
     public static final int PRIORITY_CONFIG = 1;
 
+    // Temporary kill switch while native Surface teardown is being hardened.
+    private static final boolean STABILITY_GUARD_ENABLED = true;
     private static final String KEY_OUTPUT_MODE = "perf_mpv_output_mode";
     private static final String KEY_HWDEC = "perf_mpv_hwdec";
     private static final String KEY_SYNC = "perf_mpv_sync";
@@ -59,6 +61,10 @@ public final class MpvPerformanceSetting {
         };
     }
 
+    public static boolean isAutoSurfaceDirectEnabled() {
+        return !STABILITY_GUARD_ENABLED;
+    }
+
     public static boolean shouldUseSurfaceDirect(boolean autoEligible, boolean leanback, boolean hardDecode) {
         return resolveSurfaceDirect(getOutputMode(), autoEligible, leanback, hardDecode);
     }
@@ -68,7 +74,7 @@ public final class MpvPerformanceSetting {
         return switch (clamp(outputMode, OUTPUT_AUTO, OUTPUT_SURFACE_DIRECT)) {
             case OUTPUT_SURFACE_DIRECT -> true;
             case OUTPUT_GPU -> false;
-            default -> leanback && autoEligible;
+            default -> isAutoSurfaceDirectEnabled() && leanback && autoEligible;
         };
     }
 
