@@ -3619,14 +3619,14 @@ private int mAudioBackgroundRandomNonce;
         if (flag == null) return;
         Episode episode = findIntentPlaybackEpisode(flag, playName, playUrl);
         Episode historyEpisode = withIntentTmdbEpisodeIdentity(episode);
-        // 仅历史入口和跨源续播允许 URL 刷新后按集名/集号恢复；普通显式选集仍按 URL 严格匹配。
+        // 历史续播、跨源复制或 TMDB 聚合开启时共享标准剧集进度；否则普通显式选集保持原始剧集身份。
         boolean crossSource = mHistory.isCrossSourcePlayback();
-        boolean tolerantResume = crossSource || isResumeFromHistory();
-        boolean sameFlag = crossSource || TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());
-        boolean sameEpisode = episode != null && (tolerantResume
+        boolean shareEpisodeProgress = crossSource || isResumeFromHistory() || Setting.isHistoryAggregationEffective();
+        boolean compatibleFlag = shareEpisodeProgress || TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());
+        boolean sameEpisode = episode != null && (shareEpisodeProgress
                 ? historyEpisode.matchesPlayback(mHistory.getEpisode())
                 : episode.matches(mHistory.getEpisode()));
-        if (!sameFlag || (episode != null && !sameEpisode)) {
+        if (!compatibleFlag || (episode != null && !sameEpisode)) {
             mHistory.setPosition(C.TIME_UNSET);
             mHistory.setDuration(C.TIME_UNSET);
         }

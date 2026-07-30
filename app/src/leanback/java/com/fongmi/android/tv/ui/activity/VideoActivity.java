@@ -1824,12 +1824,13 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private void updateFastTmdbPlaybackHistory(Flag flag, Episode episode) {
         Episode historyEpisode = withIntentTmdbEpisodeIdentity(episode);
-        // 跨源续播或源站刷新时，按播放恢复规则识别同一集。
+        // 快速 TMDB 播放在历史续播或聚合开启时，允许同一标准季集跨线路共享进度。
         boolean crossSource = mHistory.isCrossSourcePlayback();
+        boolean shareEpisodeProgress = crossSource || isResumeFromHistory() || Setting.isHistoryAggregationEffective();
         boolean sameEpisode = historyEpisode.matchesPlayback(mHistory.getEpisode());
-        boolean sameFlag = crossSource || TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());
-        if (!sameEpisode || !sameFlag) mIntroSkipPlayback.reset();
-        if (!sameEpisode || !sameFlag) {
+        boolean compatibleFlag = shareEpisodeProgress || TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());
+        if (!sameEpisode || !compatibleFlag) mIntroSkipPlayback.reset();
+        if (!sameEpisode || !compatibleFlag) {
             EpisodePositionCache.EpisodePosition cached = EpisodePositionCache.get().get(getKey(), getId(), flag.getFlag(), episode.getName());
             if (cached != null) {
                 mHistory.setPosition(cached.position);
@@ -4014,14 +4015,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (flag == null) return;
         Episode episode = findIntentPlaybackEpisode(flag, playName, playUrl);
         Episode historyEpisode = withIntentTmdbEpisodeIdentity(episode);
-        // 仅历史入口和跨源续播允许 URL 刷新后按集名/集号恢复；普通显式选集仍按 URL 严格匹配。
+        // 历史续播、跨源复制或 TMDB 聚合开启时共享标准剧集进度；否则普通显式选集保持原始剧集身份。
         boolean crossSource = mHistory.isCrossSourcePlayback();
-        boolean tolerantResume = crossSource || isResumeFromHistory();
-        boolean sameFlag = crossSource || TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());
-        boolean sameEpisode = episode != null && (tolerantResume
+        boolean shareEpisodeProgress = crossSource || isResumeFromHistory() || Setting.isHistoryAggregationEffective();
+        boolean compatibleFlag = shareEpisodeProgress || TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());
+        boolean sameEpisode = episode != null && (shareEpisodeProgress
                 ? historyEpisode.matchesPlayback(mHistory.getEpisode())
                 : episode.matches(mHistory.getEpisode()));
-        if (!sameFlag || (episode != null && !sameEpisode)) {
+        if (!compatibleFlag || (episode != null && !sameEpisode)) {
             mHistory.setPosition(C.TIME_UNSET);
             mHistory.setDuration(C.TIME_UNSET);
         }

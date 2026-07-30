@@ -76,6 +76,7 @@ public class VideoActivityHistoryTitleTest {
     public void allDetailPlaybackModesKeepTheirScrapedHistoryPath() throws Exception {
         Path sourcePath = mainJava().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
+        String initHistory = methodBody(source, "private void initHistory()");
         String onPlay = methodBody(source, "private void onPlay()");
         String inlineHistory = methodBody(source, "private void updateInlineHistory(Episode item)");
         String refreshHistory = methodBody(source, "private void refreshCurrentHistoryEpisodeTitle()");
@@ -83,6 +84,8 @@ public class VideoActivityHistoryTitleTest {
         String defaultPlayback = methodBody(source, "private void playDefaultPlayback()");
         String fastTitles = methodBody(source, "private ArrayList<String> fastPlaybackEpisodeTitles()");
 
+        assertTrue("standalone TMDB detail must load aggregated progress from the matched TMDB identity",
+                initHistory.contains("vod.getFlags(), matchedTmdbItem"));
         assertTrue("fusion/player/colorful modes must update the TMDB-formatted history title before branching",
                 onPlay.contains("updateInlineHistory(selectedEpisode);"));
         assertTrue("fusion mode must keep inline playback", onPlay.contains("if (isFusionMode()) playInline();"));

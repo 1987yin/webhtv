@@ -4773,7 +4773,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void initHistory() {
-        history = History.findPlayback(getHistoryKey(), List.of(vod.getName(), getNameText()), vod.getFlags());
+        history = History.findPlayback(getHistoryKey(), List.of(vod.getName(), getNameText()), vod.getFlags(), matchedTmdbItem);
         if (history == null) {
             history = new History();
             history.setKey(getHistoryKey());
