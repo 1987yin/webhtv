@@ -84,7 +84,7 @@ public class TmdbEpisodeAdapterTest {
     @Test
     public void episodeDisplaySettingChangesRebindUnchangedViewport() throws Exception {
         String source = tmdbEpisodeAdapterSource();
-        int method = source.indexOf("public void setItems(List<Episode> episodes, Map<Integer, TmdbEpisode> tmdbEpisodes, Map<Episode, Integer> numbers, Episode selected, boolean forceRefresh)");
+        int method = source.indexOf("public boolean setItems(List<Episode> episodes, Map<Integer, TmdbEpisode> tmdbEpisodes, Map<Episode, Integer> numbers, Episode selected, boolean forceRefresh)");
         int update = source.indexOf("boolean displaySettingsChanged = updateDisplaySettings();", method);
         int skip = source.indexOf("sameItems(episodes, tmdbEpisodes, numbers)", method);
         int displayMethod = source.indexOf("private boolean updateDisplaySettings()");

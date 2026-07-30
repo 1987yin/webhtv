@@ -301,6 +301,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private static final String EXTRA_TMDB_PLAY_EPISODE_NAME = "tmdb_play_episode_name";
     private static final String EXTRA_TMDB_PLAY_EPISODE_URL = "tmdb_play_episode_url";
     private static final String EXTRA_RESUME_FROM_HISTORY = "resume_from_history";
+    private static final String EXTRA_RESUME_HISTORY_CID = "resume_history_cid";
+    private static final String EXTRA_RESUME_HISTORY_KEY = "resume_history_key";
     private static final String EXTRA_TMDB_VOD_CACHE_KEY = "tmdb_vod_cache_key";
     private static final String EXTRA_IMMERSIVE_AUDIO_CACHE_KEY = "immersive_audio_cache_key";
     private static final java.util.concurrent.ConcurrentHashMap<String, AudioPlaybackResolver.Resolved> IMMERSIVE_AUDIO_LAUNCHES = new java.util.concurrent.ConcurrentHashMap<>();
@@ -617,13 +619,32 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         start(activity, key, id, name, pic, mark, false, false, tmdbItem);
     }
 
-    static void startFromHistory(Activity activity, History item) {
+    public static void startFromHistory(Activity activity, History item) {
         if (shouldOpenLegacyTmdbDetail(item.getSiteKey(), item.getVodId(), false)) {
             start(activity, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), item.getVodRemarks());
             return;
         }
         startDirect(activity, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), item.getVodRemarks(),
                 item.getVodFlag(), item.getVodRemarks(), item.getEpisodeUrl(), true);
+    }
+
+    public static void startFromResolvedHistory(Activity activity, History source, Vod target, Flag flag, Episode episode) {
+        if (source == null || target == null || flag == null || episode == null) return;
+        Intent intent = new Intent(activity, VideoActivity.class);
+        intent.putExtra("collect", false);
+        intent.putExtra("cast", false);
+        intent.putExtra("mark", episode.getName());
+        intent.putExtra("name", target.getName());
+        intent.putExtra("pic", target.getPic());
+        intent.putExtra("wallPic", source.getWallPic());
+        intent.putExtra("key", target.getSiteKey());
+        intent.putExtra("id", target.getId());
+        intent.putExtra(EXTRA_RESUME_FROM_HISTORY, true);
+        intent.putExtra(EXTRA_RESUME_HISTORY_CID, source.getCid());
+        intent.putExtra(EXTRA_RESUME_HISTORY_KEY, source.getKey());
+        putIntentPlaybackSelection(intent, flag.getFlag(), episode.getName(), episode.getUrl());
+        putDetailVodCache(intent, target);
+        activity.startActivity(intent);
     }
 
     public static void startDirect(Activity activity, String key, String id, String name, String pic) {
@@ -823,6 +844,16 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         return getIntent().getBooleanExtra(EXTRA_RESUME_FROM_HISTORY, false);
     }
 
+    private History getIntentResumeHistory() {
+        String key = Objects.toString(getIntent().getStringExtra(EXTRA_RESUME_HISTORY_KEY), "");
+        if (key.isEmpty()) return null;
+        return History.find(getIntent().getIntExtra(EXTRA_RESUME_HISTORY_CID, VodConfig.getCid()), key);
+    }
+
+    private boolean hasIntentResumeHistory() {
+        return !TextUtils.isEmpty(getIntent().getStringExtra(EXTRA_RESUME_HISTORY_KEY));
+    }
+
     private String getTmdbVodCacheKey() {
         return Objects.toString(getIntent().getStringExtra(EXTRA_TMDB_VOD_CACHE_KEY), "");
     }
@@ -889,14 +920,13 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     /**
-     * 载入历史时可同步拿到的 TMDB ID：优先已匹配项，其次 intent 携带项（从 TMDB 详情进入）。
-     * 用于跨源续播——checkHistory 早于异步 autoMatch 执行，此处提供尽早可用的 tmdbId。
+     * 载入历史时返回完整 TMDB 身份，避免电影与剧集数字 ID 相同时串进度。
      */
-    private int getMatchedTmdbId() {
-        if (!Setting.isHistoryAggregationEffective()) return 0;
-        com.fongmi.android.tv.bean.TmdbItem item = getMatchedTmdbItem();
+    private TmdbItem getHistoryTmdbItem() {
+        if (!Setting.isHistoryAggregationEffective()) return null;
+        TmdbItem item = getMatchedTmdbItem();
         if (item == null) item = getTmdbItem();
-        return item == null ? 0 : item.getTmdbId();
+        return item;
     }
 
     private String getOsdTitle() {
@@ -1006,6 +1036,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_NAME);
         getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_URL);
         getIntent().removeExtra(EXTRA_RESUME_FROM_HISTORY);
+        getIntent().removeExtra(EXTRA_RESUME_HISTORY_CID);
+        getIntent().removeExtra(EXTRA_RESUME_HISTORY_KEY);
         getIntent().putExtras(intent);
         setAudioStageVisible(false);
         restoreImmersiveAudioRequest();
@@ -1744,7 +1776,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void prepareFastTmdbPlaybackHistory(Vod item, Flag flag, Episode episode) {
-        mHistory = History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), getMatchedTmdbId());
+        mHistory = History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), getHistoryTmdbItem());
         mHistory = mHistory == null ? createHistory(item) : mHistory;
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
@@ -1784,6 +1816,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mHistory.setVodFlag(flag.getFlag());
         mHistory.setVodRemarks(getHistoryEpisodeName(episode));
         mHistory.setEpisodeUrl(episode.getUrl());
+        if (episode.getTmdbEpisode() != null || !sameEpisode) mHistory.setTmdbEpisodePosition(episode);
     }
 
     private void resetDetailForNewIntent() {
@@ -1971,7 +2004,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mFlagAdapter.addAll(item.getFlags());
         mBinding.video.requestFocus();
         App.removeCallbacks(mR4);
-        checkHistory(item);
+        if (!checkHistory(item)) return;
         checkFlag(item);
         checkKeepImg();
         setText(item);
@@ -3836,25 +3869,35 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         }
     }
 
-    private void checkHistory(Vod item) {
-        int tmdbId = getMatchedTmdbId();
-        mHistory = History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), tmdbId);
+    private boolean checkHistory(Vod item) {
+        TmdbItem tmdbItem = getHistoryTmdbItem();
+        History resumeHistory = getIntentResumeHistory();
+        if (hasIntentResumeHistory() && resumeHistory == null) {
+            Notify.show(R.string.history_record_missing);
+            finish();
+            return false;
+        }
+        mHistory = resumeHistory == null
+                ? History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), tmdbItem)
+                : resumeHistory.forPlaybackKey(getHistoryKey(), VodConfig.getCid());
         mHistory = mHistory == null ? createHistory(item) : mHistory;
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
         applyIntentPlaybackSelection(item);
-        if (Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
+        if (resumeHistory == null && Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
         mBinding.control.action.opening.setText(mHistory.getOpening() <= 0 ? getString(R.string.play_op) : Util.timeMs(mHistory.getOpening()));
         mBinding.control.action.ending.setText(mHistory.getEnding() <= 0 ? getString(R.string.play_ed) : Util.timeMs(mHistory.getEnding()));
         // 如果历史记录中已有有效倍速，使用历史倍速；否则使用默认播放倍速
         float speed = getPlaybackSpeed();
         mBinding.control.action.speed.setText(player().setSpeed(speed));
         mHistory.setVodName(item.getName());
+        mHistory.setVodPic(getInitialArtwork(item));
         enrichHistoryMeta(item);
         PlaybackEventCollector.get().updateHistory(mHistory);
         setArtwork(getInitialArtwork(item));
         setScale(getScale());
         setPartAdapter();
+        return true;
     }
 
     private boolean shouldKeepPushArtwork() {
@@ -3959,6 +4002,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (episode == null) return;
         mHistory.setVodRemarks(getHistoryEpisodeName(episode));
         mHistory.setEpisodeUrl(episode.getUrl());
+        if (episode.getTmdbEpisode() != null || !sameEpisode) mHistory.setTmdbEpisodePosition(episode);
     }
 
     private Flag findIntentPlaybackFlag(List<Flag> flags, String playFlag, String playUrl) {
@@ -4065,6 +4109,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mHistory.setVodFlag(getFlag().getFlag());
         mHistory.setVodRemarks(getHistoryEpisodeName(item));
         mHistory.setEpisodeUrl(item.getUrl());
+        if (item.getTmdbEpisode() != null || !sameEpisode) mHistory.setTmdbEpisodePosition(item);
         PlaybackEventCollector.get().updateHistory(mHistory);
     }
 
@@ -4139,9 +4184,9 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
      */
     private boolean stampHistoryTmdbId() {
         if (mHistory == null || !Setting.isHistoryAggregationEffective()) return false;
-        com.fongmi.android.tv.bean.TmdbItem item = getMatchedTmdbItem();
+        TmdbItem item = getMatchedTmdbItem();
         if (item == null || item.getTmdbId() <= 0) return false;
-        if (mHistory.getTmdbId() == item.getTmdbId()) return false;
+        if (mHistory.getTmdbId() == item.getTmdbId() && TextUtils.equals(mHistory.getMediaType(), item.getMediaType())) return false;
         mHistory.setTmdbId(item.getTmdbId());
         mHistory.setMediaType(item.getMediaType());
         return true;
@@ -4191,10 +4236,16 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         Episode episode = flag.find(mHistory.getEpisode(), true);
         if (episode == null) return false;
         String title = getHistoryEpisodeName(episode);
-        if (TextUtils.isEmpty(title) || TextUtils.equals(title, mHistory.getVodRemarks())) return false;
-        mHistory.setVodRemarks(title);
-        mHistory.setEpisodeUrl(episode.getUrl());
-        return true;
+        boolean changed = episode.getTmdbEpisode() != null && mHistory.setTmdbEpisodePosition(episode);
+        if (!TextUtils.isEmpty(title) && !TextUtils.equals(title, mHistory.getVodRemarks())) {
+            mHistory.setVodRemarks(title);
+            changed = true;
+        }
+        if (!TextUtils.equals(episode.getUrl(), mHistory.getEpisodeUrl())) {
+            mHistory.setEpisodeUrl(episode.getUrl());
+            changed = true;
+        }
+        return changed;
     }
 
     private void updateFlag(Flag activated, List<Flag> items) {
@@ -4445,8 +4496,9 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         clearNativePersonalRecommendations();
         Task.execute(() -> {
             PersonalRecommendationService.RecommendationPages recommendations = PersonalRecommendationService.RecommendationPages.empty();
+            PersonalRecommendationService service = new PersonalRecommendationService();
             try {
-                recommendations = new PersonalRecommendationService().loadPage(item, null, null, 0, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
+                recommendations = service.loadPage(item, null, null, 0, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
             } catch (Throwable e) {
                 SpiderDebug.log("personal-rec", "tv native core failed error=%s", e.getMessage());
             }
@@ -4455,6 +4507,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 if (isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
                 bindNativePersonalRecommendations(loaded);
             });
+            service.enrichTmdbPageRatingsAsync(loaded.getTmdb(), enriched -> applyNativePersonalTmdbRatings(enriched, generation));
         });
         Task.execute(() -> {
             PersonalRecommendationService.RecommendationPage page;
@@ -4489,6 +4542,27 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         setNativePersonalRecommendationFocus(hasTmdb, hasDouban, hasAi);
     }
 
+    private void applyNativePersonalTmdbRatings(PersonalRecommendationService.RecommendationPage page, int generation) {
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration || page == null) return;
+            List<TmdbItem> current = new ArrayList<>();
+            if (mPersonalTmdbObjectAdapter != null) {
+                for (int index = 0; index < mPersonalTmdbObjectAdapter.size(); index++) {
+                    Object item = mPersonalTmdbObjectAdapter.get(index);
+                    if (item instanceof TmdbItem) current.add((TmdbItem) item);
+                }
+            }
+            if (mPersonalTmdbObjectAdapter == null) return;
+            boolean changed = com.fongmi.android.tv.ui.helper.TmdbUIAdapter.mergeRecommendationRatings(current, page.getItems());
+            mNativePersonalTmdbPage = page.withItems(current);
+            if (changed && mPersonalTmdbObjectAdapter != null) {
+                for (int index = 0; index < Math.min(current.size(), mPersonalTmdbObjectAdapter.size()); index++) {
+                    mPersonalTmdbObjectAdapter.replace(index, current.get(index));
+                }
+            }
+        });
+    }
+
     private boolean bindRecommendationGrid(HorizontalGridView grid, View label, List<TmdbItem> items) {
         return bindRecommendationGrid(grid, label, items, RecommendationRow.NONE);
     }
@@ -4501,11 +4575,19 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             if (row == RecommendationRow.PERSONAL_AI) showAiRecommendationReason(null, false);
             return false;
         }
-        ArrayObjectAdapter adapter = new ArrayObjectAdapter(
-            row == RecommendationRow.PERSONAL_AI
-                    ? new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick, this::onAiRecommendationLongClick, this::onAiRecommendationFocus)
-                    : new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick)
-        );
+        com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter presenter;
+        if (row == RecommendationRow.PERSONAL_AI) {
+            presenter = new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick, item -> onRecommendationLongClick(item, "ai"), this::onAiRecommendationFocus);
+        } else if (row == RecommendationRow.PERSONAL_TMDB) {
+            presenter = new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick, item -> onRecommendationLongClick(item, "tmdb"), null);
+        } else if (row == RecommendationRow.PERSONAL_DOUBAN) {
+            presenter = new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick, item -> onRecommendationLongClick(item, "douban"), null);
+        } else if (row == RecommendationRow.RECOMMENDATIONS) {
+            presenter = new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick, item -> onRecommendationLongClick(item, "related"), null);
+        } else {
+            presenter = new com.fongmi.android.tv.ui.presenter.TmdbRecommendationPresenter(this::onTmdbRecommendationClick);
+        }
+        ArrayObjectAdapter adapter = new ArrayObjectAdapter(presenter);
         adapter.addAll(0, items);
         grid.setAdapter(new ItemBridgeAdapter(adapter));
         rememberRecommendationAdapter(row, adapter);
@@ -4538,9 +4620,19 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         setNativePersonalRecommendationFocus(false, false, false);
     }
 
-    private boolean onAiRecommendationLongClick(TmdbItem item) {
-        com.fongmi.android.tv.ui.dialog.AiRecommendationInfoDialog.show(this, item);
+    private boolean onRecommendationLongClick(TmdbItem item, String source) {
+        com.fongmi.android.tv.ui.dialog.AiRecommendationInfoDialog.show(this, item, source, this::onRecommendationNotInterested);
         return true;
+    }
+
+    private void onRecommendationNotInterested(TmdbItem item) {
+        if (mTmdbUIAdapter != null) mTmdbUIAdapter.removeRecommendation(item);
+        if (mTmdbRecommendationsObjectAdapter != null) mTmdbRecommendationsObjectAdapter.remove(item);
+        if (mPersonalTmdbObjectAdapter != null) mPersonalTmdbObjectAdapter.remove(item);
+        if (mPersonalDoubanObjectAdapter != null) mPersonalDoubanObjectAdapter.remove(item);
+        if (mPersonalAiObjectAdapter != null) mPersonalAiObjectAdapter.remove(item);
+        showAiRecommendationReason(item, false);
+        if (mVod != null) loadNativePersonalRecommendations(mVod);
     }
 
     private void onAiRecommendationFocus(TmdbItem item, boolean focused) {
@@ -4548,12 +4640,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void showAiRecommendationReason(TmdbItem item, boolean focused) {
-        if (!focused || item == null || TextUtils.isEmpty(item.getOverview())) {
+        String text = item == null ? "" : item.getRecommendationReason();
+        if (TextUtils.isEmpty(text) && item != null) text = item.getOverview();
+        if (!focused || TextUtils.isEmpty(text)) {
             mBinding.tmdbPersonalAiReason.setVisibility(View.GONE);
             mBinding.tmdbPersonalAiReason.setText("");
             return;
         }
-        mBinding.tmdbPersonalAiReason.setText(getString(R.string.ai_recommendation_reason_preview, item.getOverview()));
+        mBinding.tmdbPersonalAiReason.setText(getString(R.string.ai_recommendation_reason_preview, text));
         mBinding.tmdbPersonalAiReason.setVisibility(View.VISIBLE);
     }
 
@@ -4626,10 +4720,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         else mNativePersonalDoubanLoading = true;
         Task.execute(() -> {
             PersonalRecommendationService.RecommendationPage nextPage;
+            PersonalRecommendationService service = new PersonalRecommendationService();
             try {
                 nextPage = tmdb
-                        ? new PersonalRecommendationService().loadTmdbPage(mVod, null, null, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE)
-                        : new PersonalRecommendationService().loadDoubanPage(mVod, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE);
+                        ? service.loadTmdbPage(mVod, null, null, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE)
+                        : service.loadDoubanPage(mVod, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE);
             } catch (Throwable e) {
                 SpiderDebug.log("personal-rec", "tv native load more failed tmdb=%s error=%s", tmdb, e.getMessage());
                 nextPage = page;
@@ -4647,6 +4742,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                     appendLeanbackItems(mPersonalDoubanObjectAdapter, loadedPage.getItems());
                 }
             });
+            if (tmdb) service.enrichTmdbPageRatingsAsync(loadedPage, enriched -> applyNativePersonalTmdbRatings(enriched, generation));
         });
     }
 
