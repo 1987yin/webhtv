@@ -2497,13 +2497,15 @@ public class VideoActivityLayoutTest {
             assertTrue(sourcePath + " must clear stale explicit playback selection before merging another launch",
                     source.contains("getIntent().removeExtra(EXTRA_TMDB_PLAY_FLAG);")
                             && source.contains("getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_NAME);")
-                            && source.contains("getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_URL);"));
+                            && source.contains("getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_URL);")
+                            && source.contains("getIntent().removeExtra(EXTRA_TMDB_PLAY_SEASON_NUMBER);")
+                            && source.contains("getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_NUMBER);"));
             assertTrue(sourcePath + " must read the history-resume marker before matching episodes",
                     selection.contains("boolean tolerantResume = crossSource || isResumeFromHistory();"));
             assertTrue(sourcePath + " must keep URL-strict matching for ordinary explicit episode launches",
-                    selection.replaceAll("\\s+", " ").contains("tolerantResume ? episode.matchesPlayback(mHistory.getEpisode()) : episode.matches(mHistory.getEpisode())"));
+                    selection.replaceAll("\\s+", " ").contains("tolerantResume ? historyEpisode.matchesPlayback(mHistory.getEpisode()) : episode.matches(mHistory.getEpisode())"));
             assertTrue(sourcePath + " must preserve progress when a history source refresh changes only the episode URL",
-                    selection.contains("episode.matchesPlayback(mHistory.getEpisode())"));
+                    selection.contains("historyEpisode.matchesPlayback(mHistory.getEpisode())"));
             assertTrue(sourcePath + " must use the same tolerant episode identity when playback updates history",
                     update.contains("item.matchesPlayback(mHistory.getEpisode())"));
         }

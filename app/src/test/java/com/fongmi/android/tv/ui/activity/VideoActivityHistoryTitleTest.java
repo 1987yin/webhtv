@@ -16,16 +16,22 @@ public class VideoActivityHistoryTitleTest {
         for (Path sourcePath : List.of(videoActivity("mobile"), videoActivity("leanback"))) {
             String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
             String intentSelection = methodBody(source, "private void applyIntentPlaybackSelection(Vod item)");
+            String directTmdbLaunch = methodBody(source, "public static void startDirectTmdb(Activity activity, String key, String id, String name, String pic, String mark, ArrayList<String> episodeTitles, TmdbItem item, Vod tmdbVod, Vod detailVod, String tmdbDetailCacheKey, String playFlag, String playEpisodeName, String playEpisodeUrl, int playSeasonNumber");
             String saveHistory = methodBody(source, "private void saveHistory(boolean exit)");
             String updateHistory = methodBody(source, "private void updateHistory(Episode item)");
             String updateVod = methodBody(source, "private void updateVod(Vod item)");
             String refreshTitle = methodBody(source, "private boolean refreshCurrentHistoryEpisodeTitle()");
 
             assertTrue(sourcePath + " must persist the displayed/scraped title for intent-selected episodes",
-                    intentSelection.contains("mHistory.setVodRemarks(getHistoryEpisodeName(episode));"));
+                    intentSelection.contains("mHistory.setVodRemarks(getHistoryEpisodeName(historyEpisode));"));
             assertTrue(sourcePath + " must persist a bound TMDB episode position without clearing a same-episode fallback",
-                    intentSelection.contains("episode.getTmdbEpisode() != null || !sameEpisode")
-                            && intentSelection.contains("mHistory.setTmdbEpisodePosition(episode)"));
+                    intentSelection.contains("historyEpisode.getTmdbEpisode() != null || !sameEpisode")
+                            && intentSelection.contains("mHistory.setTmdbEpisodePosition(historyEpisode)"));
+            assertTrue(sourcePath + " must forward the canonical TMDB season and episode from the detail page",
+                    directTmdbLaunch.contains("EXTRA_TMDB_PLAY_SEASON_NUMBER")
+                            && directTmdbLaunch.contains("EXTRA_TMDB_PLAY_EPISODE_NUMBER"));
+            assertTrue(sourcePath + " must persist the forwarded canonical TMDB position for the selected episode",
+                    intentSelection.contains("withIntentTmdbEpisodeIdentity(episode)"));
             assertTrue(sourcePath + " must compare episodes by URL before falling back to source names or numbers",
                     updateHistory.contains("item.matchesPlayback(mHistory.getEpisode())"));
             assertTrue(sourcePath + " must persist the displayed/scraped title whenever playback changes episodes",
@@ -59,7 +65,9 @@ public class VideoActivityHistoryTitleTest {
             if (source.contains("private void updateFastTmdbPlaybackHistory(Flag flag, Episode episode)")) {
                 String fastPlaybackHistory = methodBody(source, "private void updateFastTmdbPlaybackHistory(Flag flag, Episode episode)");
                 assertTrue(sourcePath + " must also preserve scraped titles on the TV fast-playback path",
-                        fastPlaybackHistory.contains("mHistory.setVodRemarks(getHistoryEpisodeName(episode));"));
+                        fastPlaybackHistory.contains("mHistory.setVodRemarks(getHistoryEpisodeName(historyEpisode));"));
+                assertTrue(sourcePath + " must persist the forwarded canonical position on the TV fast-playback path",
+                        fastPlaybackHistory.contains("withIntentTmdbEpisodeIdentity(episode)"));
             }
         }
     }
@@ -82,15 +90,17 @@ public class VideoActivityHistoryTitleTest {
         assertTrue("colorful detail mode must keep the external VideoActivity path", onPlay.contains("else playDefaultPlayback();"));
         assertTrue("inline modes must store the formatted scraped episode title",
                 inlineHistory.contains("history.setVodRemarks(historyEpisodeTitle(item));"));
-        assertTrue("inline modes must persist the bound TMDB episode position",
-                inlineHistory.contains("history.setTmdbEpisodePosition(item)"));
-        assertTrue("detail refresh must not clear a persisted position before TMDB binding completes",
-                refreshHistory.contains("selectedEpisode.getTmdbEpisode() != null && saved.setTmdbEpisodePosition(selectedEpisode)"));
+        assertTrue("inline modes must persist the canonical TMDB episode position",
+                inlineHistory.contains("setHistoryTmdbEpisodePosition(history, item)"));
+        assertTrue("detail refresh must persist the canonical position after TMDB enrichment",
+                refreshHistory.contains("setHistoryTmdbEpisodePosition(saved, selectedEpisode)"));
         assertTrue("detail playback must prefer persisted TMDB episode identity over matching source labels",
                 sameEpisode.contains("item.getTmdbEpisodeNumber() > 0")
                         && sameEpisode.contains("episode.matchesPlayback(saved)"));
         assertTrue("external colorful playback must forward the scraped episode title table",
                 defaultPlayback.contains("fastPlaybackEpisodeTitles()"));
+        assertTrue("external colorful playback must forward the canonical TMDB season and episode",
+                defaultPlayback.contains("position.season()") && defaultPlayback.contains("position.number()"));
         assertTrue("the colorful fast-playback payload must contain the TMDB title rather than the raw source name",
                 fastTitles.contains("tmdbEpisodeTitle(number)")
                         && !fastTitles.contains("playbackEpisodeName()"));

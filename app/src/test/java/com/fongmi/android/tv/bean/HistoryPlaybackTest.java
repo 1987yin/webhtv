@@ -198,6 +198,18 @@ public class HistoryPlaybackTest {
     }
 
     @Test
+    public void canonicalTmdbPositionCanBeStoredWithoutBindingSourceEpisodeMetadata() {
+        History history = history("site@@vod@@1", "示例剧", "源站编号203", "url-20", 120_000, 300_000);
+        Episode sourceEpisode = Episode.create("源站编号203", "url-20");
+
+        assertTrue(history.setTmdbEpisodePosition(2, 20));
+
+        assertEquals(2, history.getTmdbSeasonNumber());
+        assertEquals(20, history.getTmdbEpisodeNumber());
+        assertEquals(null, sourceEpisode.getTmdbEpisode());
+    }
+
+    @Test
     public void tmdbEpisodePositionSurvivesCopyAndClearsWhenEpisodeChanges() {
         History history = history("site@@vod@@1", "示例剧", "源站编号203", "url-20", 120_000, 300_000);
         Episode episode = Episode.create("源站编号203", "url-20");

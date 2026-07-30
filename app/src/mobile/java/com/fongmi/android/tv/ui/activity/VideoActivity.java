@@ -318,6 +318,8 @@ private int mAudioBackgroundRandomNonce;
     private static final String EXTRA_TMDB_PLAY_FLAG = "tmdb_play_flag";
     private static final String EXTRA_TMDB_PLAY_EPISODE_NAME = "tmdb_play_episode_name";
     private static final String EXTRA_TMDB_PLAY_EPISODE_URL = "tmdb_play_episode_url";
+    private static final String EXTRA_TMDB_PLAY_SEASON_NUMBER = "tmdb_play_season_number";
+    private static final String EXTRA_TMDB_PLAY_EPISODE_NUMBER = "tmdb_play_episode_number";
     private static final String EXTRA_RESUME_FROM_HISTORY = "resume_from_history";
     private static final String EXTRA_RESUME_HISTORY_CID = "resume_history_cid";
     private static final String EXTRA_RESUME_HISTORY_KEY = "resume_history_key";
@@ -715,10 +717,14 @@ private int mAudioBackgroundRandomNonce;
     }
 
     public static void startDirectTmdb(Activity activity, String key, String id, String name, String pic, String mark, ArrayList<String> episodeTitles, TmdbItem item, Vod tmdbVod, Vod detailVod, String playFlag, String playEpisodeName, String playEpisodeUrl) {
-        startDirectTmdb(activity, key, id, name, pic, mark, episodeTitles, item, tmdbVod, detailVod, "", playFlag, playEpisodeName, playEpisodeUrl);
+        startDirectTmdb(activity, key, id, name, pic, mark, episodeTitles, item, tmdbVod, detailVod, "", playFlag, playEpisodeName, playEpisodeUrl, -1, -1);
     }
 
     public static void startDirectTmdb(Activity activity, String key, String id, String name, String pic, String mark, ArrayList<String> episodeTitles, TmdbItem item, Vod tmdbVod, Vod detailVod, String tmdbDetailCacheKey, String playFlag, String playEpisodeName, String playEpisodeUrl) {
+        startDirectTmdb(activity, key, id, name, pic, mark, episodeTitles, item, tmdbVod, detailVod, tmdbDetailCacheKey, playFlag, playEpisodeName, playEpisodeUrl, -1, -1);
+    }
+
+    public static void startDirectTmdb(Activity activity, String key, String id, String name, String pic, String mark, ArrayList<String> episodeTitles, TmdbItem item, Vod tmdbVod, Vod detailVod, String tmdbDetailCacheKey, String playFlag, String playEpisodeName, String playEpisodeUrl, int playSeasonNumber, int playEpisodeNumber) {
         if (AudioActivity.startSite(activity, key, id, name, pic, mark)) return;
         Intent intent = new Intent(activity, VideoActivity.class);
         intent.putExtra("tmdbMode", item != null);
@@ -732,6 +738,10 @@ private int mAudioBackgroundRandomNonce;
         intent.putExtra("id", id);
         intent.putStringArrayListExtra("tmdb_episode_titles", episodeTitles);
         putIntentPlaybackSelection(intent, playFlag, playEpisodeName, playEpisodeUrl);
+        if (playEpisodeNumber > 0) {
+            intent.putExtra(EXTRA_TMDB_PLAY_SEASON_NUMBER, Math.max(-1, playSeasonNumber));
+            intent.putExtra(EXTRA_TMDB_PLAY_EPISODE_NUMBER, playEpisodeNumber);
+        }
         putTmdbVod(intent, tmdbVod);
         putDetailVodCache(intent, detailVod);
         if (!TextUtils.isEmpty(tmdbDetailCacheKey)) intent.putExtra(TmdbDetailCache.EXTRA_KEY, tmdbDetailCacheKey);
@@ -824,6 +834,19 @@ private int mAudioBackgroundRandomNonce;
 
     private String getIntentPlaybackEpisodeUrl() {
         return Objects.toString(getIntent().getStringExtra(EXTRA_TMDB_PLAY_EPISODE_URL), "");
+    }
+
+    private Episode withIntentTmdbEpisodeIdentity(Episode episode) {
+        if (episode == null) return null;
+        int number = getIntent().getIntExtra(EXTRA_TMDB_PLAY_EPISODE_NUMBER, 0);
+        if (number <= 0) return episode;
+        int season = getIntent().getIntExtra(EXTRA_TMDB_PLAY_SEASON_NUMBER, -1);
+        TmdbEpisode current = episode.getTmdbEpisode();
+        if (current != null && current.getNumber() == number && current.getSeasonNumber() == season) return episode;
+        // 使用副本参与历史匹配，避免仅为续播身份而改变剧集列表的卡片/标题展示。
+        Episode identity = Episode.create(episode.getName(), episode.getDesc(), episode.getUrl());
+        identity.setTmdbEpisode(new TmdbEpisode(number, getEpisodeTitles().get(number), "", "", "", 0, 0, 0, season));
+        return identity;
     }
 
     private boolean isResumeFromHistory() {
@@ -1051,6 +1074,8 @@ private int mAudioBackgroundRandomNonce;
         getIntent().removeExtra(EXTRA_TMDB_PLAY_FLAG);
         getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_NAME);
         getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_URL);
+        getIntent().removeExtra(EXTRA_TMDB_PLAY_SEASON_NUMBER);
+        getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_NUMBER);
         getIntent().removeExtra(EXTRA_RESUME_FROM_HISTORY);
         getIntent().removeExtra(EXTRA_RESUME_HISTORY_CID);
         getIntent().removeExtra(EXTRA_RESUME_HISTORY_KEY);
@@ -3593,12 +3618,13 @@ private int mAudioBackgroundRandomNonce;
         Flag flag = findIntentPlaybackFlag(item.getFlags(), playFlag, playUrl);
         if (flag == null) return;
         Episode episode = findIntentPlaybackEpisode(flag, playName, playUrl);
+        Episode historyEpisode = withIntentTmdbEpisodeIdentity(episode);
         // 仅历史入口和跨源续播允许 URL 刷新后按集名/集号恢复；普通显式选集仍按 URL 严格匹配。
         boolean crossSource = mHistory.isCrossSourcePlayback();
         boolean tolerantResume = crossSource || isResumeFromHistory();
         boolean sameFlag = crossSource || TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());
         boolean sameEpisode = episode != null && (tolerantResume
-                ? episode.matchesPlayback(mHistory.getEpisode())
+                ? historyEpisode.matchesPlayback(mHistory.getEpisode())
                 : episode.matches(mHistory.getEpisode()));
         if (!sameFlag || (episode != null && !sameEpisode)) {
             mHistory.setPosition(C.TIME_UNSET);
@@ -3606,9 +3632,9 @@ private int mAudioBackgroundRandomNonce;
         }
         mHistory.setVodFlag(flag.getFlag());
         if (episode == null) return;
-        mHistory.setVodRemarks(getHistoryEpisodeName(episode));
+        mHistory.setVodRemarks(getHistoryEpisodeName(historyEpisode));
         mHistory.setEpisodeUrl(episode.getUrl());
-        if (episode.getTmdbEpisode() != null || !sameEpisode) mHistory.setTmdbEpisodePosition(episode);
+        if (historyEpisode.getTmdbEpisode() != null || !sameEpisode) mHistory.setTmdbEpisodePosition(historyEpisode);
     }
 
     private Flag findIntentPlaybackFlag(List<Flag> flags, String playFlag, String playUrl) {
