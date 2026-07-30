@@ -34,7 +34,7 @@ import org.greenrobot.eventbus.ThreadMode;
 
 import java.util.Optional;
 
-public class VodActivity extends BaseActivity implements TypeAdapter.OnClickListener {
+public class VodActivity extends BaseActivity implements TypeAdapter.OnClickListener, FolderFragment.FilterHost {
 
     private ActivityVodBinding mBinding;
     private TypeAdapter mAdapter;
@@ -151,6 +151,7 @@ public class VodActivity extends BaseActivity implements TypeAdapter.OnClickList
         mAdapter.notifyItemRangeChanged(mAdapter.indexOf(item), 1);
     }
 
+    @Override
     public void closeFilter() {
         if (isFilterVisible()) updateFilter();
     }
