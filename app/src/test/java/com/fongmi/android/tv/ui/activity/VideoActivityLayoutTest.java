@@ -2483,7 +2483,7 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
-    public void bothPlaybackModesUseTolerantEpisodeIdentityOnlyForHistoryResume() throws Exception {
+    public void bothPlaybackModesShareCanonicalEpisodeProgressWhenTmdbAggregationIsEnabled() throws Exception {
         for (Path root : List.of(findLeanbackJavaPath(), findMobileJavaPath())) {
             Path sourcePath = root.resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
             String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -2497,15 +2497,26 @@ public class VideoActivityLayoutTest {
             assertTrue(sourcePath + " must clear stale explicit playback selection before merging another launch",
                     source.contains("getIntent().removeExtra(EXTRA_TMDB_PLAY_FLAG);")
                             && source.contains("getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_NAME);")
-                            && source.contains("getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_URL);"));
-            assertTrue(sourcePath + " must read the history-resume marker before matching episodes",
-                    selection.contains("boolean tolerantResume = crossSource || isResumeFromHistory();"));
-            assertTrue(sourcePath + " must keep URL-strict matching for ordinary explicit episode launches",
-                    selection.replaceAll("\\s+", " ").contains("tolerantResume ? episode.matchesPlayback(mHistory.getEpisode()) : episode.matches(mHistory.getEpisode())"));
+                            && source.contains("getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_URL);")
+                            && source.contains("getIntent().removeExtra(EXTRA_TMDB_PLAY_SEASON_NUMBER);")
+                            && source.contains("getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_NUMBER);"));
+            assertTrue(sourcePath + " must share canonical episode progress when TMDB history aggregation is enabled",
+                    selection.replaceAll("\\s+", " ").contains("boolean shareEpisodeProgress = crossSource || isResumeFromHistory() || Setting.isHistoryAggregationEffective();"));
+            assertTrue(sourcePath + " must keep the original episode identity when aggregation and history resume are disabled",
+                    selection.replaceAll("\\s+", " ").contains("shareEpisodeProgress ? historyEpisode.matchesPlayback(mHistory.getEpisode()) : episode.matches(mHistory.getEpisode())"));
+            assertTrue(sourcePath + " must ignore source-line differences when shared progress is enabled",
+                    selection.contains("boolean compatibleFlag = shareEpisodeProgress || TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());"));
             assertTrue(sourcePath + " must preserve progress when a history source refresh changes only the episode URL",
-                    selection.contains("episode.matchesPlayback(mHistory.getEpisode())"));
+                    selection.contains("historyEpisode.matchesPlayback(mHistory.getEpisode())"));
             assertTrue(sourcePath + " must use the same tolerant episode identity when playback updates history",
                     update.contains("item.matchesPlayback(mHistory.getEpisode())"));
+            if (source.contains("private void updateFastTmdbPlaybackHistory(Flag flag, Episode episode)")) {
+                String fast = methodBody(source, "private void updateFastTmdbPlaybackHistory(Flag flag, Episode episode)", "private void resetDetailForNewIntent()");
+                assertTrue(sourcePath + " fast TMDB playback must honor the aggregation progress-sharing switch",
+                        fast.replaceAll("\\s+", " ").contains("boolean shareEpisodeProgress = crossSource || isResumeFromHistory() || Setting.isHistoryAggregationEffective();"));
+                assertTrue(sourcePath + " fast TMDB playback must share progress across source lines when enabled",
+                        fast.contains("boolean compatibleFlag = shareEpisodeProgress || TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());"));
+            }
         }
     }
 

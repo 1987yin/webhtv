@@ -4773,7 +4773,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void initHistory() {
-        history = History.findPlayback(getHistoryKey(), List.of(vod.getName(), getNameText()), vod.getFlags());
+        history = History.findPlayback(getHistoryKey(), List.of(vod.getName(), getNameText()), vod.getFlags(), matchedTmdbItem);
         if (history == null) {
             history = new History();
             history.setKey(getHistoryKey());
@@ -4819,9 +4819,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             long start = System.currentTimeMillis();
             logTmdbMatch("原生增强播放标题：raw=%s，缓存标题=%s，详情标题=%s，播放标题=%s", getTmdbRawTitle(), matchedTmdbItem == null ? "" : matchedTmdbItem.getTitle(), tmdbDetailTitle(matchedTmdbItem, matchedTmdbDetail), playbackHistoryName());
             TmdbItem item = playbackTmdbItem();
+            EpisodePosition position = historyEpisodePosition(selectedEpisode);
             String tmdbDetailCacheKey = TmdbDetailCache.put(item, matchedTmdbDetail, detailCastItems);
             SpiderDebug.log("tmdb-tv", "play launch prep cost=%dms title=%s", System.currentTimeMillis() - start, playbackHistoryName());
-            VideoActivity.startDirectTmdb(this, getKeyText(), getIdText(), playbackHistoryName(), playbackHistoryPic(), playbackMark(), fastPlaybackEpisodeTitles(), item, playbackTmdbVod(), vod, tmdbDetailCacheKey, playbackFlag(), playbackEpisodeName(), playbackEpisodeUrl());
+            VideoActivity.startDirectTmdb(this, getKeyText(), getIdText(), playbackHistoryName(), playbackHistoryPic(), playbackMark(), fastPlaybackEpisodeTitles(), item, playbackTmdbVod(), vod, tmdbDetailCacheKey, playbackFlag(), playbackEpisodeName(), playbackEpisodeUrl(), position.season(), position.number());
         });
     }
 
@@ -5593,7 +5594,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         History saved = History.find(getHistoryKey());
         if (saved == null || !isHistoryEpisode(selectedEpisode, saved)) return;
         String title = historyEpisodeTitle(selectedEpisode);
-        boolean changed = selectedEpisode.getTmdbEpisode() != null && saved.setTmdbEpisodePosition(selectedEpisode);
+        boolean changed = setHistoryTmdbEpisodePosition(saved, selectedEpisode);
         if (!TextUtils.isEmpty(title) && !title.equals(saved.getVodRemarks())) {
             saved.setVodRemarks(title);
             changed = true;
@@ -5611,10 +5612,21 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         RefreshEvent.history();
     }
 
+    private EpisodePosition historyEpisodePosition(Episode episode) {
+        if (episode == null || selectedFlag == null || selectedFlag.getEpisodes() == null) return new EpisodePosition(-1, -1);
+        return episodePosition(episode, selectedFlag.getEpisodes());
+    }
+
     private int episodeNumberForHistory(Episode episode) {
-        if (episode == null || selectedFlag == null || selectedFlag.getEpisodes() == null) return -1;
-        EpisodePosition position = episodePosition(episode, selectedFlag.getEpisodes());
-        return position.number();
+        return historyEpisodePosition(episode).number();
+    }
+
+    private boolean setHistoryTmdbEpisodePosition(History item, Episode episode) {
+        if (item == null || episode == null) return false;
+        if (episode.getTmdbEpisode() != null) return item.setTmdbEpisodePosition(episode);
+        // 历史身份可使用当前 TMDB 列表映射；展示层仍保留 TmdbEpisodeMatcher 的保守绑定规则。
+        EpisodePosition position = historyEpisodePosition(episode);
+        return position.number() > 0 && item.setTmdbEpisodePosition(position.season(), position.number());
     }
 
     private String playbackHistoryName() {
@@ -9378,7 +9390,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         history.setVodFlag(selectedFlag.getFlag());
         history.setVodRemarks(historyEpisodeTitle(item));
         history.setEpisodeUrl(item.getUrl());
-        if (item.getTmdbEpisode() != null || !sameEpisode) history.setTmdbEpisodePosition(item);
+        setHistoryTmdbEpisodePosition(history, item);
         history.setVodPic(playbackHistoryPic());
         // 富集字段：TMDB 优先，回退源站 Vod。仅补空字段，避免匹配失败时用空值覆盖已有数据（老记录也可补齐）
         history.enrichMeta(
