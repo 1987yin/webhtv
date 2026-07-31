@@ -80,6 +80,8 @@ public class TmdbUIAdapter {
     private PersonalRecommendationService.RecommendationPage personalDoubanPage;
     private PersonalRecommendationService.RecommendationPage personalAiPage;
     private Vod vod;
+    private int sourceSeasonNumber = -1;
+    private TmdbEpisodeInfo episodeInfo;
     private int recommendationPage;
     private boolean recommendationHasMore;
     private boolean recommendationLoading;
@@ -449,6 +451,8 @@ public class TmdbUIAdapter {
         personalDoubanPage = null;
         personalAiPage = null;
         vod = null;
+        sourceSeasonNumber = -1;
+        episodeInfo = null;
         recommendationPage = 1;
         recommendationHasMore = false;
         recommendationLoading = false;
@@ -489,8 +493,10 @@ public class TmdbUIAdapter {
             SpiderDebug.log("tmdb", "detail core castParse source=%s cost=%dms count=%d title=%s", cachedCast == null || cachedCast.isEmpty() ? "service" : "memory-cache", System.currentTimeMillis() - castStart, cast.size(), item.getTitle());
             if (!isCurrentGeneration(generation)) return;
             this.vod = vod;
+            sourceSeasonNumber = vod == null ? -1 : new MediaTitleParser().seasonNumber(vod.getName());
             tmdbItem = item;
             tmdbDetail = detail;
+            episodeInfo = TmdbEpisodeInfo.from(item.getMediaType(), detail, sourceSeasonNumber);
             tmdbCast = cast;
             recommendations = new ArrayList<>();
             recommendationPage = 1;
@@ -1004,6 +1010,24 @@ public class TmdbUIAdapter {
         if (!tmdbDetail.has("vote_average") || tmdbDetail.get("vote_average").isJsonNull()) return "";
         double vote = tmdbDetail.get("vote_average").getAsDouble();
         return vote <= 0 ? "" : String.format(Locale.US, "%.1f", vote);
+    }
+
+    /**
+     * 当前 TMDB 剧集的规范化集数信息。
+     */
+    public TmdbEpisodeInfo getEpisodeInfo() {
+        if (episodeInfo == null) {
+            episodeInfo = TmdbEpisodeInfo.from(tmdbItem == null ? "" : tmdbItem.getMediaType(), tmdbDetail, sourceSeasonNumber);
+        }
+        return episodeInfo;
+    }
+
+    public String getEpisodeDetailText() {
+        return getEpisodeInfo().detailText(activity);
+    }
+
+    public String getEpisodeCompactText() {
+        return getEpisodeInfo().compactText(activity);
     }
 
     /**
