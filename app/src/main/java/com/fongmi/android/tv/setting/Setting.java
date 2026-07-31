@@ -549,7 +549,12 @@ public class Setting {
     }
 
     public static String getWebHomeThemeUrl() {
-        return Prefers.getString("web_home_theme_url", "file:///android_asset/webhome/eclipse.html");
+        String legacy = "file:///android_asset/webhome/eclipse.html";
+        String current = Prefers.getString("web_home_theme_url", "file:///android_asset/webhome/theme.json");
+        if (!legacy.equals(current)) return current;
+        current = "file:///android_asset/webhome/theme.json";
+        Prefers.put("web_home_theme_url", current);
+        return current;
     }
 
     public static void putWebHomeThemeUrl(String url) {
