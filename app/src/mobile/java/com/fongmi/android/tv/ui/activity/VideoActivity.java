@@ -812,6 +812,17 @@ private int mAudioBackgroundRandomNonce;
         return Objects.toString(getIntent().getStringExtra("tmdb_vod_actor"), "");
     }
 
+    private String getTmdbVodRemark() {
+        return Objects.toString(getIntent().getStringExtra("tmdb_vod_remark"), "");
+    }
+
+    private void applyIntentTmdbVodRemark(Vod item) {
+        if (item == null || !isIntentTmdbPlayback()) return;
+        String remark = getTmdbVodRemark();
+        getIntent().removeExtra("tmdb_vod_remark");
+        if (!TextUtils.isEmpty(remark)) item.setRemarks(remark);
+    }
+
     private String getWallPic() {
         return Objects.toString(getIntent().getStringExtra("wallPic"), "");
     }
@@ -1738,6 +1749,7 @@ private int mAudioBackgroundRandomNonce;
         item.checkName(getName());
         item.checkContent(getTmdbVodContent());
         item.checkContent(getContent());
+        applyIntentTmdbVodRemark(item);
         boolean tmdbMode = shouldLoadTmdbDetail();
         mTmdbFallbackToNative = false;
         mTmdbContentLoaded = false;

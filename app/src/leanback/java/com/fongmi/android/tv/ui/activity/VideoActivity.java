@@ -826,6 +826,17 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         return Objects.toString(getIntent().getStringExtra("tmdb_vod_actor"), "");
     }
 
+    private String getTmdbVodRemark() {
+        return Objects.toString(getIntent().getStringExtra("tmdb_vod_remark"), "");
+    }
+
+    private void applyIntentTmdbVodRemark(Vod item) {
+        if (item == null || !isIntentTmdbPlayback()) return;
+        String remark = getTmdbVodRemark();
+        getIntent().removeExtra("tmdb_vod_remark");
+        if (!TextUtils.isEmpty(remark)) item.setRemarks(remark);
+    }
+
     private String getWallPic() {
         return Objects.toString(getIntent().getStringExtra("wallPic"), "");
     }
@@ -2023,6 +2034,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         item.checkName(getName());
         boolean loadTmdbDetail = shouldLoadTmdbDetail();
         item.checkContent(getContent());
+        applyIntentTmdbVodRemark(item);
         setOriginalEnhancedActionVisibility(loadTmdbDetail && (Setting.isOriginalEnhancedDetailPage() || isIntentTmdbPlayback()));
         if (isIntentTmdbPlayback()) com.fongmi.android.tv.utils.TmdbEpisodeSorter.sort(item);
         applyTmdbEpisodeTitles(item);
