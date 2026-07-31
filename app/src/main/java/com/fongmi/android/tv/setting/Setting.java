@@ -64,6 +64,9 @@ public class Setting {
     public static final int TMDB_MATCH_SMART = 1;
     public static final int TMDB_MATCH_STRICT_DIALOG = 2;
     public static final int TMDB_MATCH_SMART_DIALOG = 3;
+    public static final int GLOBAL_HISTORY_OFF = 0;
+    public static final int GLOBAL_HISTORY_AUTO = 1;
+    public static final int GLOBAL_HISTORY_SEARCH = 2;
     public static final int DETAIL_INTERACTION_SYSTEM = 0;
     public static final int INTRO_SKIP_OFF = 0;
     public static final int INTRO_SKIP_AUTO = 1;
@@ -535,6 +538,35 @@ public class Setting {
 
     public static void putWebHomeExtension(boolean extension) {
         Prefers.put("web_home_extension", extension);
+    }
+
+    public static boolean isWebHomeThemeEnabled() {
+        return Prefers.getBoolean("web_home_theme_enabled");
+    }
+
+    public static void putWebHomeThemeEnabled(boolean enabled) {
+        Prefers.put("web_home_theme_enabled", enabled);
+    }
+
+    public static String getWebHomeThemeUrl() {
+        String legacy = "file:///android_asset/webhome/eclipse.html";
+        String current = Prefers.getString("web_home_theme_url", "file:///android_asset/webhome/theme.json");
+        if (!legacy.equals(current)) return current;
+        current = "file:///android_asset/webhome/theme.json";
+        Prefers.put("web_home_theme_url", current);
+        return current;
+    }
+
+    public static void putWebHomeThemeUrl(String url) {
+        Prefers.put("web_home_theme_url", url);
+    }
+
+    public static String getWebHomeThemeTrustedUrl() {
+        return Prefers.getString("web_home_theme_trusted_url");
+    }
+
+    public static void putWebHomeThemeTrustedUrl(String url) {
+        Prefers.put("web_home_theme_trusted_url", url);
     }
 
     public static boolean isWebHomeFullscreen() {
@@ -1144,6 +1176,30 @@ public class Setting {
 
     public static void putEpisodeHistory(boolean episodeHistory) {
         Prefers.put("episode_history", episodeHistory);
+    }
+
+    public static int getGlobalHistoryMode() {
+        return clampGlobalHistoryMode(Prefers.getInt("global_history_mode", GLOBAL_HISTORY_OFF));
+    }
+
+    public static void putGlobalHistoryMode(int mode) {
+        Prefers.put("global_history_mode", clampGlobalHistoryMode(mode));
+    }
+
+    public static boolean isGlobalHistoryEnabled() {
+        return getGlobalHistoryMode() != GLOBAL_HISTORY_OFF;
+    }
+
+    public static boolean isGlobalHistoryAuto() {
+        return getGlobalHistoryMode() == GLOBAL_HISTORY_AUTO;
+    }
+
+    public static boolean isGlobalHistorySearch() {
+        return getGlobalHistoryMode() == GLOBAL_HISTORY_SEARCH;
+    }
+
+    private static int clampGlobalHistoryMode(int mode) {
+        return mode == GLOBAL_HISTORY_AUTO || mode == GLOBAL_HISTORY_SEARCH ? mode : GLOBAL_HISTORY_OFF;
     }
 
     public static boolean isHistoryAggregationByTmdb() {

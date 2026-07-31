@@ -88,6 +88,7 @@ public class TmdbUIAdapter {
     private boolean personalRefreshLoading;
     private boolean personalAiLoading;
     private boolean loaded;
+    private volatile boolean episodeMetadataLoaded;
     private volatile int loadGeneration;
     private volatile int pendingVodRefreshGeneration;
     private volatile Vod pendingVodRefreshVod;
@@ -119,6 +120,10 @@ public class TmdbUIAdapter {
         return loaded;
     }
 
+    public boolean isEpisodeMetadataLoaded() {
+        return episodeMetadataLoaded;
+    }
+
     public void setPersonalAiUpdateListener(PersonalAiUpdateListener listener) {
         this.personalAiUpdateListener = listener;
     }
@@ -141,6 +146,13 @@ public class TmdbUIAdapter {
 
     public List<TmdbItem> getPersonalTmdbRecommendations() {
         return getPersonalRecommendations(personalTmdbRecommendations);
+    }
+
+    public void removeRecommendation(TmdbItem item) {
+        removeRecommendationFrom(recommendations, item);
+        removeRecommendationFrom(personalTmdbRecommendations, item);
+        removeRecommendationFrom(personalDoubanRecommendations, item);
+        removeRecommendationFrom(personalAiRecommendations, item);
     }
 
     public List<TmdbItem> getPersonalDoubanRecommendations() {
@@ -317,31 +329,38 @@ public class TmdbUIAdapter {
         }
         Task.execute(() -> {
             long start = System.currentTimeMillis();
-            if (!isCurrentGeneration(generation)) return;
-            TmdbItem matched = getCachedMatch(vod);
-            if (matched != null) {
-                SpiderDebug.log("tmdb", "auto match cache hit title=%s cost=%dms", matched.getTitle(), System.currentTimeMillis() - start);
-                if (isCachedSplitSeasonMismatch(videoName, vod, matched)) {
-                    SpiderDebug.log("tmdb", "auto match cache skipped split-season variant title=%s id=%d name=%s", matched.getTitle(), matched.getTmdbId(), videoName);
-                    matched = null;
+            try {
+                if (!isCurrentGeneration(generation)) return;
+                TmdbItem matched = getCachedMatch(vod);
+                if (matched != null) {
+                    SpiderDebug.log("tmdb", "auto match cache hit title=%s cost=%dms", matched.getTitle(), System.currentTimeMillis() - start);
+                    if (isCachedSplitSeasonMismatch(videoName, vod, matched)) {
+                        SpiderDebug.log("tmdb", "auto match cache skipped split-season variant title=%s id=%d name=%s", matched.getTitle(), matched.getTmdbId(), videoName);
+                        matched = null;
+                    }
                 }
-            }
-            if (matched == null) {
-                long searchStart = System.currentTimeMillis();
-                matched = searchResolvedMatch(videoName, vod);
-                SpiderDebug.log("tmdb", "auto match search cost=%dms hit=%s name=%s", System.currentTimeMillis() - searchStart, matched != null, videoName);
-            }
-            if (!isCurrentGeneration(generation)) return;
-            if (matched == null) {
-                SpiderDebug.log("tmdb", "auto match miss name=%s total=%dms", videoName, System.currentTimeMillis() - start);
+                if (matched == null) {
+                    long searchStart = System.currentTimeMillis();
+                    matched = searchResolvedMatch(videoName, vod);
+                    SpiderDebug.log("tmdb", "auto match search cost=%dms hit=%s name=%s", System.currentTimeMillis() - searchStart, matched != null, videoName);
+                }
+                if (!isCurrentGeneration(generation)) return;
+                if (matched == null) {
+                    SpiderDebug.log("tmdb", "auto match miss name=%s total=%dms", videoName, System.currentTimeMillis() - start);
+                    tmdbItem = null;
+                    notifyLoadComplete(vod, generation);
+                    return;
+                }
+                saveMatch(vod, matched);
+                tmdbItem = matched;
+                SpiderDebug.log("tmdb", "auto match ready title=%s total=%dms", matched.getTitle(), System.currentTimeMillis() - start);
+                loadDetailSync(vod, matched, generation);
+            } catch (Exception e) {
+                SpiderDebug.log("tmdb", "auto match failed name=%s total=%dms error=%s", videoName, System.currentTimeMillis() - start, e.getMessage());
+                if (!isCurrentGeneration(generation)) return;
                 tmdbItem = null;
                 notifyLoadComplete(vod, generation);
-                return;
             }
-            saveMatch(vod, matched);
-            tmdbItem = matched;
-            SpiderDebug.log("tmdb", "auto match ready title=%s total=%dms", matched.getTitle(), System.currentTimeMillis() - start);
-            loadDetailSync(vod, matched, generation);
         });
     }
 
@@ -438,6 +457,7 @@ public class TmdbUIAdapter {
         personalRefreshLoading = false;
         personalAiLoading = false;
         loaded = false;
+        episodeMetadataLoaded = false;
         pendingVodRefreshVod = null;
         pendingVodRefreshGeneration = generation;
         App.removeCallbacks(pendingVodRefresh);
@@ -483,6 +503,7 @@ public class TmdbUIAdapter {
             personalDoubanRecommendations = personalDoubanPage.getItems();
             personalAiRecommendations = personalAiPage.getItems();
             loaded = true;
+            episodeMetadataLoaded = vod == null || item == null || !item.isTv();
             if (vod != null) {
                 saveMatch(vod, item);
                 long enrichStart = System.currentTimeMillis();
@@ -517,7 +538,10 @@ public class TmdbUIAdapter {
                 item.getOriginalLanguage(),
                 item.getOriginCountry(),
                 item.getGenreIds(),
-                item.getDepartment());
+                item.getDepartment(),
+                item.getTmdbRating(),
+                item.getDoubanRating(),
+                item.getRecommendationReason());
     }
 
     private String detailTitle(TmdbItem item, JsonObject detail) {
@@ -594,7 +618,7 @@ public class TmdbUIAdapter {
             long start = System.currentTimeMillis();
             boolean changed = applyEpisodeTitles(vod, item);
             SpiderDebug.log("tmdb", "episode titles async cost=%dms changed=%s title=%s", System.currentTimeMillis() - start, changed, item.getTitle());
-            if (changed) notifyVodChanged(vod, generation, RefreshEvent.Type.VOD_EPISODE_TITLES);
+            finishEpisodeMetadataLoad(vod, generation);
         });
     }
 
@@ -607,6 +631,7 @@ public class TmdbUIAdapter {
             boolean more = false;
             int recommendationCount = 0;
             int similarCount = 0;
+            PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
             try {
                 long recommendationsStart = System.currentTimeMillis();
                 List<TmdbItem> pageRecommendations = tmdbService.recommendations(item, tmdbConfig, 1);
@@ -632,6 +657,7 @@ public class TmdbUIAdapter {
                 recommendationHasMore = hasMore;
                 if (vod != null && !loadedItems.isEmpty()) notifyVodChanged(vod, generation, RefreshEvent.Type.VOD_RECOMMENDATIONS);
             });
+            service.enrichTmdbRatingsAsync(loadedItems, enriched -> applyRelatedRatingEnrichment(enriched, generation, vod));
         });
     }
 
@@ -641,8 +667,8 @@ public class TmdbUIAdapter {
         Task.execute(() -> {
             long start = System.currentTimeMillis();
             PersonalRecommendationService.RecommendationPages pages = PersonalRecommendationService.RecommendationPages.empty();
+            PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
             try {
-                PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
                 pages = service.loadPage(vod, item, detail, 0, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
             } catch (Throwable e) {
                 SpiderDebug.log("tmdb", "initial personal recommendations failed error=%s", e.getMessage());
@@ -658,6 +684,7 @@ public class TmdbUIAdapter {
                 personalDoubanRecommendations = personalDoubanPage.getItems();
                 if (vod != null && (!personalTmdbRecommendations.isEmpty() || !personalDoubanRecommendations.isEmpty())) notifyVodChanged(vod, generation, RefreshEvent.Type.VOD_PERSONAL);
             });
+            service.enrichTmdbPageRatingsAsync(loadedPages.getTmdb(), enriched -> applyPersonalTmdbRatingEnrichment(enriched, generation, vod));
         });
         loadPersonalAiRecommendationsAsync(vod, item, generation);
     }
@@ -689,6 +716,15 @@ public class TmdbUIAdapter {
             PersonalRecommendationService.RecommendationPage loadedPage = page;
             SpiderDebug.log("tmdb", "personal ai recommendations async mode=%s cost=%dms count=%d title=%s", mode, System.currentTimeMillis() - start, loadedPage.getItems().size(), item == null ? "" : item.getTitle());
             applyPersonalAiPage(loadedPage, generation, !cached.hasItems(), true);
+            service.enrichTmdbPageRatingsAsync(loadedPage, enriched -> applyPersonalAiRatingEnrichment(enriched, generation));
+        });
+    }
+
+    private void applyPersonalAiRatingEnrichment(PersonalRecommendationService.RecommendationPage enriched, int generation) {
+        activity.runOnUiThread(() -> {
+            if (!isCurrentGeneration(generation) || enriched == null || !mergeRecommendationRatings(personalAiRecommendations, enriched.getItems())) return;
+            if (personalAiPage != null) personalAiPage = personalAiPage.withItems(personalAiRecommendations);
+            notifyPersonalAiRecommendationsUpdated();
         });
     }
 
@@ -719,9 +755,17 @@ public class TmdbUIAdapter {
         if (personalAiUpdateListener != null) personalAiUpdateListener.onPersonalAiRecommendationsUpdated();
     }
 
+    private void finishEpisodeMetadataLoad(Vod vod, int generation) {
+        if (!isCurrentGeneration(generation)) return;
+        episodeMetadataLoaded = true;
+        notifyVodChanged(vod, generation, RefreshEvent.Type.VOD_EPISODE_TITLES);
+    }
+
     private void notifyLoadComplete(Vod vod, int generation) {
         // TMDB 加载失败或跳过时，仍然发送 RefreshEvent 让 UI 继续
-        if (vod != null && isCurrentGeneration(generation)) notifyVodChanged(vod, generation, RefreshEvent.Type.VOD_CORE);
+        if (!isCurrentGeneration(generation)) return;
+        episodeMetadataLoaded = true;
+        if (vod != null) notifyVodChanged(vod, generation, RefreshEvent.Type.VOD_CORE);
     }
 
     private TmdbItem getCachedMatch(Vod vod) {
@@ -1078,6 +1122,7 @@ public class TmdbUIAdapter {
         Task.execute(() -> {
             List<TmdbItem> next = new ArrayList<>();
             boolean more = false;
+            PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
             try {
                 List<TmdbItem> pageRecommendations = tmdbService.recommendations(tmdbItem, tmdbConfig, nextPage);
                 List<TmdbItem> pageSimilar = tmdbService.similar(tmdbItem, tmdbConfig, nextPage);
@@ -1096,6 +1141,7 @@ public class TmdbUIAdapter {
                 boolean changed = appendUnique(recommendations, loadedItems);
                 if (callback != null) callback.onLoaded(changed);
             });
+            service.enrichTmdbRatingsAsync(loadedItems, enriched -> applyRelatedRatingEnrichment(enriched, generation, vod));
         });
     }
 
@@ -1122,8 +1168,8 @@ public class TmdbUIAdapter {
             boolean changed = false;
             PersonalRecommendationService.RecommendationPages pages = PersonalRecommendationService.RecommendationPages.empty();
             boolean aiChanged = false;
+            PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
             try {
-                PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
                 String tmdbFingerprint = service.historyFingerprint(vod, true);
                 String doubanFingerprint = service.historyFingerprint(vod, false);
                 String aiFingerprint = service.aiFingerprint(vod, tmdbItem);
@@ -1153,6 +1199,7 @@ public class TmdbUIAdapter {
                 if (callback != null) callback.onLoaded(hasChanged);
                 if (hasAiChanged) loadPersonalAiRecommendationsAsync(vod, tmdbItem, generation);
             });
+            if (hasChanged) service.enrichTmdbPageRatingsAsync(loadedPages.getTmdb(), enriched -> applyPersonalTmdbRatingEnrichment(enriched, generation, vod));
         });
     }
 
@@ -1167,8 +1214,8 @@ public class TmdbUIAdapter {
         else personalDoubanLoading = true;
         Task.execute(() -> {
             PersonalRecommendationService.RecommendationPage nextPage;
+            PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
             try {
-                PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
                 nextPage = tmdb
                         ? service.loadTmdbPage(vod, tmdbItem, tmdbDetail, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE)
                         : service.loadDoubanPage(vod, page.getNextOffset(), PersonalRecommendationService.DEFAULT_PAGE_SIZE);
@@ -1191,6 +1238,22 @@ public class TmdbUIAdapter {
                     if (callback != null) callback.onLoaded(changed);
                 }
             });
+            if (tmdb) service.enrichTmdbPageRatingsAsync(loadedPage, enriched -> applyPersonalTmdbRatingEnrichment(enriched, generation, vod));
+        });
+    }
+
+    private void applyRelatedRatingEnrichment(List<TmdbItem> enriched, int generation, Vod eventVod) {
+        activity.runOnUiThread(() -> {
+            if (!isCurrentGeneration(generation) || !mergeRecommendationRatings(recommendations, enriched)) return;
+            if (eventVod != null) notifyVodChanged(eventVod, generation, RefreshEvent.Type.VOD_RECOMMENDATIONS);
+        });
+    }
+
+    private void applyPersonalTmdbRatingEnrichment(PersonalRecommendationService.RecommendationPage enriched, int generation, Vod eventVod) {
+        activity.runOnUiThread(() -> {
+            if (!isCurrentGeneration(generation) || enriched == null || !mergeRecommendationRatings(personalTmdbRecommendations, enriched.getItems())) return;
+            if (personalTmdbPage != null) personalTmdbPage = personalTmdbPage.withItems(personalTmdbRecommendations);
+            if (eventVod != null) notifyVodChanged(eventVod, generation, RefreshEvent.Type.VOD_PERSONAL);
         });
     }
 
@@ -1217,21 +1280,30 @@ public class TmdbUIAdapter {
 
     private boolean containsRecommendation(List<TmdbItem> items, TmdbItem target) {
         if (items == null || target == null) return false;
-        for (TmdbItem item : items) if (sameRecommendation(item, target)) return true;
+        for (TmdbItem item : items) if (TmdbRecommendationRows.sameIdentity(item, target)) return true;
         return false;
     }
 
-    private boolean sameRecommendation(TmdbItem first, TmdbItem second) {
-        if (first == null || second == null) return false;
-        if (first.getTmdbId() > 0 && second.getTmdbId() > 0) {
-            return first.getTmdbId() == second.getTmdbId() && TextUtils.equals(first.getMediaType(), second.getMediaType());
-        }
-        String firstTitle = normalizeRecommendationTitle(first.getTitle());
-        String secondTitle = normalizeRecommendationTitle(second.getTitle());
-        return !TextUtils.isEmpty(firstTitle) && firstTitle.equals(secondTitle);
+    static boolean removeRecommendationFrom(List<TmdbItem> items, TmdbItem target) {
+        return items != null && target != null && items.removeIf(item -> TmdbRecommendationRows.sameIdentity(item, target));
     }
 
-    private String normalizeRecommendationTitle(String text) {
-        return TextUtils.isEmpty(text) ? "" : text.replaceAll("[\\s·•・._\\-/\\\\|()（）\\[\\]【】《》<>:：,，.。]+", "").trim().toLowerCase(Locale.ROOT);
+    public static boolean mergeRecommendationRatings(List<TmdbItem> current, List<TmdbItem> enriched) {
+        if (current == null || enriched == null || current.isEmpty() || enriched.isEmpty()) return false;
+        boolean changed = false;
+        for (TmdbItem candidate : enriched) {
+            if (candidate == null || candidate.getDoubanRating() <= 0) continue;
+            for (int index = 0; index < current.size(); index++) {
+                TmdbItem existing = current.get(index);
+                if (!TmdbRecommendationRows.sameIdentity(existing, candidate)) continue;
+                if (Double.compare(existing.getDoubanRating(), candidate.getDoubanRating()) != 0) {
+                    current.set(index, candidate);
+                    changed = true;
+                }
+                break;
+            }
+        }
+        return changed;
     }
+
 }

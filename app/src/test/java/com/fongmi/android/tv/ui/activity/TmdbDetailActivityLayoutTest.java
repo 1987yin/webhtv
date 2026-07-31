@@ -240,17 +240,23 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
-    public void fusionOverlayButtonsDoNotFollowPlayerButtonSettings() throws Exception {
+    public void fusionOverlayButtonsFollowPlayerButtonSettings() throws Exception {
         String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
-        // 融合模式全屏播放器的悬浮/图标按钮只根据集数、锁定、功能可用性显示，不受「播放器按钮设置」控制
-        // （PlayerButtonSetting 只控制 playerActionRow 的横向文字按钮）。这些按钮的可见性行在
-        // updateInlineButtons(...) 中，用 detailControlView(R.id.X).setVisibility(...) 更新。
-        for (String id : List.of("prev", "next", "fullscreen", "cast", "danmaku")) {
+        String[][] controls = {
+                {"prev", "PREV"},
+                {"next", "NEXT"},
+                {"fullscreen", "FULLSCREEN"},
+                {"cast", "CAST"},
+                {"danmaku", "DANMAKU"}
+        };
+        for (String[] control : controls) {
+            String id = control[0];
+            String setting = control[1];
             int line = source.indexOf("detailControlView(R.id." + id + ", View.class).setVisibility(");
             assertTrue("missing detailControlView visibility line for R.id." + id, line >= 0);
-            int lineEnd = source.indexOf(';', line);
-            String stmt = source.substring(line, lineEnd);
-            assertFalse("fusion overlay button R.id." + id + " must not follow PlayerButtonSetting", stmt.contains("PlayerButtonSetting"));
+            String stmt = source.substring(line, source.indexOf(';', line));
+            assertTrue("fusion overlay button R.id." + id + " must follow PlayerButtonSetting." + setting,
+                    stmt.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting." + setting + ")"));
         }
     }
 
@@ -694,6 +700,24 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void earlyPersonalAiCacheRendersBeforeAsynchronousRatingEnrichment() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int method = source.indexOf("private void loadTmdbPersonalAiCache(TmdbBundle bundle");
+        int nextMethod = source.indexOf("private void loadTmdbPersonalAi(TmdbBundle bundle", method);
+        String body = source.substring(method, nextMethod);
+        int cachedApply = body.indexOf("applyTmdbPersonalAi(bundle, cachedAi, generation, false);");
+        int enrich = body.indexOf("service.enrichTmdbPageRatingsAsync(cached.getPage(), enrichedPage -> {");
+        int enrichedItems = body.indexOf("TmdbRecommendationRows.personalAi(enrichedPage.getItems()", enrich);
+        int enrichedApply = body.indexOf("applyTmdbRatingEnrichment(bundle, personalAiItems, enrichedAi, generation);", enrichedItems);
+
+        assertTrue(sourcePath + " is missing early personal AI cache loading", method >= 0 && nextMethod > method);
+        assertTrue("cached AI cards must render immediately before rating enrichment",
+                cachedApply >= 0 && enrich > cachedApply);
+        assertTrue("cached AI rating enrichment must merge into the visible row without restoring hidden cards",
+                enrichedItems > enrich && enrichedApply > enrichedItems);
+    }
+    @Test
     public void standaloneDetailAppliesInitialTmdbResultInSinglePass() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -943,13 +967,29 @@ public class TmdbDetailActivityLayoutTest {
 
         int aiList = layout.indexOf("android:id=\"@+id/personalAiList\"");
         int aiReason = layout.indexOf("android:id=\"@+id/personalAiReason\"");
+        int externalLinksTitle = layout.indexOf("android:id=\"@+id/externalLinksTitle\"");
         int tmdbStatus = layout.indexOf("android:id=\"@+id/tmdbStatus\"");
         assertTrue("TMDB detail must keep the AI reason directly below the smart recommendation row",
-                aiList >= 0 && aiReason > aiList && tmdbStatus > aiReason);
+                aiList >= 0 && aiReason > aiList && externalLinksTitle > aiReason && tmdbStatus > externalLinksTitle);
+        int aiReasonEnd = layout.indexOf("/>", aiReason);
+        String aiReasonTag = layout.substring(aiReason, aiReasonEnd);
+        assertTrue("The recommendation reason needs bottom spacing before the external-links heading",
+                aiReasonTag.contains("android:layout_marginBottom=\"16dp\"")
+                        && aiReasonTag.contains("android:includeFontPadding=\"false\""));
+        int externalLinksTitleEnd = layout.indexOf("/>", externalLinksTitle);
+        String externalLinksTitleTag = layout.substring(externalLinksTitle, externalLinksTitleEnd);
+        assertTrue("The external-links heading needs its own top spacing after the recommendation reason",
+                externalLinksTitleTag.contains("android:layout_marginTop=\"20dp\""));
         assertTrue("TMDB detail must listen for smart recommendation card focus",
                 activity.contains("personalAiAdapter.setOnItemFocusListener(this::showAiRecommendationReason);"));
-        assertTrue("TMDB detail must render the focused card overview as the recommendation reason",
-                activity.contains("binding.personalAiReason.setText(getString(R.string.ai_recommendation_reason_preview, reason));"));
+        int reasonMethod = activity.indexOf("private void showAiRecommendationReason(TmdbItem item, boolean focused)");
+        int reasonMethodEnd = activity.indexOf("private void scrollAiRecommendationReasonIntoView()", reasonMethod);
+        String reasonBody = activity.substring(reasonMethod, reasonMethodEnd);
+        assertTrue("TMDB detail must prefer the dedicated recommendation reason and keep legacy overview fallback",
+                reasonBody.contains("item.getRecommendationReason()")
+                        && reasonBody.contains("item.getOverview()")
+                        && reasonBody.indexOf("item.getRecommendationReason()") < reasonBody.indexOf("item.getOverview()")
+                        && reasonBody.contains("binding.personalAiReason.setText(getString(R.string.ai_recommendation_reason_preview, reason));"));
         assertTrue("TMDB detail must hide stale recommendation reasons when the smart row is absent",
                 activity.contains("showAiRecommendationReason(null, false);"));
         assertTrue("TMDB detail must scroll the reason into view when the focused card sits near the bottom of the wide layout",
@@ -1965,6 +2005,37 @@ public class TmdbDetailActivityLayoutTest {
                         && backBody.indexOf("if (Util.isLeanback() && inlineFullscreen)") >= 0
                         && backBody.indexOf("if (isInlineControlsVisible())") < backBody.indexOf("if (Util.isLeanback() && inlineFullscreen)")
                         && backBody.contains("backFromInlineFullscreen();"));
+    }
+
+    @Test
+    public void mobileInlinePipClearsEmbeddedOffsetAndStopsPlaybackWhenClosed() throws Exception {
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
+
+        int enterPipLayout = activity.indexOf("private void enterInlinePiPLayout()");
+        int exitPipLayout = activity.indexOf("private void exitInlinePiPLayout()", enterPipLayout);
+        int onPipChanged = activity.indexOf("public void onPictureInPictureModeChanged(");
+        int onPipChangedEnd = activity.indexOf("protected boolean onSourceHttpError", onPipChanged);
+        int finishClosedPip = activity.indexOf("private void finishIfInlinePipClosed()");
+        int finishClosedPipEnd = activity.indexOf("protected boolean onSourceHttpError", finishClosedPip);
+
+        assertTrue(activityPath + " is missing enterInlinePiPLayout", enterPipLayout >= 0 && exitPipLayout > enterPipLayout);
+        assertTrue(activityPath + " is missing onPictureInPictureModeChanged", onPipChanged >= 0 && onPipChangedEnd > onPipChanged);
+        assertTrue(activityPath + " is missing finishIfInlinePipClosed", finishClosedPip >= 0 && finishClosedPipEnd > finishClosedPip);
+
+        String enterBody = activity.substring(enterPipLayout, exitPipLayout);
+        String pipChangedBody = activity.substring(onPipChanged, onPipChangedEnd);
+        String finishBody = activity.substring(finishClosedPip, finishClosedPipEnd);
+        assertTrue("PiP layout must clear the portrait embedded translation so the video stays centered in the system window",
+                enterBody.contains("binding.playerPanel.setTranslationY(0f);"));
+        assertTrue("leaving PiP must defer close detection until the Activity lifecycle settles",
+                pipChangedBody.contains("App.post(this::finishIfInlinePipClosed, 0);"));
+        assertTrue("closing PiP must save progress, stop inline synchronization, and release playback while expanding keeps it alive",
+                finishBody.contains("getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED)")
+                        && finishBody.contains("PipExitDecision.shouldFinishAfterPipExit(")
+                        && finishBody.contains("saveInlineHistory();")
+                        && finishBody.contains("stopInlinePlaybackSync();")
+                        && finishBody.contains("finishPlayback();"));
     }
 
     @Test

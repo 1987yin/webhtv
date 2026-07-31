@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class HomeWebMediaLifecycleTest {
@@ -55,6 +56,52 @@ public class HomeWebMediaLifecycleTest {
 
         assertTrue(ordered(destroy, "destroyed = true;", "cancelPendingNativePlaybacks();"));
         assertTrue(ordered(destroy, "cancelPendingNativePlaybacks();", "webView.destroy();"));
+    }
+
+    @Test
+    public void remoteRequestGateKeepsUntrustedWorkOutOfTheSharedQueue() {
+        HomeWebController.RemoteRequestGate gate = new HomeWebController.RemoteRequestGate(2);
+
+        assertTrue(gate.tryAcquire());
+        assertTrue(gate.tryAcquire());
+        assertFalse(gate.tryAcquire());
+        gate.release();
+        assertTrue(gate.tryAcquire());
+        gate.release();
+        gate.release();
+        gate.release();
+        assertEquals(0, gate.inFlight());
+    }
+
+    @Test
+    public void remoteActionGateThrottlesSideEffectsWithoutBlockingReadsAndResetsPerSession() {
+        HomeWebController.RemoteActionGate gate = new HomeWebController.RemoteActionGate(400);
+
+        assertTrue(gate.tryAcquire("vod.home", 1_000));
+        assertTrue(gate.tryAcquire("theme.info", 1_001));
+        assertTrue(gate.tryAcquire("favorite.set", 1_000));
+        assertFalse(gate.tryAcquire("navigation.reload", 1_399));
+        assertTrue(gate.tryAcquire("player.playVod", 1_400));
+        gate.reset();
+        assertTrue(gate.tryAcquire("navigation.openDetail", 1_400));
+    }
+
+    @Test
+    public void diagnosticUrlsRemoveCredentialsQueriesAndFragments() {
+        assertEquals("https://example.com:8443/path/file",
+                HomeWebController.safeLogUrl("https://user:password@example.com:8443/path/file?token=secret#part"));
+        assertEquals("https://[2001:db8::1]/page",
+                HomeWebController.safeLogUrl("https://[2001:db8::1]/page?token=secret"));
+        assertEquals("custom:<redacted>", HomeWebController.safeLogUrl("custom:secret-payload?token=value"));
+    }
+
+    @Test
+    public void bridgeDiagnosticsDoNotPrintRawPayloadsOrPlaybackUrls() throws Exception {
+        String bridge = readMainSource("HomeWebBridge.java");
+
+        assertFalse(bridge.contains("invoke method=%s payload=%s"));
+        assertFalse(bridge.contains("player.playUrl title=%s url=%s\", playTitle, playUrl"));
+        assertTrue(bridge.contains("HomeWebController.safeLogUrl(playUrl)"));
     }
 
     private static void assertNativeRoutePausesMedia(String source, String start, String end) {
