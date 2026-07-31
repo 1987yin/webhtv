@@ -867,6 +867,10 @@ public class History implements Diffable<History> {
         return delete(Setting.isGlobalHistoryEnabled(), true);
     }
 
+    private History delete(boolean report) {
+        return delete(report, false);
+    }
+
     private History delete(boolean report, boolean global) {
         boolean deleted;
         List<History> relatedItems = Collections.emptyList();
