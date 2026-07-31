@@ -6278,17 +6278,20 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         detailControlView(R.id.center, View.class).setVisibility(locked ? View.GONE : View.VISIBLE);
         detailControlView(R.id.bottom, View.class).setVisibility(locked ? View.GONE : View.VISIBLE);
         detailControlView(R.id.back, View.class).setVisibility(locked ? View.GONE : View.VISIBLE);
-        // 浮层快捷按钮与动作栏共用同一套播放器按钮可见性设置。
-        detailControlView(R.id.fullscreen, View.class).setVisibility(locked || !PlayerButtonSetting.isVisible(PlayerButtonSetting.FULLSCREEN) ? View.GONE : View.VISIBLE);
+        // 进度条旁的全屏按钮只根据锁定状态显示，不受 PlayerButtonSetting 影响。
+        detailControlView(R.id.fullscreen, View.class).setVisibility(locked ? View.GONE : View.VISIBLE);
         detailControlView(R.id.lock, View.class).setVisibility(inlineFullscreen ? View.VISIBLE : View.GONE);
         detailControlView(R.id.rotate, View.class).setVisibility(inlineFullscreen && !locked && !inlineShortDramaMode ? View.VISIBLE : View.GONE);
         detailControlView(R.id.pip, View.class).setVisibility(canShowInlinePiP(hasPlayer, locked) ? View.VISIBLE : View.GONE);
-        detailControlView(R.id.prev, View.class).setVisibility(!locked && hasPlayer && episodeCount >= 2 && PlayerButtonSetting.isVisible(PlayerButtonSetting.PREV) ? View.VISIBLE : View.GONE);
-        detailControlView(R.id.next, View.class).setVisibility(!locked && hasPlayer && episodeCount >= 2 && PlayerButtonSetting.isVisible(PlayerButtonSetting.NEXT) ? View.VISIBLE : View.GONE);
-        detailControlView(R.id.cast, View.class).setVisibility(!locked && hasInlineCast() && PlayerButtonSetting.isVisible(PlayerButtonSetting.CAST) ? View.VISIBLE : View.GONE);
+        // 中间悬浮的上集/下集按钮只根据集数显示（需至少 2 集），不受 PlayerButtonSetting 影响。
+        detailControlView(R.id.prev, View.class).setVisibility(!locked && hasPlayer && episodeCount >= 2 ? View.VISIBLE : View.GONE);
+        detailControlView(R.id.next, View.class).setVisibility(!locked && hasPlayer && episodeCount >= 2 ? View.VISIBLE : View.GONE);
+        // 顶部投屏按钮只根据功能可用性显示，不受 PlayerButtonSetting 影响。
+        detailControlView(R.id.cast, View.class).setVisibility(!locked && hasInlineCast() ? View.VISIBLE : View.GONE);
         detailControlView(R.id.info, View.class).setVisibility(!locked && hasInlineInfo() ? View.VISIBLE : View.GONE);
         detailControlView(R.id.setting, View.class).setVisibility(!locked && hasPlayer ? View.VISIBLE : View.GONE);
-        detailControlView(R.id.danmaku, View.class).setVisibility(!locked && hasPlayer && inlineControlController.hasDanmakuControl() && PlayerButtonSetting.isVisible(PlayerButtonSetting.DANMAKU) ? View.VISIBLE : View.GONE);
+        // 顶部弹幕按钮只根据功能可用性显示，不受 PlayerButtonSetting 影响。
+        detailControlView(R.id.danmaku, View.class).setVisibility(!locked && hasPlayer && inlineControlController.hasDanmakuControl() ? View.VISIBLE : View.GONE);
         detailControlView(R.id.parse, RecyclerView.class).setVisibility(!locked && inlineFullscreen && useParse && !VodConfig.get().getParses().isEmpty() && PlayerButtonSetting.isVisible(PlayerButtonSetting.PARSE) ? View.VISIBLE : View.GONE);
         if (inlineParseAdapter != null) inlineParseAdapter.notifyDataSetChanged();
         detailActionView(R.id.player, View.class).setVisibility(hasPlayer ? View.VISIBLE : View.GONE);
