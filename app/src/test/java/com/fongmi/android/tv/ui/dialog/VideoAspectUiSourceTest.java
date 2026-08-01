@@ -59,6 +59,16 @@ public class VideoAspectUiSourceTest {
     }
 
     @Test
+    public void choiceDialogUsesAdaptiveTvHeightAndSequentialDpadFocus() throws Exception {
+        String dialog = read(source("main", "java", "com", "fongmi", "android", "tv", "ui", "dialog", "ChoiceDialog.java"));
+        assertTrue("TV choice list height must adapt to the available screen", dialog.contains("adaptiveListHeight("));
+        assertTrue("TV choice list height must use the actual screen height", dialog.contains("ResUtil.getScreenHeight(requireContext())"));
+        assertTrue("TV choice list must move focus to the next real item", dialog.contains("focusAdjacentItem(position, 1)"));
+        assertTrue("TV choice list must move focus to the previous real item", dialog.contains("focusAdjacentItem(position, -1)"));
+        assertTrue("the last item must still allow focus to enter the action buttons", dialog.contains("focusFirstAction(root)"));
+    }
+
+    @Test
     public void playbackAndMpvApplyNativeAspectPolicy() throws Exception {
         String playback = read(source("main", "java", "com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java"));
         assertTrue(playback.contains("VideoAspectMode.resolve("));
