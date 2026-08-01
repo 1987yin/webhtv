@@ -37,9 +37,11 @@
     <string name="keep">Keep</string>
     <string name="keep_add">Added</string>
     <string name="keep_del">Removed</string>
-    <string name="exit_confirm_title">Exit app?</string>
-    <string name="exit_confirm_message">The current page will close. Background playback will continue if it is running.</string>
-    <string name="exit_confirm_positive">Exit</string>
+    <string name="exit_confirm_title">Exit app</string>
+    <string name="exit_confirm_message">The app, playback, and background services will stop.</string>
+    <string name="exit_confirm_playing_message">Playback is active. Background playback keeps it playing; Exit completely stops playback and background services.</string>
+    <string name="exit_confirm_background">Background playback</string>
+    <string name="exit_confirm_positive">Exit completely</string>
 
     <!-- Play -->
     <string name="play">Play</string>
