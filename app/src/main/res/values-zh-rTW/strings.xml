@@ -1401,12 +1401,20 @@
         <item>繁體中文</item>
     </string-array>
 
+    <string name="aspect_ratio_title">自訂畫面比例</string>
+    <string name="aspect_ratio_width">寬</string>
+    <string name="aspect_ratio_height">高</string>
+    <string name="aspect_ratio_hint">可輸入 2560:1080 或 64:27</string>
+    <string name="aspect_ratio_invalid">請輸入有效的畫面比例</string>
     <string-array name="select_scale">
         <item>原始</item>
         <item>16:9</item>
         <item>4:3</item>
         <item>填充</item>
         <item>裁剪</item>
+        <item>21:9</item>
+        <item>自適應</item>
+        <item>自訂</item>
     </string-array>
 
     <string-array name="select_reset">

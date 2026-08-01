@@ -18,6 +18,7 @@ import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.impl.Diffable;
 import com.fongmi.android.tv.history.HistoryDisplayPolicy;
+import com.fongmi.android.tv.player.VideoAspectMode;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -520,11 +521,11 @@ public class History implements Diffable<History> {
     }
 
     public int getScale() {
-        return scale;
+        return scale == -1 ? -1 : VideoAspectMode.sanitize(scale);
     }
 
     public void setScale(int scale) {
-        this.scale = scale;
+        this.scale = VideoAspectMode.sanitize(scale);
     }
 
     public int getPlayer() {

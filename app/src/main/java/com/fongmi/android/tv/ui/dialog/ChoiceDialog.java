@@ -180,6 +180,21 @@ public final class ChoiceDialog extends DialogFragment {
         window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
         window.setAttributes(params);
         window.setLayout(params.width, params.height);
+        if (Util.isLeanback()) window.getDecorView().post(this::focusSelectedItem);
+    }
+
+    private void focusSelectedItem() {
+        View root = viewRoot();
+        View listView = root == null ? null : root.findViewWithTag("choice_list");
+        if (!(listView instanceof ViewGroup list) || list.getChildCount() == 0) return;
+        int start = selected >= 0 && selected < list.getChildCount() ? selected : 0;
+        for (int offset = 0; offset < list.getChildCount(); offset++) {
+            View child = list.getChildAt((start + offset) % list.getChildCount());
+            if (child.isEnabled() && child.isFocusable()) {
+                child.requestFocus();
+                return;
+            }
+        }
     }
 
     private View createView(LayoutInflater inflater) {

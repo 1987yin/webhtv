@@ -3283,9 +3283,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void onScale() {
-        int index = getScale();
-        String[] array = ResUtil.getStringArray(R.array.select_scale);
-        setScale(index == array.length - 1 ? 0 : ++index);
+        showResizeModeDialog(getScale(), this::setScale);
     }
 
     public void onScale(int tag) {
@@ -5954,7 +5952,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         String[] array = ResUtil.getStringArray(R.array.select_scale);
         if (scale < 0 || scale >= array.length) return;
         if (mHistory != null) mHistory.setScale(scale);
-        mBinding.exo.setResizeMode(scale);
+        applyResizeMode(scale);
         mBinding.control.action.scale.setText(array[scale]);
     }
 
