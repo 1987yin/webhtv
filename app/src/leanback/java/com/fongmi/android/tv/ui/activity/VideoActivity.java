@@ -953,7 +953,9 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private String getOsdTitle() {
-        return EpisodeTitleFormatter.buildPlaybackTitle(getPlaybackName(), getCurrentEpisodeTitle());
+        String title = EpisodeTitleFormatter.buildPlaybackTitle(getPlaybackName(), getCurrentEpisodeTitle());
+        String episodeInfo = tmdbEpisodeCompactText();
+        return TextUtils.isEmpty(episodeInfo) ? title : title + " · " + episodeInfo;
     }
 
     private String getPlaybackName() {
@@ -2092,7 +2094,6 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     // TMDB 数据成功返回：揭开内容（仅一次）并应用 TMDB 字段（每次都应用）
     private void finishTmdbDetail() {
         revealTmdbDetail();
-        suppressTmdbNativeTextFields();
         if (mTmdbDetailFieldsApplied) return;
         mTmdbDetailFieldsApplied = true;
         applyTmdbDetailFields();
@@ -2118,8 +2119,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             return;
         }
 
-        // 去掉集数、演员、导演；简介按钮默认隐藏（仅简介显示不全时再显示）
+        // 去掉站源自带的集数/演员/导演，集数改用规范化后的 TMDB 信息。
         suppressTmdbNativeTextFields();
+        String episodeInfo = mTmdbUIAdapter == null ? "" : mTmdbUIAdapter.getEpisodeDetailText();
+        setText(mBinding.remark, 0, episodeInfo);
         mBinding.content.setVisibility(View.GONE);
 
         // 年份、地区、类型取 TMDB
@@ -4222,6 +4225,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private boolean shouldUseTmdbLayout() {
         return mTmdbUIAdapter != null && mTmdbUIAdapter.isReady();
+    }
+
+    private String tmdbEpisodeCompactText() {
+        return mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()
+                ? "" : mTmdbUIAdapter.getEpisodeCompactText();
     }
 
     private void suppressTmdbNativeTextFields() {

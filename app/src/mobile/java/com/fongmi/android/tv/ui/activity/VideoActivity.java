@@ -964,7 +964,9 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private String getOsdTitle() {
-        return EpisodeTitleFormatter.buildPlaybackTitle(getPlaybackName(), getCurrentEpisodeTitle());
+        String title = EpisodeTitleFormatter.buildPlaybackTitle(getPlaybackName(), getCurrentEpisodeTitle());
+        String episodeInfo = tmdbEpisodeCompactText();
+        return TextUtils.isEmpty(episodeInfo) ? title : title + " · " + episodeInfo;
     }
 
     private String getPlaybackName() {
@@ -3828,6 +3830,11 @@ private int mAudioBackgroundRandomNonce;
                 if (shouldShowAutoTmdbMatchDialog(item)) showManualTmdbMatchDialog();
             }
         }
+    }
+
+    private String tmdbEpisodeCompactText() {
+        return mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()
+                ? "" : mTmdbUIAdapter.getEpisodeCompactText();
     }
 
     private void bindLoadedTmdbDetail() {

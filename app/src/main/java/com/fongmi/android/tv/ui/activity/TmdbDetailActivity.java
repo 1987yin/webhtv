@@ -145,6 +145,7 @@ import com.fongmi.android.tv.ui.helper.PlayerControlFocusHelper;
 import com.fongmi.android.tv.ui.helper.TmdbCinemaTheme;
 import com.fongmi.android.tv.ui.helper.TmdbDetailLabels;
 import com.fongmi.android.tv.ui.helper.TmdbEpisodeGridPolicy;
+import com.fongmi.android.tv.ui.helper.TmdbEpisodeInfo;
 import com.fongmi.android.tv.ui.helper.TmdbEpisodeMatcher;
 import com.fongmi.android.tv.ui.helper.TmdbMatchPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbRecommendationRows;
@@ -283,6 +284,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private TmdbItem initialTmdbItem;
     private TmdbItem matchedTmdbItem;
     private JsonObject matchedTmdbDetail;
+    private TmdbEpisodeInfo cachedEpisodeInfo;
+    private TmdbItem cachedEpisodeInfoItem;
+    private JsonObject cachedEpisodeInfoDetail;
+    private int cachedEpisodeInfoSeason = Integer.MIN_VALUE;
     private Flag selectedFlag;
     private Episode selectedEpisode;
     private Episode inlinePlaybackEpisode;
@@ -527,6 +532,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         vod = null;
         matchedTmdbItem = null;
         matchedTmdbDetail = null;
+        cachedEpisodeInfo = null;
+        cachedEpisodeInfoItem = null;
+        cachedEpisodeInfoDetail = null;
+        cachedEpisodeInfoSeason = Integer.MIN_VALUE;
         history = null;
         mHistory = null;
         selectedFlag = null;
@@ -3122,6 +3131,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void bindMeta() {
         binding.metaContainer.removeAllViews();
         addMetaChip(getMediaTypeLabel());
+        addMetaChip(tmdbEpisodeInfo().detailText(this));
         addMetaChip(firstGenre());
         addMetaChip(firstCountry());
         addMetaChip(certificationLabel());
@@ -6767,8 +6777,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (selectedEpisode == null) return "";
         String name = playbackHistoryName();
         String episode = selectedEpisode.getName();
-        if (TextUtils.isEmpty(episode)) return name;
-        return name + " " + episode;
+        String title = TextUtils.isEmpty(episode) ? name : name + " " + episode;
+        String progress = tmdbEpisodeInfo().compactText(this);
+        return TextUtils.isEmpty(progress) ? title : title + " · " + progress;
     }
 
     private void onInlineLut() {
@@ -10354,6 +10365,21 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return TmdbDetailLabels.headerSubtitle(releaseDate());
     }
 
+    private TmdbEpisodeInfo tmdbEpisodeInfo() {
+        int sourceSeason = sourceTitleSeasonNumber();
+        if (cachedEpisodeInfo == null
+                || cachedEpisodeInfoItem != matchedTmdbItem
+                || cachedEpisodeInfoDetail != matchedTmdbDetail
+                || cachedEpisodeInfoSeason != sourceSeason) {
+            String mediaType = matchedTmdbItem == null ? "" : matchedTmdbItem.getMediaType();
+            cachedEpisodeInfo = TmdbEpisodeInfo.from(mediaType, matchedTmdbDetail, sourceSeason);
+            cachedEpisodeInfoItem = matchedTmdbItem;
+            cachedEpisodeInfoDetail = matchedTmdbDetail;
+            cachedEpisodeInfoSeason = sourceSeason;
+        }
+        return cachedEpisodeInfo;
+    }
+
     private String releaseDate() {
         if (matchedTmdbDetail == null) return hasTmdbOverview() ? tmdbItemYear() : vod.getYear();
         return string(matchedTmdbDetail, "first_air_date", "release_date");
@@ -10391,7 +10417,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         item.setTypeName(coalesce(firstGenre(), vod.getTypeName()));
         item.setDirector(coalesce(firstCrew("Director"), vod.getDirector()));
         item.setActor(coalesce(castNames(), vod.getActor()));
-        item.setRemarks(coalesce(getMarkText(), vod.getRemarks()));
+        item.setRemarks(coalesce(tmdbEpisodeInfo().detailText(this), getMarkText(), vod.getRemarks()));
         return item;
     }
 

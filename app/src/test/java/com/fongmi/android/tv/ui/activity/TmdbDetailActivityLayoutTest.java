@@ -1922,7 +1922,7 @@ public class TmdbDetailActivityLayoutTest {
                         && activity.contains("fetchSeasonIfNeeded(firstSeason, true);")
                         && activity.contains("seasonEpisodeCounts.put(seasonNumber, episodes.size());")
                         && service.contains("season(@NonNull TmdbItem item, int seasonNumber, @NonNull TmdbConfig config, JsonObject detail, boolean refresh)")
-                        && service.contains("refresh ? null : readFirstCache(lookupFiles, ttl)")
+                        && service.contains("refresh ? null : readFirstCache(lookupFiles, ttl, \"detail\".equals(type))")
                         && service.contains("readFirstCache(lookupFiles, Long.MAX_VALUE)"));
     }
 
