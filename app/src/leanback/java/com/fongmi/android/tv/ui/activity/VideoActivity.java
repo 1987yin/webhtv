@@ -8138,12 +8138,20 @@ private void setVideoDetailsVisible(boolean visible) {
         int value = visible ? View.VISIBLE : View.GONE;
         boolean showNativeMetadata = visible && (!shouldUseTmdbLayout() || isIntentTmdbPlayback());
         mBinding.name.setVisibility(value);
-        mBinding.remark.setVisibility(showNativeMetadata && !TextUtils.isEmpty(mBinding.remark.getText()) ? View.VISIBLE : View.GONE);
+        mBinding.remark.setVisibility(shouldShowVideoDetailRemark(visible) ? View.VISIBLE : View.GONE);
         mBinding.row1.setVisibility(value);
         mBinding.director.setVisibility(showNativeMetadata && !TextUtils.isEmpty(mBinding.director.getText()) ? View.VISIBLE : View.GONE);
         mBinding.actor.setVisibility(showNativeMetadata && !TextUtils.isEmpty(mBinding.actor.getText()) ? View.VISIBLE : View.GONE);
         mBinding.row2.setVisibility(value);
         mBinding.scroll.setVisibility(value);
+    }
+
+private boolean shouldShowVideoDetailRemark(boolean visible) {
+        if (!visible || TextUtils.isEmpty(mBinding.remark.getText())) return false;
+        if (!shouldUseTmdbLayout() || isIntentTmdbPlayback()) return true;
+        if (mTmdbUIAdapter == null) return false;
+        String episodeInfo = mTmdbUIAdapter.getEpisodeDetailText();
+        return !TextUtils.isEmpty(episodeInfo) && TextUtils.equals(mBinding.remark.getText(), episodeInfo);
     }
 
 private void updateAudioStageText() {

@@ -40,6 +40,16 @@ public class TmdbEpisodeWiringTest {
         assertTrue(mobile.contains("String episodeInfo = tmdbEpisodeCompactText();"));
     }
 
+    @Test
+    public void leanbackNativeEnhancedKeepsEpisodeInfoVisibleAfterPlayerRefresh() throws Exception {
+        String leanback = read(flavorJava("leanback").resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")));
+
+        assertTrue(leanback.contains("mBinding.remark.setVisibility(shouldShowVideoDetailRemark(visible) ? View.VISIBLE : View.GONE);"));
+        assertTrue(leanback.contains("private boolean shouldShowVideoDetailRemark(boolean visible)"));
+        assertTrue(leanback.contains("String episodeInfo = mTmdbUIAdapter.getEpisodeDetailText();"));
+        assertTrue(leanback.contains("TextUtils.equals(mBinding.remark.getText(), episodeInfo)"));
+    }
+
     private static String read(Path path) throws Exception {
         return Files.readString(path, StandardCharsets.UTF_8);
     }
