@@ -41,6 +41,21 @@ public class TmdbEpisodeWiringTest {
     }
 
     @Test
+    public void detailDirectPlaybackConsumesPreloadedTmdbEpisodeRemarkInBothVideoActivities() throws Exception {
+        String leanback = read(flavorJava("leanback").resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")));
+        String mobile = read(flavorJava("mobile").resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")));
+
+        assertTrue(leanback.contains("private String getTmdbVodRemark()"));
+        assertTrue(leanback.contains("applyIntentTmdbVodRemark(item);"));
+        assertTrue(leanback.contains("item.setRemarks(remark);"));
+        assertTrue(leanback.contains("getIntent().removeExtra(\"tmdb_vod_remark\");"));
+        assertTrue(mobile.contains("private String getTmdbVodRemark()"));
+        assertTrue(mobile.contains("applyIntentTmdbVodRemark(item);"));
+        assertTrue(mobile.contains("item.setRemarks(remark);"));
+        assertTrue(mobile.contains("getIntent().removeExtra(\"tmdb_vod_remark\");"));
+    }
+
+    @Test
     public void leanbackNativeEnhancedKeepsEpisodeInfoVisibleAfterPlayerRefresh() throws Exception {
         String leanback = read(flavorJava("leanback").resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")));
 
