@@ -827,7 +827,6 @@ public class ExoUtil {
                         frameSchedulingDecision));
             } catch (Throwable ignored) {
             }
-            if (videoRenderMode == EXTENSION_RENDERER_MODE_OFF) return;
             try {
                 int index = getExtensionRendererIndex(ffmpegVideoRenderMode, videoPrefer, out);
                 out.add(index, buildFfmpegVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener));
