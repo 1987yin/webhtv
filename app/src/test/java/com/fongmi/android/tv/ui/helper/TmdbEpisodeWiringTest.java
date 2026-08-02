@@ -14,7 +14,10 @@ public class TmdbEpisodeWiringTest {
     public void standaloneDetailModesShareEpisodeInfoAcrossDetailAndPlayback() throws Exception {
         String activity = read(mainJava().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java")));
 
-        assertTrue(activity.contains("addMetaChip(tmdbEpisodeInfo().detailText(this));"));
+        assertTrue(activity.contains("TmdbEpisodeInfo episodeInfo = tmdbEpisodeInfo();"));
+        assertTrue(activity.contains("addMetaChip(episodeInfo.detailText(this));"));
+        assertTrue(activity.contains("if (!episodeInfo.isSeasonScoped())"));
+        assertTrue(activity.contains("addMetaChip(currentSeasonContextLabel());"));
         assertTrue(activity.contains("String progress = tmdbEpisodeInfo().compactText(this);"));
         assertTrue(activity.contains("item.setRemarks(coalesce(tmdbEpisodeInfo().detailText(this), getMarkText(), vod.getRemarks()));"));
     }
@@ -26,6 +29,7 @@ public class TmdbEpisodeWiringTest {
 
         assertTrue(header.contains("String episodeInfo = adapter.getEpisodeDetailText();"));
         assertTrue(header.contains("buildFusionSubtitle(detail, adapter.getRatingText(), episodeInfo)"));
+        assertTrue(header.contains("!adapter.getEpisodeInfo().isSeasonScoped()"));
         assertTrue(layout.contains("android:id=\"@+id/tmdbMeta\""));
         assertTrue(layout.contains("android:maxLines=\"2\""));
     }

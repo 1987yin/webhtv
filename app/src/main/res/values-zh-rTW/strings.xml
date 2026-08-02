@@ -21,6 +21,7 @@
     <string name="detail_content">簡介：<xliff:g name="name">%s</xliff:g></string>
     <string name="detail_desc">簡介</string>
     <string name="detail_episode">選集</string>
+    <string name="detail_episode_season_context">選集 · 第 %1$d 季</string>
     <string name="detail_episode_reverse">倒序</string>
     <string name="detail_episode_forward">正序</string>
     <string name="detail_episode_view_grid">網格</string>
@@ -36,9 +37,11 @@
     <string name="keep">收藏</string>
     <string name="keep_add">已收藏</string>
     <string name="keep_del">已取消收藏</string>
-    <string name="exit_confirm_title">確定退出應用？</string>
-    <string name="exit_confirm_message">目前頁面將關閉；如果正在播放，會繼續留在後台。</string>
-    <string name="exit_confirm_positive">確認退出</string>
+    <string name="exit_confirm_title">退出應用</string>
+    <string name="exit_confirm_message">應用將關閉，播放和後台服務也會停止。</string>
+    <string name="exit_confirm_playing_message">目前正在播放；後台播放會繼續播放，完全退出會停止播放和後台服務。</string>
+    <string name="exit_confirm_background">後台播放</string>
+    <string name="exit_confirm_positive">完全退出</string>
 
     <!-- Play -->
     <string name="play">播放</string>

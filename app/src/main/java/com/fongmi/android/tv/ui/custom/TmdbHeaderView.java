@@ -639,7 +639,10 @@ public class TmdbHeaderView {
         FlexboxLayout meta = headerRoot.findViewById(R.id.tmdbFusionMeta);
         if (meta != null) {
             meta.removeAllViews();
-            addFusionChip(meta, "tv".equals(item.getMediaType()) ? "剧集" : "电影");
+            boolean tv = "tv".equals(item.getMediaType());
+            addFusionChip(meta, tv ? "剧集" : "电影");
+            int sourceSeason = adapter.getSourceSeasonNumber();
+            if (tv && sourceSeason >= 0 && !adapter.getEpisodeInfo().isSeasonScoped()) addFusionChip(meta, activity.getString(R.string.detail_season_format, sourceSeason));
             addFusionChip(meta, extractYear(detail));
             addFusionChips(meta, adapter.getGenresText(), 3);
             addFusionChip(meta, firstCountry(detail));
