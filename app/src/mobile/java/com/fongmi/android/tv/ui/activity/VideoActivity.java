@@ -2766,10 +2766,8 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private void onScale() {
-        int index = getScale();
-        String[] array = ResUtil.getStringArray(R.array.select_scale);
         if (mKeyDown.getScale() != 1.0f) mKeyDown.resetScale();
-        else setScale(index == array.length - 1 ? 0 : ++index);
+        else showResizeModeDialog(getScale(), this::setScale);
         setR1Callback();
     }
 
@@ -5251,7 +5249,7 @@ private int mAudioBackgroundRandomNonce;
 
     private void setShortDramaScale() {
         int scale = (mHistory != null && mHistory.getScale() != -1) ? getScale() : SHORT_DRAMA_SCALE;
-        mBinding.exo.setResizeMode(scale);
+        applyResizeMode(scale);
         mBinding.control.action.scale.setText(ResUtil.getStringArray(R.array.select_scale)[scale]);
     }
 
@@ -5601,6 +5599,7 @@ private int mAudioBackgroundRandomNonce;
             Util.hideSystemUI(this);
             if (isVisible(mBinding.control.getRoot())) showControl();
         }
+        applyResizeMode(getScale());
     }
 
     @Override

@@ -6624,7 +6624,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void setInlinePreviewScale(int scale) {
         String[] array = ResUtil.getStringArray(R.array.select_scale);
         if (scale < 0 || scale >= array.length) return;
-        binding.exo.setResizeMode(scale);
+        applyResizeMode(scale);
         setInlineScaleText(array[scale]);
     }
 
@@ -6741,10 +6741,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void cycleInlineScale() {
         if (service() == null || player().isEmpty()) return;
-        String[] array = ResUtil.getStringArray(R.array.select_scale);
-        if (array.length == 0) return;
-        int scale = getInlineScale();
-        setInlineScale(scale >= array.length - 1 ? 0 : scale + 1);
+        showResizeModeDialog(getInlineScale(), this::setInlineScale);
     }
 
     private void toggleInlineDecode() {
@@ -8988,6 +8985,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (!isInlinePlayerMode() || !inlineStarted || !isOwner()) return;
         updateInlineButtons(service() != null && !player().isEmpty() && player().isPlaying());
         updateInlineDisplayPanel();
+        applyResizeMode(getInlineScale());
         if (inlineStarted && (isShortDramaSource() || inlineShortDramaMode)) applyInlineShortDramaMode();
     }
 
@@ -9025,6 +9023,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         super.onConfigurationChanged(newConfig);
         scheduleMobileInlineSideControlMarginUpdate();
         if (!inlineFullscreen) updateEpisodeLayoutForCurrentItems();
+        if (inlineStarted) applyResizeMode(getInlineScale());
     }
 
     @Override
