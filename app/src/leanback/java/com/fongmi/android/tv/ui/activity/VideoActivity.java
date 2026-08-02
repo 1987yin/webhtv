@@ -1452,6 +1452,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void applyActionButtonVisibility() {
+        mBinding.control.action.cast.setVisibility(isFullscreen() ? View.GONE : View.VISIBLE);
         updateImmersiveAudioAction();
         updatePanDiagnosticAction();
         if (mActionButtons != null) PlayerButtonSetting.applyVisibility(mActionButtons);

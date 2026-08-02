@@ -410,6 +410,7 @@ private AudioHistory.Record audioHistoryRecord;
     }
 
     public void setPlaybackForeground(boolean foreground) {
+        if (player != null) player.setPlaybackForeground(foreground);
         if (desktopLyrics != null) desktopLyrics.setForeground(foreground);
     }
 

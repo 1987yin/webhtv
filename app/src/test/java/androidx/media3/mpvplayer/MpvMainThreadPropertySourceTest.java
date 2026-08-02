@@ -13,10 +13,16 @@ import static org.junit.Assert.assertTrue;
 public class MpvMainThreadPropertySourceTest {
 
     @Test
-    public void playerNeverCallsNativePropertyGetters() throws Exception {
+    public void nativeCacheFallbackIsFreshnessGated() throws Exception {
         String source = readMpvPlayer();
+        String refresh = methodBody(source, "private void refreshCacheState()", "private void validateEarlyEndFile()");
 
-        assertFalse("MpvPlayer must consume observer snapshots instead of synchronous native getters", source.contains("MPVLib.getProperty"));
+        assertTrue("native cache fallback must run only after observer freshness checks",
+                refresh.contains("cacheObserverState.shouldQueryFallback")
+                        && refresh.contains("cacheObserverState.needsFallback")
+                        && refresh.contains("cacheObserverState.onFallbackQuery(nowMs)"));
+        assertTrue("upstream cache fallback must remain available when nested MPV observers do not report",
+                source.contains("MPVLib.getProperty"));
     }
 
     @Test
