@@ -251,6 +251,7 @@ public class PlayerManager implements ParseCallback {
     private boolean mpvAutoOutputEvaluationScheduled;
     private boolean mpvExplicitSubtitlePreference;
     private boolean mpvSurfaceFallbackTried;
+    private boolean mpvCopyFallbackTried;
     private boolean mpvHlsManagedReload;
     private boolean ijkBufferManagedReload;
     private boolean ijkRuntimeTemporaryFallback;
@@ -4590,6 +4591,7 @@ public void resetTrack(int type) {
         if (!isMpv() || spec == null || TextUtils.isEmpty(spec.getUrl()) || !(engine instanceof MpvPlayerEngine mpv)) return;
         resetMpvOutputEvaluationState();
         mpv.setSurfaceDirectOverride(null);
+        mpv.clearHwdecOverride();
         rebuildAndRestartMpv(null, "performance-settings-changed");
     }
 
@@ -4623,6 +4625,7 @@ public void resetTrack(int type) {
         resetMpvOutputEvaluationState();
         mpvExplicitSubtitlePreference = hasRequestedSubtitle(Track.find(getKey()));
         if (!(engine instanceof MpvPlayerEngine mpv)) return;
+        boolean hwdecOverrideCleared = mpv.clearHwdecOverride();
         boolean automaticOutput = MpvPerformanceSetting.getOutputMode() == MpvPerformanceSetting.OUTPUT_AUTO;
         boolean externalSubtitleActive = spec != null && spec.getSubs() != null && !spec.getSubs().isEmpty();
         boolean leaveForSubtitle = MpvAutoOutputPolicy.shouldLeaveSurfaceDirectForSubtitle(
@@ -4633,14 +4636,17 @@ public void resetTrack(int type) {
         }
         mpv.setSurfaceDirectOverride(null);
         boolean shouldStartDirect = MpvPerformanceSetting.shouldUseSurfaceDirect(false, Util.isLeanback(), engine.isHard());
-        if (mpv.isSurfaceDirect() == shouldStartDirect) return;
-        if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "prepare new item rebuild currentDirect=%s desiredDirect=%s mode=%s", mpv.isSurfaceDirect(), shouldStartDirect, MpvPerformanceSetting.getOutputModeText());
+        if (mpv.isSurfaceDirect() == shouldStartDirect && !hwdecOverrideCleared) return;
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "prepare new item rebuild currentDirect=%s desiredDirect=%s mode=%s hwdecOverrideCleared=%s", mpv.isSurfaceDirect(), shouldStartDirect, MpvPerformanceSetting.getOutputModeText(), hwdecOverrideCleared);
         rebuildPlayer();
     }
 
     private void resetMpvOutputRuntime() {
         resetMpvOutputEvaluationState();
-        if (engine instanceof MpvPlayerEngine mpv) mpv.setSurfaceDirectOverride(null);
+        if (engine instanceof MpvPlayerEngine mpv) {
+            mpv.setSurfaceDirectOverride(null);
+            mpv.clearHwdecOverride();
+        }
     }
 
     private void resetMpvOutputEvaluationState() {
@@ -4648,6 +4654,7 @@ public void resetTrack(int type) {
         mpvAutoOutputEvaluationScheduled = false;
         mpvAutoOutputProbeAttempts = 0;
         mpvSurfaceFallbackTried = false;
+        mpvCopyFallbackTried = false;
         mpvOutputEvaluationSeq++;
     }
 
@@ -4786,6 +4793,59 @@ public void resetTrack(int type) {
         mpvOutputEvaluationSeq++;
         PlaybackTrace.log("mpv-output", playbackTrace.current(), "surface direct failed; fallback gpu once code=%d message=%s", error.errorCode, message);
         return rebuildAndRestartMpv(false, "surface-direct-failure");
+    }
+
+    private boolean retryMpvGpuCopyFailure(PlaybackException error) {
+        if (!(engine instanceof MpvPlayerEngine mpv)
+                || spec == null
+                || TextUtils.isEmpty(spec.getUrl())
+                || error == null) return false;
+        boolean automaticHwdec = MpvPerformanceSetting.getHwdecMode()
+                == MpvPerformanceSetting.HWDEC_AUTO;
+        if (!shouldRetryMpvCopy(
+                automaticHwdec,
+                mpv.isHard(),
+                mpv.isSurfaceDirect(),
+                mpv.isMediaCodecCopyOnly(),
+                mpvCopyFallbackTried,
+                error.errorCode,
+                error.getMessage())) return false;
+        mpvCopyFallbackTried = true;
+        mpvAutoOutputEvaluated = true;
+        mpvOutputEvaluationSeq++;
+        mpv.forceMediaCodecCopy();
+        PlaybackTrace.log(
+                "mpv-hwdec",
+                playbackTrace.current(),
+                "gpu direct failed; fallback mediacodec-copy once code=%d message=%s",
+                error.errorCode,
+                error.getMessage());
+        return rebuildAndRestartMpv(false, "gpu-hwdec-copy-failure");
+    }
+
+    static boolean shouldRetryMpvCopy(
+            boolean automaticHwdec,
+            boolean hardDecode,
+            boolean surfaceDirect,
+            boolean copyOnly,
+            boolean alreadyTried,
+            int errorCode,
+            String message) {
+        if (!automaticHwdec || !hardDecode || surfaceDirect || copyOnly || alreadyTried) return false;
+        if (message != null
+                && (message.startsWith(MpvPlayer.ERROR_VIDEO_OUTPUT_FAILED)
+                || message.startsWith(MpvPlayer.ERROR_DECODE_FAILED))) return true;
+        return switch (errorCode) {
+            case PlaybackException.ERROR_CODE_TIMEOUT,
+                    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                    PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+                    PlaybackException.ERROR_CODE_DECODING_FAILED,
+                    PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+                    PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+                    PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED,
+                    PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED -> true;
+            default -> false;
+        };
     }
 
     private PlayerEngine buildEngine(int type, int decode) {
@@ -7293,6 +7353,7 @@ public void resetTrack(int type) {
             if (statusCode > 0 && callback.onSourceHttpError(statusCode, errorMessage)) return;
             if (retryLutFailure(e)) return;
             if (retryLutWarmupByRefresh(action, e)) return;
+            if (retryMpvGpuCopyFailure(e)) return;
             boolean decoderRuntimeObserved = action == PlayerEngine.ErrorAction.DECODE
                     && engine instanceof ExoPlayerEngine exo
                     && exo.observeDecoderRuntimeFailure(e);
@@ -7683,6 +7744,7 @@ public void resetTrack(int type) {
 
     private boolean fallbackPlayback(PlaybackException e) {
         if (engine == null) return false;
+        if (retryMpvGpuCopyFailure(e)) return true;
         if (fallbackFfmpegMode(e)) return true;
         return switch (nextFallbackAction(PlayerSetting.getFailureFallback(), engine.getDecode())) {
             case FALLBACK_DECODE -> fallbackDecode(e);

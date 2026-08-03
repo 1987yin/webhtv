@@ -49,6 +49,8 @@ public class MpvPlayerEngine implements PlayerEngine {
     private boolean retriedFormat;
     private boolean surfaceDirect;
     private Boolean surfaceDirectOverride;
+    private String hwdecOverride;
+    private String configuredHwdec = "no";
     private final BiConsumer<Integer, Integer> videoSizeProbeListener;
     private int decode;
 
@@ -255,6 +257,20 @@ public class MpvPlayerEngine implements PlayerEngine {
 
     public void setSurfaceDirectOverride(@Nullable Boolean value) {
         surfaceDirectOverride = value;
+    }
+
+    public void forceMediaCodecCopy() {
+        hwdecOverride = "mediacodec-copy";
+    }
+
+    public boolean clearHwdecOverride() {
+        boolean changed = hwdecOverride != null;
+        hwdecOverride = null;
+        return changed;
+    }
+
+    public boolean isMediaCodecCopyOnly() {
+        return "mediacodec-copy".equals(configuredHwdec);
     }
 
     public MpvPlayer.AutoCacheBaselineResult applyAutoCacheBaseline(
@@ -526,7 +542,8 @@ public class MpvPlayerEngine implements PlayerEngine {
         boolean useVulkan = !surfaceDirect && requestVulkan && nativeVulkan && deviceVulkan;
         boolean useGpuNext = !surfaceDirect && (useVulkan || decode != HARD);
         if (requestVulkan && !surfaceDirect && !useVulkan) SpiderDebug.log("player-engine", "mpv render requested=vulkan but unavailable native=%s device=%s; fallback=opengl", nativeVulkan, deviceVulkan);
-        String hwdec = surfaceDirect ? "mediacodec" : decode == HARD ? MpvPerformanceSetting.getHwdecOption() : "no";
+        String hwdec = surfaceDirect ? "mediacodec" : resolveGpuHwdec(zeroCopyBlocked);
+        configuredHwdec = hwdec;
         SpiderDebug.log("player-engine", "mpv output mode=%s direct=%s zeroCopyBlocked=%s hwdec=%s render requested=%s nativeVulkan=%s deviceVulkan=%s decode=%s actual=%s/%s", MpvPerformanceSetting.getOutputModeText(), surfaceDirect, zeroCopyBlocked, hwdec, requestVulkan ? "vulkan" : "opengl", nativeVulkan, deviceVulkan, decode == HARD ? "hard" : "soft", surfaceDirect ? "surface" : useVulkan ? "vulkan" : "opengl", surfaceDirect ? "mediacodec_embed" : useGpuNext ? "gpu-next" : "gpu");
         MpvPlayerConfig.Builder builder = MpvPlayerConfig.builder(App.get())
                 .configDir(MpvConfigStore.configDir())
@@ -564,6 +581,12 @@ public class MpvPlayerEngine implements PlayerEngine {
             builder.vo("gpu-next");
         }
         return builder.build();
+    }
+
+    private String resolveGpuHwdec(boolean zeroCopyBlocked) {
+        if (decode != HARD) return "no";
+        if (zeroCopyBlocked) return "mediacodec-copy";
+        return hwdecOverride == null ? MpvPerformanceSetting.getHwdecOption() : hwdecOverride;
     }
 
     private void applySoftDecodeOptions(MpvPlayerConfig.Builder builder) {

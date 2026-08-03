@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
+import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Tracks;
 
 import com.fongmi.android.tv.bean.Sub;
@@ -111,6 +112,35 @@ public class PlayerManagerTest {
         assertEquals(PlayerEngine.SOFT, PlayerManager.fallbackDecode(PlayerSetting.FALLBACK_PLAYER_ONLY, PlayerSetting.EXO, PlayerSetting.IJK, PlayerEngine.SOFT));
         assertEquals(PlayerEngine.SOFT, PlayerManager.fallbackDecode(PlayerSetting.FALLBACK_FULL, PlayerSetting.EXO, PlayerSetting.EXO, PlayerEngine.SOFT));
         assertEquals(PlayerEngine.HARD, PlayerManager.fallbackDecode(PlayerSetting.FALLBACK_PLAYER_ONLY, PlayerSetting.EXO, PlayerSetting.IJK, 99));
+    }
+
+    @Test
+    public void shouldRetryMpvCopy_retriesAutomaticGpuHardFailures() {
+        assertTrue(PlayerManager.shouldRetryMpvCopy(
+                true, true, false, false, false,
+                PlaybackException.ERROR_CODE_TIMEOUT, null));
+        assertTrue(PlayerManager.shouldRetryMpvCopy(
+                true, true, false, false, false,
+                PlaybackException.ERROR_CODE_DECODING_FAILED, "MPV_DECODE_FAILED: codec init"));
+    }
+
+    @Test
+    public void shouldRetryMpvCopy_preservesManualModesAndRejectsUnrelatedFailures() {
+        assertFalse(PlayerManager.shouldRetryMpvCopy(
+                false, true, false, false, false,
+                PlaybackException.ERROR_CODE_DECODING_FAILED, null));
+        assertFalse(PlayerManager.shouldRetryMpvCopy(
+                true, true, true, false, false,
+                PlaybackException.ERROR_CODE_DECODING_FAILED, null));
+        assertFalse(PlayerManager.shouldRetryMpvCopy(
+                true, true, false, true, false,
+                PlaybackException.ERROR_CODE_DECODING_FAILED, null));
+        assertFalse(PlayerManager.shouldRetryMpvCopy(
+                true, true, false, false, true,
+                PlaybackException.ERROR_CODE_DECODING_FAILED, null));
+        assertFalse(PlayerManager.shouldRetryMpvCopy(
+                true, true, false, false, false,
+                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, "Socket timeout"));
     }
 
     @Test
