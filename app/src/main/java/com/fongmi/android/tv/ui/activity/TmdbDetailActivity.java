@@ -105,6 +105,7 @@ import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.service.IntroSkipService;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.service.TmdbService;
+import com.fongmi.android.tv.setting.BackgroundPlaybackPolicy;
 import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.fongmi.android.tv.setting.PlayerButtonSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
@@ -8221,7 +8222,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void enterInlinePiP(boolean force) {
         if (!canEnterInlinePiP()) return;
-        if (!force && !PlayerSetting.isBackgroundPiP()) return;
+        if (!force && !BackgroundPlaybackPolicy.isEnabled(PlayerSetting.getBackground())) return;
         hideInlineControls();
         hideInlineGestureOverlays();
         updateInlinePiPSource(binding.playerPanel);

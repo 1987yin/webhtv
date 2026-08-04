@@ -400,6 +400,7 @@ private int mAudioBackgroundRandomNonce;
     private Runnable mTmdbDetailTimeout;
     private Clock mClock;
     private PiP mPiP;
+    private boolean mKeepPlaybackAfterPipExit;
     private String mContextWallUrl;
     private String mContextWallLockedUrl;
     private String playHealthKey;
@@ -4041,8 +4042,15 @@ private int mAudioBackgroundRandomNonce;
 
         @Override
         public void onAudio() {
-            moveTaskToBack(true);
+            boolean audioOnly = isAudioOnly();
+            mKeepPlaybackAfterPipExit = isInPictureInPictureMode();
             setAudioOnly(true);
+            syncPiPForPlaybackMode();
+            if (!moveTaskToBack(true)) {
+                mKeepPlaybackAfterPipExit = false;
+                setAudioOnly(audioOnly);
+                syncPiPForPlaybackMode();
+            }
         }
     };
 
@@ -4071,7 +4079,7 @@ private int mAudioBackgroundRandomNonce;
     @Override
     protected void onTracksChanged() {
         updateAudioOnlyState();
-        suppressPiPForAudio();
+        syncPiPForPlaybackMode();
         refreshLyrics();
         setTrackVisible();
         mClock.setCallback(this);
@@ -4152,12 +4160,13 @@ private int mAudioBackgroundRandomNonce;
     protected void onPlayingChanged(boolean isPlaying) {
         syncLyricsPlaybackState(isPlaying);
         syncKaraokePosition();
+        boolean audioMode = syncPiPForPlaybackMode();
         if (isPlaying) {
-            if (!suppressPiPForAudio()) mPiP.update(this, true);
+            if (!audioMode) mPiP.update(this, true);
             mBinding.control.play.setImageResource(androidx.media3.ui.R.drawable.exo_icon_pause);
             checkAudioPlayImg(true);
         } else if (isPaused()) {
-            if (!suppressPiPForAudio()) mPiP.update(this, false);
+            if (!audioMode) mPiP.update(this, false);
             mBinding.control.play.setImageResource(androidx.media3.ui.R.drawable.exo_icon_play);
             checkAudioPlayImg(false);
         }
@@ -5633,6 +5642,7 @@ private int mAudioBackgroundRandomNonce;
 
     private boolean preparePiP(String reason) {
         if (isRedirect() || isPlaybackExiting()) return false;
+        if (syncPiPForPlaybackMode()) return false;
         if (service() == null || !player().haveTrack(C.TRACK_TYPE_VIDEO)) return false;
         mPiP.update(this, player().getVideoWidth(), player().getVideoHeight(), getScale());
         return true;
@@ -5645,6 +5655,7 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private boolean enterPiP(String reason) {
+        if (syncPiPForPlaybackMode()) return false;
         if (service() == null || !player().haveTrack(C.TRACK_TYPE_VIDEO)) return false;
         return mPiP.enter(this, player().getVideoWidth(), player().getVideoHeight(), getScale());
     }
@@ -5655,6 +5666,7 @@ private int mAudioBackgroundRandomNonce;
         updateFusionThemeButtonVisibility();
         if (!isFullscreen()) setVideoView(isInPictureInPictureMode);
         if (isInPictureInPictureMode) {
+            mKeepPlaybackAfterPipExit = false;
             hideControl();
             hideDanmaku();
             hideSheet();
@@ -5679,7 +5691,9 @@ private int mAudioBackgroundRandomNonce;
 
     private void finishIfPipClosed() {
         boolean atLeastStarted = getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED);
-        if (PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed())) {
+        boolean keepPlayback = mKeepPlaybackAfterPipExit;
+        mKeepPlaybackAfterPipExit = false;
+        if (PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed(), keepPlayback)) {
             saveHistory(true);
             finishPlayback();
         }
@@ -8140,11 +8154,13 @@ private void setAudioStageVisible(boolean visible) {
         if (visible) ensureImmersiveAudioControllers();
         if (visible && isAutoRotate() && !isLock() && !isRotate()) setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
         if (mAudioStageVisible == visible) {
+            syncPiPForPlaybackMode();
             updateAudioStageText();
             updateAudioStageControls();
             return;
         }
         mAudioStageVisible = visible;
+        syncPiPForPlaybackMode();
         if (!visible) mAudioLightEffectAnimated = false;
         mBinding.audioStage.setVisibility(visible ? View.VISIBLE : View.GONE);
         if (visible) mBinding.audioStage.bringToFront();
@@ -9330,16 +9346,14 @@ private boolean hasNextEpisode() {
         return !getAdjacentEpisode(1).isSelected();
     }
 
-private boolean suppressPiPForAudio() {
-        if (!isAudioContentForPiP()) return false;
-        mPiP.disableAutoEnter(this);
-        return true;
+private boolean syncPiPForPlaybackMode() {
+        boolean audioMode = isAudioBackgroundMode();
+        if (mPiP != null) mPiP.setAudioMode(this, audioMode);
+        return audioMode;
     }
 
-private boolean isAudioContentForPiP() {
-        if (service() == null) return false;
-        updateAudioOnlyState();
-        return isAudioOnly() || isMusicLike() || LyricsController.isAudioContent(player());
+private boolean isAudioBackgroundMode() {
+        return mAudioStageVisible || isAudioOnly();
     }
 
 private boolean shouldRecreateAudioStageForOrientation(Configuration config) {

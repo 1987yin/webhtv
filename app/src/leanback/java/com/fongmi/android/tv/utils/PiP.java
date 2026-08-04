@@ -19,6 +19,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.event.ActionEvent;
 import com.fongmi.android.tv.player.VideoAspectMode;
 import com.fongmi.android.tv.receiver.ActionReceiver;
+import com.fongmi.android.tv.setting.BackgroundPlaybackPolicy;
 import com.fongmi.android.tv.setting.PlayerSetting;
 
 import java.util.ArrayList;
@@ -80,7 +81,7 @@ public class PiP {
 
     public boolean enter(Activity activity, int width, int height, int scale, boolean force) {
         try {
-            if (noPiP() || activity.isInPictureInPictureMode() || (!force && !PlayerSetting.isBackgroundPiP())) return false;
+            if (noPiP() || activity.isInPictureInPictureMode() || (!force && !BackgroundPlaybackPolicy.shouldUsePictureInPicture(PlayerSetting.getBackground(), false))) return false;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) builder.setSeamlessResizeEnabled(true);
             float viewportRatio = VideoAspectMode.isValidRatio(viewportAspectRatio) ? viewportAspectRatio : getViewportRatio(activity);
             VideoAspectMode.Spec spec = VideoAspectMode.resolve(scale, viewportRatio, PlayerSetting.getCustomAspectRatio());

@@ -488,6 +488,39 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void mobilePipAudioActionKeepsBackgroundPlayback() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        String audioBody = methodBody(source, "public void onAudio()", "};");
+        String pipModeBody = methodBody(source, "public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, @NonNull Configuration newConfig)", "protected void onResume()");
+        String pipExitBody = methodBody(source, "private void finishIfPipClosed()", "public void onConfigurationChanged(@NonNull Configuration newConfig)");
+
+        int captureAudioMode = audioBody.indexOf("boolean audioOnly = isAudioOnly();");
+        int markIntentionalExit = audioBody.indexOf("mKeepPlaybackAfterPipExit = isInPictureInPictureMode();");
+        int syncPipMode = audioBody.indexOf("syncPiPForPlaybackMode();");
+        int moveToBackground = audioBody.indexOf("moveTaskToBack(true)");
+        assertTrue("PiP audio action must preserve and mark state before changing PiP mode",
+                captureAudioMode >= 0
+                        && markIntentionalExit > captureAudioMode
+                        && syncPipMode > markIntentionalExit
+                        && moveToBackground > syncPipMode);
+        assertTrue("a failed background transition must restore audio and PiP state",
+                audioBody.contains("mKeepPlaybackAfterPipExit = false;")
+                        && audioBody.contains("setAudioOnly(audioOnly);")
+                        && audioBody.lastIndexOf("syncPiPForPlaybackMode();") > moveToBackground);
+        int pipEntered = pipModeBody.indexOf("if (isInPictureInPictureMode) {");
+        int resetStaleIntent = pipModeBody.indexOf("mKeepPlaybackAfterPipExit = false;", pipEntered);
+        assertTrue("a new PiP session must clear any stale keep-playback marker",
+                pipEntered >= 0 && resetStaleIntent > pipEntered);
+
+        int captureIntent = pipExitBody.indexOf("boolean keepPlayback = mKeepPlaybackAfterPipExit;");
+        int consumeIntent = pipExitBody.indexOf("mKeepPlaybackAfterPipExit = false;");
+        int decideExit = pipExitBody.indexOf("PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed(), keepPlayback)");
+        assertTrue("intentional PiP exits must be consumed before close-button detection",
+                captureIntent >= 0 && consumeIntent > captureIntent && decideExit > consumeIntent);
+    }
+
+    @Test
     public void mobileAudioLifecycleKeepsStageStateInSync() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -499,7 +532,7 @@ public class VideoActivityLayoutTest {
 
         assertTrue("mobile track changes must refresh lyrics after reconciling the final track set",
                 tracksBody.contains("updateAudioOnlyState();")
-                        && tracksBody.contains("suppressPiPForAudio();")
+                        && tracksBody.contains("syncPiPForPlaybackMode();")
                         && tracksBody.contains("refreshLyrics();"));
         assertTrue("mobile audio state must update desktop lyrics, stage visibility, and karaoke actions",
                 audioStateBody.contains("LyricsController.isAudioOnly(player())")
@@ -570,7 +603,7 @@ public class VideoActivityLayoutTest {
         assertTrue("mobile play/pause changes must synchronize lyrics, karaoke, PiP, and the audio transport",
                 mobilePlaying.contains("syncLyricsPlaybackState(isPlaying);")
                         && mobilePlaying.contains("syncKaraokePosition();")
-                        && mobilePlaying.contains("suppressPiPForAudio()")
+                        && mobilePlaying.contains("syncPiPForPlaybackMode()")
                         && mobilePlaying.contains("checkAudioPlayImg("));
     }
 

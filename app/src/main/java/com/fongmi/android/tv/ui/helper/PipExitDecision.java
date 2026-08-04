@@ -24,7 +24,14 @@ public final class PipExitDecision {
      * @param destroyed      Activity 是否已销毁(isDestroyed)
      */
     public static boolean shouldFinishAfterPipExit(boolean atLeastStarted, boolean finishing, boolean destroyed) {
-        if (finishing || destroyed) return false;
+        return shouldFinishAfterPipExit(atLeastStarted, finishing, destroyed, false);
+    }
+
+    /**
+     * @param keepPlayback 本次退出 PiP 是否为切换到音频后台等主动保留播放的流程
+     */
+    public static boolean shouldFinishAfterPipExit(boolean atLeastStarted, boolean finishing, boolean destroyed, boolean keepPlayback) {
+        if (keepPlayback || finishing || destroyed) return false;
         return !atLeastStarted;
     }
 }
