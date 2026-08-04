@@ -898,7 +898,8 @@ public class History implements Diffable<History> {
     }
 
     public History deleteDisplayItem() {
-        return delete(Setting.isGlobalHistoryEnabled(), true);
+        // 删除展示项始终上报 webhook（report=true）；global 由全局历史开关决定聚合范围
+        return delete(true, Setting.isGlobalHistoryEnabled());
     }
 
     private History delete(boolean report) {
