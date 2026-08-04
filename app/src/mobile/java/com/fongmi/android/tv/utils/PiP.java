@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.utils;
 
+import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.PictureInPictureParams;
@@ -89,10 +90,14 @@ public class PiP {
         }
     }
 
+    public void resetAudioMode() {
+        this.audioMode = false;
+    }
+
     public void setAudioMode(Activity activity, boolean audioMode) {
+        this.audioMode = audioMode;
         try {
             if (noPiP()) return;
-            this.audioMode = audioMode;
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
             setAutoEnter();
             activity.setPictureInPictureParams(builder.build());
@@ -126,6 +131,8 @@ public class PiP {
     private boolean shouldUsePictureInPicture() {
         return BackgroundPlaybackPolicy.shouldUsePictureInPicture(PlayerSetting.getBackground(), audioMode);
     }
+
+    @SuppressLint("NewApi")
     private void setAspectRatio(Activity activity, int width, int height, int scale) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) builder.setSeamlessResizeEnabled(true);
         float viewportRatio = VideoAspectMode.isValidRatio(viewportAspectRatio) ? viewportAspectRatio : getViewportRatio(activity);

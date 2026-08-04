@@ -4022,10 +4022,15 @@ private int mAudioBackgroundRandomNonce;
 
         @Override
         public void onAudio() {
+            boolean audioOnly = isAudioOnly();
             mKeepPlaybackAfterPipExit = isInPictureInPictureMode();
             setAudioOnly(true);
             syncPiPForPlaybackMode();
-            if (!moveTaskToBack(true)) mKeepPlaybackAfterPipExit = false;
+            if (!moveTaskToBack(true)) {
+                mKeepPlaybackAfterPipExit = false;
+                setAudioOnly(audioOnly);
+                syncPiPForPlaybackMode();
+            }
         }
     };
 
@@ -5641,6 +5646,7 @@ private int mAudioBackgroundRandomNonce;
         updateFusionThemeButtonVisibility();
         if (!isFullscreen()) setVideoView(isInPictureInPictureMode);
         if (isInPictureInPictureMode) {
+            mKeepPlaybackAfterPipExit = false;
             hideControl();
             hideDanmaku();
             hideSheet();
