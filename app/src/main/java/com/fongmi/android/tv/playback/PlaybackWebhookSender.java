@@ -27,9 +27,19 @@ public final class PlaybackWebhookSender {
     private final Map<String, Object> endpointLocks = new ConcurrentHashMap<>();
 
     public void sendImmediate(PlaybackRecord record) {
-        if (!ViewingRecordSyncStore.isEnabled()) return;
+        if (!ViewingRecordSyncStore.isEnabled()) {
+            SpiderDebug.log("playback-webhook-delete", "sendImmediate abort: sync disabled");
+            return;
+        }
+        SpiderDebug.log("playback-webhook-delete", "sendImmediate event=%s siteKey=%s configCount=%s",
+                record.event, record.siteKey, PlaybackWebhookStore.list().size());
         for (WebhookConfig config : PlaybackWebhookStore.list()) {
-            if (!matches(config, record) || !config.acceptsEvent(record.event)) continue;
+            boolean usable = config.isUsable();
+            boolean siteOk = config.matchesSite(record.siteKey);
+            boolean eventOk = config.acceptsEvent(record.event);
+            SpiderDebug.log("playback-webhook-delete", "config=%s usable=%s siteOk=%s eventOk=%s",
+                    config.displayName(), usable, siteOk, eventOk);
+            if (!usable || !siteOk || !eventOk) continue;
             enqueue(config, delivery(config, record));
         }
     }

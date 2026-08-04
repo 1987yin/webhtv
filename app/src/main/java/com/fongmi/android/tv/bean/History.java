@@ -322,7 +322,10 @@ public class History implements Diffable<History> {
             List<History> items = AppDatabase.get().getHistoryDao().findAll();
             int deleted = AppDatabase.get().getHistoryDao().delete();
             for (History item : items) AppDatabase.get().getTrackDao().delete(item.getKey());
-            if (deleted > 0) notifyChanged();
+            if (deleted > 0) {
+                for (History item : items) PlaybackEventCollector.get().onDeleted(item);
+                notifyChanged();
+            }
         } else {
             delete(VodConfig.getCid());
         }
@@ -912,6 +915,9 @@ public class History implements Diffable<History> {
                     ? AppDatabase.get().getHistoryDao().findByTmdbIdentity(mediaType, getTmdbId())
                     : AppDatabase.get().getHistoryDao().findByTmdbIdentity(getCid(), mediaType, getTmdbId());
         }
+        com.github.catvod.crawler.SpiderDebug.log("playback-webhook-delete",
+                "delete() branch: global=%s report=%s identity=%s relatedItems=%s",
+                global, report, identity, relatedItems.size());
         if (!relatedItems.isEmpty()) {
             deleted = true;
             for (History item : relatedItems) {
