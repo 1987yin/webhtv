@@ -488,6 +488,28 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void mobilePipAudioActionKeepsBackgroundPlayback() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        String audioBody = methodBody(source, "public void onAudio()", "};");
+        String pipExitBody = methodBody(source, "private void finishIfPipClosed()", "public void onConfigurationChanged(@NonNull Configuration newConfig)");
+
+        int markIntentionalExit = audioBody.indexOf("mKeepPlaybackAfterPipExit = isInPictureInPictureMode();");
+        int syncPipMode = audioBody.indexOf("syncPiPForPlaybackMode();");
+        int moveToBackground = audioBody.indexOf("moveTaskToBack(true)");
+        assertTrue("PiP audio action must mark the intentional exit before changing PiP state",
+                markIntentionalExit >= 0 && syncPipMode > markIntentionalExit && moveToBackground > syncPipMode);
+        assertTrue("a failed background transition must not leave a stale keep-playback marker",
+                audioBody.contains("if (!moveTaskToBack(true)) mKeepPlaybackAfterPipExit = false;"));
+
+        int captureIntent = pipExitBody.indexOf("boolean keepPlayback = mKeepPlaybackAfterPipExit;");
+        int consumeIntent = pipExitBody.indexOf("mKeepPlaybackAfterPipExit = false;");
+        int decideExit = pipExitBody.indexOf("PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed(), keepPlayback)");
+        assertTrue("intentional PiP exits must be consumed before close-button detection",
+                captureIntent >= 0 && consumeIntent > captureIntent && decideExit > consumeIntent);
+    }
+
+    @Test
     public void mobileAudioLifecycleKeepsStageStateInSync() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
