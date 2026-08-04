@@ -499,7 +499,7 @@ public class VideoActivityLayoutTest {
 
         assertTrue("mobile track changes must refresh lyrics after reconciling the final track set",
                 tracksBody.contains("updateAudioOnlyState();")
-                        && tracksBody.contains("suppressPiPForAudio();")
+                        && tracksBody.contains("syncPiPForPlaybackMode();")
                         && tracksBody.contains("refreshLyrics();"));
         assertTrue("mobile audio state must update desktop lyrics, stage visibility, and karaoke actions",
                 audioStateBody.contains("LyricsController.isAudioOnly(player())")
@@ -570,7 +570,7 @@ public class VideoActivityLayoutTest {
         assertTrue("mobile play/pause changes must synchronize lyrics, karaoke, PiP, and the audio transport",
                 mobilePlaying.contains("syncLyricsPlaybackState(isPlaying);")
                         && mobilePlaying.contains("syncKaraokePosition();")
-                        && mobilePlaying.contains("suppressPiPForAudio()")
+                        && mobilePlaying.contains("syncPiPForPlaybackMode()")
                         && mobilePlaying.contains("checkAudioPlayImg("));
     }
 
