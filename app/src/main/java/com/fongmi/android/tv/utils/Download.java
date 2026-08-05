@@ -133,11 +133,13 @@ public class Download {
     }
 
     private boolean download(InputStream is, long length, long offset) throws IOException {
-        // 續傳（offset>0）時絕對不能清空已下載的內容：Path.create 會刪除已存在的檔案，
-        // 若此處清空再以 seek(offset) 寫入，會讓檔案前 offset 位元組變成空洞，導致檔案損壞無法播放。
-        // 因此僅在首次（offset==0）或檔案不存在時建立/重建，續傳時直接用 "rw" 模式開啟（不截斷）。
-        if (offset == 0 || !file.exists()) Path.clear(file);
-        Path.create(file);
+        // 續傳（offset>0 且檔案已存在）時絕對不能清空已下載內容：Path.create 會刪除已存在的檔案，
+        // 導致 seek(offset) 寫入後檔案前 offset 位元組變成 0 空洞 → 檔案損壞無法播放。
+        // 因此續傳直接以 "rw" 模式開啟（不截斷）；僅首次（offset==0）或檔案不存在時清空重建。
+        if (offset == 0 || !file.exists()) {
+            Path.clear(file);
+            Path.create(file);
+        }
         SpiderDebug.log("download", "download() file=%s offset=%s fileLenBefore=%s", file.getName(), offset, file.length());
         try (BufferedInputStream input = new BufferedInputStream(is); RandomAccessFile os = new RandomAccessFile(file, "rw")) {
             if (offset > 0) os.seek(offset);
