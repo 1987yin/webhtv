@@ -41,26 +41,68 @@ final class WebThemeManifestLoader {
             .callTimeout(12, TimeUnit.SECONDS)
             .build();
 
+    enum CacheState {
+        REFRESHED,
+        CACHE_HIT,
+        LAST_KNOWN_GOOD
+    }
+
+    record LoadResult(WebThemeManifest manifest, CacheState state, IOException refreshFailure) {
+        boolean usedLastKnownGood() {
+            return state == CacheState.LAST_KNOWN_GOOD;
+        }
+    }
+
+    @FunctionalInterface
+    interface ManifestSource {
+        String read() throws IOException;
+    }
+
     private WebThemeManifestLoader() {
     }
 
     static WebThemeManifest load(Context context, String url, String target, boolean force) throws IOException {
-        String cacheKey = url + "\n" + target;
-        if (!force) {
-            synchronized (CACHE) {
-                WebThemeManifest cached = CACHE.get(cacheKey);
-                if (cached != null) return cached;
-            }
-        }
-        String json = WebHomeTarget.canonicalThemeAsset(url).equals(WebHomeTarget.ECLIPSE_URL)
+        return loadResult(context, url, target, force).manifest();
+    }
+
+    static LoadResult loadResult(Context context, String url, String target, boolean force) throws IOException {
+        return load(url, target, force, () -> WebHomeTarget.canonicalThemeAsset(url).equals(WebHomeTarget.ECLIPSE_URL)
                 ? read(context.getAssets().open("webhome/theme.json"), WebThemeManifest.MAX_MANIFEST_BYTES)
-                : fetch(url);
-        WebThemeManifest manifest;
+                : fetch(url));
+    }
+
+    static LoadResult load(String url, String target, boolean force, ManifestSource source) throws IOException {
+        String cacheKey = cacheKey(url, target);
+        WebThemeManifest cached = getCached(cacheKey);
+        if (!force && cached != null) return new LoadResult(cached, CacheState.CACHE_HIT, null);
         try {
-            manifest = WebThemeManifest.parse(url, json, target);
-        } catch (IllegalArgumentException e) {
-            throw new IOException("Invalid theme manifest", e);
+            WebThemeManifest manifest = parse(url, target, source.read());
+            putCached(cacheKey, manifest);
+            return new LoadResult(manifest, CacheState.REFRESHED, null);
+        } catch (IOException failure) {
+            WebThemeManifest fallback = getCached(cacheKey);
+            if (fallback != null) return new LoadResult(fallback, CacheState.LAST_KNOWN_GOOD, failure);
+            throw failure;
         }
+    }
+
+    static void clearCache() {
+        synchronized (CACHE) {
+            CACHE.clear();
+        }
+    }
+
+    private static String cacheKey(String url, String target) {
+        return url + "\n" + target;
+    }
+
+    private static WebThemeManifest getCached(String cacheKey) {
+        synchronized (CACHE) {
+            return CACHE.get(cacheKey);
+        }
+    }
+
+    private static void putCached(String cacheKey, WebThemeManifest manifest) {
         synchronized (CACHE) {
             CACHE.put(cacheKey, manifest);
             while (CACHE.size() > MAX_CACHE_ENTRIES) {
@@ -68,7 +110,14 @@ final class WebThemeManifestLoader {
                 CACHE.remove(eldest);
             }
         }
-        return manifest;
+    }
+
+    private static WebThemeManifest parse(String url, String target, String json) throws IOException {
+        try {
+            return WebThemeManifest.parse(url, json, target);
+        } catch (IllegalArgumentException e) {
+            throw new IOException("Invalid theme manifest", e);
+        }
     }
 
     private static String fetch(String url) throws IOException {

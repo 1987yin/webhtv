@@ -1736,6 +1736,7 @@
     <string name="detail_tmdb_match_title">Match TMDB title</string>
     <string name="detail_tmdb_rematch">TMDB match</string>
     <string name="detail_tmdb_match_saved">TMDB match saved</string>
+    <string name="detail_tmdb_current_match">Current match</string>
     <string name="detail_tmdb_searching">Searching TMDB...</string>
     <string name="detail_tmdb_search_hint">Search title</string>
     <string name="detail_tmdb_search_action">Search</string>
