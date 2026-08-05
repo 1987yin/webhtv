@@ -90,8 +90,16 @@ public class M3u8Downloader {
         File index = new File(target.getAbsolutePath() + ".idx");
         int start = readIndex(index);
         if (start >= segments.size()) start = 0;
+        // 續傳需要 temp 檔存在且保留其內容；若 index 指向續傳卻找不到 temp，
+        // 代表臨時檔遺失，只能從頭重新下載，避免 append 錯位導致檔案損壞。
+        if (start > 0 && !temp.exists()) start = 0;
         if (start == 0) Path.clear(temp);
-        Path.create(temp);
+        // 續傳時必須保留 temp 中已下載的內容；Path.create 會清空已存在的檔案，
+        // 因此僅在首次（start==0）或檔案不存在時建立/重建。
+        if (!temp.exists()) {
+            Path.clear(temp);
+            Path.create(temp);
+        }
         long written = temp.exists() ? temp.length() : 0;
         try (FileOutputStream os = new FileOutputStream(temp, start > 0)) {
             for (int i = start; i < segments.size(); i++) {
