@@ -159,6 +159,19 @@ public class EpisodeSeasonPolicyTest {
     }
 
     @Test
+    public void resolveSourceSeason_ignoresReleaseDateLikeEpisodeNames() {
+        assertEquals(-1, EpisodeSeasonPolicy.resolveSourceSeason("2026-07-02"));
+        assertEquals(-1, EpisodeSeasonPolicy.resolveSourceSeason("2026-07-29"));
+        assertEquals(-1, EpisodeSeasonPolicy.resolveSourceSeason("2026-08-05"));
+        assertEquals(-1, EpisodeSeasonPolicy.resolveSourceSeason("20260702"));
+        assertEquals(-1, EpisodeSeasonPolicy.resolveSourceSeason("2026-07-02.mp4"));
+        assertEquals(-1, EpisodeSeasonPolicy.resolveSourceSeason("李熊猫 2026-07-02"));
+        assertEquals(-1, EpisodeSeasonPolicy.resolveSourceSeason("李熊猫 20260702.H264"));
+        assertEquals(2, EpisodeSeasonPolicy.resolveSourceSeason("庆余年2 2024-05-16"));
+        assertEquals(2, EpisodeSeasonPolicy.resolveSourceSeason("庆余年2 20240516"));
+    }
+
+    @Test
     public void episodeMetadataSeasonCandidates_neverFallsBackToSeasonOneWhenSourceSeasonIsKnown() {
         assertEquals(List.of(2), EpisodeSeasonPolicy.episodeMetadataSeasonCandidates(2));
         assertEquals(List.of(0), EpisodeSeasonPolicy.episodeMetadataSeasonCandidates(0));
