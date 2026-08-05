@@ -112,21 +112,59 @@ public class M3u8Downloader {
         Path.clear(index);
     }
 
+    // PNG 檔案簽名：89 50 4E 47 0D 0A 1A 0A
+    private static final byte[] PNG_SIGNATURE = {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+    // IEND 塊類型標記：49 45 4E 44
+    private static final byte[] PNG_IEND = {0x49, 0x45, 0x4E, 0x44};
+
     private long write(FileOutputStream os, String segmentUrl) throws IOException {
         try (Response res = call(segmentUrl).execute()) {
             if (!res.isSuccessful() || res.body() == null) throw new IOException("Segment failed: HTTP " + res.code());
-            byte[] buffer = new byte[16384];
-            long count = 0;
-            int read;
-            try (InputStream is = res.body().byteStream()) {
-                while ((read = is.read(buffer)) != -1) {
-                    if (canceled || paused) break;
-                    os.write(buffer, 0, read);
-                    count += read;
+            byte[] data = res.body().bytes();
+            byte[] payload = unwrapPng(data);
+            if (canceled || paused) return 0;
+            os.write(payload);
+            return payload.length;
+        }
+    }
+
+    /**
+     * 部分站點將 TS 分片偽裝成 PNG 圖片以繞過防盜鏈：檔案前半段是合法的 PNG，
+     * 真正的分片資料位於 PNG 結尾（IEND 塊之後）。此處偵測 PNG 簽名並擷取 IEND
+     * 後方的有效二進位資料；若非 PNG 包裹則原樣回傳。
+     */
+    private byte[] unwrapPng(byte[] data) {
+        if (!startsWith(data, PNG_SIGNATURE)) return data;
+        // 在 IEND 標記後再偏移 4 位元組（CRC）即為 PNG 資料結尾
+        int iend = indexOf(data, PNG_IEND, 8);
+        if (iend < 0) return data;
+        int start = iend + PNG_IEND.length + 4;
+        if (start >= data.length) return data;
+        byte[] payload = new byte[data.length - start];
+        System.arraycopy(data, start, payload, 0, payload.length);
+        return payload;
+    }
+
+    private boolean startsWith(byte[] data, byte[] prefix) {
+        if (data.length < prefix.length) return false;
+        for (int i = 0; i < prefix.length; i++) {
+            if (data[i] != prefix[i]) return false;
+        }
+        return true;
+    }
+
+    private int indexOf(byte[] data, byte[] pattern, int from) {
+        for (int i = from; i <= data.length - pattern.length; i++) {
+            boolean match = true;
+            for (int j = 0; j < pattern.length; j++) {
+                if (data[i + j] != pattern[j]) {
+                    match = false;
+                    break;
                 }
             }
-            return count;
+            if (match) return i;
         }
+        return -1;
     }
 
     private String string(String target) throws IOException {
