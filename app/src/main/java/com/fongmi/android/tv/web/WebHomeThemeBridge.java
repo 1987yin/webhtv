@@ -50,54 +50,63 @@ final class WebHomeThemeBridge {
 
     private final HomeWebController controller;
     private final Activity activity;
+    private final WebThemeCallRouter callRouter;
 
     WebHomeThemeBridge(HomeWebController controller, Activity activity) {
         this.controller = controller;
         this.activity = activity;
+        this.callRouter = new WebThemeCallRouter();
     }
 
     String invoke(String method, JsonObject payload, BooleanSupplier active) throws Exception {
         requireActive(active);
-        CallContext context = new CallContext(controller.getThemeTarget(), controller.getContentSite(),
-                controller.getThemeRoute(), controller.getDetailVod(), controller.getDetailMetadata(),
-                controller.getPlaySession(), controller.getAccessSession(), controller.getDetailActionSession());
-        requireActive(active);
-        WebHomeTarget themeTarget = context.target;
-        boolean allowed = themeTarget != null && themeTarget.isV2()
-                ? WebHomeThemePolicy.allowsMethod(themeTarget.getPage(), themeTarget.getPermissions(), method)
-                : themeTarget != null && !themeTarget.isManifest() && WebHomeThemePolicy.allowsMethod(method);
-        if (!allowed) throw new SecurityException("PERMISSION_DENIED");
-        JsonObject safe = payload == null ? new JsonObject() : payload;
-        String result = switch (method) {
-            case "theme.info" -> controller.getThemeInfoJson();
-            case "vod.home" -> vodHome(safe, context, active);
-            case "vod.category" -> vodCategory(safe, context, active);
-            case "vod.detail" -> vodDetail(safe, context, active);
-            case "favorite.status" -> favoriteStatus(safe, context);
-            case "favorite.set" -> favoriteSet(safe, context, active);
-            case "history.item" -> historyItem(safe, context);
-            case "player.playVod" -> playVod(safe, context, active);
-            case "navigation.openDetail" -> openDetail(safe, context, active);
-            case "navigation.openNativeDetail" -> openNativeDetail(safe, context, active);
-            case "person.open" -> openPerson(safe, context, active);
-            case "image.preview" -> previewImage(safe, context, active);
-            case "image.save" -> saveImage(safe, context, active);
-            case "recommendation.open" -> openRecommendation(safe, context, active);
-            case "recommendation.info" -> recommendationInfo(safe, context, active);
-            case "recommendation.feedback" -> recommendationFeedback(safe, context, active);
-            case "external.open" -> openExternal(safe, context, active);
-            case "episode.info" -> episodeInfo(safe, context, active);
-            case "app.search" -> search(safe, active);
-            case "app.openVod" -> openVod(active);
-            case "app.openSite" -> openSite(active);
-            case "app.openSetting" -> openSetting(active);
-            case "ui.getViewport" -> controller.getViewportJson();
-            case "navigation.back" -> back(active);
-            case "navigation.reload" -> reload(active);
-            default -> throw new SecurityException("PERMISSION_DENIED");
+        HomeWebController.ThemeRuntimeSnapshot runtime = controller.getThemeRuntimeSnapshot();
+        CallContext context = new CallContext(runtime);
+        return callRouter.invoke(method, payload, context.target, active,
+                (api, routedMethod, safe, routedActive) -> dispatch(api, routedMethod, safe, context, routedActive));
+    }
+
+    private String dispatch(WebThemeCallRouter.Api api, String method, JsonObject payload,
+            CallContext context, BooleanSupplier active) throws Exception {
+        return switch (api) {
+            case HOME -> switch (method) {
+                case "theme.info" -> controller.getThemeInfoJson(context.runtime);
+                case "vod.home" -> vodHome(payload, context, active);
+                default -> throw new SecurityException("PERMISSION_DENIED");
+            };
+            case LIST -> vodCategory(payload, context, active);
+            case DETAIL -> switch (method) {
+                case "vod.detail" -> vodDetail(payload, context, active);
+                case "favorite.status" -> favoriteStatus(payload, context);
+                case "favorite.set" -> favoriteSet(payload, context, active);
+                case "history.item" -> historyItem(payload, context);
+                case "person.open" -> openPerson(payload, context, active);
+                case "recommendation.open" -> openRecommendation(payload, context, active);
+                case "recommendation.info" -> recommendationInfo(payload, context, active);
+                case "recommendation.feedback" -> recommendationFeedback(payload, context, active);
+                case "episode.info" -> episodeInfo(payload, context, active);
+                default -> throw new SecurityException("PERMISSION_DENIED");
+            };
+            case PLAYER -> playVod(payload, context, active);
+            case NAVIGATION -> switch (method) {
+                case "navigation.openDetail" -> openDetail(payload, context, active);
+                case "navigation.openNativeDetail" -> openNativeDetail(payload, context, active);
+                case "external.open" -> openExternal(payload, context, active);
+                case "app.search" -> search(payload, active);
+                case "app.openVod" -> openVod(active);
+                case "app.openSite" -> openSite(active);
+                case "app.openSetting" -> openSetting(active);
+                case "navigation.back" -> back(active);
+                case "navigation.reload" -> reload(active);
+                default -> throw new SecurityException("PERMISSION_DENIED");
+            };
+            case UI -> switch (method) {
+                case "image.preview" -> previewImage(payload, context, active);
+                case "image.save" -> saveImage(payload, context, active);
+                case "ui.getViewport" -> controller.getViewportJson();
+                default -> throw new SecurityException("PERMISSION_DENIED");
+            };
         };
-        requireActive(active);
-        return result;
     }
 
     private String vodHome(JsonObject payload, CallContext context, BooleanSupplier active) throws Exception {
@@ -204,7 +213,7 @@ final class WebHomeThemeBridge {
         String result = response.toString();
         if (loaded) {
             Vod detailVod = vod;
-            postIfActive(active, () -> controller.setDetailVod(detailVod, playSession));
+            postIfActive(active, () -> controller.setDetailVodIfCurrent(context.runtime, detailVod, playSession));
         }
         return result;
     }
@@ -490,6 +499,7 @@ final class WebHomeThemeBridge {
 
     private static final class CallContext {
 
+        private final HomeWebController.ThemeRuntimeSnapshot runtime;
         private final WebHomeTarget target;
         private final Site site;
         private final WebThemeRoute route;
@@ -499,18 +509,18 @@ final class WebHomeThemeBridge {
         private final WebThemeAccessSession accessSession;
         private final WebThemeDetailActionSession detailActionSession;
 
-        private CallContext(WebHomeTarget target, Site site, WebThemeRoute route, Vod detailVod,
-                WebThemeDetailMetadata detailMetadata, WebThemePlaySession playSession,
-                WebThemeAccessSession accessSession, WebThemeDetailActionSession detailActionSession) {
-            this.target = target;
-            this.site = site;
-            this.route = route == null ? WebThemeRoute.EMPTY : route;
-            this.detailVod = detailVod;
-            this.detailMetadata = detailMetadata == null ? WebThemeDetailMetadata.EMPTY : detailMetadata;
-            this.playSession = playSession == null ? new WebThemePlaySession() : playSession;
-            this.accessSession = accessSession == null ? new WebThemeAccessSession() : accessSession;
-            this.detailActionSession = detailActionSession == null
-                    ? new WebThemeDetailActionSession() : detailActionSession;
+        private CallContext(HomeWebController.ThemeRuntimeSnapshot runtime) {
+            WebThemePageHost.Snapshot page = runtime.page();
+            WebThemeSession.Snapshot session = runtime.session();
+            this.runtime = runtime;
+            this.target = page.target();
+            this.site = page.site();
+            this.route = page.route();
+            this.detailVod = page.detailVod();
+            this.detailMetadata = page.detailMetadata();
+            this.playSession = session.playSession();
+            this.accessSession = session.accessSession();
+            this.detailActionSession = session.detailActionSession();
         }
 
         private boolean isV2() {

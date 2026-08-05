@@ -2,7 +2,7 @@
 
 > 状态：🟡 V1 首页兼容层与 V2 `HOME`/`DETAIL` 已实现，后续页面处于规划阶段<br>
 > 首次设计：2026-07-27<br>
-> 本次更新：2026-08-03<br>
+> 本次更新：2026-08-04<br>
 > 适用端：mobile / leanback（Android TV）<br>
 > 当前落地范围：全局 WebHome 首页、WebTheme V2 Manifest、当前内容源取数、分类筛选、详情页、TMDB 渐进增强、遥控焦点和原生播放器入口<br>
 > 后续规划范围：搜索结果页、收藏/历史页、播放器控制层、设置页及全局设计变量<br>
@@ -671,7 +671,7 @@ ThemeBridge
 设计要求：
 
 - `vodId`、`typeId`、筛选 key/value、`sourceId`、`episodeId` 和 `playRef` 对主题来说都是不透明值；主题只能回传当前响应给出的引用，不能构造供应商 ID。
-- 首页、分类和详情共用当前页面的短期访问会话；切源、重载、页面错误或 WebView 重建后，旧的影片、分类和筛选引用全部失效。
+- 首页、分类和详情共用当前页面的短期访问会话；主文档导航、切源、重载、页面错误或 WebView 重建后，旧的影片、分类和筛选引用全部失效。
 - V2 不输出供应商 `action` 字符串；此类入口只能显示为不可执行项或交由原生兼容页面处理。
 - 不直接把内部 `vod_play_url` 或解析器对象暴露给主题。
 - 主题选择集数后，把 `playRef` 交回原生；原生验证其与当前详情会话匹配。
@@ -1619,6 +1619,12 @@ RESPONSE_TOO_LARGE
 
 验收：旧请求不能在切源或销毁后更新页面；首页和详情独立回退；不会产生重复 Bridge、返回死循环或丢失遥控焦点。
 
+**2026-08-04 实施状态（第一增量）：** 已抽取 `WebThemeManifestResolver` 和 `WebThemeSession`，`HomeWebController` 继续保留原有公开/包内调用签名作为兼容 façade。会话现在以同一快照持有 generation、access/play/detail action 引用仓库；受信与远程 Bridge 调用都同时固定到发起调用时的主题 generation，远程调用还继续固定 document generation、精确 origin 与 nonce。任意主框架新文档开始（包括同源页面内导航）、切源、重载、销毁、WebView 重建、空文档恢复和主框架失败都会推进 generation 并替换全部不透明引用仓库；暂停、恢复、页面完成和无需重载的上下文切换只取消旧异步请求，保留当前文档仍可使用的引用。
+
+**2026-08-04 实施状态（第二、第三增量）：** 已抽取 `WebThemePageHost` 页面上下文快照，`HomeWebController` 保留兼容 façade，并通过控制器级锁原子发布和读取页面/会话状态；Bridge 以同一运行时快照构建 `CallContext`，`theme.info` 与详情异步发布继续复用该调用快照，迟到的旧页面完成回调不会向新页面重复注入 SDK。已抽取 `WebThemeCallRouter`，统一稳定 API 的 HOME、LIST、DETAIL、NAVIGATION、PLAYER、UI 分组、权限校验和 generation 活跃性检查，业务 handler 行为保持不变。`eclipse-focus-navigation.js` 现在提供共享的横向与几何焦点算法，Eclipse 详情页已接入共享几何导航，首页继续复用共享横向导航；对应的 Java wiring、路由、页面 host、会话和 JavaScript 回归测试已补齐。
+
+本轮已完成 P1 的代码拆分和 Eclipse 首批迁移，但不宣称整个 P1 的发布验收已完成：真实设备上的旋转、遥控全路径、播放返回、后台恢复、WebView 生命周期切换和远程主题故障注入仍需验证；其余安全、更新/缓存、运行日志和兼容矩阵加固继续按独立发布任务推进。
+
 #### P2：通用列表页面
 
 新页面按以下顺序增量交付：
@@ -1709,4 +1715,4 @@ spacing.small / medium / large
 - 不在缺少签名/回滚时先做 ZIP 或主题市场；
 - 不允许任意 CSS 或脚本反向控制原生 Android 布局。
 
-推荐的下一个独立变更是 **P1 公共 WebTheme Runtime 与焦点层**：抽取 Manifest resolver、页面 host、会话生命周期和 Bridge router，并保持现有首页、详情、播放器和设置行为不变。P0 尚未完成的日志、更新/缓存矩阵和生成式兼容矩阵应作为独立的运维与发布加固任务继续推进。
+当前推荐的下一个独立变更是 **P1 发布验收与运行时加固**：在真实 mobile / leanback 设备上完成旋转、遥控全路径、播放返回、后台恢复、WebView 生命周期切换和远程主题故障注入，并补齐运行日志、更新/缓存矩阵、生成式兼容矩阵及远程主题数据隔离。P0 尚未完成的运维与发布加固仍不与页面功能增量混合推进。
