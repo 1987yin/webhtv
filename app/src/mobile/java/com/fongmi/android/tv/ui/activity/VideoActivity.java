@@ -397,6 +397,7 @@ private int mAudioBackgroundRandomNonce;
     private Runnable mTmdbDetailTimeout;
     private Clock mClock;
     private PiP mPiP;
+    private boolean mKeepPlaybackAfterPipExit;
     private String mContextWallUrl;
     private String mContextWallLockedUrl;
     private String playHealthKey;
@@ -4021,9 +4022,10 @@ private int mAudioBackgroundRandomNonce;
 
         @Override
         public void onAudio() {
+            mKeepPlaybackAfterPipExit = isInPictureInPictureMode();
             setAudioOnly(true);
             syncPiPForPlaybackMode();
-            moveTaskToBack(true);
+            if (!moveTaskToBack(true)) mKeepPlaybackAfterPipExit = false;
         }
     };
 
@@ -5663,7 +5665,9 @@ private int mAudioBackgroundRandomNonce;
 
     private void finishIfPipClosed() {
         boolean atLeastStarted = getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED);
-        if (PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed())) {
+        boolean keepPlayback = mKeepPlaybackAfterPipExit;
+        mKeepPlaybackAfterPipExit = false;
+        if (PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed(), keepPlayback)) {
             saveHistory(true);
             finishPlayback();
         }
