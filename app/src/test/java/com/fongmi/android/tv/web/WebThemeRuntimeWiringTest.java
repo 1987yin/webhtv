@@ -21,7 +21,7 @@ public class WebThemeRuntimeWiringTest {
         assertTrue(controller.contains("private final WebThemePageHost pageHost;"));
         assertTrue(controller.contains("private final WebThemeSession themeSession;"));
         assertTrue(controller.contains("private final Object themeStateLock = new Object();"));
-        assertTrue(controller.contains("manifestResolver.resolvePage(configured, page, force)"));
+        assertTrue(controller.contains("manifestResolver.resolvePageResult(configured, page, force)"));
         assertTrue(controller.contains("ThemeRuntimeSnapshot getThemeRuntimeSnapshot()"));
         assertTrue(localBridge.contains("HomeWebController.ThemeRuntimeSnapshot runtime = controller.getThemeRuntimeSnapshot()"));
         assertTrue(bridge.contains("HomeWebController.ThemeRuntimeSnapshot runtime = controller.getThemeRuntimeSnapshot()"));
@@ -94,6 +94,9 @@ public class WebThemeRuntimeWiringTest {
         assertTrue(controller.contains("Event.MANIFEST_LOAD_RESOLVED"));
         assertTrue(controller.contains("Event.MANIFEST_LOAD_IGNORED"));
         assertTrue(controller.contains("Event.MANIFEST_LOAD_FAILED"));
+        assertTrue(controller.contains("Event.MANIFEST_CACHE_FALLBACK"));
+        assertTrue(controller.contains("Reason.LAST_KNOWN_GOOD"));
+        assertTrue(controller.contains("manifestResolver.resolvePageResult(configured, page, force)"));
         assertTrue(controller.contains("Event.DOCUMENT_LOAD_STARTED"));
         assertTrue(controller.contains("Event.DOCUMENT_READY"));
         assertTrue(controller.contains("Event.DOCUMENT_RECOVERY"));

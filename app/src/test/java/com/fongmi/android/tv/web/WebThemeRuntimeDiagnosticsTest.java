@@ -47,6 +47,27 @@ public class WebThemeRuntimeDiagnosticsTest {
     }
 
     @Test
+    public void resolvedManifestCanDeclareLastKnownGoodWithoutExposingRefreshDetails() {
+        WebHomeTarget target = WebHomeTarget.resolve("", true,
+                "https://themes.example/theme.json",
+                "https://themes.example/theme.json");
+
+        String line = WebThemeRuntimeDiagnostics.format(
+                WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_RESOLVED,
+                8,
+                12,
+                WebThemePage.HOME,
+                target,
+                "https://themes.example/theme.json?token=secret",
+                WebThemeRuntimeDiagnostics.Reason.LAST_KNOWN_GOOD,
+                0);
+
+        assertEquals("event=manifest_load_resolved operation=8 generation=12 page=home "
+                + "mode=manifest_remote reason=last_known_good code=0 "
+                + "url=https://themes.example/theme.json", line);
+        assertFalse(line.contains("secret"));
+    }
+    @Test
     public void consolePersistenceUsesMetadataWithoutPageControlledMessage() {
         String line = WebThemeRuntimeDiagnostics.formatConsole(
                 "ERROR",
