@@ -20,6 +20,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.DownloadItem;
 import com.fongmi.android.tv.receiver.DownloadReceiver;
+import com.fongmi.android.tv.ui.activity.DownloadListActivity;
 import com.fongmi.android.tv.utils.DownloadManager;
 import com.fongmi.android.tv.utils.Notify;
 
@@ -119,6 +120,7 @@ public class DownloadService extends Service implements DownloadManager.Listener
                 .setOngoing(active > 0)
                 .setProgress(100, progress, running == null)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setContentIntent(contentIntent())
                 .addAction(0, getString(R.string.download_pause_all), pending(DownloadReceiver.ACTION_PAUSE_ALL));
         return builder.build();
     }
@@ -134,6 +136,12 @@ public class DownloadService extends Service implements DownloadManager.Listener
         Intent intent = new Intent(App.get(), DownloadReceiver.class).setAction(action);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
         return PendingIntent.getBroadcast(App.get(), action.hashCode(), intent, flags);
+    }
+
+    private PendingIntent contentIntent() {
+        Intent intent = new Intent(App.get(), DownloadListActivity.class);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+        return PendingIntent.getActivity(App.get(), 0, intent, flags);
     }
 
     @Override
