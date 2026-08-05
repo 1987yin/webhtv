@@ -28,6 +28,8 @@ public class PlaybackRecord {
     public String event;
     public String eventId;
     public long timestamp;
+    public String scope;
+    public long deletedAt;
     public String sessionId;
     public String dedupeKey;
     public int cid;
@@ -59,6 +61,7 @@ public class PlaybackRecord {
         this.timestamp = System.currentTimeMillis();
         this.event = "";
         this.eventId = "";
+        this.scope = "";
         this.sessionId = "";
         this.dedupeKey = "";
         this.configKey = "";
@@ -113,6 +116,30 @@ public class PlaybackRecord {
         return record;
     }
 
+    public static PlaybackRecord deleted(PlaybackProgressDeleteInput input, int cid) {
+        PlaybackRecord record = new PlaybackRecord();
+        if (input == null) return record;
+        input.normalize();
+        if (input.deletedAt <= 0) input.deletedAt = System.currentTimeMillis();
+        record.event = "playback.deleted";
+        record.eventId = UUID.randomUUID().toString();
+        record.timestamp = input.deletedAt;
+        record.deletedAt = input.deletedAt;
+        record.scope = input.isAllScope() ? "all" : input.isSiteScope() ? "site" : "item";
+        record.cid = cid;
+        record.configKey = TextUtils.isEmpty(input.configKey) ? PlaybackConfigIdentity.keyForCid(cid) : input.configKey;
+        record.configName = PlaybackConfigIdentity.nameForCid(cid);
+        record.historyKey = safe(input.historyKey);
+        record.siteKey = safe(input.siteKey);
+        record.siteName = siteName(record.siteKey);
+        record.vodId = safe(input.vodId);
+        record.episodeName = safe(input.episodeName);
+        record.state = "deleted";
+        record.dedupeKey = sha256(join(record.configKey, record.scope, record.historyKey, record.siteKey, record.vodId));
+        record.clientKey = clientKey();
+        return record;
+    }
+
     public PlaybackRecord withEvent(String event) {
         PlaybackRecord record = copy();
         record.event = event == null ? "" : event;
@@ -128,6 +155,8 @@ public class PlaybackRecord {
         if (policy.includes("event")) record.event = event;
         if (policy.includes("eventId")) record.eventId = eventId;
         if (policy.includes("timestamp")) record.timestamp = timestamp;
+        if (policy.includes("scope")) record.scope = scope;
+        if (policy.includes("deletedAt")) record.deletedAt = deletedAt;
         if (policy.includes("sessionId")) record.sessionId = sessionId;
         if (policy.includes("dedupeKey")) record.dedupeKey = dedupeKey;
         if (policy.includes("cid")) record.cid = cid;
@@ -158,10 +187,13 @@ public class PlaybackRecord {
 
     public JsonObject toJson(PlaybackFieldPolicy policy) {
         JsonObject object = new JsonObject();
+        boolean deletion = "playback.deleted".equals(event);
         if (policy.includes("schema")) object.addProperty("schema", schema);
         if (policy.includes("event") && !TextUtils.isEmpty(event)) object.addProperty("event", event);
         if (policy.includes("eventId") && !TextUtils.isEmpty(eventId)) object.addProperty("eventId", eventId);
         if (policy.includes("timestamp")) object.addProperty("timestamp", timestamp);
+        if (policy.includes("scope") && !TextUtils.isEmpty(scope)) object.addProperty("scope", scope);
+        if (policy.includes("deletedAt") && deletedAt > 0) object.addProperty("deletedAt", deletedAt);
         if (policy.includes("sessionId") && !TextUtils.isEmpty(sessionId)) object.addProperty("sessionId", sessionId);
         if (policy.includes("dedupeKey") && !TextUtils.isEmpty(dedupeKey)) object.addProperty("dedupeKey", dedupeKey);
         if (policy.includes("cid")) object.addProperty("cid", cid);
@@ -177,13 +209,13 @@ public class PlaybackRecord {
         if (policy.includes("episodeName")) object.addProperty("episodeName", episodeName);
         if (policy.includes("episodeUrl")) object.addProperty("episodeUrl", episodeUrl);
         if (policy.includes("episodeIndex") && episodeIndex != null) object.addProperty("episodeIndex", episodeIndex);
-        if (policy.includes("state")) object.addProperty("state", state);
-        if (policy.includes("positionMs")) object.addProperty("positionMs", positionMs);
-        if (policy.includes("durationMs")) object.addProperty("durationMs", durationMs);
-        if (policy.includes("progress")) object.addProperty("progress", progress);
-        if (policy.includes("speed")) object.addProperty("speed", speed);
-        if (policy.includes("speedOverride")) object.addProperty("speedOverride", speedOverride);
-        if (policy.includes("completed")) object.addProperty("completed", completed);
+        if (!deletion && policy.includes("state")) object.addProperty("state", state);
+        if (!deletion && policy.includes("positionMs")) object.addProperty("positionMs", positionMs);
+        if (!deletion && policy.includes("durationMs")) object.addProperty("durationMs", durationMs);
+        if (!deletion && policy.includes("progress")) object.addProperty("progress", progress);
+        if (!deletion && policy.includes("speed")) object.addProperty("speed", speed);
+        if (!deletion && policy.includes("speedOverride")) object.addProperty("speedOverride", speedOverride);
+        if (!deletion && policy.includes("completed")) object.addProperty("completed", completed);
         if (policy.includes("appVersion")) object.addProperty("appVersion", appVersion);
         if (policy.includes("client")) object.addProperty("client", client);
         if (policy.includes("clientKey") && !TextUtils.isEmpty(clientKey)) object.addProperty("clientKey", clientKey);
@@ -196,6 +228,8 @@ public class PlaybackRecord {
         record.event = event;
         record.eventId = eventId;
         record.timestamp = timestamp;
+        record.scope = scope;
+        record.deletedAt = deletedAt;
         record.sessionId = sessionId;
         record.dedupeKey = dedupeKey;
         record.cid = cid;
@@ -229,6 +263,8 @@ public class PlaybackRecord {
         event = "";
         eventId = "";
         timestamp = 0;
+        scope = "";
+        deletedAt = 0;
         sessionId = "";
         dedupeKey = "";
         cid = 0;
@@ -348,19 +384,7 @@ public class PlaybackRecord {
     }
 
     private static String dedupeKey(PlaybackRecord record) {
-        // 身份字段只取"跨设备稳定且必上报"的字段：configKey / siteKey / vodId / vodName / flag / episodeName。
-        // 1) 排除 historyKey：含设备本机 cid，A、B 各自分配，纳入会导致跨设备 dedupeKey 不一致。
-        // 2) 排除 episodeUrl：它只在"完整"字段预设中上报，基础/标准预设不上报，服务端会存空值；
-        //    且 episodeUrl 多为带签名/节点的挥发 URL，同一条目再次播放时可能变化，纳入反而破坏同设备进度合并。
-        //    去掉后，同一 (站点,影片,线路,集名) 仍唯一，跨设备删除与进度合并都稳定。
-        return sha256(join(record.configKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName));
-    }
-
-    // 由本地 History 反算其 dedupeKey，与服务端存储/墓碑中的 dedupeKey 同源同算法，
-    // 供拉取同步时按"已删除墓碑"匹配并清理本地记录（无论本地原生还是远端拉取所得）。
-    public static String dedupeKeyFor(History history) {
-        if (history == null) return "";
-        return from(history, null, "", "").dedupeKey;
+        return sha256(join(record.configKey, record.historyKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName, record.episodeUrl));
     }
 
     private static String clientKey() {

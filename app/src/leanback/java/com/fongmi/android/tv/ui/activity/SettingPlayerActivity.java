@@ -148,7 +148,6 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
     }
 
     private void setVisible() {
-        if (PlayerSetting.getBackground() == 2) PlayerSetting.putBackground(1);
         mBinding.caption.setVisibility(PlayerSetting.hasCaption() ? View.VISIBLE : View.GONE);
     }
 

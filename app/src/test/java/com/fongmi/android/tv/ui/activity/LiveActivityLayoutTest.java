@@ -66,6 +66,59 @@ public class LiveActivityLayoutTest {
     }
 
     @Test
+    public void livePipAudioActionKeepsBackgroundPlayback() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of(
+                "com", "fongmi", "android", "tv", "ui", "activity", "LiveActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+
+        String panelBody = section(source, "public void onLiveBackgroundPanel()", "public void onLiveListStylePanel(boolean classic)");
+        String navigationBody = section(source, "public void onAudio()", "};");
+        String switchBody = section(source, "private void switchToAudioBackground()", "private void setVideoView(");
+        String prepareBody = section(source, "private boolean preparePiP(String reason)", "private boolean requestPiP(String reason)");
+        String pipModeBody = section(source, "public void onPictureInPictureModeChanged(", "private void setVideoView(");
+        String pipExitBody = section(source, "private void finishIfPipClosed()", "private void dismissLiveControlDialog()");
+        String startBody = section(source, "protected void onStart()", "protected void onStop()");
+
+        assertTrue("both live background entry points must share the guarded audio transition",
+                panelBody.contains("switchToAudioBackground();")
+                        && navigationBody.contains("switchToAudioBackground();"));
+        int captureAudioMode = switchBody.indexOf("boolean audioOnly = isAudioOnly();");
+        int markIntentionalExit = switchBody.indexOf("mKeepPlaybackAfterPipExit = isInPictureInPictureMode();");
+        int setAudioMode = switchBody.indexOf("setAudioOnly(true);");
+        int syncPipMode = switchBody.indexOf("syncPiPForPlaybackMode();");
+        int moveToBackground = switchBody.indexOf("moveTaskToBack(true)");
+        assertTrue("live audio background must preserve, mark, and synchronize state before moving the task",
+                captureAudioMode >= 0
+                        && markIntentionalExit > captureAudioMode
+                        && setAudioMode > markIntentionalExit
+                        && syncPipMode > setAudioMode
+                        && moveToBackground > syncPipMode);
+        assertTrue("a failed live background transition must restore audio and PiP state",
+                switchBody.contains("mKeepPlaybackAfterPipExit = false;")
+                        && switchBody.contains("setAudioOnly(audioOnly);")
+                        && switchBody.lastIndexOf("syncPiPForPlaybackMode();") > moveToBackground);
+
+        int pipEntered = pipModeBody.indexOf("if (isInPictureInPictureMode)");
+        int resetStaleIntent = pipModeBody.indexOf("mKeepPlaybackAfterPipExit = false;", pipEntered);
+        assertTrue("a new live PiP session must clear stale keep-playback state",
+                pipEntered >= 0 && resetStaleIntent > pipEntered);
+        assertTrue("live PiP exit detection must consume the intentional background marker",
+                pipExitBody.contains("boolean keepPlayback = mKeepPlaybackAfterPipExit;")
+                        && pipExitBody.contains("mKeepPlaybackAfterPipExit = false;")
+                        && pipExitBody.contains("PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed(), keepPlayback)"));
+        int resetAudioState = startBody.indexOf("setAudioOnly(false);");
+        int resetPipState = startBody.indexOf("mPiP.resetAudioMode();");
+        assertTrue("returning to live video must reset PiP mode without applying premature system parameters",
+                resetAudioState >= 0
+                        && resetPipState > resetAudioState
+                        && !startBody.contains("syncPiPForPlaybackMode();"));
+        int validateVideoTrack = prepareBody.indexOf("service() == null || !player().haveTrack(C.TRACK_TYPE_VIDEO)");
+        int applyPipMode = prepareBody.indexOf("syncPiPForPlaybackMode()");
+        assertTrue("live PiP parameters must only be applied after video eligibility is confirmed",
+                validateVideoTrack >= 0 && applyPipMode > validateVideoTrack);
+    }
+
+    @Test
     public void pendingLivePiPEntryIsCancelledWhenTheActivityStops() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of(
                 "com", "fongmi", "android", "tv", "ui", "activity", "LiveActivity.java"));
@@ -105,8 +158,16 @@ public class LiveActivityLayoutTest {
         int onPipChangedEnd = source.indexOf("private void setVideoView(", onPipChanged);
         String onPipChangedBody = onPipChanged >= 0 && onPipChangedEnd > onPipChanged
                 ? source.substring(onPipChanged, onPipChangedEnd) : "";
+        int enteredPiP = onPipChangedBody.indexOf("if (isInPictureInPictureMode)");
+        int cancelPending = onPipChangedBody.indexOf("cancelPendingLivePiP(false);", enteredPiP);
         assertTrue("a successful system PiP transition must cancel any still-pending manual entry",
-                onPipChangedBody.contains("if (isInPictureInPictureMode) cancelPendingLivePiP(false);"));
+                enteredPiP >= 0 && cancelPending > enteredPiP);
+    }
+
+    private static String section(String source, String startMarker, String endMarker) {
+        int start = source.indexOf(startMarker);
+        int end = start < 0 ? -1 : source.indexOf(endMarker, start + startMarker.length());
+        return start >= 0 && end > start ? source.substring(start, end) : "";
     }
 
     private static Path findMobileJavaPath() {

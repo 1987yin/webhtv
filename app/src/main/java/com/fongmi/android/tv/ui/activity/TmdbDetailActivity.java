@@ -105,6 +105,7 @@ import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.service.IntroSkipService;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.service.TmdbService;
+import com.fongmi.android.tv.setting.BackgroundPlaybackPolicy;
 import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.fongmi.android.tv.setting.PlayerButtonSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
@@ -296,6 +297,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private int cachedEpisodeInfoSeason = Integer.MIN_VALUE;
     private Flag selectedFlag;
     private Episode selectedEpisode;
+    private boolean playbackSelectionTouched;
     private Episode inlinePlaybackEpisode;
     private String inlinePlaybackKey = "";
     private String inlinePlaybackFlag = "";
@@ -546,6 +548,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         mHistory = null;
         selectedFlag = null;
         selectedEpisode = null;
+        playbackSelectionTouched = false;
         clearSourceEpisodeSeasonCache();
         clearEpisodeRenderCaches();
         resetEpisodeRange();
@@ -600,7 +603,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void initPage() {
-        binding.play.setOnClickListener(view -> onPlay());
+        binding.play.setOnClickListener(view -> {
+            playbackSelectionTouched = true;
+            onPlay();
+        });
         binding.keep.setOnClickListener(view -> onKeep());
         binding.keepTop.setOnClickListener(view -> onKeep());
         binding.keepFusion.setOnClickListener(view -> onKeep());
@@ -648,6 +654,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             @Override
             public void onItemClick(Episode episode) {
                 cancelPendingInlinePlayback();
+                playbackSelectionTouched = true;
                 selectedEpisode = episode;
                 episodeAdapter.setSelected(episode);
                 updatePlayLabel();
@@ -2253,6 +2260,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         long start = System.currentTimeMillis();
         TmdbBundle bundle = result == null ? null : result.bundle();
         applyTmdbBundle(bundle);
+        reloadHistoryAfterTmdbMatch();
+        applyReloadedHistorySelection();
         if (bundle != null) saveTmdbMatch(bundle.item());
         enrichVod();
         bindBackdrop();
@@ -2517,6 +2526,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 .title(getString(R.string.detail_tmdb_match_title))
                 .query(getTmdbSearchQuery())
                 .items(items)
+                .selectedItem(matchedTmdbItem)
                 .listener(this::applyManualTmdb)
                 .searchListener(this::searchTmdb)
                 .skipListener(skippable ? this::onPlay : null)
@@ -3576,6 +3586,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             button.setOnKeyListener((view, keyCode, event) -> onDetailFlagKey(keyCode, event));
             button.setOnClickListener(view -> {
                 cancelPendingInlinePlayback();
+                playbackSelectionTouched = true;
                 selectedFlag = flag;
                 selectedEpisode = null;
                 selectedSeasonNumber = -1;
@@ -4457,6 +4468,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             setChipState(button, season == selectedSeasonNumber);
             button.setOnClickListener(view -> {
                 cancelPendingInlinePlayback();
+                playbackSelectionTouched = true;
                 selectedSeasonNumber = season;
                 List<Episode> visibleEpisodes = visibleEpisodes(episodes);
                 selectedEpisode = visibleEpisodes.isEmpty() ? null : visibleEpisodes.get(0);
@@ -4938,6 +4950,20 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (!TextUtils.isEmpty(getMarkText())) history.setVodRemarks(getMarkText());
         syncDanmakuCompatHistory();
         updatePlayLabel();
+    }
+
+    private void reloadHistoryAfterTmdbMatch() {
+        if (vod == null || matchedTmdbItem == null) return;
+        initHistory();
+    }
+
+    private void applyReloadedHistorySelection() {
+        if (playbackSelectionTouched || detailPlayerActive || inlineStarted || vod == null || vod.getFlags() == null || vod.getFlags().isEmpty()) return;
+        selectedFlag = findInitialFlag(vod.getFlags());
+        selectedEpisode = null;
+        selectedSeasonNumber = -1;
+        resetEpisodeRange();
+        renderFlagSelection();
     }
 
     private float getInlinePlaybackSpeed() {
@@ -7881,6 +7907,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void switchNativeEnhancedInlineFlag(Flag flag, Runnable[] render) {
         if (flag == null || flag.equals(selectedFlag)) return;
         cancelPendingInlinePlayback();
+        playbackSelectionTouched = true;
         selectedFlag = flag;
         selectedEpisode = null;
         selectedSeasonNumber = -1;
@@ -8203,6 +8230,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void selectInlineEpisode(Episode episode) {
         cancelPendingInlinePlayback();
+        playbackSelectionTouched = true;
         selectedEpisode = episode;
         selectedSeasonNumber = seasonForEpisode(episode, selectedFlag.getEpisodes());
         resetEpisodeRange();
@@ -8221,7 +8249,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void enterInlinePiP(boolean force) {
         if (!canEnterInlinePiP()) return;
-        if (!force && !PlayerSetting.isBackgroundPiP()) return;
+        if (!force && !BackgroundPlaybackPolicy.isEnabled(PlayerSetting.getBackground())) return;
         hideInlineControls();
         hideInlineGestureOverlays();
         updateInlinePiPSource(binding.playerPanel);
@@ -8659,6 +8687,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             return false;
         }
         cancelPendingInlinePlayback();
+        playbackSelectionTouched = true;
         selectedEpisode = episodes.get(next);
         selectedSeasonNumber = seasonForEpisode(selectedEpisode, episodes);
         resetEpisodeRange();

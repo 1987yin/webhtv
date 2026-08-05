@@ -1,8 +1,8 @@
 package com.fongmi.android.tv.ui.adapter;
 
+import android.annotation.SuppressLint;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
-import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
@@ -16,75 +16,97 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * 下載彈窗中的劇集多選網格。
+ */
 public class DownloadEpisodeAdapter extends RecyclerView.Adapter<DownloadEpisodeAdapter.ViewHolder> {
 
     private final List<Episode> mItems;
     private final Set<Integer> mSelected;
-    private final OnClickListener mListener;
+    private final Set<Integer> mDownloaded;
+    private final OnSelectListener mListener;
 
-    public interface OnClickListener {
-        void onItemClick(int position);
-    }
-
-    public DownloadEpisodeAdapter(OnClickListener listener) {
+    public DownloadEpisodeAdapter(OnSelectListener listener) {
         this.mItems = new ArrayList<>();
         this.mSelected = new HashSet<>();
+        this.mDownloaded = new HashSet<>();
         this.mListener = listener;
     }
 
-    public void addAll(List<Episode> items) {
+    public interface OnSelectListener {
+        void onSelectChange(int count);
+    }
+
+    @SuppressLint("NotifyDataSetChanged")
+    public void setItems(List<Episode> items, Set<Integer> downloaded) {
         mItems.clear();
         mItems.addAll(items);
-        notifyDataSetChanged();
-    }
-
-    public void toggle(int position) {
-        if (mSelected.contains(position)) mSelected.remove(position);
-        else mSelected.add(position);
-        notifyItemChanged(position);
-    }
-
-    public void selectAll(boolean all) {
         mSelected.clear();
-        if (all) for (int i = 0; i < mItems.size(); i++) mSelected.add(i);
+        mDownloaded.clear();
+        mDownloaded.addAll(downloaded);
         notifyDataSetChanged();
+        notifySelect();
+    }
+
+    @SuppressLint("NotifyDataSetChanged")
+    public void selectAll() {
+        for (int i = 0; i < mItems.size(); i++) if (!mDownloaded.contains(i)) mSelected.add(i);
+        notifyDataSetChanged();
+        notifySelect();
+    }
+
+    @SuppressLint("NotifyDataSetChanged")
+    public void selectNone() {
+        mSelected.clear();
+        notifyDataSetChanged();
+        notifySelect();
     }
 
     public boolean isAllSelected() {
-        return !mItems.isEmpty() && mSelected.size() == mItems.size();
+        int count = 0;
+        for (int i = 0; i < mItems.size(); i++) if (!mDownloaded.contains(i)) ++count;
+        return count > 0 && mSelected.size() == count;
     }
 
     public List<Episode> getSelected() {
         List<Episode> result = new ArrayList<>();
-        for (int i : mSelected) result.add(mItems.get(i));
+        for (int index : mSelected) if (index < mItems.size()) result.add(mItems.get(index));
         return result;
+    }
+
+    private void notifySelect() {
+        if (mListener != null) mListener.onSelectChange(mSelected.size());
     }
 
     @NonNull
     @Override
     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        return new ViewHolder(AdapterDownloadEpisodeBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false), mListener);
+        return new ViewHolder(AdapterDownloadEpisodeBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
     }
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         Episode item = mItems.get(position);
+        boolean downloaded = mDownloaded.contains(position);
         boolean selected = mSelected.contains(position);
-        // 下载选集始终展示完整名称（忽略“短显”压缩的 displayName，直接拼接 desc+name）。
-        String title = TextUtils.isEmpty(item.getDesc()) || item.getName().startsWith(item.getDesc())
-                ? item.getName()
-                : item.getDesc().concat(item.getName());
-        holder.binding.text.setText(title);
-        // 名称较长时所有项开启跑马灯，方便查看完整名称。
+        holder.binding.text.setText(item.getName());
+        // 選中態由 state_activated 驅動背景與文字高亮（selector 只認 activated，不認 selected）
+        holder.binding.text.setActivated(selected);
+        // 已下載項目禁用：對應 selector 的 state_enabled=false（文字變灰）
+        holder.binding.text.setEnabled(!downloaded);
+        holder.binding.text.setAlpha(downloaded ? 0.4f : 1f);
+        // 跑馬燈：名稱過長時自動橫向滾動展示（參考 v2 實作）
         holder.binding.text.setHorizontallyScrolling(true);
         holder.binding.text.setMarqueeRepeatLimit(-1);
         holder.binding.text.setEllipsize(TextUtils.TruncateAt.MARQUEE);
-        // 下载选中态用 state_activated 驱动背景与文字高亮；state_selected 仅用于触发跑马灯。
-        holder.binding.text.setActivated(selected);
-        // 先置 false 再于布局完成后置 true，确保 startMarquee 在视图完成测量后可靠触发
-        // （setSelected(true) 在已选中态为 no-op，无法重启跑马灯动画）。
-        holder.binding.text.setSelected(false);
-        holder.binding.text.post(() -> holder.binding.text.setSelected(true));
+        holder.binding.text.setSelected(true);
+        holder.binding.text.setOnClickListener(v -> {
+            if (downloaded) return;
+            if (mSelected.contains(position)) mSelected.remove(position);
+            else mSelected.add(position);
+            notifyItemChanged(position);
+            notifySelect();
+        });
     }
 
     @Override
@@ -93,15 +115,12 @@ public class DownloadEpisodeAdapter extends RecyclerView.Adapter<DownloadEpisode
     }
 
     public static class ViewHolder extends RecyclerView.ViewHolder {
+
         public final AdapterDownloadEpisodeBinding binding;
 
-        public ViewHolder(AdapterDownloadEpisodeBinding binding, OnClickListener listener) {
+        public ViewHolder(@NonNull AdapterDownloadEpisodeBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
-            binding.getRoot().setOnClickListener(v -> {
-                int position = getBindingAdapterPosition();
-                if (position != RecyclerView.NO_POSITION) listener.onItemClick(position);
-            });
         }
     }
 }

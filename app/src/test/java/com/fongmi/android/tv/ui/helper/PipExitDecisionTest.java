@@ -20,6 +20,12 @@ public class PipExitDecisionTest {
     }
 
     @Test
+    public void switchToAudioBackground_whenStopped_keepsPlayback() {
+        // PiP 的“隐藏画面”动作会主动退到音频后台，不是用户点击 × 关闭。
+        assertFalse(PipExitDecision.shouldFinishAfterPipExit(false, false, false, true));
+    }
+
+    @Test
     public void alreadyFinishing_doesNotRefinish() {
         // 已在结束流程中：无论前台与否都不重复触发
         assertFalse(PipExitDecision.shouldFinishAfterPipExit(false, true, false));

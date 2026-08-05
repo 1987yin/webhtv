@@ -37,11 +37,25 @@ public class WebHomeRemoteBridgeWiringTest {
         assertTrue(registration.contains("int generation"));
         assertFalse(registration.contains("int generation = remoteBridgeGeneration;"));
         assertTrue(controller.contains("String requestNonce"));
-        assertTrue(controller.contains("isRemoteSession(expectedOrigin, generation, requestNonce)"));
+        assertTrue(controller.contains("isRemoteThemeSession(expectedOrigin, generation, requestNonce, themeGeneration)"));
+        assertTrue(registration.contains("ThemeRuntimeSnapshot runtime = getThemeRuntimeSnapshot()"));
+        assertTrue(registration.contains("int themeGeneration = runtime.session().generation()"));
         assertTrue(controller.contains("session:session"));
         assertTrue(controller.contains("window.fongmi.__session===session"));
         assertTrue(controller.contains("data.getBytes(StandardCharsets.UTF_8).length > MAX_REMOTE_MESSAGE_BYTES"));
         assertTrue(controller.contains("result.getBytes(StandardCharsets.UTF_8).length > MAX_REMOTE_RESPONSE_BYTES"));
+    }
+
+    @Test
+    public void remoteThemeGenerationGuardKeepsLegacyAndV2TargetsCompatible() throws Exception {
+        String controller = readMain("HomeWebController.java");
+        String guards = methodBody(controller, "private boolean isRemoteThemeSession(",
+                "private static String limitedRemoteValue(");
+
+        assertTrue(guards.contains("isRemoteBridgeSessionActive(themeGeneration)"));
+        assertTrue(guards.contains("current.isRemoteGlobal()"));
+        assertTrue(guards.contains("!current.isManifest()"));
+        assertFalse(guards.contains("isThemeSessionActive(themeGeneration)"));
     }
 
     @Test

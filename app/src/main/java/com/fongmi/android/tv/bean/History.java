@@ -17,9 +17,9 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.impl.Diffable;
-import com.fongmi.android.tv.playback.PlaybackEventCollector;
 import com.fongmi.android.tv.history.HistoryDisplayPolicy;
 import com.fongmi.android.tv.player.VideoAspectMode;
+import com.fongmi.android.tv.playback.PlaybackProgressWriter;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -30,9 +30,11 @@ import com.google.gson.reflect.TypeToken;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 @Entity
@@ -224,7 +226,7 @@ public class History implements Diffable<History> {
         History aggregated = findPlaybackByTmdb(key, vodNames, flags, explicitTmdbId, explicitMediaType, expectedSeason);
         if (aggregated != null) return aggregated;
         History history = find(key);
-        if (isSeasonEligible(history, key, expectedSeason)) return history;
+        if (isSeasonEligible(history, key, expectedSeason)) return copyForPlaybackKey(history, key, flags, history);
         if (vodNames != null) {
             for (String vodName : vodNames) {
                 if (vodName == null || vodName.isEmpty()) continue;
@@ -306,29 +308,24 @@ public class History implements Diffable<History> {
     }
 
     public static void delete(int cid) {
-        delete(cid, true);
-    }
-
-    public static void delete(int cid, boolean report) {
-        List<History> items = AppDatabase.get().getHistoryDao().find(cid);
-        if (AppDatabase.get().getHistoryDao().delete(cid) > 0) {
-            if (report) for (History item : items) PlaybackEventCollector.get().onDeleted(item);
-            notifyChanged();
-        }
+        if (AppDatabase.get().getHistoryDao().delete(cid) > 0) notifyChanged();
     }
 
     public static void deleteForDisplay() {
         if (Setting.isGlobalHistoryEnabled()) {
             List<History> items = AppDatabase.get().getHistoryDao().findAll();
-            int deleted = AppDatabase.get().getHistoryDao().delete();
-            for (History item : items) AppDatabase.get().getTrackDao().delete(item.getKey());
-            if (deleted > 0) {
-                for (History item : items) PlaybackEventCollector.get().onDeleted(item);
-                notifyChanged();
-            }
+            Set<Integer> cids = new HashSet<>();
+            for (History item : items) cids.add(item.getCid());
+            int deleted = 0;
+            for (int cid : cids) deleted += PlaybackProgressWriter.deleteAllFromUser(cid).affected;
+            if (deleted > 0) notifyChanged();
         } else {
-            delete(VodConfig.getCid());
+            PlaybackProgressWriter.deleteAllFromUser(VodConfig.getCid());
         }
+    }
+
+    public static void deleteAndSync(int cid) {
+        PlaybackProgressWriter.deleteAllFromUser(cid);
     }
 
     public static void sync(List<History> targets) {
@@ -352,16 +349,38 @@ public class History implements Diffable<History> {
 
     static History findPlaybackCandidate(String key, List<History> items, List<Flag> flags, int expectedSeason) {
         if (items == null || items.isEmpty()) return null;
+        // 集数和进度按整剧聚合，线路仍优先使用当前片源自己的历史偏好。
+        History local = findLocalPlaybackPreference(key, items, expectedSeason);
+        History selected = null;
         for (History item : items) {
             if (isSeasonEligible(item, key, expectedSeason) && canResume(item) && matchesAnyEpisode(item, flags)) {
-                return copyForPlaybackKey(item, key);
+                selected = item;
+                break;
             }
         }
-        for (History item : items) {
-            if (isSeasonEligible(item, key, expectedSeason) && canResume(item)) return copyForPlaybackKey(item, key);
+        if (selected == null) {
+            for (History item : items) {
+                if (isSeasonEligible(item, key, expectedSeason) && canResume(item)) {
+                    selected = item;
+                    break;
+                }
+            }
         }
+        if (selected == null) {
+            for (History item : items) {
+                if (isSeasonEligible(item, key, expectedSeason)) {
+                    selected = item;
+                    break;
+                }
+            }
+        }
+        return selected == null ? null : copyForPlaybackKey(selected, key, flags, local);
+    }
+
+    private static History findLocalPlaybackPreference(String key, List<History> items, int expectedSeason) {
+        if (TextUtils.isEmpty(key)) return null;
         for (History item : items) {
-            if (isSeasonEligible(item, key, expectedSeason)) return copyForPlaybackKey(item, key);
+            if (item != null && TextUtils.equals(key, item.getKey()) && isSeasonEligible(item, key, expectedSeason)) return item;
         }
         return null;
     }
@@ -379,13 +398,52 @@ public class History implements Diffable<History> {
         return item != null && item.getPosition() > 0;
     }
 
-    private static History copyForPlaybackKey(History item, String key) {
+    private static History copyForPlaybackKey(History item, String key, List<Flag> flags, History local) {
         History copy = item.copy();
         if (key != null && !key.isEmpty() && !TextUtils.equals(key, item.getKey())) {
             copy.playbackSourceKey = item.getKey();
             copy.setKey(key);
         }
+        rebindPlaybackRoute(copy, local, flags);
         return copy;
+    }
+
+    private static void rebindPlaybackRoute(History playback, History local, List<Flag> flags) {
+        if (playback == null || flags == null || flags.isEmpty()) return;
+        Flag preferred = findFlag(flags, local == null ? "" : local.getVodFlag());
+        if (preferred == null) preferred = findFlag(flags, playback.getVodFlag());
+        Episode episode = findMatchingEpisode(playback, preferred);
+        Flag resolved = episode == null ? null : preferred;
+        if (episode == null) {
+            for (Flag flag : flags) {
+                if (flag == null || flag == preferred) continue;
+                episode = findMatchingEpisode(playback, flag);
+                if (episode != null) {
+                    resolved = flag;
+                    break;
+                }
+            }
+        }
+        if (resolved == null) resolved = preferred != null ? preferred : firstFlag(flags);
+        if (resolved != null) playback.setVodFlag(resolved.getFlag());
+        if (episode != null) playback.setEpisodeUrl(episode.getUrl());
+    }
+
+    private static Flag findFlag(List<Flag> flags, String name) {
+        if (TextUtils.isEmpty(name)) return null;
+        for (Flag flag : flags) if (flag != null && TextUtils.equals(name, flag.getFlag())) return flag;
+        return null;
+    }
+
+    private static Flag firstFlag(List<Flag> flags) {
+        for (Flag flag : flags) if (flag != null) return flag;
+        return null;
+    }
+
+    private static Episode findMatchingEpisode(History history, Flag flag) {
+        if (history == null || flag == null || flag.getEpisodes() == null) return null;
+        for (Episode episode : flag.getEpisodes()) if (matchesEpisode(history, episode)) return episode;
+        return null;
     }
 
     private static boolean matchesAnyEpisode(History item, List<Flag> flags) {
@@ -847,7 +905,7 @@ public class History implements Diffable<History> {
     }
 
     private History merge(List<History> items, boolean force) {
-        for (History item : items) if (item.shouldMerge(this, force)) item.copyTo(this).delete(false);
+        for (History item : items) if (item.shouldMerge(this, force)) item.copyTo(this).delete();
         return this;
     }
 
@@ -894,19 +952,14 @@ public class History implements Diffable<History> {
     }
 
     public History delete() {
-        return delete(true, false);
+        return deleteRelated(false);
     }
 
     public History deleteDisplayItem() {
-        // 删除展示项始终上报 webhook（report=true）；global 由全局历史开关决定聚合范围
-        return delete(true, Setting.isGlobalHistoryEnabled());
+        return deleteRelated(Setting.isGlobalHistoryEnabled());
     }
 
-    private History delete(boolean report) {
-        return delete(report, false);
-    }
-
-    private History delete(boolean report, boolean global) {
+    private History deleteRelated(boolean global) {
         boolean deleted;
         List<History> relatedItems = Collections.emptyList();
         String identity = HistoryDisplayPolicy.tmdbIdentity(this);
@@ -916,20 +969,13 @@ public class History implements Diffable<History> {
                     ? AppDatabase.get().getHistoryDao().findByTmdbIdentity(mediaType, getTmdbId())
                     : AppDatabase.get().getHistoryDao().findByTmdbIdentity(getCid(), mediaType, getTmdbId());
         }
-        com.github.catvod.crawler.SpiderDebug.log("playback-webhook-delete",
-                "delete() branch: global=%s report=%s identity=%s relatedItems=%s",
-                global, report, identity, relatedItems.size());
         if (!relatedItems.isEmpty()) {
-            deleted = true;
+            deleted = false;
             for (History item : relatedItems) {
-                AppDatabase.get().getHistoryDao().delete(item.getCid(), item.getKey());
-                AppDatabase.get().getTrackDao().delete(item.getKey());
+                deleted |= PlaybackProgressWriter.deleteFromUser(item).affected > 0;
             }
-            if (deleted && report) for (History item : relatedItems) PlaybackEventCollector.get().onDeleted(item);
         } else {
-            deleted = AppDatabase.get().getHistoryDao().delete(getCid(), getKey()) > 0;
-            AppDatabase.get().getTrackDao().delete(getKey());
-            if (deleted && report) PlaybackEventCollector.get().onDeleted(this);
+            deleted = PlaybackProgressWriter.deleteFromUser(this).affected > 0;
         }
         if (deleted) notifyChanged();
         return this;
@@ -950,6 +996,10 @@ public class History implements Diffable<History> {
                 || !Objects.equals(before.getActor(), after.getActor())
                 || !Objects.equals(before.getDirector(), after.getDirector())
                 || !Objects.equals(before.getYear(), after.getYear());
+    }
+
+    public History deleteAndSync() {
+        return deleteDisplayItem();
     }
 
     public void findEpisode(List<Flag> flags) {

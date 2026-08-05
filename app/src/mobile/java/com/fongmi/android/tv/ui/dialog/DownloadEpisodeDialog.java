@@ -26,23 +26,30 @@ import com.fongmi.android.tv.ui.adapter.DownloadEpisodeAdapter;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Util;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
-public class DownloadEpisodeDialog extends AppCompatDialogFragment implements DownloadEpisodeAdapter.OnClickListener {
+/**
+ * 劇集多選下載彈窗，以浮層形式覆蓋在播放頁上方。
+ */
+public class DownloadEpisodeDialog extends AppCompatDialogFragment implements DownloadEpisodeAdapter.OnSelectListener {
 
     private DialogDownloadEpisodeBinding binding;
     private DownloadEpisodeAdapter adapter;
     private List<Episode> episodes;
+    private Set<Integer> downloaded;
     private OnDownload listener;
 
     public interface OnDownload {
-        void onDownload(Episode episode);
+        void onDownload(List<Episode> episodes);
     }
 
-    public static void show(FragmentActivity activity, List<Episode> episodes, OnDownload listener) {
+    public static void show(FragmentActivity activity, List<Episode> episodes, Set<Integer> downloaded, OnDownload listener) {
         if (episodes == null || episodes.isEmpty()) return;
         DownloadEpisodeDialog dialog = new DownloadEpisodeDialog();
         dialog.episodes = episodes;
+        dialog.downloaded = downloaded == null ? new HashSet<>() : downloaded;
         dialog.listener = listener;
         dialog.show(activity.getSupportFragmentManager(), null);
     }
@@ -83,7 +90,7 @@ public class DownloadEpisodeDialog extends AppCompatDialogFragment implements Do
 
     private int getHeight() {
         int screen = ResUtil.getScreenHeight(requireContext());
-        return Math.max(ResUtil.dp2px(240), Math.round(screen * 0.33f));
+        return Math.max(ResUtil.dp2px(240), Math.round(screen * 0.45f));
     }
 
     private void configureWindow(Dialog dialog) {
@@ -103,32 +110,27 @@ public class DownloadEpisodeDialog extends AppCompatDialogFragment implements Do
         binding.episode.setHasFixedSize(true);
         binding.episode.setItemAnimator(null);
         binding.episode.setAdapter(adapter = new DownloadEpisodeAdapter(this));
-        adapter.addAll(episodes);
+        adapter.setItems(episodes, downloaded);
         binding.downloadList.setOnClickListener(v -> {
             DownloadListActivity.start(requireActivity());
             dismiss();
         });
         binding.selectAll.setOnClickListener(v -> {
-            boolean all = !adapter.isAllSelected();
-            adapter.selectAll(all);
-            updateSelectAll();
+            if (adapter.isAllSelected()) adapter.selectNone();
+            else adapter.selectAll();
         });
         binding.download.setOnClickListener(v -> {
             List<Episode> selected = adapter.getSelected();
-            for (Episode episode : selected) listener.onDownload(episode);
-            if (!selected.isEmpty()) DownloadListActivity.start(requireActivity());
+            if (selected.isEmpty()) return;
+            listener.onDownload(selected);
             dismiss();
+            DownloadListActivity.start(requireActivity());
         });
-        updateSelectAll();
-    }
-
-    private void updateSelectAll() {
-        binding.selectAll.setText(adapter.isAllSelected() ? R.string.download_select_none : R.string.download_select_all);
     }
 
     @Override
-    public void onItemClick(int position) {
-        adapter.toggle(position);
-        updateSelectAll();
+    public void onSelectChange(int count) {
+        binding.selectAll.setText(adapter.isAllSelected() ? R.string.download_select_none : R.string.download_select_all);
+        binding.download.setText(count == 0 ? getString(R.string.download) : getString(R.string.download) + " (" + count + ")");
     }
 }

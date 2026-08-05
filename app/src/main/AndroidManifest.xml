@@ -113,21 +113,6 @@
             </intent-filter>
         </receiver>
 
-        <receiver
-            android:name=".receiver.DownloadReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.fongmi.android.tv.download.open" />
-                <action android:name="com.fongmi.android.tv.download.cancelAll" />
-            </intent-filter>
-        </receiver>
-
-        <service
-            android:name=".service.DownloadService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync"
-            android:stopWithTask="false" />
-
         <service
             android:name=".service.PlaybackService"
             android:exported="true"
@@ -149,6 +134,15 @@
             android:exported="false"
             android:foregroundServiceType="dataSync|connectedDevice"
             android:stopWithTask="false" />
+
+        <service
+            android:name=".service.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <receiver
+            android:name=".receiver.DownloadReceiver"
+            android:exported="false" />
 
         <meta-data
             android:name="com.google.android.gms.car.application"

@@ -16,9 +16,22 @@ public class ConfigDialogNamePersistenceTest {
         assertUpdatesExistingName("app/src/leanback/java/com/fongmi/android/tv/ui/dialog/ConfigDialog.java");
     }
 
+    @Test
+    public void vodAndLiveDialogsPrefillCurrentConfigNameOnMobileAndTv() throws Exception {
+        assertPrefillsCurrentConfigName("app/src/mobile/java/com/fongmi/android/tv/ui/dialog/ConfigDialog.java");
+        assertPrefillsCurrentConfigName("app/src/leanback/java/com/fongmi/android/tv/ui/dialog/ConfigDialog.java");
+    }
+
     private static void assertUpdatesExistingName(String file) throws Exception {
         String source = read(file);
         assertTrue(file, source.contains("exists != null ? exists.name(name).update() :"));
+    }
+
+    private static void assertPrefillsCurrentConfigName(String file) throws Exception {
+        String source = read(file);
+        assertTrue(file, source.contains("case 0 -> VodConfig.get().getConfig();"));
+        assertTrue(file, source.contains("case 1 -> LiveConfig.get().getConfig();"));
+        assertTrue(file, source.contains("binding.name.setText(config.getName());"));
     }
 
     private static String read(String file) throws Exception {

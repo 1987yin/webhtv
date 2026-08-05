@@ -133,6 +133,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private boolean rotate;
     private int count;
     private PiP mPiP;
+    private boolean mKeepPlaybackAfterPipExit;
     private OneShotPreDrawListener pipEntryListener;
     private boolean liveMenuRendered;
     private Boolean embeddedUiMode;
@@ -1184,7 +1185,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             Notify.show(R.string.live_program_empty);
             return;
         }
-        LiveProgramDialog.create().channel(mChannel).zoneId(mViewModel.getZoneId()).show(this);
+        LiveProgramDialog.create().channel(mChannel).zoneId(mViewModel.getZoneId()).listener(this::onItemClick).show(this);
         hideControl();
         hideInfo();
     }
@@ -1357,8 +1358,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     @Override
     public void onLiveBackgroundPanel() {
         dismissLiveControlDialog();
-        moveTaskToBack(true);
-        setAudioOnly(true);
+        switchToAudioBackground();
     }
 
     @Override
@@ -1405,8 +1405,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
         @Override
         public void onAudio() {
-            moveTaskToBack(true);
-            setAudioOnly(true);
+            switchToAudioBackground();
         }
     };
 
@@ -1861,6 +1860,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private boolean preparePiP(String reason) {
         if (isRedirect() || isPlaybackExiting()) return false;
         if (service() == null || !player().haveTrack(C.TRACK_TYPE_VIDEO)) return false;
+        if (syncPiPForPlaybackMode()) return false;
         mPiP.update(this, LIVE_PIP_WIDTH, LIVE_PIP_HEIGHT, LiveSetting.getScale());
         return true;
     }
@@ -1874,7 +1874,10 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, @NonNull Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
-        if (isInPictureInPictureMode) cancelPendingLivePiP(false);
+        if (isInPictureInPictureMode) {
+            mKeepPlaybackAfterPipExit = false;
+            cancelPendingLivePiP(false);
+        }
         setVideoView(isInPictureInPictureMode);
         if (isInPictureInPictureMode) {
             dismissLiveControlDialog();
@@ -1887,6 +1890,24 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             // 不能依赖 isStop() 时序，改为等生命周期 settle 后按最终状态判定。
             App.post(this::finishIfPipClosed, 0);
         }
+    }
+
+    private void switchToAudioBackground() {
+        boolean audioOnly = isAudioOnly();
+        mKeepPlaybackAfterPipExit = isInPictureInPictureMode();
+        setAudioOnly(true);
+        syncPiPForPlaybackMode();
+        if (!moveTaskToBack(true)) {
+            mKeepPlaybackAfterPipExit = false;
+            setAudioOnly(audioOnly);
+            syncPiPForPlaybackMode();
+        }
+    }
+
+    private boolean syncPiPForPlaybackMode() {
+        boolean audioMode = isAudioOnly();
+        if (mPiP != null) mPiP.setAudioMode(this, audioMode);
+        return audioMode;
     }
 
     private void setVideoView(boolean isInPictureInPictureMode) {
@@ -1912,13 +1933,16 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private boolean enterPiP(String reason) {
         if (service() == null || !player().haveTrack(C.TRACK_TYPE_VIDEO)) return false;
+        if (syncPiPForPlaybackMode()) return false;
         dismissLiveControlDialog();
         return mPiP.enter(this, LIVE_PIP_WIDTH, LIVE_PIP_HEIGHT, LiveSetting.getScale());
     }
 
     private void finishIfPipClosed() {
         boolean atLeastStarted = getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED);
-        if (PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed())) finishLivePlayback();
+        boolean keepPlayback = mKeepPlaybackAfterPipExit;
+        mKeepPlaybackAfterPipExit = false;
+        if (PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed(), keepPlayback)) finishLivePlayback();
     }
 
     private void dismissLiveControlDialog() {
@@ -2135,6 +2159,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             mOsd.start();
         }
         setAudioOnly(false);
+        mPiP.resetAudioMode();
         setStop(false);
     }
 

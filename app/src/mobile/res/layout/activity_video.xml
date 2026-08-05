@@ -66,7 +66,7 @@
             layout="@layout/view_control_vod"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-             />
+            android:visibility="gone" />
 
         <include
             android:id="@+id/progress"
@@ -588,6 +588,7 @@
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/settingAction"
                             style="@style/VideoActionButton"
+                            android:layout_marginEnd="8dp"
                             android:text="@string/nav_setting"
                             app:drawableTopCompat="@drawable/ic_control_setting_shadow" />
 

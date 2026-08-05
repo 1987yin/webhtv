@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.adapter;
 
+import android.annotation.SuppressLint;
 import android.view.LayoutInflater;
 import android.view.ViewGroup;
 
@@ -25,6 +26,7 @@ public class DownloadVodAdapter extends RecyclerView.Adapter<DownloadVodAdapter.
         this.mListener = listener;
     }
 
+    @SuppressLint("NotifyDataSetChanged")
     public void setItems(List<DownloadGroup> items) {
         mItems.clear();
         mItems.addAll(items);
@@ -32,9 +34,10 @@ public class DownloadVodAdapter extends RecyclerView.Adapter<DownloadVodAdapter.
     }
 
     public interface OnClickListener {
+
         void onItemClick(DownloadGroup group);
 
-        void onItemLongClick(DownloadGroup group);
+        void onItemDelete(DownloadGroup group);
     }
 
     @NonNull
@@ -46,23 +49,15 @@ public class DownloadVodAdapter extends RecyclerView.Adapter<DownloadVodAdapter.
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         DownloadGroup group = mItems.get(position);
-        ImgUtil.load(group.getName(), group.getCover(), holder.binding.image);
-        holder.binding.name.setText(group.getName());
-        if (group.isActive()) {
-            if (group.isPaused() && !group.isDownloading()) {
-                holder.binding.badge.setText(ResUtil.getString(R.string.download_paused));
-            } else {
-                holder.binding.badge.setText(ResUtil.getString(R.string.download_active));
-            }
-        } else {
-            holder.binding.badge.setText(group.getDone() + "/" + group.getTotal());
-        }
+        ImgUtil.load(group.getVodName(), group.getVodPic(), holder.binding.image);
+        holder.binding.name.setText(group.getVodName());
+        holder.binding.badge.setText(group.hasActive() ? ResUtil.getString(R.string.download_active) : group.getBadge());
         holder.binding.getRoot().setOnClickListener(v -> mListener.onItemClick(group));
         holder.binding.getRoot().setOnLongClickListener(v -> {
-            mListener.onItemLongClick(group);
+            mListener.onItemDelete(group);
             return true;
         });
-        holder.binding.delete.setOnClickListener(v -> mListener.onItemLongClick(group));
+        holder.binding.delete.setOnClickListener(v -> mListener.onItemDelete(group));
     }
 
     @Override
@@ -71,9 +66,10 @@ public class DownloadVodAdapter extends RecyclerView.Adapter<DownloadVodAdapter.
     }
 
     public static class ViewHolder extends RecyclerView.ViewHolder {
+
         public final AdapterDownloadVodBinding binding;
 
-        public ViewHolder(AdapterDownloadVodBinding binding) {
+        public ViewHolder(@NonNull AdapterDownloadVodBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
         }

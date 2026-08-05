@@ -1,21 +1,20 @@
 package com.fongmi.android.tv.utils;
 
-import android.text.TextUtils;
-
 import com.fongmi.android.tv.App;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Path;
 import com.google.common.net.HttpHeaders;
 
 import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.HashMap;
+import java.io.RandomAccessFile;
 import java.util.Map;
 import java.util.concurrent.Future;
 
+import okhttp3.Request;
 import okhttp3.Response;
 
 public class Download {
@@ -24,13 +23,18 @@ public class Download {
     private final String url;
     private Callback callback;
     private Future<?> future;
-    private String tag;
     private Map<String, String> headers;
+    private String tag;
+    private boolean resume;
     private volatile boolean canceled;
     private volatile boolean paused;
 
     public static Download create(String url, File file) {
         return new Download(GithubProxy.apply(url), file);
+    }
+
+    public static Download create(String url, Map<String, String> headers, File file) {
+        return new Download(GithubProxy.apply(url), file).headers(headers);
     }
 
     public Download(String url, File file) {
@@ -49,6 +53,14 @@ public class Download {
         return this;
     }
 
+    /**
+     * 开启斷點續傳，續傳時會帶上 Range 請求頭並以追加方式寫入。
+     */
+    public Download resume(boolean resume) {
+        this.resume = resume;
+        return this;
+    }
+
     public File get() {
         doInBackground();
         return file;
@@ -61,21 +73,8 @@ public class Download {
         future = Task.submit(this::doInBackground);
     }
 
-    public void pause() {
-        paused = true;
-        OkHttp.cancel(tag);
-        if (future != null) future.cancel(true);
-    }
-
-    public void resume() {
-        if (!paused) return;
-        paused = false;
-        future = Task.submit(this::doInBackground);
-    }
-
     public Download cancel() {
         canceled = true;
-        paused = false;
         if (future != null) future.cancel(true);
         OkHttp.cancel(tag);
         Path.clear(file);
@@ -83,63 +82,68 @@ public class Download {
         return this;
     }
 
+    /**
+     * 暫停下載並保留已下載的檔案內容，後續可搭配 resume(true) 續傳。
+     */
+    public Download pause() {
+        paused = true;
+        if (future != null) future.cancel(true);
+        OkHttp.cancel(tag);
+        future = null;
+        return this;
+    }
+
+    public boolean isPaused() {
+        return paused;
+    }
+
     private void doInBackground() {
-        long offset = file.exists() ? file.length() : 0;
-        try {
-            try (Response res = open(offset)) {
-                if (!res.isSuccessful()) throw new IOException("Download failed: HTTP " + res.code());
-                if (res.body() == null) throw new IOException("Download failed: empty response");
-                boolean partial = res.code() == 206;
-                long remaining = getLength(res);
-                long total;
-                if (partial) {
-                    String contentRange = res.header(HttpHeaders.CONTENT_RANGE);
-                    total = parseTotal(contentRange, offset + (remaining > 0 ? remaining : 0));
-                } else {
-                    // Server ignored the Range header; restart from the beginning.
-                    offset = 0;
-                    total = remaining;
-                }
-                boolean completed = download(res.body().byteStream(), offset, total);
-                if (!completed || canceled) {
-                    if (paused) return;
-                    Path.clear(file);
-                    return;
-                }
-                if (callback != null) App.post(() -> {
-                    if (!canceled && !paused) callback.success(file);
-                });
-            } catch (Exception e) {
-                if (canceled) return;
-                if (paused) return;
-                if (isCanceled(e)) return;
+        long start = resume && file.exists() ? file.length() : 0;
+        SpiderDebug.log("download", "doInBackground url=%s fileLen=%s resume=%s", url, start, resume);
+        try (Response res = newCall(start).execute()) {
+            if (!res.isSuccessful()) throw new IOException("Download failed: HTTP " + res.code());
+            if (res.body() == null) throw new IOException("Download failed: empty response");
+            boolean append = start > 0 && res.code() == 206;
+            long length = getLength(res);
+            if (append && length > 0) length += start;
+            SpiderDebug.log("download", "response code=%s append=%s length=%s offset=%s", res.code(), append, length, append ? start : 0);
+            boolean completed = download(res.body().byteStream(), length, append ? start : 0);
+            if (paused) return;
+            if (!completed || canceled) {
                 Path.clear(file);
-                if (callback != null) App.post(() -> callback.error(e.getMessage()));
-                else throw new RuntimeException(e.getMessage(), e);
+                return;
             }
-        } finally {
-            // 无论成功/失败/暂停/取消，下载线程退出时都通知一次，便于上层释放并发名额。
-            if (callback != null) App.post(callback::finish);
+            if (callback != null) App.post(() -> {
+                if (!canceled) callback.success(file);
+            });
+        } catch (Exception e) {
+            if (paused) return;
+            Path.clear(file);
+            if (canceled || isCanceled(e)) return;
+            if (callback != null) App.post(() -> callback.error(e.getMessage()));
+            else throw new RuntimeException(e.getMessage(), e);
         }
     }
 
-    private Response open(long offset) throws IOException {
-        if (offset <= 0) {
-            return headers != null ? OkHttp.newCall(url, headers, tag).execute() : OkHttp.newCall(url, tag).execute();
-        }
-        Map<String, String> hdrs = new HashMap<>();
-        if (headers != null) hdrs.putAll(headers);
-        hdrs.put(HttpHeaders.RANGE, "bytes=" + offset + "-");
-        return OkHttp.newCall(url, hdrs, tag).execute();
+    private okhttp3.Call newCall(long start) {
+        Request.Builder builder = new Request.Builder().url(url).tag(tag);
+        if (headers != null) for (Map.Entry<String, String> entry : headers.entrySet()) builder.addHeader(entry.getKey(), entry.getValue());
+        if (start > 0) builder.addHeader(HttpHeaders.RANGE, "bytes=" + start + "-");
+        return OkHttp.client().newCall(builder.build());
     }
 
-    private boolean download(InputStream is, long offset, long total) throws IOException {
-        boolean append = offset > 0;
-        File parent = file.getParentFile();
-        if (parent != null) parent.mkdirs();
-        // 不能用 Path.create(file)：文件已存在时会先删除再创建，导致 append 续传时文件被清空、
-        // 数据从位置 0 错位写入而损坏。这里直接以 append 模式打开已有文件。
-        try (BufferedInputStream input = new BufferedInputStream(is); FileOutputStream os = new FileOutputStream(file, append)) {
+    private boolean download(InputStream is, long length, long offset) throws IOException {
+        // 續傳（offset>0 且檔案已存在）時絕對不能清空已下載內容：Path.create 會刪除已存在的檔案，
+        // 導致 seek(offset) 寫入後檔案前 offset 位元組變成 0 空洞 → 檔案損壞無法播放。
+        // 因此續傳直接以 "rw" 模式開啟（不截斷）；僅首次（offset==0）或檔案不存在時清空重建。
+        if (offset == 0 || !file.exists()) {
+            Path.clear(file);
+            Path.create(file);
+        }
+        SpiderDebug.log("download", "download() file=%s offset=%s fileLenBefore=%s", file.getName(), offset, file.length());
+        try (BufferedInputStream input = new BufferedInputStream(is); RandomAccessFile os = new RandomAccessFile(file, "rw")) {
+            if (offset > 0) os.seek(offset);
+            else os.setLength(0);
             byte[] buffer = new byte[16384];
             int readBytes;
             int lastProgress = -1;
@@ -147,14 +151,15 @@ public class Download {
             long startTime = System.currentTimeMillis();
             long lastNotifyTime = startTime;
             long lastNotifyBytes = offset;
+            long begin = offset;
+            if (callback != null) App.post(() -> callback.progress(length > 0 ? (int) (begin * 100.0 / length) : -1, begin, length, 0, 0));
             while ((readBytes = input.read(buffer)) != -1) {
-                if (canceled || Thread.currentThread().isInterrupted()) return false;
-                if (paused) return false;
+                if (canceled || paused || Thread.currentThread().isInterrupted()) return false;
                 totalBytes += readBytes;
                 os.write(buffer, 0, readBytes);
                 if (callback == null) continue;
                 long now = System.currentTimeMillis();
-                int progress = total > 0 ? (int) (totalBytes * 100.0 / total) : -1;
+                int progress = length > 0 ? (int) (totalBytes * 100.0 / length) : -1;
                 boolean shouldNotify = progress != lastProgress || now - lastNotifyTime >= 1000;
                 if (!shouldNotify) continue;
                 long deltaTime = Math.max(1, now - lastNotifyTime);
@@ -164,17 +169,18 @@ public class Download {
                 lastNotifyTime = now;
                 lastNotifyBytes = totalBytes;
                 long bytes = totalBytes;
-                long tot = total;
-                App.post(() -> callback.progress(progress, bytes, tot, speed, elapsed));
+                long total = length;
+                App.post(() -> callback.progress(progress, bytes, total, speed, elapsed));
             }
-            if (total > 0 && totalBytes < total) throw new IOException("Download incomplete");
-            return !canceled && !paused;
+            if (canceled || paused) return false;
+            if (length > 0 && totalBytes != length) throw new IOException("Download incomplete");
+            return true;
         }
     }
 
     private boolean isCanceled(Exception e) {
         String message = e.getMessage();
-        return "Canceled".equals(message) || "Socket closed".equals(message) || "Paused".equals(message);
+        return "Canceled".equals(message) || "Socket closed".equals(message);
     }
 
     private long getLength(Response res) {
@@ -183,17 +189,6 @@ public class Download {
             return header != null ? Long.parseLong(header) : -1;
         } catch (Exception e) {
             return -1;
-        }
-    }
-
-    private long parseTotal(String contentRange, long fallback) {
-        if (TextUtils.isEmpty(contentRange)) return fallback;
-        int slash = contentRange.lastIndexOf('/');
-        if (slash < 0) return fallback;
-        try {
-            return Long.parseLong(contentRange.substring(slash + 1).trim());
-        } catch (Exception e) {
-            return fallback;
         }
     }
 
@@ -208,9 +203,5 @@ public class Download {
         void error(String msg);
 
         void success(File file);
-
-        // 下载线程退出时（成功/失败/暂停/取消任意路径）回调一次，供上层释放并发名额。
-        default void finish() {
-        }
     }
 }
