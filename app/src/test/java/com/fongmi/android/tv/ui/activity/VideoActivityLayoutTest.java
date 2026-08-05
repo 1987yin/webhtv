@@ -2103,6 +2103,60 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void manualTmdbMatchReloadsCrossSourceHistoryInBothNativePlayers() throws Exception {
+        for (Path root : List.of(findMobileJavaPath(), findLeanbackJavaPath())) {
+            Path sourcePath = root.resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+            String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+            int method = source.indexOf("private void updateVod(Vod item)");
+            int end = source.indexOf("\n    private ", method + 1);
+            String body = method >= 0 && end > method ? source.substring(method, end) : "";
+            int reload = body.indexOf("reloadHistoryAfterTmdbMatch()");
+            int updateFlag = body.indexOf("updateFlag(getFlag(), item.getFlags())");
+            int resume = body.indexOf("if (historyReloaded) resumeHistoryAfterTmdbMatch();");
+
+            assertTrue(sourcePath + " must reload history after the matched TMDB identity becomes available", reload >= 0);
+            assertTrue(sourcePath + " must rebind flags before resuming the reloaded history", updateFlag > reload);
+            assertTrue(sourcePath + " must reselect the matching line and episode after flags are rebound", resume > updateFlag);
+            assertTrue(sourcePath + " must resolve playback with the explicit matched TMDB item",
+                    source.contains("History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), matched, currentSourceSeasonNumber(item))"));
+
+            int resumeMethod = source.indexOf("private void resumeHistoryAfterTmdbMatch()");
+            int alignMethod = source.indexOf("private void alignHistoryWithSelectedEpisode", resumeMethod);
+            String resumeBody = resumeMethod >= 0 && alignMethod > resumeMethod ? source.substring(resumeMethod, alignMethod) : "";
+            int setPosition = resumeBody.indexOf("setPosition();");
+            int applyPending = resumeBody.indexOf("applyPendingResumeSeek();");
+            assertTrue(sourcePath + " must protect the cross-source position while switching playback",
+                    source.contains("private boolean tmdbHistoryResumePending;")
+                            && source.contains("tmdbHistoryResumePending = true;")
+                            && source.contains("if (mHistory == null || tmdbHistoryResumePending) return;"));
+            assertTrue(sourcePath + " must not cache or clear the target progress while the old player is stopping",
+                    source.contains("if (!tmdbHistoryResumePending) {")
+                            && source.contains("if (!sameEpisode && !tmdbHistoryResumePending) {"));
+            int saveHistoryMethod = source.indexOf("private void saveHistory(boolean exit)");
+            int saveHistoryEnd = source.indexOf("\n    private ", saveHistoryMethod + 1);
+            String saveHistoryBody = saveHistoryMethod >= 0 && saveHistoryEnd > saveHistoryMethod
+                    ? source.substring(saveHistoryMethod, saveHistoryEnd) : "";
+            int saveCacheGuard = saveHistoryBody.indexOf("if (!tmdbHistoryResumePending) {");
+            int saveCacheWrite = saveHistoryBody.indexOf("EpisodePositionCache.get().put(");
+            assertTrue(sourcePath + " must not write the old player position into the resumed episode cache during refresh",
+                    saveCacheGuard >= 0 && saveCacheWrite > saveCacheGuard);
+
+            assertTrue(sourcePath + " must immediately apply a pending IJK seek when the selected episode is unchanged",
+                    setPosition >= 0 && applyPending > setPosition);
+
+            int manual = source.indexOf("private void applyManualTmdb(TmdbItem item)");
+            int manualEnd = source.indexOf("\n    private ", manual + 1);
+            String manualBody = manual >= 0 && manualEnd > manual ? source.substring(manual, manualEnd) : "";
+            int explicitReload = manualBody.indexOf("reloadHistoryAfterTmdbMatch(item)");
+            int explicitResume = manualBody.indexOf("resumeHistoryAfterTmdbMatch()", explicitReload);
+            int load = manualBody.indexOf("mTmdbUIAdapter.load(item, mVod)");
+            assertTrue(sourcePath + " must reload history directly from the manually selected TMDB identity", explicitReload >= 0);
+            assertTrue(sourcePath + " must resume the resolved history before the asynchronous TMDB detail load",
+                    explicitResume > explicitReload && load > explicitResume);
+        }
+    }
+
+    @Test
     public void mobileDirectTmdbPlaybackUsesCarriedSynopsisForUnmatchedFallback() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);

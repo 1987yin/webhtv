@@ -145,6 +145,25 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void manualTmdbMatchReloadsCrossSourceHistoryBeforeRenderingEpisodes() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int canonical = source.indexOf("private void applyTmdbResultNow(TmdbLoadResult result)");
+        int canonicalEnd = source.indexOf("private TmdbBundle loadTmdbBundle", canonical);
+        assertTrue("canonical TMDB refresh must exist", canonical >= 0 && canonicalEnd > canonical);
+        String body = source.substring(canonical, canonicalEnd);
+        int applyBundle = body.indexOf("applyTmdbBundle(bundle);");
+        int reloadHistory = body.indexOf("reloadHistoryAfterTmdbMatch();");
+        int renderEpisodes = body.indexOf("renderEpisodes();");
+
+        assertTrue("TMDB identity must be applied before history is re-resolved",
+                applyBundle >= 0 && reloadHistory > applyBundle);
+        assertTrue("cross-source history must be re-resolved before episode cards and resume labels render",
+                renderEpisodes > reloadHistory);
+        assertTrue("history reload must use the explicit matched TMDB identity",
+                source.contains("History.findPlayback(getHistoryKey(), List.of(vod.getName(), getNameText()), vod.getFlags(), matchedTmdbItem, sourceTitleSeasonNumber())"));
+    }
+
+    @Test
     public void asyncSeasonLoadForcesEpisodeRebindAfterLayoutSettles() throws Exception {
         String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
         int fetch = source.indexOf("private void fetchSeasonIfNeeded(int seasonNumber, boolean refresh)");

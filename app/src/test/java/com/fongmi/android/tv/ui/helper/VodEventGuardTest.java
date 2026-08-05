@@ -38,6 +38,21 @@ public class VodEventGuardTest {
         assertTrue(VodEventGuard.matches(vod("", ""), "site-a", "123"));
     }
 
+    @Test
+    public void matchesFileUriWhenEventAddsLeadingSlash() {
+        String id = "file:///data/user/0/app/files/video.mp4";
+        assertTrue(VodEventGuard.matches(vod("", "/" + id), "push_agent", id));
+        assertEquals(id, VodEventGuard.stripPageSuffix(id));
+        assertEquals(id, VodEventGuard.stripPageSuffix("/" + id));
+    }
+
+    @Test
+    public void preservesNetworkUriPaths() {
+        String id = "https://example.com/video/1";
+        assertEquals(id, VodEventGuard.stripPageSuffix(id));
+        assertFalse(VodEventGuard.matches(vod("site-a", "https://example.com/video/2"), "site-a", id));
+    }
+
     private static Vod vod(String siteKey, String id) {
         Vod vod = new Vod();
         vod.setSite(Site.get(siteKey, siteKey));
