@@ -2519,6 +2519,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 .title(getString(R.string.detail_tmdb_match_title))
                 .query(getTmdbSearchQuery())
                 .items(items)
+                .selectedItem(matchedTmdbItem)
                 .listener(this::applyManualTmdb)
                 .searchListener(this::searchTmdb)
                 .skipListener(skippable ? this::onPlay : null)
