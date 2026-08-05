@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.adapter;
 
 import android.annotation.SuppressLint;
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.ViewGroup;
 
@@ -89,11 +90,16 @@ public class DownloadEpisodeAdapter extends RecyclerView.Adapter<DownloadEpisode
         boolean downloaded = mDownloaded.contains(position);
         boolean selected = mSelected.contains(position);
         holder.binding.text.setText(item.getName());
-        // 选中态由 state_activated 驅動背景與文字高亮（selector 只認 activated，不認 selected）
+        // 選中態由 state_activated 驅動背景與文字高亮（selector 只認 activated，不認 selected）
         holder.binding.text.setActivated(selected);
         // 已下載項目禁用：對應 selector 的 state_enabled=false（文字變灰）
         holder.binding.text.setEnabled(!downloaded);
         holder.binding.text.setAlpha(downloaded ? 0.4f : 1f);
+        // 跑馬燈：名稱過長時自動橫向滾動展示（參考 v2 實作）
+        holder.binding.text.setHorizontallyScrolling(true);
+        holder.binding.text.setMarqueeRepeatLimit(-1);
+        holder.binding.text.setEllipsize(TextUtils.TruncateAt.MARQUEE);
+        holder.binding.text.setSelected(true);
         holder.binding.text.setOnClickListener(v -> {
             if (downloaded) return;
             if (mSelected.contains(position)) mSelected.remove(position);

@@ -107,7 +107,9 @@ public class DownloadService extends Service implements DownloadManager.Listener
             if (running == null && item.isRunning()) running = item;
         }
         String title = running == null ? getString(R.string.download_list) : running.getVodName() + " " + running.getEpisodeName();
-        String text = getString(R.string.download_notify_text, active);
+        // 參考 v2：下載中展示「百分比 + 速度」，而非僅「X 個任務下載中」
+        String text = running == null ? getString(R.string.download_notify_text, active)
+                : running.getProgress() + "%  " + formatSpeed(running.getSpeed());
         int progress = running == null ? 0 : running.getProgress();
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, Notify.DEFAULT)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
@@ -119,6 +121,13 @@ public class DownloadService extends Service implements DownloadManager.Listener
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .addAction(0, getString(R.string.download_pause_all), pending(DownloadReceiver.ACTION_PAUSE_ALL));
         return builder.build();
+    }
+
+    private static String formatSpeed(long bytesPerSec) {
+        if (bytesPerSec <= 0) return "0 B/s";
+        if (bytesPerSec < 1024) return bytesPerSec + " B/s";
+        if (bytesPerSec < 1024 * 1024) return String.format("%.1f KB/s", bytesPerSec / 1024f);
+        return String.format("%.2f MB/s", bytesPerSec / (1024f * 1024f));
     }
 
     private PendingIntent pending(String action) {

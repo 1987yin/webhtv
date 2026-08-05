@@ -279,12 +279,22 @@ public class DownloadManager {
     }
 
     private void executeM3u8(DownloadItem item, String url, Map<String, String> headers, File file) throws Exception {
+        item.setM3u8(true);
         M3u8Downloader downloader = new M3u8Downloader(url, headers, file);
         tasks.put(item.getId(), downloader);
+        // m3u8 以分片為單位回調，需在這裡自行計算下載速度（累計位元組 / 耗時）
+        final long[] last = {0, System.currentTimeMillis()};
         downloader.start((done, total, bytes) -> {
             item.setSegmentDone(done);
             item.setSegmentTotal(total);
             item.setCurrent(bytes);
+            long now = System.currentTimeMillis();
+            long dt = now - last[1];
+            if (dt >= 500) {
+                item.setSpeed((bytes - last[0]) * 1000 / dt);
+                last[0] = bytes;
+                last[1] = now;
+            }
             notifyItem(item);
         });
         if (downloader.isPaused() || !tasks.containsKey(item.getId())) return;

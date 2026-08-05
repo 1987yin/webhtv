@@ -28,6 +28,7 @@ public class DownloadEpisodesActivity extends BaseActivity implements DownloadEp
     private ActivityDownloadEpisodesBinding mBinding;
     private DownloadEpisodeListAdapter mAdapter;
     private String mGroupId;
+    private long mLastUpdate;
 
     public static void start(Activity activity, String groupId, String name) {
         Intent intent = new Intent(activity, DownloadEpisodesActivity.class);
@@ -90,7 +91,13 @@ public class DownloadEpisodesActivity extends BaseActivity implements DownloadEp
 
     @Override
     public void onDownloadUpdate(@NonNull DownloadItem item) {
-        if (item.getGroupId().equals(mGroupId)) mAdapter.update(item);
+        // 與參考 v2 一致：每次回調整列表刷新（notifyDataSetChanged），避免單條更新與整表刷新
+        // 混用造成進度/速度文字殘留（重影）。m3u8 以分片為單位回調頻繁，這裡做 1 秒節流。
+        if (!item.getGroupId().equals(mGroupId)) return;
+        long now = System.currentTimeMillis();
+        if (now - mLastUpdate < 1000) return;
+        mLastUpdate = now;
+        refresh();
     }
 
     @Override
