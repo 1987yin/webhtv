@@ -20,7 +20,6 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.DownloadItem;
 import com.fongmi.android.tv.receiver.DownloadReceiver;
-import com.fongmi.android.tv.ui.activity.DownloadListActivity;
 import com.fongmi.android.tv.utils.DownloadManager;
 import com.fongmi.android.tv.utils.Notify;
 
@@ -139,7 +138,8 @@ public class DownloadService extends Service implements DownloadManager.Listener
     }
 
     private PendingIntent contentIntent() {
-        Intent intent = new Intent(App.get(), DownloadListActivity.class);
+        // DownloadListActivity 仅在 mobile 源码集存在，main 不能直接引用，故用类名反射避免编译期依赖
+        Intent intent = new Intent().setClassName(App.get(), "com.fongmi.android.tv.ui.activity.DownloadListActivity");
         int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
         return PendingIntent.getActivity(App.get(), 0, intent, flags);
     }

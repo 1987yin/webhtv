@@ -144,10 +144,6 @@
             android:name=".receiver.DownloadReceiver"
             android:exported="false" />
 
-        <activity
-            android:name=".ui.activity.DownloadListActivity"
-            android:exported="false" />
-
         <meta-data
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
