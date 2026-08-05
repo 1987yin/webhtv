@@ -492,15 +492,26 @@ public class VideoActivityLayoutTest {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         String audioBody = methodBody(source, "public void onAudio()", "};");
+        String pipModeBody = methodBody(source, "public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, @NonNull Configuration newConfig)", "protected void onResume()");
         String pipExitBody = methodBody(source, "private void finishIfPipClosed()", "public void onConfigurationChanged(@NonNull Configuration newConfig)");
 
+        int captureAudioMode = audioBody.indexOf("boolean audioOnly = isAudioOnly();");
         int markIntentionalExit = audioBody.indexOf("mKeepPlaybackAfterPipExit = isInPictureInPictureMode();");
         int syncPipMode = audioBody.indexOf("syncPiPForPlaybackMode();");
         int moveToBackground = audioBody.indexOf("moveTaskToBack(true)");
-        assertTrue("PiP audio action must mark the intentional exit before changing PiP state",
-                markIntentionalExit >= 0 && syncPipMode > markIntentionalExit && moveToBackground > syncPipMode);
-        assertTrue("a failed background transition must not leave a stale keep-playback marker",
-                audioBody.contains("if (!moveTaskToBack(true)) mKeepPlaybackAfterPipExit = false;"));
+        assertTrue("PiP audio action must preserve and mark state before changing PiP mode",
+                captureAudioMode >= 0
+                        && markIntentionalExit > captureAudioMode
+                        && syncPipMode > markIntentionalExit
+                        && moveToBackground > syncPipMode);
+        assertTrue("a failed background transition must restore audio and PiP state",
+                audioBody.contains("mKeepPlaybackAfterPipExit = false;")
+                        && audioBody.contains("setAudioOnly(audioOnly);")
+                        && audioBody.lastIndexOf("syncPiPForPlaybackMode();") > moveToBackground);
+        int pipEntered = pipModeBody.indexOf("if (isInPictureInPictureMode) {");
+        int resetStaleIntent = pipModeBody.indexOf("mKeepPlaybackAfterPipExit = false;", pipEntered);
+        assertTrue("a new PiP session must clear any stale keep-playback marker",
+                pipEntered >= 0 && resetStaleIntent > pipEntered);
 
         int captureIntent = pipExitBody.indexOf("boolean keepPlayback = mKeepPlaybackAfterPipExit;");
         int consumeIntent = pipExitBody.indexOf("mKeepPlaybackAfterPipExit = false;");
