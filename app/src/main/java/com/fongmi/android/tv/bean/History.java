@@ -226,7 +226,7 @@ public class History implements Diffable<History> {
         History aggregated = findPlaybackByTmdb(key, vodNames, flags, explicitTmdbId, explicitMediaType, expectedSeason);
         if (aggregated != null) return aggregated;
         History history = find(key);
-        if (isSeasonEligible(history, key, expectedSeason)) return history;
+        if (isSeasonEligible(history, key, expectedSeason)) return copyForPlaybackKey(history, key, flags, history);
         if (vodNames != null) {
             for (String vodName : vodNames) {
                 if (vodName == null || vodName.isEmpty()) continue;
@@ -349,16 +349,38 @@ public class History implements Diffable<History> {
 
     static History findPlaybackCandidate(String key, List<History> items, List<Flag> flags, int expectedSeason) {
         if (items == null || items.isEmpty()) return null;
+        // 集数和进度按整剧聚合，线路仍优先使用当前片源自己的历史偏好。
+        History local = findLocalPlaybackPreference(key, items, expectedSeason);
+        History selected = null;
         for (History item : items) {
             if (isSeasonEligible(item, key, expectedSeason) && canResume(item) && matchesAnyEpisode(item, flags)) {
-                return copyForPlaybackKey(item, key);
+                selected = item;
+                break;
             }
         }
-        for (History item : items) {
-            if (isSeasonEligible(item, key, expectedSeason) && canResume(item)) return copyForPlaybackKey(item, key);
+        if (selected == null) {
+            for (History item : items) {
+                if (isSeasonEligible(item, key, expectedSeason) && canResume(item)) {
+                    selected = item;
+                    break;
+                }
+            }
         }
+        if (selected == null) {
+            for (History item : items) {
+                if (isSeasonEligible(item, key, expectedSeason)) {
+                    selected = item;
+                    break;
+                }
+            }
+        }
+        return selected == null ? null : copyForPlaybackKey(selected, key, flags, local);
+    }
+
+    private static History findLocalPlaybackPreference(String key, List<History> items, int expectedSeason) {
+        if (TextUtils.isEmpty(key)) return null;
         for (History item : items) {
-            if (isSeasonEligible(item, key, expectedSeason)) return copyForPlaybackKey(item, key);
+            if (item != null && TextUtils.equals(key, item.getKey()) && isSeasonEligible(item, key, expectedSeason)) return item;
         }
         return null;
     }
@@ -376,13 +398,52 @@ public class History implements Diffable<History> {
         return item != null && item.getPosition() > 0;
     }
 
-    private static History copyForPlaybackKey(History item, String key) {
+    private static History copyForPlaybackKey(History item, String key, List<Flag> flags, History local) {
         History copy = item.copy();
         if (key != null && !key.isEmpty() && !TextUtils.equals(key, item.getKey())) {
             copy.playbackSourceKey = item.getKey();
             copy.setKey(key);
         }
+        rebindPlaybackRoute(copy, local, flags);
         return copy;
+    }
+
+    private static void rebindPlaybackRoute(History playback, History local, List<Flag> flags) {
+        if (playback == null || flags == null || flags.isEmpty()) return;
+        Flag preferred = findFlag(flags, local == null ? "" : local.getVodFlag());
+        if (preferred == null) preferred = findFlag(flags, playback.getVodFlag());
+        Episode episode = findMatchingEpisode(playback, preferred);
+        Flag resolved = episode == null ? null : preferred;
+        if (episode == null) {
+            for (Flag flag : flags) {
+                if (flag == null || flag == preferred) continue;
+                episode = findMatchingEpisode(playback, flag);
+                if (episode != null) {
+                    resolved = flag;
+                    break;
+                }
+            }
+        }
+        if (resolved == null) resolved = preferred != null ? preferred : firstFlag(flags);
+        if (resolved != null) playback.setVodFlag(resolved.getFlag());
+        if (episode != null) playback.setEpisodeUrl(episode.getUrl());
+    }
+
+    private static Flag findFlag(List<Flag> flags, String name) {
+        if (TextUtils.isEmpty(name)) return null;
+        for (Flag flag : flags) if (flag != null && TextUtils.equals(name, flag.getFlag())) return flag;
+        return null;
+    }
+
+    private static Flag firstFlag(List<Flag> flags) {
+        for (Flag flag : flags) if (flag != null) return flag;
+        return null;
+    }
+
+    private static Episode findMatchingEpisode(History history, Flag flag) {
+        if (history == null || flag == null || flag.getEpisodes() == null) return null;
+        for (Episode episode : flag.getEpisodes()) if (matchesEpisode(history, episode)) return episode;
+        return null;
     }
 
     private static boolean matchesAnyEpisode(History item, List<Flag> flags) {

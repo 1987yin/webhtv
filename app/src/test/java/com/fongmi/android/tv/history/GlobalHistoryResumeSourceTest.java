@@ -226,6 +226,17 @@ public class GlobalHistoryResumeSourceTest {
     }
 
     @Test
+    public void exactKeyPlaybackHistoryUsesCurrentRouteRebinding() throws Exception {
+        String source = read("app/src/main/java/com/fongmi/android/tv/bean/History.java");
+        int start = source.indexOf("private static History findPlayback(String key, List<String> vodNames");
+        int end = source.indexOf("private static History findPlaybackByTmdb", start);
+        String method = source.substring(start, end);
+
+        assertTrue(method.contains("return copyForPlaybackKey(history, key, flags, history);"));
+        assertFalse(method.contains("if (isSeasonEligible(history, key, expectedSeason)) return history;"));
+    }
+
+    @Test
     public void globalClearOnlyDeletesTracksOwnedByHistoryRecords() throws Exception {
         String source = read("app/src/main/java/com/fongmi/android/tv/bean/History.java");
         int start = source.indexOf("public static void deleteForDisplay()");

@@ -255,6 +255,40 @@ public class HistoryPlaybackTest {
     }
 
     @Test
+    public void findPlaybackCandidateKeepsCurrentSourceFlagWithAggregatedProgress() {
+        History latest = history("site-b@@vod@@1", "武神主宰", "第2集", "remote-url-2", 120_000, 300_000);
+        latest.setVodFlag("远端线路");
+        History local = history("site-a@@vod@@1", "武神主宰", "第1集", "line-2-url-1", 30_000, 300_000);
+        local.setVodFlag("线路二");
+        Flag lineOne = new Flag("线路一");
+        lineOne.getEpisodes().addAll(List.of(Episode.create("第1集", "line-1-url-1"), Episode.create("第2集", "line-1-url-2")));
+        Flag lineTwo = new Flag("线路二");
+        lineTwo.getEpisodes().addAll(List.of(Episode.create("第1集", "line-2-url-1"), Episode.create("第2集", "line-2-url-2")));
+
+        History result = History.findPlaybackCandidate("site-a@@vod@@1", List.of(latest, local), List.of(lineOne, lineTwo));
+
+        assertEquals("线路二", result.getVodFlag());
+        assertEquals("第2集", result.getVodRemarks());
+        assertEquals("line-2-url-2", result.getEpisodeUrl());
+        assertEquals(120_000, result.getPosition());
+    }
+
+    @Test
+    public void findPlaybackCandidateUsesLineContainingAggregatedEpisodeWithoutLocalPreference() {
+        History latest = history("site-b@@vod@@1", "武神主宰", "第2集", "remote-url-2", 120_000, 300_000);
+        latest.setVodFlag("远端线路");
+        Flag lineOne = new Flag("线路一");
+        lineOne.getEpisodes().add(Episode.create("第1集", "line-1-url-1"));
+        Flag lineTwo = new Flag("线路二");
+        lineTwo.getEpisodes().addAll(List.of(Episode.create("第1集", "line-2-url-1"), Episode.create("第2集", "line-2-url-2")));
+
+        History result = History.findPlaybackCandidate("site-a@@vod@@1", List.of(latest), List.of(lineOne, lineTwo));
+
+        assertEquals("线路二", result.getVodFlag());
+        assertEquals("line-2-url-2", result.getEpisodeUrl());
+    }
+
+    @Test
     public void findPlaybackCandidatePrefersResumableHistory() {
         History empty = history("site@@vod@@1", "武神主宰", "第1集", "url-1", 0, 300_000);
         History resumable = history("site@@vod@@old", "武神主宰", "第2集", "url-2", 90_000, 300_000);
