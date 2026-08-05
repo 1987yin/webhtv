@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class PlayerControlFocusIntegrationTest {
@@ -68,6 +69,36 @@ public class PlayerControlFocusIntegrationTest {
                         && activity.contains("return Util.isLeanback() && (isFusionMode() || isPlayerMode());")
                         && activity.contains("binding.playerPanel.setDefaultFocusHighlightEnabled(false);")
                         && activity.contains("binding.playerPanel.setRippleColor(ColorStateList.valueOf(0x00000000));"));
+    }
+
+    @Test
+    public void tmdbInlineControlsAutoHideAfterTenSecondsOnTvEvenWhenFocused() throws Exception {
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
+
+        int delay = activity.indexOf("private long inlineControlsHideDelayMs()");
+        int hide = activity.indexOf("private void hideInlineControlsIfIdle()", delay);
+        int hideEnd = activity.indexOf("private void setInlineHideCallback()", hide);
+        int touch = activity.indexOf("private void touchInlineControls()", hideEnd);
+        int touchEnd = activity.indexOf("private void focusInlineDefaultControl()", touch);
+
+        assertTrue("inline controls must define a dedicated ten-second TV idle timeout",
+                activity.contains("INLINE_CONTROLS_HIDE_DELAY_MS = TimeUnit.SECONDS.toMillis(10)"));
+        assertTrue("inline control delay, idle, and interaction methods must be present in source order",
+                delay >= 0 && hide > delay && hideEnd > hide && touch > hideEnd && touchEnd > touch);
+        String delayBody = activity.substring(delay, hide);
+        String hideBody = activity.substring(hide, hideEnd);
+        String touchBody = activity.substring(touch, touchEnd);
+        assertTrue("mobile inline controls must retain the existing global timeout",
+                delayBody.contains("Util.isMobile() ? Constant.INTERVAL_HIDE : INLINE_CONTROLS_HIDE_DELAY_MS"));
+        assertFalse("persistent TV focus must not postpone idle hiding",
+                hideBody.contains("hasFocusedChild"));
+        assertTrue("idle hiding must use the platform-specific timeout",
+                hideBody.contains("long delay = inlineControlsHideDelayMs()")
+                        && hideBody.contains("idle < delay")
+                        && hideBody.contains("delay - idle"));
+        assertTrue("real control interaction must restart the platform-specific timeout",
+                touchBody.contains("App.post(inlineHideControls, inlineControlsHideDelayMs());"));
     }
 
     @Test

@@ -232,6 +232,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private static final int SHORT_DRAMA_FRAME_HEIGHT = 16;
     private static final int INLINE_SIDE_CONTROL_MARGIN_DP = 4;
     private static final int INLINE_SIDE_CONTROL_FULLSCREEN_MARGIN_DP = 48;
+    private static final long INLINE_CONTROLS_HIDE_DELAY_MS = TimeUnit.SECONDS.toMillis(10);
     private static final int STANDALONE_MOBILE_EPISODE_CARD_PAGE_MAX_SIZE = 36;
     private static final long LEANBACK_FUSION_EXIT_DISPLAY_SUPPRESS_MS = 800;
     private static final Pattern SOURCE_SEASON = Pattern.compile("(?i)(?:第\\s*([零〇一二三四五六七八九十两0-9]+)\\s*[季部]|season\\s*([0-9]{1,2})|s([0-9]{1,2})(?:[-._\\s]*e[0-9]{1,3})?)");
@@ -6156,14 +6157,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return SystemClock.uptimeMillis() < inlineDisplaySuppressUntil;
     }
 
+    private long inlineControlsHideDelayMs() {
+        return Util.isMobile() ? Constant.INTERVAL_HIDE : INLINE_CONTROLS_HIDE_DELAY_MS;
+    }
+
     private void hideInlineControlsIfIdle() {
-        if (!Util.isMobile() && hasFocusedChild(inlineControlsView())) {
-            App.post(inlineHideControls, Constant.INTERVAL_HIDE);
-            return;
-        }
         long idle = SystemClock.uptimeMillis() - lastInlineControlInteraction;
-        if (idle < Constant.INTERVAL_HIDE) {
-            App.post(inlineHideControls, Constant.INTERVAL_HIDE - idle);
+        long delay = inlineControlsHideDelayMs();
+        if (idle < delay) {
+            App.post(inlineHideControls, delay - idle);
             return;
         }
         hideInlineControls();
@@ -6176,7 +6178,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void touchInlineControls() {
         lastInlineControlInteraction = SystemClock.uptimeMillis();
         App.removeCallbacks(inlineHideControls);
-        App.post(inlineHideControls, Constant.INTERVAL_HIDE);
+        App.post(inlineHideControls, inlineControlsHideDelayMs());
     }
 
     private void focusInlineDefaultControl() {
