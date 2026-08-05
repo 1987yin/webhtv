@@ -87,9 +87,12 @@ public class DownloadEpisodeAdapter extends RecyclerView.Adapter<DownloadEpisode
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         Episode item = mItems.get(position);
         boolean downloaded = mDownloaded.contains(position);
+        boolean selected = mSelected.contains(position);
         holder.binding.text.setText(item.getName());
-        holder.binding.text.setSelected(mSelected.contains(position));
-        holder.binding.text.setActivated(downloaded);
+        // 选中态由 state_activated 驅動背景與文字高亮（selector 只認 activated，不認 selected）
+        holder.binding.text.setActivated(selected);
+        // 已下載項目禁用：對應 selector 的 state_enabled=false（文字變灰）
+        holder.binding.text.setEnabled(!downloaded);
         holder.binding.text.setAlpha(downloaded ? 0.4f : 1f);
         holder.binding.text.setOnClickListener(v -> {
             if (downloaded) return;

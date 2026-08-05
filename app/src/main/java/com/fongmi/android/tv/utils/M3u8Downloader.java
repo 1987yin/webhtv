@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.utils;
 
 import android.text.TextUtils;
+import android.util.Log;
 
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Path;
@@ -24,6 +25,7 @@ import okhttp3.Response;
  */
 public class M3u8Downloader {
 
+    private static final String TAG = "M3u8Dl";
     private static final int MAX_REDIRECT = 5;
 
     private final String url;
@@ -101,20 +103,34 @@ public class M3u8Downloader {
             Path.create(temp);
         }
         long written = temp.exists() ? temp.length() : 0;
+        Log.d(TAG, "merge start idx=" + start + " total=" + segments.size() + " tempLen=" + written + " tempExists=" + temp.exists());
         try (FileOutputStream os = new FileOutputStream(temp, start > 0)) {
             for (int i = start; i < segments.size(); i++) {
                 if (canceled || paused) {
                     os.flush();
+                    // 當前分片尚未寫入，斷點停在 i（下次從 i 重新下）
                     writeIndex(index, i);
+                    Log.d(TAG, "merge paused at index=" + i + " tempLen=" + temp.length());
                     if (canceled) clean(temp, index);
                     return;
                 }
-                written += write(os, segments.get(i));
+                long count = write(os, segments.get(i));
+                if (count <= 0) {
+                    // write 返回 0 代表當前分片未寫入（如暫停/取消在寫入前觸發），
+                    // 此時「不可」推進 index，否則該分片會被永久跳過導致合併檔缺段。
+                    os.flush();
+                    writeIndex(index, i);
+                    Log.d(TAG, "merge write=0 break at index=" + i + " tempLen=" + temp.length());
+                    return;
+                }
+                written += count;
                 os.flush();
                 writeIndex(index, i + 1);
+                Log.d(TAG, "merge wrote seg=" + i + " bytes=" + count + " tempLen=" + temp.length() + " idxNext=" + (i + 1));
                 if (callback != null) callback.progress(i + 1, segments.size(), written);
             }
         }
+        Log.d(TAG, "merge done total=" + segments.size() + " finalLen=" + temp.length());
         Path.clear(target);
         if (!temp.renameTo(target)) throw new IOException("Rename failed");
         Path.clear(index);
@@ -126,10 +142,13 @@ public class M3u8Downloader {
     private static final byte[] PNG_IEND = {0x49, 0x45, 0x4E, 0x44};
 
     private long write(FileOutputStream os, String segmentUrl) throws IOException {
+        // 開始下載前先確認狀態，避免在暫停/取消後仍把整個分片下完卻丟棄（也更早退出）
+        if (canceled || paused) return 0;
         try (Response res = call(segmentUrl).execute()) {
             if (!res.isSuccessful() || res.body() == null) throw new IOException("Segment failed: HTTP " + res.code());
             byte[] data = res.body().bytes();
             byte[] payload = unwrapPng(data);
+            // 寫入前最後一次確認：若此刻被暫停/取消，則不寫入（回傳 0，由 merge 決定是否推進 index）
             if (canceled || paused) return 0;
             os.write(payload);
             return payload.length;
