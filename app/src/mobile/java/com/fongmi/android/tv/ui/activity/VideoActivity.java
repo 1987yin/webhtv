@@ -632,6 +632,10 @@ private int mAudioBackgroundRandomNonce;
 
     public static void startFromResolvedHistory(Activity activity, History source, Vod target, Flag flag, Episode episode) {
         if (source == null || target == null || flag == null || episode == null) return;
+        if (shouldOpenLegacyTmdbDetail(target.getSiteKey(), target.getId())) {
+            start(activity, target.getSiteKey(), target.getId(), target.getName(), target.getPic(), episode.getName());
+            return;
+        }
         Intent intent = new Intent(activity, VideoActivity.class);
         intent.putExtra("collect", false);
         intent.putExtra("mark", episode.getName());

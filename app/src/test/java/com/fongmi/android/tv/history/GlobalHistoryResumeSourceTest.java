@@ -38,6 +38,25 @@ public class GlobalHistoryResumeSourceTest {
     }
 
     @Test
+    public void resolvedHistoryUsesTheSameDetailModeRoutingAsOrdinaryHistory() throws Exception {
+        for (String mode : new String[]{"mobile", "leanback"}) {
+            String source = read("app/src/" + mode + "/java/com/fongmi/android/tv/ui/activity/VideoActivity.java");
+            int start = source.indexOf("public static void startFromResolvedHistory");
+            int end = source.indexOf("\n    public static", start + 1);
+            String method = source.substring(start, end);
+            String detailGuard = mode.equals("leanback")
+                    ? "shouldOpenLegacyTmdbDetail(target.getSiteKey(), target.getId(), false)"
+                    : "shouldOpenLegacyTmdbDetail(target.getSiteKey(), target.getId())";
+            int guard = method.indexOf(detailGuard);
+            int detailLaunch = method.indexOf("start(activity, target.getSiteKey(), target.getId(), target.getName(), target.getPic(), episode.getName())");
+            int directLaunch = method.indexOf("new Intent(activity, VideoActivity.class)");
+
+            assertTrue(mode + " resolved history must honor the configured detail mode", guard >= 0);
+            assertTrue(mode + " resolved history must enter the standard detail route before direct playback", detailLaunch > guard && directLaunch > detailLaunch);
+        }
+    }
+
+    @Test
     public void manualSearchDoesNotDropResumeContextOnFolderResults() throws Exception {
         String mobile = read("app/src/mobile/java/com/fongmi/android/tv/ui/fragment/CollectFragment.java");
         String leanback = read("app/src/leanback/java/com/fongmi/android/tv/ui/activity/CollectActivity.java");
