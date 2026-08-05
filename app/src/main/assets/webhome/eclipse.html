@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="theme-color" content="#080b15">
   <title>Eclipse · WebHome</title>
   <script>
@@ -37,6 +37,14 @@
     }(window, document));
   </script>
   <style>
+    :root {
+      --eclipse-safe-top: var(--fm-safe-top, 0px);
+      --eclipse-active-safe-top: 0px;
+    }
+    @supports (top: max(0px, 1px)) {
+      :root { --eclipse-safe-top: max(var(--fm-safe-top, 0px), env(safe-area-inset-top, 0px)); }
+    }
+    html.safe-top-active { --eclipse-active-safe-top: var(--eclipse-safe-top); }
     * { box-sizing: border-box; }
     html, body { min-height: 100%; margin: 0; }
     body {
@@ -61,7 +69,10 @@
     body:after { right: -22vw; top: 18vh; background: #00d8ff; box-shadow: 0 0 150px #00d8ff; }
     button, input { font: inherit; }
     button { color: inherit; }
-    .shell { width: 100%; max-width: 1680px; margin: 0 auto; padding: 24px 42px 56px; }
+    .shell {
+      width: 100%; max-width: 1680px; margin: 0 auto; padding: 24px 42px 56px;
+      padding-top: calc(24px + var(--eclipse-active-safe-top, 0px));
+    }
     .topbar {
       display: flex;
       align-items: center;
@@ -207,7 +218,7 @@
     .noscript { margin: 30px; padding: 20px; border: 1px solid #5d4665; border-radius: 12px; background: #211425; }
     @media (max-width: 1200px) { .card { width: 20%; } .hero-copy { width: 64%; } .hero-art { width: 36%; } }
     @media (max-width: 900px) {
-      .shell { padding: 18px 22px 45px; }
+      .shell { padding: 18px 22px 45px; padding-top: calc(18px + var(--eclipse-active-safe-top, 0px)); }
       .topbar { flex-wrap: wrap; }
       .source-pill { max-width: 180px; }
       .search { order: 4; width: 100%; margin: 12px 0 0; }
@@ -218,7 +229,7 @@
     }
     @media (max-width: 640px) {
       body { font-size: 14px; }
-      .shell { padding: 14px 12px 38px; }
+      .shell { padding: 14px 12px 38px; padding-top: calc(14px + var(--eclipse-active-safe-top, 0px)); }
       .topbar { margin-bottom: 14px; }
       .brand { margin-right: 10px; }
       .brand-mark { width: 36px; height: 36px; }
@@ -335,7 +346,9 @@
         generation: 0,
         focusKey: '',
         toastTimer: 0,
-        autoPageTimer: 0
+        autoPageTimer: 0,
+        safeChromeMode: '',
+        systemBarsHidden: false
       };
 
       var sampleTitles = [
@@ -351,6 +364,59 @@
       function setText(id, value) { var el = byId(id); if (el) el.textContent = text(value); }
       function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
       function listen(el, name, fn) { if (el) el.addEventListener(name, fn, false); }
+
+      function readRootPixel(name) {
+        var value = '';
+        var number;
+        try { value = w.getComputedStyle(d.documentElement).getPropertyValue(name); } catch (ignore) {}
+        number = parseFloat(value || '0');
+        return isNaN(number) ? 0 : number;
+      }
+
+      function shouldUseTopSafeArea(detail) {
+        var mode;
+        var hidden;
+        var safeTop;
+        var statusBarHeight;
+        detail = detail || {};
+        mode = text(detail.chromeMode || state.safeChromeMode).toLowerCase();
+        hidden = typeof detail.systemBarsHidden === 'undefined' ? state.systemBarsHidden : !!detail.systemBarsHidden;
+        safeTop = Number(detail.safeTop);
+        statusBarHeight = Number(detail.statusBarHeight);
+        if (isNaN(safeTop)) safeTop = readRootPixel('--fm-safe-top');
+        if (isNaN(statusBarHeight)) statusBarHeight = readRootPixel('--fm-status-bar-height');
+        if (hidden && safeTop <= 0 && statusBarHeight <= 0) return false;
+        return (mode === 'edge' || mode === 'immersive') && (safeTop > 0 || statusBarHeight > 0);
+      }
+
+      function updateSafeAreaMode(detail) {
+        detail = detail || {};
+        if (detail.chromeMode) state.safeChromeMode = text(detail.chromeMode).toLowerCase();
+        if (typeof detail.systemBarsHidden !== 'undefined') state.systemBarsHidden = !!detail.systemBarsHidden;
+        if (shouldUseTopSafeArea(detail)) d.documentElement.classList.add('safe-top-active');
+        else d.documentElement.classList.remove('safe-top-active');
+      }
+
+      function refreshSafeAreaMode() {
+        var result;
+        if (w.__fmViewport) {
+          updateSafeAreaMode(w.__fmViewport);
+          return;
+        }
+        if (!w.fm || !w.fm.ui || typeof w.fm.ui.getViewport !== 'function') {
+          updateSafeAreaMode({});
+          return;
+        }
+        try {
+          result = w.fm.ui.getViewport();
+          if (result && typeof result.then === 'function') {
+            result.then(function (detail) { updateSafeAreaMode(detail || {}); }, function () { updateSafeAreaMode({}); });
+          } else updateSafeAreaMode(result || {});
+        } catch (ignore) {
+          updateSafeAreaMode({});
+        }
+      }
+
       function focusId(prefix, value) { return prefix + '-' + text(value).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48); }
 
       function posterData(title, index) {
@@ -1011,6 +1077,7 @@
         listen(d, 'keydown', keydown);
         listen(w, 'scroll', scheduleAutoPageCheck);
         listen(w, 'resize', scheduleAutoPageCheck);
+        refreshSafeAreaMode();
         applyHome(fallbackHome());
         w.setTimeout(function () {
           if (hasNative()) requestNativeHome();
@@ -1020,8 +1087,13 @@
         }, 700);
       }
 
+      listen(w, 'fmviewport', function (event) {
+        updateSafeAreaMode(event && event.detail ? event.detail : {});
+      });
+      listen(w, 'fmresume', refreshSafeAreaMode);
       listen(w, 'fmsdk', function () {
         state.nativeRequested = false;
+        refreshSafeAreaMode();
         requestNativeHome();
       });
       if (d.readyState === 'loading') listen(d, 'DOMContentLoaded', bind); else bind();
