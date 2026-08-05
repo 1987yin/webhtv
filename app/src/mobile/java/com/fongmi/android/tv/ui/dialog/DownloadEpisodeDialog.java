@@ -124,6 +124,7 @@ public class DownloadEpisodeDialog extends AppCompatDialogFragment implements Do
             if (selected.isEmpty()) return;
             listener.onDownload(selected);
             dismiss();
+            DownloadListActivity.start(requireActivity());
         });
     }
 
