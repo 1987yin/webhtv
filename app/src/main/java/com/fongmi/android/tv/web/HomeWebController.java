@@ -56,6 +56,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -92,15 +93,19 @@ public class HomeWebController {
     private static HomeWebController active;
     private static boolean extensionReloadRequested;
 
+    record ThemeRuntimeSnapshot(WebThemePageHost.Snapshot page, WebThemeSession.Snapshot session) {
+    }
+
     private final Listener listener;
     private final Activity activity;
     private final Set<String> injectedExtensions;
     private final Set<PendingNativePlayback> pendingNativePlaybacks;
     private final RemoteRequestGate remoteRequestGate;
     private final RemoteActionGate remoteActionGate;
-    private volatile WebThemePlaySession playSession;
-    private volatile WebThemeAccessSession accessSession;
-    private volatile WebThemeDetailActionSession detailActionSession;
+    private final WebThemeManifestResolver manifestResolver;
+    private final WebThemePageHost pageHost;
+    private final WebThemeSession themeSession;
+    private final Object themeStateLock = new Object();
     private final Runnable extensionReloadRunnable;
     private final boolean debugTools;
     private WebView webView;
@@ -113,11 +118,6 @@ public class HomeWebController {
     private volatile String remoteBridgeOrigin = "";
     private volatile String remoteBridgeNonce = "";
     private volatile int remoteBridgeGeneration;
-    private volatile Site site;
-    private volatile WebHomeTarget target;
-    private volatile WebThemeRoute themeRoute = WebThemeRoute.EMPTY;
-    private volatile Vod detailVod;
-    private volatile WebThemeDetailMetadata detailMetadata = WebThemeDetailMetadata.EMPTY;
     private Map<String, String> pageHeaders = Collections.emptyMap();
     private String documentStartKey;
     private String defaultUserAgent;
@@ -134,7 +134,6 @@ public class HomeWebController {
     private int loadToken;
     private int loadTimeoutRecoveries;
     private int manifestLoadToken;
-    private volatile int themeSessionGeneration;
     private volatile boolean bridgeReady;
     private volatile boolean sdkReady;
     private volatile boolean paused;
@@ -154,9 +153,10 @@ public class HomeWebController {
         this.pendingNativePlaybacks = new HashSet<>();
         this.remoteRequestGate = new RemoteRequestGate(MAX_REMOTE_IN_FLIGHT);
         this.remoteActionGate = new RemoteActionGate(REMOTE_ACTION_INTERVAL_MS);
-        this.playSession = new WebThemePlaySession();
-        this.accessSession = new WebThemeAccessSession();
-        this.detailActionSession = new WebThemeDetailActionSession();
+        this.manifestResolver = new WebThemeManifestResolver(activity,
+                com.fongmi.android.tv.BuildConfig.FLAVOR_mode);
+        this.pageHost = new WebThemePageHost();
+        this.themeSession = new WebThemeSession();
         this.extensionReloadRunnable = this::consumeExtensionReload;
         active = this;
         init();
@@ -234,10 +234,13 @@ public class HomeWebController {
                             replyRemoteError(data, WebThemeErrorCode.RATE_LIMITED, replyProxy);
                             return;
                         }
+                        ThemeRuntimeSnapshot runtime = getThemeRuntimeSnapshot();
+                        int themeGeneration = runtime.session().generation();
                         try {
                             Task.execute(() -> {
                                 try {
-                                    handleRemoteMessage(themeBridge, data, allowedOrigin, generation, replyProxy);
+                                    handleRemoteMessage(themeBridge, data, allowedOrigin, generation,
+                                            themeGeneration, replyProxy);
                                 } finally {
                                     remoteRequestGate.release();
                                 }
@@ -255,11 +258,11 @@ public class HomeWebController {
     }
 
     private void handleRemoteMessage(WebHomeThemeBridge bridge, String message, String expectedOrigin,
-                                     int generation, JavaScriptReplyProxy replyProxy) {
+                                     int generation, int themeGeneration, JavaScriptReplyProxy replyProxy) {
         JsonObject response = new JsonObject();
         String requestNonce = "";
         try {
-            if (!isRemoteSession(expectedOrigin, generation)) throw new IllegalStateException("SOURCE_CHANGED");
+            if (!isRemoteThemeSession(expectedOrigin, generation, themeGeneration)) throw new IllegalStateException("SOURCE_CHANGED");
             JsonObject request = WebCall.object(message);
             String id = limitedRemoteValue(request.has("id") ? request.get("id").getAsString() : "", 128);
             String method = limitedRemoteValue(request.has("method") ? request.get("method").getAsString() : "", 128);
@@ -268,13 +271,18 @@ public class HomeWebController {
                     ? request.getAsJsonObject("payload") : new JsonObject();
             response.addProperty("id", id);
             try {
-                if (!isRemoteSession(expectedOrigin, generation, requestNonce)) throw new IllegalStateException("SOURCE_CHANGED");
+                if (!isRemoteThemeSession(expectedOrigin, generation, requestNonce, themeGeneration)) {
+                    throw new IllegalStateException("SOURCE_CHANGED");
+                }
                 if (!remoteActionGate.tryAcquire(method, System.nanoTime() / 1_000_000L)) {
                     throw new IllegalStateException("RATE_LIMITED");
                 }
                 String nonce = requestNonce;
-                String result = bridge.invoke(method, payload, () -> isRemoteSession(expectedOrigin, generation, nonce));
-                if (!isRemoteSession(expectedOrigin, generation, requestNonce)) throw new IllegalStateException("SOURCE_CHANGED");
+                String result = bridge.invoke(method, payload,
+                        () -> isRemoteThemeSession(expectedOrigin, generation, nonce, themeGeneration));
+                if (!isRemoteThemeSession(expectedOrigin, generation, requestNonce, themeGeneration)) {
+                    throw new IllegalStateException("SOURCE_CHANGED");
+                }
                 if (result != null && (result.length() > MAX_REMOTE_RESPONSE_BYTES
                         || result.getBytes(StandardCharsets.UTF_8).length > MAX_REMOTE_RESPONSE_BYTES)) {
                     throw new IllegalStateException("RESPONSE_TOO_LARGE");
@@ -289,7 +297,7 @@ public class HomeWebController {
         }
         String nonce = requestNonce;
         App.post(() -> {
-            if (!isRemoteSession(expectedOrigin, generation, nonce)) {
+            if (!isRemoteThemeSession(expectedOrigin, generation, nonce, themeGeneration)) {
                 response.remove("result");
                 addRemoteError(response, WebThemeErrorCode.SOURCE_CHANGED);
             }
@@ -308,6 +316,24 @@ public class HomeWebController {
     private boolean isRemoteSession(String expectedOrigin, int generation, String expectedNonce) {
         return isRemoteSession(expectedOrigin, generation) && !TextUtils.isEmpty(expectedNonce)
                 && expectedNonce.equals(remoteBridgeNonce);
+    }
+
+    private boolean isRemoteThemeSession(String expectedOrigin, int generation, int themeGeneration) {
+        return isRemoteSession(expectedOrigin, generation) && isRemoteBridgeSessionActive(themeGeneration);
+    }
+
+    private boolean isRemoteThemeSession(String expectedOrigin, int generation, String expectedNonce,
+            int themeGeneration) {
+        return isRemoteSession(expectedOrigin, generation, expectedNonce)
+                && isRemoteBridgeSessionActive(themeGeneration);
+    }
+
+    private boolean isRemoteBridgeSessionActive(int generation) {
+        synchronized (themeStateLock) {
+            WebHomeTarget current = pageHost.target();
+            return themeSession.isCurrent(generation) && !destroyed && !paused && bridgeReady
+                    && current != null && current.isRemoteGlobal() && !current.isManifest();
+        }
     }
 
     private static String limitedRemoteValue(String value, int maxLength) {
@@ -344,7 +370,8 @@ public class HomeWebController {
     }
 
     private void rotateRemoteDocumentNonce() {
-        if (target != null && target.isRemoteGlobal() && !TextUtils.isEmpty(remoteBridgeOrigin)) {
+        WebHomeTarget current = pageHost.target();
+        if (current != null && current.isRemoteGlobal() && !TextUtils.isEmpty(remoteBridgeOrigin)) {
             remoteBridgeNonce = newRemoteNonce();
         }
     }
@@ -367,57 +394,89 @@ public class HomeWebController {
     }
 
     public Site getContentSite() {
-        Site current = site;
+        Site current = pageHost.site();
         return current == null ? VodConfig.get().getHome() : current;
     }
 
     public boolean isGlobalTheme() {
-        WebHomeTarget current = target;
+        WebHomeTarget current = pageHost.target();
         return current != null && current.isGlobal();
     }
 
     public boolean isV2Theme() {
-        WebHomeTarget current = target;
+        WebHomeTarget current = pageHost.target();
         return current != null && current.isV2();
     }
 
     WebThemePage getThemePage() {
-        WebHomeTarget current = target;
+        WebHomeTarget current = pageHost.target();
         return current != null && current.isV2() ? current.getPage() : null;
     }
 
     WebThemeRoute getThemeRoute() {
-        return themeRoute;
+        return pageHost.route();
     }
 
     WebThemePlaySession getPlaySession() {
-        return playSession;
+        return themeSession.getPlaySession();
     }
 
     WebThemeAccessSession getAccessSession() {
-        return accessSession;
+        return themeSession.getAccessSession();
     }
 
     WebThemeDetailActionSession getDetailActionSession() {
-        return detailActionSession;
+        return themeSession.getDetailActionSession();
+    }
+
+    ThemeRuntimeSnapshot getThemeRuntimeSnapshot() {
+        synchronized (themeStateLock) {
+            return new ThemeRuntimeSnapshot(pageHost.snapshot(), themeSession.snapshot());
+        }
+    }
+
+    private boolean isThemeRuntimeCurrent(WebHomeTarget expectedTarget, int generation) {
+        synchronized (themeStateLock) {
+            return expectedTarget == pageHost.target() && themeSession.isCurrent(generation);
+        }
     }
 
     Vod getDetailVod() {
-        return detailVod;
+        return pageHost.detailVod();
     }
 
     void setDetailVod(Vod detailVod, WebThemePlaySession playSession) {
-        this.playSession = playSession == null ? new WebThemePlaySession() : playSession;
-        this.detailVod = detailVod;
+        synchronized (themeStateLock) {
+            publishDetailVodLocked(detailVod, playSession);
+        }
         listener.onDetailVodLoaded(detailVod);
     }
 
+    boolean setDetailVodIfCurrent(ThemeRuntimeSnapshot expected, Vod detailVod,
+            WebThemePlaySession playSession) {
+        synchronized (themeStateLock) {
+            if (expected == null || expected.page().target() != pageHost.target()
+                    || !themeSession.isCurrent(expected.session().generation())
+                    || destroyed || paused || !bridgeReady) return false;
+            publishDetailVodLocked(detailVod, playSession);
+        }
+        listener.onDetailVodLoaded(detailVod);
+        return true;
+    }
+
+    private void publishDetailVodLocked(Vod detailVod, WebThemePlaySession playSession) {
+        themeSession.replacePlaySession(playSession);
+        pageHost.setDetailVod(detailVod);
+    }
+
     WebThemeDetailMetadata getDetailMetadata() {
-        return detailMetadata;
+        return pageHost.detailMetadata();
     }
 
     public void setDetailMetadata(WebThemeDetailMetadata detailMetadata) {
-        this.detailMetadata = detailMetadata == null ? WebThemeDetailMetadata.EMPTY : detailMetadata;
+        synchronized (themeStateLock) {
+            pageHost.setDetailMetadata(detailMetadata);
+        }
     }
 
     public void dispatchDetailChanged() {
@@ -431,23 +490,29 @@ public class HomeWebController {
     }
 
     WebHomeTarget getThemeTarget() {
-        return target;
+        return pageHost.target();
     }
 
     int getThemeSessionGeneration() {
-        return themeSessionGeneration;
+        synchronized (themeStateLock) {
+            return themeSession.generation();
+        }
     }
 
     boolean isThemeSessionActive(int generation) {
-        WebHomeTarget current = target;
-        return generation == themeSessionGeneration && !destroyed && !paused && bridgeReady
-                && current != null && current.isV2();
+        synchronized (themeStateLock) {
+            WebHomeTarget current = pageHost.target();
+            return themeSession.isCurrent(generation) && !destroyed && !paused && bridgeReady
+                    && current != null && current.isV2();
+        }
     }
 
     boolean isLegacyThemeSessionActive(int generation) {
-        WebHomeTarget current = target;
-        return generation == themeSessionGeneration && !destroyed && !paused && bridgeReady
-                && current != null && !current.isManifest() && !current.isV2();
+        synchronized (themeStateLock) {
+            WebHomeTarget current = pageHost.target();
+            return themeSession.isCurrent(generation) && !destroyed && !paused && bridgeReady
+                    && current != null && !current.isManifest() && !current.isV2();
+        }
     }
 
     boolean isBridgeSessionActive(boolean v2Theme, int generation) {
@@ -455,7 +520,8 @@ public class HomeWebController {
     }
 
     boolean isRemoteTheme() {
-        return target != null && target.isRemoteGlobal();
+        WebHomeTarget current = pageHost.target();
+        return current != null && current.isRemoteGlobal();
     }
 
     public boolean load(Site site, boolean force) {
@@ -483,22 +549,17 @@ public class HomeWebController {
         else listener.setChrome(normalChrome());
         Server.get().start();
         int token = ++manifestLoadToken;
-        themeSessionGeneration++;
-        this.site = site;
-        this.target = configured;
-        this.themeRoute = route == null ? WebThemeRoute.EMPTY : route;
-        this.detailVod = null;
-        this.detailMetadata = WebThemeDetailMetadata.EMPTY;
-        resetThemeSessions();
+        synchronized (themeStateLock) {
+            themeSession.invalidate();
+            pageHost.beginDocument(site, configured, route);
+        }
         listener.onWebLoading();
         show();
         String sourceKey = site.getKey();
         String manifestUrl = configured.getUrl();
         Task.execute(() -> {
             try {
-                WebThemeManifest manifest = WebThemeManifestLoader.load(activity, manifestUrl,
-                        com.fongmi.android.tv.BuildConfig.FLAVOR_mode, force);
-                WebHomeTarget resolved = WebHomeTarget.forManifestPage(configured, manifest, page);
+                WebHomeTarget resolved = manifestResolver.resolvePage(configured, page, force);
                 App.post(() -> {
                     if (!isManifestLoadActive(token, sourceKey, manifestUrl)) return;
                     if (!loadResolved(site, resolved, route, force)) listener.onWebError();
@@ -508,11 +569,9 @@ public class HomeWebController {
                         safeLogUrl(manifestUrl), page.getKey(), e.getMessage());
                 App.post(() -> {
                     if (!isManifestLoadActive(token, sourceKey, manifestUrl)) return;
-                    target = null;
-                    themeRoute = WebThemeRoute.EMPTY;
-                    detailVod = null;
-                    detailMetadata = WebThemeDetailMetadata.EMPTY;
-                    resetThemeSessions();
+                    synchronized (themeStateLock) {
+                        pageHost.failPage();
+                    }
                     listener.onWebError();
                 });
             }
@@ -521,8 +580,9 @@ public class HomeWebController {
     }
 
     private boolean isManifestLoadActive(int token, String sourceKey, String manifestUrl) {
-        return !destroyed && token == manifestLoadToken && site != null && target != null
-                && sourceKey.equals(site.getKey()) && manifestUrl.equals(target.getUrl());
+        WebThemePageHost.Snapshot page = pageHost.snapshot();
+        return !destroyed && token == manifestLoadToken && page.site() != null && page.target() != null
+                && sourceKey.equals(page.site().getKey()) && manifestUrl.equals(page.target().getUrl());
     }
 
     static boolean requiresPageReload(boolean force, boolean bridgeReady, String url, String loadedUrl,
@@ -532,25 +592,29 @@ public class HomeWebController {
 
     private boolean loadResolved(Site site, WebHomeTarget resolved, WebThemeRoute route, boolean force) {
         if (site == null || resolved == null) return false;
-        themeSessionGeneration++;
-        if (Setting.isWebHomeFullscreen()) listener.applyDefaultChrome(site);
-        else listener.setChrome(normalChrome());
-        Server.get().start();
         String url = resolved.isGlobal() ? resolved.getUrl() : getHomePage(site);
         String identity = resolved.identity(site.getKey());
         boolean reload = requiresPageReload(force, bridgeReady, url, homePage, identity, homeIdentity);
-        this.site = site;
-        this.target = resolved;
-        this.themeRoute = route == null ? WebThemeRoute.EMPTY : route;
         if (reload) {
             bridgeReady = false;
             sdkReady = false;
-            detailVod = null;
-            detailMetadata = WebThemeDetailMetadata.EMPTY;
-            resetThemeSessions();
         }
+        synchronized (themeStateLock) {
+            if (reload) {
+                themeSession.invalidate();
+                pageHost.beginDocument(site, resolved, route);
+            } else {
+                themeSession.cancelPending();
+                pageHost.updateContext(site, resolved, route);
+            }
+        }
+        if (Setting.isWebHomeFullscreen()) listener.applyDefaultChrome(site);
+        else listener.setChrome(normalChrome());
+        Server.get().start();
         if (!configureBridge(resolved, reload)) {
-            this.target = null;
+            synchronized (themeStateLock) {
+                pageHost.clearTarget();
+            }
             return false;
         }
         this.pageHeaders = resolved.isGlobal() ? Collections.emptyMap() : site.getHeader();
@@ -562,7 +626,6 @@ public class HomeWebController {
             removeDocumentStartScripts();
         }
         if (reload) {
-            sdkReady = false;
             lastViewportKey = "";
             injectedExtensions.clear();
             homePage = url;
@@ -576,11 +639,12 @@ public class HomeWebController {
     public void reload() {
         bridgeReady = false;
         sdkReady = false;
-        themeSessionGeneration++;
-        resetThemeSessions();
-        detailVod = null;
-        detailMetadata = WebThemeDetailMetadata.EMPTY;
-        if (target != null && target.isRemoteGlobal() && !configureBridge(target, true)) {
+        synchronized (themeStateLock) {
+            themeSession.invalidate();
+            pageHost.clearDetail();
+        }
+        WebHomeTarget currentTarget = pageHost.target();
+        if (currentTarget != null && currentTarget.isRemoteGlobal() && !configureBridge(currentTarget, true)) {
             handleMainFrameFailure("Remote theme bridge unavailable");
             return;
         }
@@ -845,9 +909,15 @@ public class HomeWebController {
     }
 
     String getThemeInfoJson() {
-        WebHomeTarget currentTarget = target;
-        WebThemeRoute currentRoute = themeRoute;
-        WebThemeAccessSession currentAccessSession = accessSession;
+        return getThemeInfoJson(getThemeRuntimeSnapshot());
+    }
+
+    String getThemeInfoJson(ThemeRuntimeSnapshot runtime) {
+        if (runtime == null) throw new IllegalStateException("Theme V2 is not active");
+        WebThemePageHost.Snapshot page = runtime.page();
+        WebHomeTarget currentTarget = page.target();
+        WebThemeRoute currentRoute = page.route();
+        WebThemeAccessSession currentAccessSession = runtime.session().accessSession();
         if (currentTarget == null || !currentTarget.isV2()) {
             throw new IllegalStateException("Theme V2 is not active");
         }
@@ -870,7 +940,8 @@ public class HomeWebController {
         client.addProperty("density", density);
         root.add("client", client);
 
-        Site contentSite = getContentSite();
+        Site contentSite = page.site();
+        if (contentSite == null) contentSite = VodConfig.get().getHome();
         JsonObject source = new JsonObject();
         source.addProperty("key", contentSite == null ? "" : contentSite.getKey());
         source.addProperty("name", contentSite == null ? "" : contentSite.getName());
@@ -902,6 +973,12 @@ public class HomeWebController {
     }
 
     public void onResume() {
+        boolean wasPaused = paused;
+        if (wasPaused) {
+            synchronized (themeStateLock) {
+                themeSession.cancelPending();
+            }
+        }
         paused = false;
         if (isVisible()) active = this;
         synchronized (this) {
@@ -914,7 +991,13 @@ public class HomeWebController {
     }
 
     public void onPause() {
+        boolean wasPaused = paused;
         paused = true;
+        if (!wasPaused) {
+            synchronized (themeStateLock) {
+                themeSession.cancelPending();
+            }
+        }
         pauseAt = System.currentTimeMillis();
         dispatchLifecycle("fmpause", "{time:" + pauseAt + "}");
         pausePageMedia();
@@ -990,10 +1073,10 @@ public class HomeWebController {
         bridgeReady = false;
         sdkReady = false;
         manifestLoadToken++;
-        themeSessionGeneration++;
-        resetThemeSessions();
-        detailVod = null;
-        detailMetadata = WebThemeDetailMetadata.EMPTY;
+        synchronized (themeStateLock) {
+            themeSession.invalidate();
+            pageHost.clearDetail();
+        }
         invalidateRemoteSession();
         cancelPendingNativePlaybacks();
         removeDocumentStartScripts();
@@ -1112,7 +1195,11 @@ public class HomeWebController {
     }
 
     private void consumeExtensionReload() {
-        if (!usesSiteExtensions() || !extensionReloadRequested || paused || !isVisible() || site == null || TextUtils.isEmpty(homePage)) return;
+        WebThemePageHost.Snapshot page = pageHost.snapshot();
+        Site current = page.site();
+        WebHomeTarget currentTarget = page.target();
+        if (currentTarget == null || !currentTarget.injectsSiteExtensions() || !extensionReloadRequested
+                || paused || !isVisible() || current == null || TextUtils.isEmpty(homePage)) return;
         long now = System.currentTimeMillis();
         long wait = EXTENSION_RELOAD_MIN_INTERVAL_MS - (now - lastExtensionReloadAt);
         if (wait > 0) {
@@ -1122,15 +1209,20 @@ public class HomeWebController {
         }
         extensionReloadRequested = false;
         lastExtensionReloadAt = now;
-        Site current = site;
         WebHomeExtensionRegistry.get().refresh(current, () -> {
-            if (site == null || !current.getKey().equals(site.getKey())) return;
+            Site latest = pageHost.site();
+            if (latest == null || !current.getKey().equals(latest.getKey())) return;
             registerDocumentStartScripts();
             reload();
         });
     }
 
     private boolean recreateWebView() {
+        bridgeReady = false;
+        sdkReady = false;
+        synchronized (themeStateLock) {
+            themeSession.invalidate();
+        }
         invalidateRemoteSession();
         ViewGroup parent = webView.getParent() instanceof ViewGroup ? (ViewGroup) webView.getParent() : null;
         if (parent == null) return false;
@@ -1150,7 +1242,8 @@ public class HomeWebController {
         webView.setVisibility(visibility);
         parent.addView(webView, Math.max(0, index), params);
         init();
-        if (target != null && !configureBridge(target, true)) return false;
+        WebHomeTarget currentTarget = pageHost.target();
+        if (currentTarget != null && !configureBridge(currentTarget, true)) return false;
         registerDocumentStartScripts();
         return true;
     }
@@ -1174,8 +1267,12 @@ public class HomeWebController {
         if (!isEmptyDocumentUrl(current) || TextUtils.isEmpty(homePage)) return false;
         String target = !TextUtils.isEmpty(lastPageUrl) && !isEmptyDocumentUrl(lastPageUrl) ? lastPageUrl : homePage;
         SpiderDebug.log("webhome-webview", "restore reload reason=empty-url current=%s target=%s", safeLogUrl(current), safeLogUrl(target));
-        listener.onWebLoading();
+        bridgeReady = false;
         sdkReady = false;
+        synchronized (themeStateLock) {
+            themeSession.invalidate();
+        }
+        listener.onWebLoading();
         lastViewportKey = "";
         injectedExtensions.clear();
         loadUrl(reloadUrl(target, true));
@@ -1247,22 +1344,35 @@ public class HomeWebController {
         });
     }
 
+    private boolean isCurrentPageFinish(WebView view, String url) {
+        return !destroyed && view == webView && isCurrentPageFinish(url, view.getUrl());
+    }
+
+    static boolean isCurrentPageFinish(String finishedUrl, String currentUrl) {
+        return Objects.equals(finishedUrl, currentUrl);
+    }
+
     private WebViewClient client() {
         return new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
-                if (target != null && target.isRemoteGlobal() && !target.allowsMainFrameUrl(url)) {
-                    SpiderDebug.log("webhome-security", "blocked remote theme navigation url=%s origin=%s", safeLogUrl(url), target.getOriginRule());
+                if (destroyed || view != webView) return;
+                WebHomeTarget currentTarget = pageHost.target();
+                if (currentTarget != null && currentTarget.isRemoteGlobal() && !currentTarget.allowsMainFrameUrl(url)) {
+                    SpiderDebug.log("webhome-security", "blocked remote theme navigation url=%s origin=%s", safeLogUrl(url), currentTarget.getOriginRule());
                     view.stopLoading();
                     return;
+                }
+                bridgeReady = false;
+                sdkReady = false;
+                synchronized (themeStateLock) {
+                    themeSession.invalidate();
                 }
                 rotateRemoteDocumentNonce();
                 SpiderDebug.log("webhome-webview", "page started url=%s", safeLogUrl(url));
                 listener.onWebRequest("PAGE", safeLogUrl(url), true);
                 lastPageUrl = url;
-                bridgeReady = false;
-                sdkReady = false;
                 lastViewportKey = "";
                 injectedExtensions.clear();
                 markDocumentStartInjected();
@@ -1272,12 +1382,17 @@ public class HomeWebController {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                WebHomeTarget currentTarget = target;
+                if (!isCurrentPageFinish(view, url)) return;
+                WebHomeTarget currentTarget = pageHost.target();
                 if (currentTarget == null) return;
                 if (currentTarget.isRemoteGlobal() && !currentTarget.allowsMainFrameUrl(url)) return;
                 SpiderDebug.log("webhome-webview", "page finished url=%s title=%s", safeLogUrl(url), view.getTitle());
                 loadToken++;
-                if (currentTarget.isV2()) themeSessionGeneration++;
+                if (currentTarget.isV2()) {
+                    synchronized (themeStateLock) {
+                        themeSession.cancelPending();
+                    }
+                }
                 loadTimeoutRecoveries = 0;
                 lastPageUrl = url;
                 injectSdk();
@@ -1307,16 +1422,20 @@ public class HomeWebController {
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                boolean blocked = target != null && target.isRemoteGlobal() && !target.allowsMainFrameUrl(request.getUrl().toString());
-                if (blocked) SpiderDebug.log("webhome-security", "blocked remote theme navigation url=%s origin=%s", safeLogUrl(request.getUrl()), target.getOriginRule());
+                WebHomeTarget currentTarget = pageHost.target();
+                boolean blocked = currentTarget != null && currentTarget.isRemoteGlobal()
+                        && !currentTarget.allowsMainFrameUrl(request.getUrl().toString());
+                if (blocked) SpiderDebug.log("webhome-security", "blocked remote theme navigation url=%s origin=%s",
+                        safeLogUrl(request.getUrl()), currentTarget.getOriginRule());
                 return blocked;
             }
 
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 listener.onWebRequest(request.getMethod(), request.getUrl().toString(), request.isForMainFrame(), request.getRequestHeaders());
-                if (target != null && target.isRemoteGlobal() && request.isForMainFrame()
-                        && !target.allowsMainFrameUrl(request.getUrl().toString())) return blockedNavigation();
+                WebHomeTarget currentTarget = pageHost.target();
+                if (currentTarget != null && currentTarget.isRemoteGlobal() && request.isForMainFrame()
+                        && !currentTarget.allowsMainFrameUrl(request.getUrl().toString())) return blockedNavigation();
                 WebResourceResponse raw = rawAdapter == null ? null : rawAdapter.intercept(request);
                 return raw == null ? super.shouldInterceptRequest(view, request) : raw;
             }
@@ -1338,18 +1457,16 @@ public class HomeWebController {
     private void handleMainFrameFailure(CharSequence message) {
         loadToken++;
         manifestLoadToken++;
-        themeSessionGeneration++;
         bridgeReady = false;
         sdkReady = false;
+        synchronized (themeStateLock) {
+            themeSession.invalidate();
+            pageHost.failPage();
+        }
         invalidateRemoteSession();
         bridgeKey = "";
         homePage = null;
         homeIdentity = null;
-        target = null;
-        themeRoute = WebThemeRoute.EMPTY;
-        detailVod = null;
-        detailMetadata = WebThemeDetailMetadata.EMPTY;
-        resetThemeSessions();
         pageHeaders = Collections.emptyMap();
         rawAdapter = null;
         if (!TextUtils.isEmpty(message)) Notify.show(message.toString());
@@ -1372,29 +1489,22 @@ public class HomeWebController {
 
     private void injectSdk() {
         WebView current = webView;
-        WebHomeTarget currentTarget = target;
-        int generation = themeSessionGeneration;
+        ThemeRuntimeSnapshot runtime = getThemeRuntimeSnapshot();
+        WebHomeTarget currentTarget = runtime.page().target();
+        int generation = runtime.session().generation();
         if (destroyed || current == null || currentTarget == null) return;
         injectViewport();
         String sdk = currentTarget.isRemoteGlobal() ? getRemoteSdk() : getSdk();
         bridgeReady = true;
         current.evaluateJavascript(sdk, value -> {
-            if (destroyed || current != webView || currentTarget != target
-                    || generation != themeSessionGeneration) return;
+            if (destroyed || current != webView || !isThemeRuntimeCurrent(currentTarget, generation)) return;
             sdkReady = true;
             injectExtensions(WebHomeExtension.RUN_AT_END);
             current.postDelayed(() -> {
-                if (destroyed || current != webView || currentTarget != target
-                        || generation != themeSessionGeneration) return;
+                if (destroyed || current != webView || !isThemeRuntimeCurrent(currentTarget, generation)) return;
                 injectExtensions(WebHomeExtension.RUN_AT_IDLE);
             }, 600);
         });
-    }
-
-    private void resetThemeSessions() {
-        playSession = new WebThemePlaySession();
-        accessSession = new WebThemeAccessSession();
-        detailActionSession = new WebThemeDetailActionSession();
     }
 
     static String safeLogUrl(Object value) {
@@ -1498,7 +1608,8 @@ public class HomeWebController {
     private void prepareExtensions(Site site) {
         String key = site.getKey();
         WebHomeExtensionRegistry.get().prepare(site, () -> {
-            if (this.site == null || !key.equals(this.site.getKey())) return;
+            Site current = pageHost.site();
+            if (current == null || !key.equals(current.getKey())) return;
             registerDocumentStartScripts();
             injectExtensions(WebHomeExtension.RUN_AT_END);
             webView.postDelayed(() -> injectExtensions(WebHomeExtension.RUN_AT_IDLE), 600);
@@ -1507,8 +1618,11 @@ public class HomeWebController {
 
     private void registerDocumentStartScripts() {
         removeDocumentStartScripts();
-        if (!usesSiteExtensions() || site == null || !isDocumentStartSupported()) return;
-        String script = documentStartScript();
+        WebThemePageHost.Snapshot page = pageHost.snapshot();
+        Site site = page.site();
+        WebHomeTarget target = page.target();
+        if (target == null || !target.injectsSiteExtensions() || site == null || !isDocumentStartSupported()) return;
+        String script = documentStartScript(site);
         if (TextUtils.isEmpty(script)) return;
         try {
             documentStartHandler = WebViewCompat.addDocumentStartJavaScript(webView, script, Collections.singleton("*"));
@@ -1531,8 +1645,7 @@ public class HomeWebController {
         documentStartKey = "";
     }
 
-    private String documentStartScript() {
-        if (!usesSiteExtensions() || site == null) return "";
+    private String documentStartScript(Site site) {
         StringBuilder script = new StringBuilder();
         for (WebHomeExtension extension : WebHomeExtensionRegistry.get().get(site.getKey())) {
             if (!WebHomeExtension.RUN_AT_START.equals(extension.getRunAt())) continue;
@@ -1543,7 +1656,11 @@ public class HomeWebController {
     }
 
     private void markDocumentStartInjected() {
-        if (!usesSiteExtensions() || site == null || TextUtils.isEmpty(documentStartKey) || !documentStartKey.equals(site.getKey())) return;
+        WebThemePageHost.Snapshot page = pageHost.snapshot();
+        Site site = page.site();
+        WebHomeTarget target = page.target();
+        if (target == null || !target.injectsSiteExtensions() || site == null || TextUtils.isEmpty(documentStartKey)
+                || !documentStartKey.equals(site.getKey())) return;
         for (WebHomeExtension extension : WebHomeExtensionRegistry.get().get(site.getKey())) {
             if (!WebHomeExtension.RUN_AT_START.equals(extension.getRunAt())) continue;
             injectedExtensions.add(extension.getId());
@@ -1560,7 +1677,10 @@ public class HomeWebController {
     }
 
     private void injectExtensions(String runAt) {
-        if (!usesSiteExtensions() || !sdkReady || site == null || !isVisible()) return;
+        WebThemePageHost.Snapshot page = pageHost.snapshot();
+        Site site = page.site();
+        WebHomeTarget target = page.target();
+        if (target == null || !target.injectsSiteExtensions() || !sdkReady || site == null || !isVisible()) return;
         for (WebHomeExtension extension : WebHomeExtensionRegistry.get().get(site.getKey())) {
             if (!extension.shouldInjectAt(runAt)) continue;
             if (!injectedExtensions.add(extension.getId())) continue;
@@ -1570,10 +1690,6 @@ public class HomeWebController {
             if (debugTools) dispatchDebugConsole("EXT", "inject id=" + extension.getId() + " runAt=" + extension.getRunAt() + " target=" + runAt);
             webView.evaluateJavascript(extension.script(site.getKey()), null);
         }
-    }
-
-    private boolean usesSiteExtensions() {
-        return target != null && target.injectsSiteExtensions();
     }
 
     private void injectViewport() {

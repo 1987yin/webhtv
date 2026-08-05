@@ -24,4 +24,31 @@ public class MpvHardwarePolicyTest {
         assertFalse(MpvHardwarePolicy.blocksZeroCopy("HONOR", "mt6877", "MediaTek"));
         assertFalse(MpvHardwarePolicy.blocksZeroCopy(null, null, null));
     }
+
+    @Test
+    public void blocksAndroidEmulatorsFromZeroCopy() {
+        assertTrue(MpvHardwarePolicy.blocksZeroCopy(
+                "Google", "ranchu", "", "google/sdk_gphone64_arm64/emulator", "sdk_gphone64_arm64"));
+        assertTrue(MpvHardwarePolicy.blocksZeroCopy(
+                "unknown", "goldfish", "", "generic/sdk/generic", "Android SDK built for x86"));
+    }
+
+    @Test
+    public void blocksArmTranslationOnDisguisedX86Emulators() {
+        assertTrue(MpvHardwarePolicy.blocksZeroCopy(
+                "HUAWEI",
+                "qcom",
+                "Qualcomm",
+                "Android/aosp_marlin/marlin:9/release-keys",
+                "LIO-AN00",
+                new String[] {"x86_64", "x86", "arm64-v8a"}));
+    }
+
+    @Test
+    public void preservesZeroCopyForPhysicalDevicesWithGenericProductText() {
+        assertFalse(MpvHardwarePolicy.blocksZeroCopy(
+                "Google", "tensor", "Google", "google/panther/panther", "Pixel 7"));
+        assertFalse(MpvHardwarePolicy.blocksZeroCopy(
+                "Samsung", "exynos", "Samsung", "samsung/generic_device/release", "SM-S9180"));
+    }
 }

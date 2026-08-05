@@ -1321,6 +1321,37 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void playbackExitRejectsLateConnectionsAndClearsOnlyItsOwnNavigationCallback() throws Exception {
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java"));
+        Path servicePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "service", "PlaybackService.java"));
+        String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
+        String service = new String(Files.readAllBytes(servicePath), StandardCharsets.UTF_8);
+        String bind = methodBody(activity, "private void bindPlaybackService()", "private void bindPlaybackServiceAfterFirstFrame()");
+        String controller = methodBody(activity, "private void handleControllerConnected()", "private PendingIntent buildSessionIntent()");
+        String connected = methodBody(activity, "public void onServiceConnected(ComponentName name, IBinder binder)", "public void onServiceDisconnected(ComponentName name)");
+        String release = methodBody(activity, "private void releaseService(boolean owner)", "private void detach()");
+        String clearNavigation = methodBody(service, "public void clearNavigationCallback(NavigationCallback expected)", "public void addPlayerCallback(PlayerCallback callback)");
+
+        assertTrue("service binding must not start after playback exit",
+                bind.contains("if (bound || shouldRejectPlaybackConnection()) return;"));
+        assertTrue("late controller completion must stop before attaching callbacks or subclass hooks",
+                controller.indexOf("if (shouldRejectPlaybackConnection() || mControllerFuture == null) return;") >= 0
+                        && controller.indexOf("if (shouldRejectPlaybackConnection() || mControllerFuture == null) return;")
+                        < controller.indexOf("mController = mControllerFuture.get();"));
+        assertTrue("late service connection must be rejected before it can register navigation or start playback",
+                connected.indexOf("if (shouldRejectPlaybackConnection()) return;") >= 0
+                        && connected.indexOf("if (shouldRejectPlaybackConnection()) return;")
+                        < connected.indexOf("mService = connectedService;")
+                        && connected.indexOf("if (shouldRejectPlaybackConnection()) return;")
+                        < connected.indexOf("onServiceConnected();"));
+        assertTrue("activity release must clear its callback even before player-key ownership is established",
+                release.contains("mService.clearNavigationCallback(getNavigationCallback());"));
+        assertTrue("callback cleanup must use identity so an older activity cannot clear a newer owner's callback",
+                clearNavigation.contains("if (navigationCallback != expected) return;")
+                        && clearNavigation.contains("setNavigationCallback(null, null);"));
+    }
+
+    @Test
     public void playbackActivityKeepsScreenOnFromPlaybackStateTransitions() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);

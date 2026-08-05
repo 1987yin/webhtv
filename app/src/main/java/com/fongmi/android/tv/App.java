@@ -16,6 +16,8 @@ import androidx.core.os.HandlerCompat;
 
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.playback.PlaybackRemoteSyncer;
+import com.fongmi.android.tv.player.PlaybackMemoryMonitor;
+import com.fongmi.android.tv.player.PlaybackSystemConditionMonitor;
 import com.fongmi.android.tv.remote.RemoteAgent;
 import com.fongmi.android.tv.setting.ProxySetting;
 import com.fongmi.android.tv.setting.Setting;
@@ -99,6 +101,8 @@ public class App extends Application implements Application.ActivityLifecycleCal
     @Override
     public void onCreate() {
         super.onCreate();
+        PlaybackMemoryMonitor.process().initialize(this);
+        PlaybackSystemConditionMonitor.process().initialize(this);
         Setting.applyLanguage();
         DebugLogStore.restoreEnabled();
         if (DebugLogStore.isEnabled()) Setting.logDebugEnvironment("restore");
@@ -111,6 +115,18 @@ public class App extends Application implements Application.ActivityLifecycleCal
 
     private void registerContentHandlers() {
         com.fongmi.android.tv.content.ContentDispatcher.registerHandler(new com.fongmi.android.tv.content.AudioContentHandler());
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        PlaybackMemoryMonitor.process().onTrimMemory(level);
+        super.onTrimMemory(level);
+    }
+
+    @Override
+    public void onLowMemory() {
+        PlaybackMemoryMonitor.process().onLowMemory();
+        super.onLowMemory();
     }
 
     private void startBackgroundServicesNow() {

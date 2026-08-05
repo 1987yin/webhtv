@@ -114,6 +114,11 @@ public final class PlaybackEventCollector {
         return PlaybackRecord.from(history, null, DELETE, sessionId);
     }
 
+    public void onHistoryDeleted(PlaybackProgressDeleteInput input, int cid) {
+        if (input == null) return;
+        sender.sendImmediate(PlaybackRecord.deleted(input, cid));
+    }
+
     private void startIfNeeded(PlaybackRecord record, History history) {
         String signature = signature(history);
         if (!signature.equals(activeSignature)) {

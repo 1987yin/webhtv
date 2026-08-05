@@ -67,9 +67,10 @@ public class HomeWebBridge {
 
     @JavascriptInterface
     public void invoke(String requestId, String method, String payload) {
-        WebHomeTarget themeTarget = controller.getThemeTarget();
+        HomeWebController.ThemeRuntimeSnapshot runtime = controller.getThemeRuntimeSnapshot();
+        WebHomeTarget themeTarget = runtime.page().target();
         boolean v2Theme = themeTarget != null && themeTarget.isV2();
-        int themeGeneration = controller.getThemeSessionGeneration();
+        int themeGeneration = runtime.session().generation();
         Task.execute(() -> handle(requestId, method, WebCall.object(payload), v2Theme, themeGeneration));
     }
 
