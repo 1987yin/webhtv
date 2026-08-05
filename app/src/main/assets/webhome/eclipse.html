@@ -230,12 +230,20 @@
     @media (max-width: 640px) {
       body { font-size: 14px; }
       .shell { padding: 14px 12px 38px; padding-top: calc(14px + var(--eclipse-active-safe-top, 0px)); }
-      .topbar { margin-bottom: 14px; }
-      .brand { margin-right: 10px; }
+      .topbar {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 10px;
+        min-height: 0;
+        margin-bottom: 14px;
+      }
+      .brand { grid-column: 1 / 3; grid-row: 1; min-width: 0; margin-right: 0; }
       .brand-mark { width: 36px; height: 36px; }
       .brand strong { font-size: 17px; }
-      .source-pill { max-width: 120px; margin-right: auto; }
-      .top-action { height: 38px; padding: 0 11px; font-size: 12px; }
+      .source-pill { grid-column: 3; grid-row: 1; width: 34vw; max-width: 120px; margin: 0; justify-self: end; }
+      .search { grid-column: 2 / 4; grid-row: 2; width: 100%; min-width: 0; margin: 0; order: 0; }
+      #libraryButton { grid-column: 1; grid-row: 2; margin-left: 0; }
+      .top-action { height: 42px; padding: 0 11px; font-size: 12px; }
       .top-action.settings-action { display: none; }
       .hero { min-height: 218px; border-radius: 18px; }
       .hero-copy { width: 74%; padding: 25px 21px; }
