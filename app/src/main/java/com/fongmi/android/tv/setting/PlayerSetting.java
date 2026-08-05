@@ -401,10 +401,6 @@ public class PlayerSetting {
         return BackgroundPlaybackPolicy.isEnabled(getBackground());
     }
 
-    public static boolean isBackgroundPiP() {
-        return BackgroundPlaybackPolicy.shouldUsePictureInPicture(getBackground(), false);
-    }
-
     public static float getSpeed() {
         return Math.min(Math.max(Prefers.getFloat("speed", 3), 2), 5);
     }

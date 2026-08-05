@@ -902,7 +902,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         restoreExoOutputMode();
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity stop backgroundOff=%s %s", PlayerSetting.isBackgroundOff(), lifecycleState());
         super.onStop();
-        if (isOwner() && shouldPauseOnBackground() && mController != null) mController.pause();
+        if (isOwner() && !isAudioOnly() && shouldPauseOnBackground() && mController != null) mController.pause();
     }
 
     @Override
