@@ -175,7 +175,7 @@
     .poster {
       position: relative; display: block; width: 100%; height: 0; padding-top: 140%; overflow: hidden;
       border: 2px solid transparent; border-radius: 14px; background: #151b31;
-      box-shadow: 0 10px 25px rgba(0,0,0,.22); transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
+      box-shadow: 0 10px 25px rgba(0,0,0,.22);
     }
     .poster img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; background: #161c31; }
     .poster:after { position: absolute; left: 0; right: 0; bottom: 0; height: 42%; background: linear-gradient(transparent, rgba(6,8,17,.74)); content: ""; }
@@ -196,10 +196,13 @@
     }
     .toast.show { opacity: 1; transform: translate(-50%, 0); }
     button:focus, input:focus { outline: 0; }
-    .card-button:focus .poster, .tab:focus, .filter-chip:focus, .source-pill:focus, .top-action:focus, .search button:focus {
+    .tab:focus, .filter-chip:focus, .source-pill:focus, .top-action:focus, .search button:focus {
       border-color: #fff; box-shadow: 0 0 0 3px #785fff, 0 0 26px rgba(85, 225, 255, .5);
     }
-    .card-button:focus .poster { transform: scale(1.055); }
+    .card-button:focus .poster {
+      border-color: #fff;
+      box-shadow: 0 0 0 3px #785fff;
+    }
     .search input:focus { border-color: #67e8ff; box-shadow: inset 0 0 0 1px #67e8ff, 0 0 18px rgba(80,220,255,.2); }
     .noscript { margin: 30px; padding: 20px; border: 1px solid #5d4665; border-radius: 12px; background: #211425; }
     @media (max-width: 1200px) { .card { width: 20%; } .hero-copy { width: 64%; } .hero-art { width: 36%; } }
@@ -853,15 +856,23 @@
         } else toast(fallbackMessage);
       }
 
-      function getFocusable() {
+      function getFocusableSnapshot() {
         var nodes = d.querySelectorAll('[data-focus]');
         var list = [];
+        var rects = [];
         var i;
         for (i = 0; i < nodes.length; i += 1) {
           var rect = nodes[i].getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0 && !nodes[i].disabled) list.push(nodes[i]);
+          if (rect.width > 0 && rect.height > 0 && !nodes[i].disabled) {
+            list.push(nodes[i]);
+            rects.push(rect);
+          }
         }
-        return list;
+        return { list: list, rects: rects };
+      }
+
+      function getFocusable() {
+        return getFocusableSnapshot().list;
       }
 
       function rememberFocus(event) {
@@ -892,15 +903,15 @@
         }, 20);
       }
 
-      function reveal(element) {
-        var rect = element.getBoundingClientRect();
+      function reveal(element, cachedRect) {
+        var rect = cachedRect || element.getBoundingClientRect();
         var topGuard = 70;
         var bottomGuard = w.innerHeight - 55;
         if (rect.top < topGuard) w.scrollTo(0, w.pageYOffset + rect.top - topGuard > 0 ? w.pageYOffset + rect.top - topGuard : 0);
         else if (rect.bottom > bottomGuard) w.scrollTo(0, w.pageYOffset + rect.bottom - bottomGuard);
       }
 
-      function moveFocusInRow(list, current, direction) {
+      function moveFocusInRow(list, rects, current, direction) {
         var row = current && current.getAttribute ? current.getAttribute('data-focus-row') : '';
         var items = [];
         var currentIndex = -1;
@@ -908,7 +919,7 @@
         var i;
         if ((direction !== 'left' && direction !== 'right') || !row || !w.EclipseFocusNavigation) return false;
         for (i = 0; i < list.length; i += 1) {
-          var rect = list[i].getBoundingClientRect();
+          var rect = rects[i];
           items.push({
             row: list[i].getAttribute('data-focus-row') || '',
             x: rect.left + rect.width / 2
@@ -918,28 +929,32 @@
         targetIndex = w.EclipseFocusNavigation.findHorizontalTarget(items, currentIndex, direction);
         if (targetIndex >= 0) {
           list[targetIndex].focus();
-          reveal(list[targetIndex]);
+          reveal(list[targetIndex], rects[targetIndex]);
         }
         return true;
       }
 
       function moveFocus(direction) {
-        var list = getFocusable();
+        var snapshot = getFocusableSnapshot();
+        var list = snapshot.list;
         var current = d.activeElement;
+        var currentIndex;
         var currentRect;
         var cx;
         var cy;
         var best = null;
+        var bestRect = null;
         var bestScore = Number.MAX_VALUE;
         var i;
         if (!list.length) return;
-        if (!current || list.indexOf(current) < 0) {
+        currentIndex = list.indexOf(current);
+        if (!current || currentIndex < 0) {
           list[0].focus();
-          reveal(list[0]);
+          reveal(list[0], snapshot.rects[0]);
           return;
         }
-        if (moveFocusInRow(list, current, direction)) return;
-        currentRect = current.getBoundingClientRect();
+        if (moveFocusInRow(list, snapshot.rects, current, direction)) return;
+        currentRect = snapshot.rects[currentIndex];
         cx = currentRect.left + currentRect.width / 2;
         cy = currentRect.top + currentRect.height / 2;
         for (i = 0; i < list.length; i += 1) {
@@ -951,7 +966,7 @@
           var secondary;
           var score;
           if (candidate === current) continue;
-          rect = candidate.getBoundingClientRect();
+          rect = snapshot.rects[i];
           x = rect.left + rect.width / 2;
           y = rect.top + rect.height / 2;
           if (direction === 'left' && x >= cx - 3) continue;
@@ -962,9 +977,16 @@
           secondary = direction === 'left' || direction === 'right' ? Math.abs(y - cy) : Math.abs(x - cx);
           if (secondary > primary) continue;
           score = primary * 10 + secondary * secondary / (primary > 1 ? primary : 1);
-          if (score < bestScore) { bestScore = score; best = candidate; }
+          if (score < bestScore) {
+            bestScore = score;
+            best = candidate;
+            bestRect = rect;
+          }
         }
-        if (best) { best.focus(); reveal(best); }
+        if (best) {
+          best.focus();
+          reveal(best, bestRect);
+        }
       }
 
       function keydown(event) {
