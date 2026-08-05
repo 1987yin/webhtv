@@ -164,6 +164,35 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void tmdbHistoryReloadReappliesUntouchedPlaybackSelection() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int canonical = source.indexOf("private void applyTmdbResultNow(TmdbLoadResult result)");
+        int canonicalEnd = source.indexOf("private TmdbBundle loadTmdbBundle", canonical);
+        String canonicalBody = source.substring(canonical, canonicalEnd);
+        int reloadHistory = canonicalBody.indexOf("reloadHistoryAfterTmdbMatch();");
+        int reapplySelection = canonicalBody.indexOf("applyReloadedHistorySelection();");
+        int renderEpisodes = canonicalBody.indexOf("renderEpisodes();");
+        int reapply = source.indexOf("private void applyReloadedHistorySelection()");
+        int reapplyEnd = source.indexOf("private float getInlinePlaybackSpeed()", reapply);
+
+        assertTrue("TMDB history reload must reapply its resolved line before rendering episodes",
+                reloadHistory >= 0 && reapplySelection > reloadHistory && renderEpisodes > reapplySelection);
+        assertTrue("reloaded history selection helper must exist", reapply >= 0 && reapplyEnd > reapply);
+        String reapplyBody = source.substring(reapply, reapplyEnd);
+        assertTrue("async history must not override a user's manual playback selection",
+                source.contains("private boolean playbackSelectionTouched;")
+                        && source.contains("playbackSelectionTouched = false;")
+                        && reapplyBody.contains("if (playbackSelectionTouched")
+                        && reapplyBody.contains("selectedFlag = findInitialFlag(vod.getFlags());")
+                        && reapplyBody.contains("selectedEpisode = null;")
+                        && reapplyBody.contains("renderFlagSelection();"));
+        String normalizedSource = source.replace("\r\n", "\n");
+        assertTrue("line and episode interactions must mark the playback selection as user-controlled",
+                normalizedSource.contains("playbackSelectionTouched = true;\n                selectedFlag = flag;")
+                        && normalizedSource.contains("playbackSelectionTouched = true;\n        selectedEpisode = episode;"));
+    }
+
+    @Test
     public void asyncSeasonLoadForcesEpisodeRebindAfterLayoutSettles() throws Exception {
         String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
         int fetch = source.indexOf("private void fetchSeasonIfNeeded(int seasonNumber, boolean refresh)");
