@@ -1,8 +1,8 @@
 package com.fongmi.android.tv.utils;
 
 import android.text.TextUtils;
-import android.util.Log;
 
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Path;
 
@@ -25,7 +25,6 @@ import okhttp3.Response;
  */
 public class M3u8Downloader {
 
-    private static final String TAG = "M3u8Dl";
     private static final int MAX_REDIRECT = 5;
 
     private final String url;
@@ -103,14 +102,14 @@ public class M3u8Downloader {
             Path.create(temp);
         }
         long written = temp.exists() ? temp.length() : 0;
-        Log.d(TAG, "merge start idx=" + start + " total=" + segments.size() + " tempLen=" + written + " tempExists=" + temp.exists());
+        SpiderDebug.log("M3u8Dl", "merge start idx=" + start + " total=" + segments.size() + " tempLen=" + written + " tempExists=" + temp.exists());
         try (FileOutputStream os = new FileOutputStream(temp, start > 0)) {
             for (int i = start; i < segments.size(); i++) {
                 if (canceled || paused) {
                     os.flush();
                     // 當前分片尚未寫入，斷點停在 i（下次從 i 重新下）
                     writeIndex(index, i);
-                    Log.d(TAG, "merge paused at index=" + i + " tempLen=" + temp.length());
+                    SpiderDebug.log("M3u8Dl", "merge paused at index=" + i + " tempLen=" + temp.length());
                     if (canceled) clean(temp, index);
                     return;
                 }
@@ -120,17 +119,17 @@ public class M3u8Downloader {
                     // 此時「不可」推進 index，否則該分片會被永久跳過導致合併檔缺段。
                     os.flush();
                     writeIndex(index, i);
-                    Log.d(TAG, "merge write=0 break at index=" + i + " tempLen=" + temp.length());
+                    SpiderDebug.log("M3u8Dl", "merge write=0 break at index=" + i + " tempLen=" + temp.length());
                     return;
                 }
                 written += count;
                 os.flush();
                 writeIndex(index, i + 1);
-                Log.d(TAG, "merge wrote seg=" + i + " bytes=" + count + " tempLen=" + temp.length() + " idxNext=" + (i + 1));
+                SpiderDebug.log("M3u8Dl", "merge wrote seg=" + i + " bytes=" + count + " tempLen=" + temp.length() + " idxNext=" + (i + 1));
                 if (callback != null) callback.progress(i + 1, segments.size(), written);
             }
         }
-        Log.d(TAG, "merge done total=" + segments.size() + " finalLen=" + temp.length());
+        SpiderDebug.log("M3u8Dl", "merge done total=" + segments.size() + " finalLen=" + temp.length());
         Path.clear(target);
         if (!temp.renameTo(target)) throw new IOException("Rename failed");
         Path.clear(index);
