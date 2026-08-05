@@ -26,6 +26,35 @@ public class MpvMainThreadPropertySourceTest {
     }
 
     @Test
+    public void publicCacheSnapshotNeverQueriesNativeProperties() throws Exception {
+        String source = readMpvPlayer();
+        String snapshot = methodBody(source, "public PlayerCacheState getCacheState()", "/** Observer-only cache snapshot");
+
+        assertTrue("public cache diagnostics must use the observer-backed snapshot",
+                snapshot.contains("return buildCacheState()"));
+        assertFalse("UI diagnostics must never synchronously refresh native MPV properties",
+                snapshot.contains("refreshCacheState()"));
+    }
+    @Test
+    public void inactiveHlsPreloadSnapshotSkipsCacheDirectoryScan() throws Exception {
+        String source = readMpvHlsProxy();
+        String snapshot = methodBody(
+                source,
+                "PreloadRuntimeSnapshot preloadRuntimeSnapshot(long nowElapsedMs)",
+                "@Override");
+        int stats = snapshot.indexOf("SessionStats stats");
+        int inactiveGuard = snapshot.indexOf("stats == null || !stats.vod");
+        int lightweightReturn = snapshot.indexOf("return new PreloadRuntimeSnapshot");
+        int capacityScan = snapshot.indexOf("cacheCoordinator.preloadSnapshot");
+
+        assertTrue("preload snapshot must inspect the active proxy session first", stats >= 0);
+        assertTrue("non-HLS and non-VOD sessions must be guarded before cache probing",
+                inactiveGuard > stats);
+        assertTrue("the inactive snapshot must return before scanning the cache directory",
+                lightweightReturn > inactiveGuard && lightweightReturn < capacityScan);
+    }
+
+    @Test
     public void dynamicTrackAndChapterPropertiesAreObserved() throws Exception {
         String source = readMpvPlayer();
 
@@ -62,9 +91,17 @@ public class MpvMainThreadPropertySourceTest {
     }
 
     private static String readMpvPlayer() throws IOException {
+        return readSource("MpvPlayer.java");
+    }
+
+    private static String readMpvHlsProxy() throws IOException {
+        return readSource("MpvHlsProxy.java");
+    }
+
+    private static String readSource(String name) throws IOException {
         Path root = Path.of("").toAbsolutePath();
-        Path source = root.resolve(Path.of("app", "src", "main", "java", "androidx", "media3", "mpvplayer", "MpvPlayer.java"));
-        if (!Files.exists(source)) source = root.resolve(Path.of("src", "main", "java", "androidx", "media3", "mpvplayer", "MpvPlayer.java"));
+        Path source = root.resolve(Path.of("app", "src", "main", "java", "androidx", "media3", "mpvplayer", name));
+        if (!Files.exists(source)) source = root.resolve(Path.of("src", "main", "java", "androidx", "media3", "mpvplayer", name));
         return Files.readString(source, StandardCharsets.UTF_8).replace("\r\n", "\n");
     }
 

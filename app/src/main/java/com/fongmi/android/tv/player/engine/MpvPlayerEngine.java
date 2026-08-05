@@ -590,10 +590,13 @@ public class MpvPlayerEngine implements PlayerEngine {
     }
 
     private void applySoftDecodeOptions(MpvPlayerConfig.Builder builder) {
-        if (decode != SOFT || MpvPerformanceSetting.getSoftTuneMode() == MpvPerformanceSetting.SOFT_TUNE_OFF) return;
+        int mode = MpvPerformanceSetting.getSoftTuneMode();
+        if (mode == MpvPerformanceSetting.SOFT_TUNE_OFF) return;
+        // MPV can silently fall back from MediaCodec while the engine still represents a hard-decode request.
+        // Prime the libavcodec fallback so 4K software decoding does not start with the expensive defaults.
         builder.option("vd-lavc-fast", "yes");
         builder.option("vd-lavc-threads", "0");
-        builder.option("vd-lavc-skiploopfilter", MpvPerformanceSetting.getSoftTuneMode() == MpvPerformanceSetting.SOFT_TUNE_AGGRESSIVE ? "nonkey" : "nonref");
+        builder.option("vd-lavc-skiploopfilter", mode == MpvPerformanceSetting.SOFT_TUNE_AGGRESSIVE ? "nonkey" : "nonref");
     }
 
     private String resolveAudioSpdifCodecs() {

@@ -349,7 +349,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     private void bindPlaybackService() {
-        if (bound) return;
+        if (bound || shouldRejectPlaybackConnection()) return;
         long start = System.currentTimeMillis();
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "bind service start key=%s", getPlaybackKey());
         startService(new Intent(this, PlaybackService.class));
@@ -399,6 +399,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     private void handleControllerConnected() {
+        if (shouldRejectPlaybackConnection() || mControllerFuture == null) return;
         long start = System.currentTimeMillis();
         try {
             mController = mControllerFuture.get();
@@ -412,6 +413,10 @@ getSeekView().setSeekListener(this::onSeekStarted);
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "controller connected cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
         syncKeepScreenOn();
         if (mController != null) onControllerConnected();
+    }
+
+    private boolean shouldRejectPlaybackConnection() {
+        return playbackExiting || isFinishing() || isDestroyed();
     }
 
     private PendingIntent buildSessionIntent() {
@@ -583,7 +588,7 @@ getSeekView().setSeekListener(this::onSeekStarted);
 
     private void releaseService(boolean owner) {
         mService.removePlayerCallback(mPlayerCallback);
-        if (owner) mService.setNavigationCallback(null, null);
+        mService.clearNavigationCallback(getNavigationCallback());
         if (owner && mService.isKeepAlive()) {
             mService.resetSessionActivity();
         } else if (mService.hasExternalClient() || mService.hasPlayerCallback()) {
@@ -844,8 +849,11 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
 
     @Override
     public void onServiceConnected(ComponentName name, IBinder binder) {
+        if (shouldRejectPlaybackConnection()) return;
         long start = System.currentTimeMillis();
-        mService = ((PlaybackService.LocalBinder) binder).getService();
+        PlaybackService connectedService = ((PlaybackService.LocalBinder) binder).getService();
+        if (shouldRejectPlaybackConnection()) return;
+        mService = connectedService;
         mService.replaceBinding(this::closePiP);
         mService.setSessionActivity(buildSessionIntent());
         mService.setPlaybackForeground(true);

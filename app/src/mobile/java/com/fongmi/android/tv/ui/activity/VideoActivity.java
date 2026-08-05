@@ -145,6 +145,7 @@ import com.fongmi.android.tv.ui.dialog.VideoContentDialog;
 import com.fongmi.android.tv.ui.helper.DetailThemeVisibility;
 import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
 import com.fongmi.android.tv.ui.helper.EpisodeSeasonPolicy;
+import com.fongmi.android.tv.ui.helper.SourceEpisodeSeasonCache;
 import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
 import com.fongmi.android.tv.ui.helper.PipExitDecision;
 import com.fongmi.android.tv.ui.helper.PlayerControlFocusHelper;
@@ -414,6 +415,7 @@ private int mAudioBackgroundRandomNonce;
     private com.fongmi.android.tv.ui.custom.TmdbHeaderView mTmdbHeaderView;
     private Vod mVod;
     private String mSourceVodName = "";
+    private final SourceEpisodeSeasonCache mSourceEpisodeSeasonCache = new SourceEpisodeSeasonCache();
     private boolean mTmdbContentLoaded = false;
     private boolean mTmdbFallbackToNative = false;
     private boolean mTmdbControlsMoved = false;
@@ -884,31 +886,11 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private int resolveSourceEpisodeSeason(Flag flag) {
-        if (flag == null || flag.getEpisodes() == null) return -1;
-        Integer season = null;
-        for (Episode episode : flag.getEpisodes()) {
-            int candidate = EpisodeSeasonPolicy.resolveSourceSeason(episode == null ? "" : episode.getName());
-            if (candidate < 0) {
-                TmdbEpisode tmdbEpisode = episode == null ? null : episode.getTmdbEpisode();
-                candidate = tmdbEpisode != null && tmdbEpisode.getNumber() > 0 ? tmdbEpisode.getSeasonNumber() : -1;
-            }
-            if (candidate < 0) continue;
-            if (season != null && season != candidate) return -1;
-            season = candidate;
-        }
-        return season == null ? -1 : season;
+        return mSourceEpisodeSeasonCache.resolve(flag);
     }
 
     private int resolveSourceEpisodeSeason(Vod item) {
-        if (item == null || item.getFlags() == null) return -1;
-        Integer season = null;
-        for (Flag flag : item.getFlags()) {
-            int candidate = resolveSourceEpisodeSeason(flag);
-            if (candidate < 0) continue;
-            if (season != null && season != candidate) return -1;
-            season = candidate;
-        }
-        return season == null ? -1 : season;
+        return mSourceEpisodeSeasonCache.resolve(item);
     }
     private Episode withSourceSeasonEpisodeIdentity(Episode episode) {
         if (episode == null) return null;
@@ -1166,6 +1148,7 @@ private int mAudioBackgroundRandomNonce;
         getIntent().removeExtra(EXTRA_RESUME_HISTORY_KEY);
         getIntent().putExtras(intent);
         if (mTmdbUIAdapter != null) mTmdbUIAdapter.beginDetailRequest();
+        mSourceEpisodeSeasonCache.clear();
         mSourceVodName = "";
         setOrient();
         checkId();
@@ -1817,6 +1800,7 @@ private int mAudioBackgroundRandomNonce;
             mPendingDetailVod = item;
             return;
         }
+        mSourceEpisodeSeasonCache.clear();
         mSourceVodName = item.getName();
         mVod = item;
         item.checkPic(getPic());
@@ -4867,6 +4851,7 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private void updateVod(Vod item) {
+        mSourceEpisodeSeasonCache.clear();
         mVod = item;
         boolean id = !item.getId().isEmpty();
         boolean pic = !item.getPic().isEmpty();
@@ -9379,19 +9364,6 @@ private int findAudioPlaylistIndexByMetadata() {
 private boolean hasNextEpisode() {
         return !getAdjacentEpisode(1).isSelected();
     }
-
-private boolean suppressPiPForAudio() {
-        if (!isAudioContentForPiP()) return false;
-        mPiP.disableAutoEnter(this);
-        return true;
-    }
-
-private boolean isAudioContentForPiP() {
-        if (service() == null) return false;
-        updateAudioOnlyState();
-        return isAudioOnly() || isMusicLike() || LyricsController.isAudioContent(player());
-    }
-
 
 private void finishVideoPlaybackFromSystemBack() {
         mViewModel.stopSearch();

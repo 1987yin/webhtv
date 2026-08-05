@@ -301,8 +301,31 @@ public final class MpvHlsProxy extends NanoHTTPD {
     }
 
     PreloadRuntimeSnapshot preloadRuntimeSnapshot(long nowElapsedMs) {
-        refreshCacheCoordinator();
         SessionStats stats = sessionStats.get(sessionId);
+        if (stats == null || !stats.vod) {
+            return new PreloadRuntimeSnapshot(
+                    PreloadSetting.isPreload(kernel),
+                    false,
+                    0,
+                    false,
+                    false,
+                    -1,
+                    -1,
+                    0,
+                    0,
+                    "none",
+                    preloadGate.foregroundRequests(),
+                    false,
+                    false,
+                    false,
+                    false,
+                    0,
+                    0,
+                    0,
+                    0,
+                    preloading.size());
+        }
+        refreshCacheCoordinator();
         MpvHlsUpstreamEstimator.Snapshot throughput =
                 upstreamEstimator.snapshot(nowElapsedMs);
         MpvHlsCacheCoordinator.PreloadCapacitySnapshot preloadCapacity =

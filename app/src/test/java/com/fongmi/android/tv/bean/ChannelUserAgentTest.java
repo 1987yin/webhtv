@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.bean;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -11,11 +12,12 @@ import java.nio.file.Path;
 public class ChannelUserAgentTest {
 
     @Test
-    public void liveHeadersUsePlaybackUserAgentFallback() throws Exception {
+    public void liveHeadersOnlyUseExplicitUserAgent() throws Exception {
         String source = read(sourcePath().resolve(Path.of("com", "fongmi", "android", "tv", "bean", "Channel.java")));
 
-        assertTrue(source.contains("DEFAULT_LIVE_UA = \"Lavf/59.27.100\""));
-        assertTrue(source.contains("PlayerHelper.resolveUa(Setting.getUa(), () -> DEFAULT_LIVE_UA)"));
+        assertTrue(source.contains("if (!getUa().isEmpty()) headers.put(HttpHeaders.USER_AGENT, getUa());"));
+        assertFalse(source.contains("DEFAULT_LIVE_UA"));
+        assertFalse(source.contains("PlayerHelper.resolveUa(Setting.getUa()"));
     }
 
     private static String read(Path path) throws Exception {

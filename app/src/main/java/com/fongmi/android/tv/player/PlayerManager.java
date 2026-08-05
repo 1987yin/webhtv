@@ -577,11 +577,11 @@ public class PlayerManager implements ParseCallback {
     }
 
     public boolean isLive() {
-        return engine.isLive();
+        return engine != null && engine.isLive();
     }
 
     public boolean isVod() {
-        return engine.isVod();
+        return engine != null && engine.isVod();
     }
 
     public boolean haveTrack(int type) {

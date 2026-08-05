@@ -845,8 +845,8 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
         }
     }
 
+    /** Observer-only cache snapshot for UI diagnostics and periodic telemetry. */
     public PlayerCacheState getCacheState() {
-        if (initialized && mediaItem != null) refreshCacheState();
         return buildCacheState();
     }
 

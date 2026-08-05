@@ -431,6 +431,11 @@ private AudioHistory.Record audioHistoryRecord;
         this.navigationKey = key;
     }
 
+    public void clearNavigationCallback(NavigationCallback expected) {
+        if (navigationCallback != expected) return;
+        setNavigationCallback(null, null);
+    }
+
     private boolean isNavigationOwner() {
         return isPlayerAvailable() && (navigationKey == null || navigationKey.equals(player.getKey()));
     }
