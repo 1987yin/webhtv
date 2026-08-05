@@ -67,6 +67,7 @@ import com.fongmi.android.tv.bean.AdDetectionResult;
 import com.fongmi.android.tv.bean.AiConfig;
 import com.fongmi.android.tv.bean.CastVideo;
 import com.fongmi.android.tv.bean.Danmaku;
+import com.fongmi.android.tv.bean.DownloadItem;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.EpisodePositionCache;
 import com.fongmi.android.tv.bean.Flag;
@@ -130,6 +131,7 @@ import com.fongmi.android.tv.ui.dialog.CastDialog;
 import com.fongmi.android.tv.ui.dialog.CodecCapabilityDialog;
 import com.fongmi.android.tv.ui.dialog.ControlDialog;
 import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
+import com.fongmi.android.tv.ui.dialog.DownloadEpisodeDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
@@ -160,6 +162,7 @@ import com.fongmi.android.tv.utils.Clock;
 import com.fongmi.android.tv.utils.EpisodeTitleCompact;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
+import com.fongmi.android.tv.utils.DownloadManager;
 import com.fongmi.android.tv.utils.EpisodeHistoryTitleResolver;
 import com.fongmi.android.tv.utils.EpisodeTitleFormatter;
 import com.fongmi.android.tv.utils.Notify;
@@ -182,9 +185,11 @@ import org.greenrobot.eventbus.ThreadMode;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import android.animation.ObjectAnimator;
 import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
@@ -506,7 +511,7 @@ private int mAudioBackgroundRandomNonce;
         file(activity, path, "");
     }
 
-    private static void file(FragmentActivity activity, String path, String title) {
+    public static void file(FragmentActivity activity, String path, String title) {
         if (TextUtils.isEmpty(path)) return;
         PushParser.Parsed push = PushParser.of("file://" + path, TextUtils.isEmpty(title) ? new File(path).getName() : title);
         start(activity, SiteApi.PUSH, push.getId(), push.getName());
@@ -1234,6 +1239,7 @@ private int mAudioBackgroundRandomNonce;
         mBinding.search.setOnClickListener(view -> onSearch());
         mBinding.castAction.setOnClickListener(guarded(this::onCast));
         mBinding.settingAction.setOnClickListener(view -> onSetting());
+        mBinding.download.setOnClickListener(view -> onDownload());
         mBinding.actor.setOnClickListener(view -> onActor());
         mBinding.content.setOnClickListener(view -> onContent());
         mBinding.reverse.setOnClickListener(view -> onReverse());
@@ -2708,6 +2714,37 @@ private int mAudioBackgroundRandomNonce;
 
     private void onSetting() {
         ControlDialog.create().parent(mBinding).history(mHistory).parse(isUseParse()).player(player()).show(this);
+    }
+
+    /**
+     * 彈出劇集多選視窗，將選中的劇集加入下載佇列。
+     */
+    private void onDownload() {
+        Flag flag = getFlag();
+        if (flag == null || flag.getEpisodes().isEmpty()) {
+            Notify.show(R.string.download_no_episode);
+            return;
+        }
+        List<Episode> episodes = flag.getEpisodes();
+        Set<Integer> downloaded = new HashSet<>();
+        String key = getKey();
+        String vodId = getId();
+        for (int i = 0; i < episodes.size(); i++) {
+            String id = DownloadItem.buildId(key, vodId, flag.getFlag(), episodes.get(i).getUrl());
+            if (DownloadManager.get().find(id) != null) downloaded.add(i);
+        }
+        DownloadEpisodeDialog.show(this, episodes, downloaded, selected -> addDownload(flag, selected));
+    }
+
+    private void addDownload(Flag flag, List<Episode> selected) {
+        Vod vod = new Vod();
+        vod.setId(getId());
+        vod.setName(getPlaybackName());
+        vod.setPic(getPic());
+        List<DownloadItem> items = new ArrayList<>();
+        for (Episode episode : selected) items.add(DownloadItem.create(getKey(), vod, flag.getFlag(), episode.getName(), episode.getUrl()));
+        DownloadManager.get().add(items);
+        Notify.show(getString(R.string.download_added, items.size()));
     }
 
     private void onLock() {
