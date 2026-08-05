@@ -2,7 +2,7 @@
 
 > 状态：🟡 V1 首页兼容层与 V2 `HOME`/`DETAIL` 已实现，后续页面处于规划阶段<br>
 > 首次设计：2026-07-27<br>
-> 本次更新：2026-08-04<br>
+> 本次更新：2026-08-05<br>
 > 适用端：mobile / leanback（Android TV）<br>
 > 当前落地范围：全局 WebHome 首页、WebTheme V2 Manifest、当前内容源取数、分类筛选、详情页、TMDB 渐进增强、遥控焦点和原生播放器入口<br>
 > 后续规划范围：搜索结果页、收藏/历史页、播放器控制层、设置页及全局设计变量<br>
@@ -1608,7 +1608,9 @@ RESPONSE_TOO_LARGE
 
 验收：V1 首页行为不变，V2 首页/详情现有测试全部通过，Manifest 校验、Bridge 授权和 `theme.info` 使用同一份能力定义。
 
-**2026-08-03 实施状态：** 本轮已完成 P0 的契约核心：正式 JSON Schema 与 Devkit 校验入口、统一能力注册表、保留字段策略、规范错误码/旧错误别名，以及对应的 Java/Python 契约测试。Manifest 运行时、Bridge 授权和 `theme.info.capabilities` 已统一依赖能力注册表；Schema 权限枚举由漂移测试约束。受信和远程 V2 Bridge 均通过 `Error.code` 暴露规范码，同时保持 `Error.message` 的旧别名；过期不透明引用返回 `STALE_REFERENCE`，Android 与 Devkit 均拒绝非法 UTF-8 Manifest。第 5～7 项中的运行日志、更新/缓存矩阵和更完整的生成式兼容矩阵仍作为后续运维与发布加固工作，不在本轮宣称完成。
+**2026-08-03 实施状态：** 本轮已完成 P0 的契约核心：正式 JSON Schema 与 Devkit 校验入口、统一能力注册表、保留字段策略、规范错误码/旧错误别名，以及对应的 Java/Python 契约测试。Manifest 运行时、Bridge 授权和 `theme.info.capabilities` 已统一依赖能力注册表；Schema 权限枚举由漂移测试约束。受信和远程 V2 Bridge 均通过 `Error.code` 暴露规范码，同时保持 `Error.message` 的旧别名；过期不透明引用返回 `STALE_REFERENCE`，Android 与 Devkit 均拒绝非法 UTF-8 Manifest。第 5～7 项继续按独立的运维与发布任务推进；第 5 项的首个增量见下述 2026-08-05 状态，更新/缓存矩阵和更完整的生成式兼容矩阵仍未完成。
+
+**2026-08-05 运行日志状态（第一增量）：** 已为 WebTheme Manifest 与文档生命周期增加结构化诊断，使用 `operation + generation` 关联请求，并以稳定原因码区分 `manifest_io`、`manifest_invalid`、`page_unavailable`、`bridge_unavailable`、`load_timeout`、`empty_document`、`web_resource_error`、`http_error`、`render_process_gone` 和 `stale_operation`。持久日志只记录页面、低基数目标模式、数值错误码以及移除 userinfo/query/fragment 的 URL，不记录 Manifest payload、Cookie、Bridge nonce、自由格式异常文本或页面控制台原文；控制台持久日志改为级别、行号、消息长度和脱敏来源 URL，原文只保留给现有调试界面回调。对应格式、原因分类、URL 脱敏和控制器 wiring 回归测试已补齐。
 
 #### P1：公共 WebTheme Runtime 与焦点层
 
@@ -1623,7 +1625,9 @@ RESPONSE_TOO_LARGE
 
 **2026-08-04 实施状态（第二、第三增量）：** 已抽取 `WebThemePageHost` 页面上下文快照，`HomeWebController` 保留兼容 façade，并通过控制器级锁原子发布和读取页面/会话状态；Bridge 以同一运行时快照构建 `CallContext`，`theme.info` 与详情异步发布继续复用该调用快照，迟到的旧页面完成回调不会向新页面重复注入 SDK。已抽取 `WebThemeCallRouter`，统一稳定 API 的 HOME、LIST、DETAIL、NAVIGATION、PLAYER、UI 分组、权限校验和 generation 活跃性检查，业务 handler 行为保持不变。`eclipse-focus-navigation.js` 现在提供共享的横向与几何焦点算法，Eclipse 详情页已接入共享几何导航，首页继续复用共享横向导航；对应的 Java wiring、路由、页面 host、会话和 JavaScript 回归测试已补齐。
 
-本轮已完成 P1 的代码拆分和 Eclipse 首批迁移，但不宣称整个 P1 的发布验收已完成：真实设备上的旋转、遥控全路径、播放返回、后台恢复、WebView 生命周期切换和远程主题故障注入仍需验证；其余安全、更新/缓存、运行日志和兼容矩阵加固继续按独立发布任务推进。
+**2026-08-05 mobile 阶段性验收：** `emulator-5562` 已安装本轮 `mobileArm64_v8aDebug` 构建并验证 Eclipse 首页、WebTheme 详情页、方向键横向焦点、原生播放器进入与首帧、播放返回详情、Home 键后台切换与恢复；进程在这些路径中保持存活，未发现崩溃或 ANR。首页和详情页都实际产生了 `manifest_load_started → manifest_load_resolved → document_load_started → document_ready` 事件。该模拟器显示面固定为 `1920×1080`，锁定 `user_rotation` 未改变 `SurfaceOrientation`，因此不能据此宣称旋转通过；Leanback 运行时也尚无分配设备，本轮仅完成对应单测和 APK 构建。
+
+本轮已完成 P1 的代码拆分、Eclipse 首批迁移、结构化生命周期诊断和 mobile 关键路径阶段性验收，但不宣称整个 P1 的发布验收已完成：可旋转 mobile 设备、真实 Leanback 设备上的遥控全路径、远程主题故障注入仍需验证；更新/缓存矩阵、生成式兼容矩阵、远程主题数据隔离和其余 Bridge/扩展调试日志的敏感字段审计继续按独立发布任务推进。
 
 #### P2：通用列表页面
 
@@ -1715,4 +1719,4 @@ spacing.small / medium / large
 - 不在缺少签名/回滚时先做 ZIP 或主题市场；
 - 不允许任意 CSS 或脚本反向控制原生 Android 布局。
 
-当前推荐的下一个独立变更是 **P1 发布验收与运行时加固**：在真实 mobile / leanback 设备上完成旋转、遥控全路径、播放返回、后台恢复、WebView 生命周期切换和远程主题故障注入，并补齐运行日志、更新/缓存矩阵、生成式兼容矩阵及远程主题数据隔离。P0 尚未完成的运维与发布加固仍不与页面功能增量混合推进。
+当前推荐的下一个独立变更是 **P1 发布验收与运行时加固第二增量**：在可旋转 mobile 设备和真实 Leanback 设备上补齐旋转、遥控全路径及远程主题故障注入；同时建设 Manifest 更新/缓存/last-known-good 矩阵、生成式兼容矩阵、远程主题数据隔离，并继续审计 Bridge、扩展和开发调试日志的敏感字段。已在 `emulator-5562` 通过的首页/详情、后台恢复、原生播放与返回路径不再重复作为未验证项；P0 尚未完成的运维与发布加固仍不与页面功能增量混合推进。

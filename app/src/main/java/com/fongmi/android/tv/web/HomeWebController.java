@@ -49,7 +49,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonArray;
 
 import java.io.ByteArrayInputStream;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
@@ -549,26 +548,53 @@ public class HomeWebController {
         else listener.setChrome(normalChrome());
         Server.get().start();
         int token = ++manifestLoadToken;
+        int generation;
         synchronized (themeStateLock) {
-            themeSession.invalidate();
+            generation = themeSession.invalidate();
             pageHost.beginDocument(site, configured, route);
         }
         listener.onWebLoading();
         show();
         String sourceKey = site.getKey();
         String manifestUrl = configured.getUrl();
+        WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_STARTED,
+                token, generation, page, configured, manifestUrl, WebThemeRuntimeDiagnostics.Reason.NONE, 0);
         Task.execute(() -> {
             try {
                 WebHomeTarget resolved = manifestResolver.resolvePage(configured, page, force);
                 App.post(() -> {
-                    if (!isManifestLoadActive(token, sourceKey, manifestUrl)) return;
+                    if (!isManifestLoadActive(token, sourceKey, manifestUrl)) {
+                        WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_IGNORED,
+                                token, generation, page, configured, manifestUrl,
+                                WebThemeRuntimeDiagnostics.Reason.STALE_OPERATION, 0);
+                        return;
+                    }
+                    if (resolved == null) {
+                        WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_FAILED,
+                                token, generation, page, configured, manifestUrl,
+                                WebThemeRuntimeDiagnostics.Reason.PAGE_UNAVAILABLE, 0);
+                        synchronized (themeStateLock) {
+                            pageHost.failPage();
+                        }
+                        listener.onWebError();
+                        return;
+                    }
+                    WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_RESOLVED,
+                            token, generation, page, resolved, resolved.getUrl(),
+                            WebThemeRuntimeDiagnostics.Reason.NONE, 0);
                     if (!loadResolved(site, resolved, route, force)) listener.onWebError();
                 });
             } catch (Exception e) {
-                SpiderDebug.log("webhome-theme", "manifest/page load failed url=%s page=%s error=%s",
-                        safeLogUrl(manifestUrl), page.getKey(), e.getMessage());
+                WebThemeRuntimeDiagnostics.Reason reason = WebThemeRuntimeDiagnostics.manifestFailure(e);
                 App.post(() -> {
-                    if (!isManifestLoadActive(token, sourceKey, manifestUrl)) return;
+                    if (!isManifestLoadActive(token, sourceKey, manifestUrl)) {
+                        WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_IGNORED,
+                                token, generation, page, configured, manifestUrl,
+                                WebThemeRuntimeDiagnostics.Reason.STALE_OPERATION, 0);
+                        return;
+                    }
+                    WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_FAILED,
+                            token, generation, page, configured, manifestUrl, reason, 0);
                     synchronized (themeStateLock) {
                         pageHost.failPage();
                     }
@@ -583,6 +609,11 @@ public class HomeWebController {
         WebThemePageHost.Snapshot page = pageHost.snapshot();
         return !destroyed && token == manifestLoadToken && page.site() != null && page.target() != null
                 && sourceKey.equals(page.site().getKey()) && manifestUrl.equals(page.target().getUrl());
+    }
+
+    private void logRuntime(WebThemeRuntimeDiagnostics.Event event, int operation, WebThemePage page,
+            WebHomeTarget target, String url, WebThemeRuntimeDiagnostics.Reason reason, int code) {
+        WebThemeRuntimeDiagnostics.log(event, operation, themeSession.generation(), page, target, url, reason, code);
     }
 
     static boolean requiresPageReload(boolean force, boolean bridgeReady, String url, String loadedUrl,
@@ -612,6 +643,9 @@ public class HomeWebController {
         else listener.setChrome(normalChrome());
         Server.get().start();
         if (!configureBridge(resolved, reload)) {
+            logRuntime(WebThemeRuntimeDiagnostics.Event.FALLBACK,
+                    resolved.isV2() ? manifestLoadToken : loadToken, resolved.getPage(), resolved, url,
+                    WebThemeRuntimeDiagnostics.Reason.BRIDGE_UNAVAILABLE, 0);
             synchronized (themeStateLock) {
                 pageHost.clearTarget();
             }
@@ -645,7 +679,8 @@ public class HomeWebController {
         }
         WebHomeTarget currentTarget = pageHost.target();
         if (currentTarget != null && currentTarget.isRemoteGlobal() && !configureBridge(currentTarget, true)) {
-            handleMainFrameFailure("Remote theme bridge unavailable");
+            handleMainFrameFailure(WebThemeRuntimeDiagnostics.Reason.BRIDGE_UNAVAILABLE, 0,
+                    "Remote theme bridge unavailable");
             return;
         }
         if (TextUtils.isEmpty(homePage)) {
@@ -677,13 +712,24 @@ public class HomeWebController {
 
     private void handleLoadTimeout(int token, String url) {
         if (token != loadToken || !isVisible() || activity.isFinishing() || activity.isDestroyed()) return;
-        SpiderDebug.log("webhome-webview", "load timeout url=%s current=%s title=%s recoveries=%s", safeLogUrl(url), safeLogUrl(webView.getUrl()), webView.getTitle(), loadTimeoutRecoveries);
+        SpiderDebug.log("webhome-webview", "load timeout url=%s current=%s recoveries=%s",
+                safeLogUrl(url), safeLogUrl(webView.getUrl()), loadTimeoutRecoveries);
+        WebThemePageHost.Snapshot page = pageHost.snapshot();
         if (TextUtils.isEmpty(homePage) || loadTimeoutRecoveries++ > 0) {
+            logRuntime(WebThemeRuntimeDiagnostics.Event.FALLBACK, token,
+                    page.target() == null ? null : page.target().getPage(), page.target(), url,
+                    WebThemeRuntimeDiagnostics.Reason.LOAD_TIMEOUT, loadTimeoutRecoveries);
             listener.onWebError();
             return;
         }
         String target = !TextUtils.isEmpty(lastPageUrl) && !isEmptyDocumentUrl(lastPageUrl) ? lastPageUrl : homePage;
+        logRuntime(WebThemeRuntimeDiagnostics.Event.DOCUMENT_RECOVERY, token,
+                page.target() == null ? null : page.target().getPage(), page.target(), target,
+                WebThemeRuntimeDiagnostics.Reason.LOAD_TIMEOUT, loadTimeoutRecoveries);
         if (!recreateWebView()) {
+            logRuntime(WebThemeRuntimeDiagnostics.Event.FALLBACK, token,
+                    page.target() == null ? null : page.target().getPage(), page.target(), target,
+                    WebThemeRuntimeDiagnostics.Reason.LOAD_TIMEOUT, loadTimeoutRecoveries);
             listener.onWebError();
             return;
         }
@@ -1267,11 +1313,15 @@ public class HomeWebController {
         if (!isEmptyDocumentUrl(current) || TextUtils.isEmpty(homePage)) return false;
         String target = !TextUtils.isEmpty(lastPageUrl) && !isEmptyDocumentUrl(lastPageUrl) ? lastPageUrl : homePage;
         SpiderDebug.log("webhome-webview", "restore reload reason=empty-url current=%s target=%s", safeLogUrl(current), safeLogUrl(target));
+        WebThemePageHost.Snapshot page = pageHost.snapshot();
         bridgeReady = false;
         sdkReady = false;
         synchronized (themeStateLock) {
             themeSession.invalidate();
         }
+        logRuntime(WebThemeRuntimeDiagnostics.Event.DOCUMENT_RECOVERY, loadToken,
+                page.target() == null ? null : page.target().getPage(), page.target(), target,
+                WebThemeRuntimeDiagnostics.Reason.EMPTY_DOCUMENT, 0);
         listener.onWebLoading();
         lastViewportKey = "";
         injectedExtensions.clear();
@@ -1366,11 +1416,14 @@ public class HomeWebController {
                 }
                 bridgeReady = false;
                 sdkReady = false;
+                int generation;
                 synchronized (themeStateLock) {
-                    themeSession.invalidate();
+                    generation = themeSession.invalidate();
                 }
                 rotateRemoteDocumentNonce();
-                SpiderDebug.log("webhome-webview", "page started url=%s", safeLogUrl(url));
+                WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.DOCUMENT_LOAD_STARTED,
+                        loadToken, generation, currentTarget == null ? null : currentTarget.getPage(),
+                        currentTarget, url, WebThemeRuntimeDiagnostics.Reason.NONE, 0);
                 listener.onWebRequest("PAGE", safeLogUrl(url), true);
                 lastPageUrl = url;
                 lastViewportKey = "";
@@ -1386,7 +1439,8 @@ public class HomeWebController {
                 WebHomeTarget currentTarget = pageHost.target();
                 if (currentTarget == null) return;
                 if (currentTarget.isRemoteGlobal() && !currentTarget.allowsMainFrameUrl(url)) return;
-                SpiderDebug.log("webhome-webview", "page finished url=%s title=%s", safeLogUrl(url), view.getTitle());
+                logRuntime(WebThemeRuntimeDiagnostics.Event.DOCUMENT_READY, loadToken,
+                        currentTarget.getPage(), currentTarget, url, WebThemeRuntimeDiagnostics.Reason.NONE, 0);
                 loadToken++;
                 if (currentTarget.isV2()) {
                     synchronized (themeStateLock) {
@@ -1403,10 +1457,12 @@ public class HomeWebController {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
                 super.onReceivedError(view, request, error);
-                SpiderDebug.log("webhome-webview", "resource error main=%s code=%s desc=%s url=%s", request.isForMainFrame(), error.getErrorCode(), error.getDescription(), safeLogUrl(request.getUrl()));
+                SpiderDebug.log("webhome-webview", "resource error main=%s code=%s url=%s",
+                        request.isForMainFrame(), error.getErrorCode(), safeLogUrl(request.getUrl()));
                 listener.onWebConsole("ERROR " + error.getErrorCode() + " " + error.getDescription() + " " + safeLogUrl(request.getUrl()));
                 if (request.isForMainFrame()) {
-                    handleMainFrameFailure(error.getDescription());
+                    handleMainFrameFailure(WebThemeRuntimeDiagnostics.Reason.WEB_RESOURCE_ERROR,
+                            error.getErrorCode(), error.getDescription());
                 }
             }
 
@@ -1415,9 +1471,13 @@ public class HomeWebController {
                 super.onReceivedHttpError(view, request, errorResponse);
                 int status = errorResponse.getStatusCode();
                 String reason = errorResponse.getReasonPhrase();
-                SpiderDebug.log("webhome-webview", "http error main=%s code=%s reason=%s url=%s", request.isForMainFrame(), status, reason, safeLogUrl(request.getUrl()));
+                SpiderDebug.log("webhome-webview", "http error main=%s code=%s url=%s",
+                        request.isForMainFrame(), status, safeLogUrl(request.getUrl()));
                 listener.onWebConsole("HTTP " + status + " " + reason + " " + safeLogUrl(request.getUrl()));
-                if (request.isForMainFrame()) handleMainFrameFailure("HTTP " + status + " " + reason);
+                if (request.isForMainFrame()) {
+                    handleMainFrameFailure(WebThemeRuntimeDiagnostics.Reason.HTTP_ERROR,
+                            status, "HTTP " + status + " " + reason);
+                }
             }
 
             @Override
@@ -1443,10 +1503,18 @@ public class HomeWebController {
             @Override
             public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
                 SpiderDebug.log("webhome-webview", "render process gone didCrash=%s priority=%s", detail.didCrash(), detail.rendererPriorityAtExit());
+                WebThemePageHost.Snapshot page = pageHost.snapshot();
+                int code = detail.didCrash() ? 1 : 0;
                 if (recreateWebView() && !TextUtils.isEmpty(homePage)) {
+                    logRuntime(WebThemeRuntimeDiagnostics.Event.DOCUMENT_RECOVERY, loadToken,
+                            page.target() == null ? null : page.target().getPage(), page.target(), homePage,
+                            WebThemeRuntimeDiagnostics.Reason.RENDER_PROCESS_GONE, code);
                     listener.onWebLoading();
                     loadUrl(reloadUrl(homePage, true));
                 } else {
+                    logRuntime(WebThemeRuntimeDiagnostics.Event.FALLBACK, loadToken,
+                            page.target() == null ? null : page.target().getPage(), page.target(), homePage,
+                            WebThemeRuntimeDiagnostics.Reason.RENDER_PROCESS_GONE, code);
                     listener.onWebError();
                 }
                 return true;
@@ -1454,7 +1522,11 @@ public class HomeWebController {
         };
     }
 
-    private void handleMainFrameFailure(CharSequence message) {
+    private void handleMainFrameFailure(WebThemeRuntimeDiagnostics.Reason reason, int code,
+            CharSequence message) {
+        WebThemePageHost.Snapshot page = pageHost.snapshot();
+        logRuntime(WebThemeRuntimeDiagnostics.Event.FALLBACK, loadToken,
+                page.target() == null ? null : page.target().getPage(), page.target(), webView.getUrl(), reason, code);
         loadToken++;
         manifestLoadToken++;
         bridgeReady = false;
@@ -1478,8 +1550,10 @@ public class HomeWebController {
             @Override
             public boolean onConsoleMessage(ConsoleMessage message) {
                 if (message != null) {
-                    String line = String.format(Locale.ROOT, "%s %s:%s %s", message.messageLevel(), safeLogUrl(message.sourceId()), message.lineNumber(), message.message());
-                    SpiderDebug.log("webhome-console", line);
+                    WebThemeRuntimeDiagnostics.logConsole(
+                            message.messageLevel(), message.lineNumber(), message.sourceId(), message.message());
+                    String line = String.format(Locale.ROOT, "%s %s:%s %s", message.messageLevel(),
+                            safeLogUrl(message.sourceId()), message.lineNumber(), message.message());
                     listener.onWebConsole(line);
                 }
                 return super.onConsoleMessage(message);
@@ -1508,41 +1582,11 @@ public class HomeWebController {
     }
 
     static String safeLogUrl(Object value) {
-        return safeLogUrl(value == null ? "" : value.toString());
+        return WebThemeRuntimeDiagnostics.safeUrl(value);
     }
 
     static String safeLogUrl(String value) {
-        String raw = value == null ? "" : value.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ');
-        if (raw.isEmpty()) return "";
-        try {
-            URI uri = URI.create(raw);
-            String scheme = uri.getScheme();
-            if (scheme != null && uri.isOpaque()) return limitedRemoteValue(scheme, 32) + ":<redacted>";
-            String authority = uri.getRawAuthority();
-            if (authority != null) {
-                int userInfo = authority.lastIndexOf('@');
-                if (userInfo >= 0) authority = authority.substring(userInfo + 1);
-            }
-            StringBuilder safe = new StringBuilder();
-            if (scheme != null) safe.append(scheme).append(':');
-            if (authority != null) safe.append("//").append(authority);
-            if (uri.getRawPath() != null) safe.append(uri.getRawPath());
-            return limitedRemoteValue(safe.toString(), 2048);
-        } catch (RuntimeException ignored) {
-            int query = raw.indexOf('?');
-            int fragment = raw.indexOf('#');
-            int end = query < 0 ? fragment : fragment < 0 ? query : Math.min(query, fragment);
-            String safe = end < 0 ? raw : raw.substring(0, end);
-            int authority = safe.indexOf("://");
-            if (authority >= 0) {
-                int path = safe.indexOf('/', authority + 3);
-                int userInfo = safe.lastIndexOf('@', path < 0 ? safe.length() - 1 : path);
-                if (userInfo >= authority + 3) {
-                    safe = safe.substring(0, authority + 3) + safe.substring(userInfo + 1);
-                }
-            }
-            return limitedRemoteValue(safe, 2048);
-        }
+        return WebThemeRuntimeDiagnostics.safeUrl(value);
     }
 
     private WebResourceResponse blockedNavigation() {
