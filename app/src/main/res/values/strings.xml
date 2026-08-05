@@ -4,35 +4,6 @@
     <string name="app_name">TV</string>
     <string name="app_exit_confirm">Press back again to exit</string>
 
-    <!-- Download -->
-    <string name="download">Download</string>
-    <string name="download_play_first">Play the episode before downloading</string>
-    <string name="download_success">Downloaded: %s</string>
-    <string name="download_failed">Download failed</string>
-    <string name="download_canceled">Download canceled</string>
-    <string name="download_pause">Pause</string>
-    <string name="download_resume">Resume</string>
-    <string name="download_paused">Paused</string>
-    <string name="download_retry">Retry</string>
-    <string name="download_list">Downloads</string>
-    <string name="download_select_episode">Select episodes to download</string>
-    <string name="download_select_all">Select all</string>
-    <string name="download_select_none">Deselect all</string>
-    <string name="download_no_episode">No episodes available</string>
-    <string name="download_waiting">Waiting…</string>
-    <string name="download_queued">Queued</string>
-    <string name="download_done">Completed</string>
-    <string name="download_active">Downloading</string>
-    <string name="download_play">Play</string>
-    <string name="download_cancel">Cancel</string>
-    <string name="download_cancel_all">Cancel all</string>
-    <string name="download_remove">Remove</string>
-    <string name="download_empty">No downloads yet</string>
-    <string name="download_clear_finished">Clear completed</string>
-    <string name="download_delete_episode">Delete this episode?</string>
-    <string name="download_delete_group">Delete all downloaded episodes of this drama?</string>
-    <string name="download_long_press_tip">Tap to pause or resume, long press to delete</string>
-
     <!-- Live -->
     <string name="live_pass">Pass</string>
     <string name="live_refresh">Refresh</string>

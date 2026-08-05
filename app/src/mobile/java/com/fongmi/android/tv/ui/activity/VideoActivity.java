@@ -67,7 +67,6 @@ import com.fongmi.android.tv.bean.AdDetectionResult;
 import com.fongmi.android.tv.bean.AiConfig;
 import com.fongmi.android.tv.bean.CastVideo;
 import com.fongmi.android.tv.bean.Danmaku;
-import com.fongmi.android.tv.bean.DownloadItem;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.EpisodePositionCache;
 import com.fongmi.android.tv.bean.Flag;
@@ -131,7 +130,6 @@ import com.fongmi.android.tv.ui.dialog.CastDialog;
 import com.fongmi.android.tv.ui.dialog.CodecCapabilityDialog;
 import com.fongmi.android.tv.ui.dialog.ControlDialog;
 import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
-import com.fongmi.android.tv.ui.dialog.DownloadEpisodeDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
@@ -159,7 +157,6 @@ import com.fongmi.android.tv.ui.player.VodPlayerUiHost;
 import com.fongmi.android.tv.utils.ActivityLaunch;
 import com.fongmi.android.tv.utils.AudioUtil;
 import com.fongmi.android.tv.utils.Clock;
-import com.fongmi.android.tv.utils.DownloadManager;
 import com.fongmi.android.tv.utils.EpisodeTitleCompact;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -1237,7 +1234,6 @@ private int mAudioBackgroundRandomNonce;
         mBinding.search.setOnClickListener(view -> onSearch());
         mBinding.castAction.setOnClickListener(guarded(this::onCast));
         mBinding.settingAction.setOnClickListener(view -> onSetting());
-        mBinding.download.setOnClickListener(view -> onDownload());
         mBinding.actor.setOnClickListener(view -> onActor());
         mBinding.content.setOnClickListener(view -> onContent());
         mBinding.reverse.setOnClickListener(view -> onReverse());
@@ -2712,22 +2708,6 @@ private int mAudioBackgroundRandomNonce;
 
     private void onSetting() {
         ControlDialog.create().parent(mBinding).history(mHistory).parse(isUseParse()).player(player()).show(this);
-    }
-
-    private void onDownload() {
-        Flag flag = getFlag();
-        if (flag == null || flag.getEpisodes().isEmpty()) {
-            Notify.show(R.string.download_no_episode);
-            return;
-        }
-        List<Episode> episodes = flag.getEpisodes();
-        String vodName = mBinding.name.getText().toString();
-        DownloadEpisodeDialog.show(this, episodes, episode -> {
-            DownloadItem item = DownloadItem.create(vodName + " " + episode.getName());
-            item.setGroup(getKey() + "$$" + vodName);
-            item.setCover(getPic());
-            DownloadManager.get().enqueue(item, getKey(), flag.getFlag(), episode.getUrl());
-        });
     }
 
     private void onLock() {

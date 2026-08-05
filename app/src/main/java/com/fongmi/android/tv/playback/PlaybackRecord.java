@@ -384,19 +384,7 @@ public class PlaybackRecord {
     }
 
     private static String dedupeKey(PlaybackRecord record) {
-        // 身份字段只取"跨设备稳定且必上报"的字段：configKey / siteKey / vodId / vodName / flag / episodeName。
-        // 1) 排除 historyKey：含设备本机 cid，A、B 各自分配，纳入会导致跨设备 dedupeKey 不一致。
-        // 2) 排除 episodeUrl：它只在"完整"字段预设中上报，基础/标准预设不上报，服务端会存空值；
-        //    且 episodeUrl 多为带签名/节点的挥发 URL，同一条目再次播放时可能变化，纳入反而破坏同设备进度合并。
-        //    去掉后，同一 (站点,影片,线路,集名) 仍唯一，跨设备删除与进度合并都稳定。
-        return sha256(join(record.configKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName));
-    }
-
-    // 由本地 History 反算其 dedupeKey，与服务端存储/墓碑中的 dedupeKey 同源同算法，
-    // 供拉取同步时按"已删除墓碑"匹配并清理本地记录（无论本地原生还是远端拉取所得）。
-    public static String dedupeKeyFor(History history) {
-        if (history == null) return "";
-        return from(history, null, "", "").dedupeKey;
+        return sha256(join(record.configKey, record.historyKey, record.siteKey, record.vodId, record.vodName, record.flag, record.episodeName, record.episodeUrl));
     }
 
     private static String clientKey() {

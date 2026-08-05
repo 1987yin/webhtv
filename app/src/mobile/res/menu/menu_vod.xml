@@ -17,13 +17,6 @@
         app:showAsAction="always" />
 
     <item
-        android:id="@+id/download"
-        android:icon="@drawable/ic_action_download"
-        android:title="@string/download_list"
-        app:iconTint="@color/white"
-        app:showAsAction="always" />
-
-    <item
         android:id="@+id/web_home_fullscreen"
         android:icon="@drawable/ic_control_fullscreen"
         android:title="@string/play_fullscreen"

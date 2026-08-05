@@ -1,12 +1,9 @@
 package com.fongmi.android.tv.playback;
 
-import android.text.TextUtils;
-
 import androidx.annotation.Nullable;
 import androidx.media3.common.Player;
 
 import com.fongmi.android.tv.bean.History;
-import com.github.catvod.crawler.SpiderDebug;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.setting.Setting;
 
@@ -18,7 +15,6 @@ public final class PlaybackEventCollector {
     public static final String RESUME = "playback.resume";
     public static final String STOP = "playback.stop";
     public static final String ENDED = "playback.ended";
-    public static final String DELETE = "playback.deleted";
 
     private static final PlaybackEventCollector INSTANCE = new PlaybackEventCollector();
 
@@ -83,35 +79,6 @@ public final class PlaybackEventCollector {
         PlaybackRecord record = snapshot(history, player, "");
         if (record != null && started) sender.sendFinalThen(record, STOP);
         resetStarted();
-    }
-
-    public synchronized void onDeleted(@Nullable History history) {
-        SpiderDebug.log("playback-webhook-delete", "onDeleted entered key=%s incognito=%s",
-                history == null ? "null" : history.getKey(), Setting.isIncognito());
-        PlaybackRecord record = snapshotDeleted(history);
-        if (record == null) {
-            SpiderDebug.log("playback-webhook-delete", "snapshotDeleted returned null -> skip send");
-            return;
-        }
-        SpiderDebug.log("playback-webhook-delete", "snapshotDeleted ok event=%s siteKey=%s", record.event, record.siteKey);
-        sender.sendImmediate(record);
-    }
-
-    private PlaybackRecord snapshotDeleted(@Nullable History history) {
-        if (Setting.isIncognito()) {
-            SpiderDebug.log("playback-webhook-delete", "skip: incognito");
-            return null;
-        }
-        if (history == null) {
-            SpiderDebug.log("playback-webhook-delete", "skip: history null");
-            return null;
-        }
-        if (TextUtils.isEmpty(history.getKey())) {
-            SpiderDebug.log("playback-webhook-delete", "skip: empty key");
-            return null;
-        }
-        String sessionId = PlaybackRuntime.ensureSession(history);
-        return PlaybackRecord.from(history, null, DELETE, sessionId);
     }
 
     public void onHistoryDeleted(PlaybackProgressDeleteInput input, int cid) {

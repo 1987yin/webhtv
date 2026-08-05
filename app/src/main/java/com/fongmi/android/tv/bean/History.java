@@ -17,7 +17,6 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.impl.Diffable;
-import com.fongmi.android.tv.playback.PlaybackEventCollector;
 import com.fongmi.android.tv.history.HistoryDisplayPolicy;
 import com.fongmi.android.tv.player.VideoAspectMode;
 import com.fongmi.android.tv.playback.PlaybackProgressWriter;
@@ -309,15 +308,7 @@ public class History implements Diffable<History> {
     }
 
     public static void delete(int cid) {
-        delete(cid, true);
-    }
-
-    public static void delete(int cid, boolean report) {
-        List<History> items = AppDatabase.get().getHistoryDao().find(cid);
-        if (AppDatabase.get().getHistoryDao().delete(cid) > 0) {
-            if (report) for (History item : items) PlaybackEventCollector.get().onDeleted(item);
-            notifyChanged();
-        }
+        if (AppDatabase.get().getHistoryDao().delete(cid) > 0) notifyChanged();
     }
 
     public static void deleteForDisplay() {
@@ -853,7 +844,7 @@ public class History implements Diffable<History> {
     }
 
     private History merge(List<History> items, boolean force) {
-        for (History item : items) if (item.shouldMerge(this, force)) item.copyTo(this).delete(false);
+        for (History item : items) if (item.shouldMerge(this, force)) item.copyTo(this).delete();
         return this;
     }
 
@@ -900,19 +891,14 @@ public class History implements Diffable<History> {
     }
 
     public History delete() {
-        return delete(true, false);
+        return deleteRelated(false);
     }
 
     public History deleteDisplayItem() {
-        // 删除展示项始终上报 webhook（report=true）；global 由全局历史开关决定聚合范围
-        return delete(true, Setting.isGlobalHistoryEnabled());
+        return deleteRelated(Setting.isGlobalHistoryEnabled());
     }
 
-    private History delete(boolean report) {
-        return delete(report, false);
-    }
-
-    private History delete(boolean report, boolean global) {
+    private History deleteRelated(boolean global) {
         boolean deleted;
         List<History> relatedItems = Collections.emptyList();
         String identity = HistoryDisplayPolicy.tmdbIdentity(this);
@@ -922,15 +908,11 @@ public class History implements Diffable<History> {
                     ? AppDatabase.get().getHistoryDao().findByTmdbIdentity(mediaType, getTmdbId())
                     : AppDatabase.get().getHistoryDao().findByTmdbIdentity(getCid(), mediaType, getTmdbId());
         }
-        com.github.catvod.crawler.SpiderDebug.log("playback-webhook-delete",
-                "delete() branch: global=%s report=%s identity=%s relatedItems=%s",
-                global, report, identity, relatedItems.size());
         if (!relatedItems.isEmpty()) {
             deleted = false;
             for (History item : relatedItems) {
                 deleted |= PlaybackProgressWriter.deleteFromUser(item).affected > 0;
             }
-            if (deleted && report) for (History item : relatedItems) PlaybackEventCollector.get().onDeleted(item);
         } else {
             deleted = PlaybackProgressWriter.deleteFromUser(this).affected > 0;
         }

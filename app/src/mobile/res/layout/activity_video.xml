@@ -66,7 +66,7 @@
             layout="@layout/view_control_vod"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-             />
+            android:visibility="gone" />
 
         <include
             android:id="@+id/progress"
@@ -590,12 +590,6 @@
                             style="@style/VideoActionButton"
                             android:text="@string/nav_setting"
                             app:drawableTopCompat="@drawable/ic_control_setting_shadow" />
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/download"
-                            style="@style/VideoActionButton"
-                            android:text="@string/download"
-                            app:drawableTopCompat="@drawable/ic_action_download_shadow" />
 
                     </androidx.appcompat.widget.LinearLayoutCompat>
 
