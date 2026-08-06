@@ -102,6 +102,26 @@ public class WebThemeManifestLoaderTest {
     }
 
     @Test
+    public void failedRefreshDoesNotOverwriteANewerConcurrentSuccess() throws Exception {
+        WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", false, () -> manifest("1", "home-v1.html"));
+        IOException refreshFailure = new IOException("offline");
+
+        WebThemeManifestLoader.LoadResult fallback = WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", true, () -> {
+                    WebThemeManifestLoader.load(
+                            CACHE_URL, "mobile", true,
+                            () -> manifest("2", "home-v2.html"));
+                    throw refreshFailure;
+                });
+
+        assertEquals(WebThemeManifestLoader.CacheState.LAST_KNOWN_GOOD, fallback.state());
+        assertEquals("https://cache.example/home-v2.html",
+                fallback.manifest().getPage(WebThemePage.HOME).getEntryUrl());
+        assertSame(refreshFailure, fallback.refreshFailure());
+    }
+
+    @Test
     public void coldFailureIsNotSilentlyRecovered() {
         assertThrows(IOException.class, () -> WebThemeManifestLoader.load(
                 CACHE_URL, "mobile", true, () -> {
@@ -119,7 +139,7 @@ public class WebThemeManifestLoaderTest {
         WebThemeManifestLoader.clearCache();
         IOException refreshFailure = new IOException("offline");
         WebThemeManifestLoader.LoadResult fallback = WebThemeManifestLoader.load(
-                CACHE_URL, "mobile", false, () -> {
+                CACHE_URL, "mobile", true, () -> {
                     throw refreshFailure;
                 }, persistent);
         WebThemeManifestLoader.LoadResult memoryHit = WebThemeManifestLoader.load(
@@ -175,7 +195,8 @@ public class WebThemeManifestLoaderTest {
     @Test
     public void emptyPersistentEntryIsDiscardedWithoutMaskingColdFailure() throws Exception {
         MemoryPersistentCache persistent = new MemoryPersistentCache();
-        persistent.write(CACHE_URL + "\nmobile", "");
+        persistent.write(CACHE_URL + "\nmobile",
+                new WebThemeManifestLoader.StoredManifest("", "", 0));
         IOException offline = new IOException("offline");
 
         IOException thrown = assertThrows(IOException.class, () -> WebThemeManifestLoader.load(
@@ -200,6 +221,7 @@ public class WebThemeManifestLoaderTest {
                 result.manifest().getPage(WebThemePage.HOME).getEntryUrl());
         assertEquals(0, persistent.size());
     }
+
     @Test
     public void boundedReaderAcceptsLimitAndRejectsOneExtraByte() throws Exception {
         assertEquals("1234", WebThemeManifestLoader.read(stream("1234"), 4));
@@ -241,18 +263,18 @@ public class WebThemeManifestLoaderTest {
 
     private static final class MemoryPersistentCache implements WebThemeManifestLoader.PersistentCache {
 
-        private final Map<String, String> entries = new HashMap<>();
+        private final Map<String, WebThemeManifestLoader.StoredManifest> entries = new HashMap<>();
         private boolean failWrites;
 
         @Override
-        public String read(String cacheKey) {
+        public WebThemeManifestLoader.StoredManifest read(String cacheKey) {
             return entries.get(cacheKey);
         }
 
         @Override
-        public void write(String cacheKey, String json) throws IOException {
+        public void write(String cacheKey, WebThemeManifestLoader.StoredManifest stored) throws IOException {
             if (failWrites) throw new IOException("disk full");
-            entries.put(cacheKey, json);
+            entries.put(cacheKey, stored);
         }
 
         @Override
@@ -265,9 +287,11 @@ public class WebThemeManifestLoaderTest {
         }
 
         private void corruptAll(String json) {
-            entries.replaceAll((key, value) -> json);
+            entries.replaceAll((key, value) -> new WebThemeManifestLoader.StoredManifest(
+                    json, value.etag(), value.validatedAt()));
         }
     }
+
     private static ByteArrayInputStream stream(String value) {
         return new ByteArrayInputStream(value.getBytes(StandardCharsets.UTF_8));
     }
