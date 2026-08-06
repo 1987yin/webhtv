@@ -110,7 +110,8 @@ test('detail page wires action buttons through row-aware D-pad navigation', () =
   assert.match(html, /id="playButton"[^>]*data-focus-row="actions"/);
   assert.match(html, /id="favoriteButton"[^>]*data-focus-row="actions"/);
   assert.match(html, /id="nativeButton"[^>]*data-focus-row="actions"/);
-  assert.match(html, /EclipseDetailState\.nextFocusIndex\(geometry, index, direction\)/);
+  assert.match(html, /<script src="eclipse-focus-navigation\.js"><\/script>/);
+  assert.match(html, /EclipseFocusNavigation\.nextFocusIndex\(geometry, index, direction\)/);
 });
 
 test('detail sample renders optional cast, gallery, episode metadata and recommendations', () => {

@@ -364,6 +364,7 @@
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+  <script src="eclipse-focus-navigation.js"></script>
   <script src="eclipse-detail-state.js"></script>
   <script>
     (function (w, d) {
@@ -1385,7 +1386,7 @@
             row: node.getAttribute('data-focus-row') || ''
           };
         });
-        var targetIndex = w.EclipseDetailState.nextFocusIndex(geometry, index, direction);
+        var targetIndex = w.EclipseFocusNavigation.nextFocusIndex(geometry, index, direction);
         var best = targetIndex >= 0 ? nodes[targetIndex] : null;
         if (best) {
           best.focus();
