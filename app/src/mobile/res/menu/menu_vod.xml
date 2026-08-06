@@ -45,7 +45,8 @@
             <item
                 android:id="@+id/download"
                 android:icon="@drawable/ic_action_download"
-                android:title="@string/download_list" />
+                android:title="@string/download_list"
+                app:iconTint="@color/white" />
 
             <item
                 android:id="@+id/sync"
