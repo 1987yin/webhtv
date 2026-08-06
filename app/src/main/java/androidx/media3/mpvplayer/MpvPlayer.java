@@ -2512,7 +2512,6 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
         cachedDurationMs = durationMs();
         updatePausePreloadCacheOverlay();
         if (currentLikelyHls) requestHlsPreload(cachedPositionMs);
-        refreshCacheState();
         invalidateState();
         startStateRefresh();
     }

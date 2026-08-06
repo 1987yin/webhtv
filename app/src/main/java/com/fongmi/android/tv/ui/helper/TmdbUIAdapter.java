@@ -39,9 +39,11 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 
@@ -998,16 +1000,17 @@ public class TmdbUIAdapter {
 
             List<TmdbEpisode> episodes = tmdbService.episodes(season, tmdbConfig, item.getTmdbId(), seasonNumber);
             if (episodes.isEmpty()) return false;
+            Map<Integer, TmdbEpisode> episodesByNumber = indexEpisodesByNumber(episodes);
 
             // 线路集号可靠时按显式集号匹配；出现重复、缺失或越界时按原始顺序匹配。
             boolean changed = false;
             for (Flag flag : vod.getFlags()) {
                 List<Episode> sourceEpisodes = flag.getEpisodes();
-                boolean usePosition = shouldUseEpisodePosition(sourceEpisodes, episodes);
+                boolean usePosition = shouldUseEpisodePosition(sourceEpisodes, episodesByNumber);
                 for (int index = 0; index < sourceEpisodes.size(); index++) {
                     Episode episode = sourceEpisodes.get(index);
                     int resolvedNumber = resolveEpisodeNumber(episode, index, usePosition);
-                    TmdbEpisode tmdbEp = findEpisodeByNumber(episodes, resolvedNumber);
+                    TmdbEpisode tmdbEp = episodesByNumber.get(resolvedNumber);
                     if (tmdbEp == null) continue;
                     // 验证匹配是否正确，避免无效集号误匹配
                     if (!TmdbEpisodeMatcher.shouldApply(episode, tmdbEp, resolvedNumber)) continue;
@@ -1032,12 +1035,26 @@ public class TmdbUIAdapter {
         }
     }
 
+    private static Map<Integer, TmdbEpisode> indexEpisodesByNumber(List<TmdbEpisode> episodes) {
+        Map<Integer, TmdbEpisode> indexed = new HashMap<>();
+        if (episodes == null) return indexed;
+        for (TmdbEpisode episode : episodes) {
+            if (episode != null && episode.getNumber() > 0) indexed.putIfAbsent(episode.getNumber(), episode);
+        }
+        return indexed;
+    }
+
     static boolean shouldUseEpisodePosition(List<Episode> sourceEpisodes, List<TmdbEpisode> tmdbEpisodes) {
+        if (tmdbEpisodes == null || tmdbEpisodes.isEmpty()) return false;
+        return shouldUseEpisodePosition(sourceEpisodes, indexEpisodesByNumber(tmdbEpisodes));
+    }
+
+    private static boolean shouldUseEpisodePosition(List<Episode> sourceEpisodes, Map<Integer, TmdbEpisode> tmdbEpisodes) {
         if (sourceEpisodes == null || sourceEpisodes.isEmpty() || tmdbEpisodes == null || tmdbEpisodes.isEmpty()) return false;
         Set<Integer> numbers = new HashSet<>();
         for (Episode episode : sourceEpisodes) {
             int number = episode == null ? -1 : episode.getNumber();
-            if (number <= 0 || !numbers.add(number) || findEpisodeByNumber(tmdbEpisodes, number) == null) return true;
+            if (number <= 0 || !numbers.add(number) || !tmdbEpisodes.containsKey(number)) return true;
         }
         return false;
     }
@@ -1059,13 +1076,6 @@ public class TmdbUIAdapter {
                 || current.getRuntime() != updated.getRuntime()
                 || current.getTmdbId() != updated.getTmdbId()
                 || current.getSeasonNumber() != updated.getSeasonNumber();
-    }
-
-    private static TmdbEpisode findEpisodeByNumber(List<TmdbEpisode> episodes, int number) {
-        for (TmdbEpisode ep : episodes) {
-            if (ep.getNumber() == number) return ep;
-        }
-        return null;
     }
 
     /**

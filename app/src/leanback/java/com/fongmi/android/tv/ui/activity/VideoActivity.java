@@ -2016,11 +2016,15 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void getDetail() {
+        getDetail(false);
+    }
+
+    private void getDetail(boolean refresh) {
         detailStartTime = System.currentTimeMillis();
         detailHealthRecorded = false;
-        SpiderDebug.log("video-flow", "detail start key=%s id=%s name=%s", getKey(), getId(), getName());
+        SpiderDebug.log("video-flow", "detail start key=%s id=%s name=%s refresh=%s", getKey(), getId(), getName(), refresh);
         prefetchDirectTmdbDetail();
-        mViewModel.detailContent(getKey(), getId());
+        mViewModel.detailContent(getKey(), getId(), refresh);
     }
 
     private void prefetchDirectTmdbDetail() {
@@ -4640,7 +4644,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onRefreshEvent(RefreshEvent event) {
         if (isRedirect()) return;
-        if (event.getType() == RefreshEvent.Type.DETAIL) getDetail();
+        if (event.getType() == RefreshEvent.Type.DETAIL) getDetail(true);
         else if (event.getType() == RefreshEvent.Type.PLAYER) onRefresh();
         else if (event.getType() == RefreshEvent.Type.VOD_CORE) {
             if (!isCurrentVodEvent(event.getVod())) {

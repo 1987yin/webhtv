@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import javax.xml.parsers.DocumentBuilderFactory;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class EpisodeAdapterTest {
@@ -186,6 +187,55 @@ public class EpisodeAdapterTest {
         assertTrue("programmatic detail labels must marquee while visible on mobile or active on TV",
                 detailActivity.contains("button.setSelected(!Util.isLeanback() || selected || focused);"));
     }
+
+    @Test
+    public void mobilePlaybackCompactsEpisodeTitlesOffMainThread() throws Exception {
+        String adapter = read(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "EpisodeAdapter.java")));
+        String activity = read(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")));
+        int spanStart = activity.indexOf("private int getEpisodeSpan(List<Episode> items, boolean useTmdbCard)");
+        int spanEnd = activity.indexOf("private List<Episode> getEpisodeDisplayItems", spanStart);
+
+        assertTrue("mobile playback must publish the list before background title work",
+                adapter.indexOf("mItems.addAll(snapshot);") < adapter.indexOf("Task.submit(() ->"));
+        assertTrue("mobile playback must compute and apply compact titles across a worker/UI boundary",
+                adapter.contains("EpisodeTitleCompact.computeRaw(rawNames, compact)")
+                        && adapter.contains("App.post(() -> finishTitleCompaction"));
+        assertTrue("VideoActivity must opt into asynchronous title compaction",
+                activity.contains("mEpisodeAdapter.setOnTitleReadyListener(this::onEpisodeTitlesReady);"));
+        assertTrue(spanStart >= 0 && spanEnd > spanStart);
+        assertFalse("episode span calculation must not synchronously compact the full list",
+                activity.substring(spanStart, spanEnd).contains("EpisodeTitleCompact.apply("));
+    }
+
+    @Test
+    public void mobilePlaybackCoalescesIdenticalTitleRequests() throws Exception {
+        String adapter = read(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "EpisodeAdapter.java")));
+        int requestStart = adapter.indexOf("private void requestTitleCompaction");
+        int finishStart = adapter.indexOf("private void finishTitleCompaction", requestStart);
+        String request = adapter.substring(requestStart, finishStart);
+
+        assertTrue("identical in-flight title work must be detected before another task is submitted",
+                request.contains("isPendingTitleRequest(snapshot, rawNames, compact)")
+                        && request.indexOf("isPendingTitleRequest(snapshot, rawNames, compact)") < request.indexOf("Task.submit(() ->"));
+    }
+
+    @Test
+    public void mobilePlaybackRefreshesTmdbMetadataWithoutRecompactingTitles() throws Exception {
+        String adapter = read(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "EpisodeAdapter.java")));
+        int refresh = adapter.indexOf("public void refreshMetadata(List<Episode> items)");
+        int next = adapter.indexOf("private void requestTitleCompaction", refresh);
+        String body = refresh >= 0 && next > refresh ? adapter.substring(refresh, next) : "";
+
+        assertTrue("TMDB metadata refresh must cancel stale background title work",
+                body.contains("invalidateTitleRequest();"));
+        assertTrue("TMDB metadata refresh should reuse the current page when its episode identities are unchanged",
+                body.contains("hasSameItems(snapshot)"));
+        assertTrue("metadata-only updates should rebind existing holders instead of replacing the whole adapter",
+                body.contains("notifyItemRangeChanged(0, getItemCount());"));
+        assertFalse("TMDB metadata refresh must not compact scraped titles again",
+                body.contains("EpisodeTitleCompact") || body.contains("Task.submit("));
+    }
+
 
     private static void assertMarquee(String owner, String layout, String id) throws Exception {
         Element element = findById(parseLayout(layout), id);
