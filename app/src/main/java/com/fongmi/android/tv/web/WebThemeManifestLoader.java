@@ -26,8 +26,22 @@ import okhttp3.ResponseBody;
 
 final class WebThemeManifestLoader {
 
-    private static final int MAX_CACHE_ENTRIES = 8;
+    static final int MAX_CACHE_ENTRIES = 8;
     private static final Map<String, WebThemeManifest> CACHE = new LinkedHashMap<>(8, 0.75f, true);
+    private static final PersistentCache NO_PERSISTENT_CACHE = new PersistentCache() {
+        @Override
+        public String read(String cacheKey) {
+            return null;
+        }
+
+        @Override
+        public void write(String cacheKey, String json) {
+        }
+
+        @Override
+        public void remove(String cacheKey) {
+        }
+    };
     private static final OkHttpClient CLIENT = new OkHttpClient.Builder()
             .followRedirects(false)
             .followSslRedirects(false)
@@ -58,6 +72,14 @@ final class WebThemeManifestLoader {
         String read() throws IOException;
     }
 
+    interface PersistentCache {
+        String read(String cacheKey) throws IOException;
+
+        void write(String cacheKey, String json) throws IOException;
+
+        void remove(String cacheKey);
+    }
+
     private WebThemeManifestLoader() {
     }
 
@@ -66,22 +88,39 @@ final class WebThemeManifestLoader {
     }
 
     static LoadResult loadResult(Context context, String url, String target, boolean force) throws IOException {
-        return load(url, target, force, () -> WebHomeTarget.canonicalThemeAsset(url).equals(WebHomeTarget.ECLIPSE_URL)
-                ? read(context.getAssets().open("webhome/theme.json"), WebThemeManifest.MAX_MANIFEST_BYTES)
-                : fetch(url));
+        String canonicalAsset = WebHomeTarget.canonicalThemeAsset(url);
+        ManifestSource source = WebHomeTarget.ECLIPSE_URL.equals(canonicalAsset)
+                ? () -> read(context.getAssets().open("webhome/theme.json"), WebThemeManifest.MAX_MANIFEST_BYTES)
+                : () -> fetch(url);
+        PersistentCache persistent = context != null && canonicalAsset.isEmpty()
+                ? WebThemeManifestDiskCache.create(context)
+                : NO_PERSISTENT_CACHE;
+        return load(url, target, force, source, persistent);
     }
 
     static LoadResult load(String url, String target, boolean force, ManifestSource source) throws IOException {
+        return load(url, target, force, source, NO_PERSISTENT_CACHE);
+    }
+
+    static LoadResult load(String url, String target, boolean force, ManifestSource source,
+            PersistentCache persistentCache) throws IOException {
+        PersistentCache persistent = persistentCache == null ? NO_PERSISTENT_CACHE : persistentCache;
         String cacheKey = cacheKey(url, target);
         WebThemeManifest cached = getCached(cacheKey);
         if (!force && cached != null) return new LoadResult(cached, CacheState.CACHE_HIT, null);
         try {
-            WebThemeManifest manifest = parse(url, target, source.read());
+            String json = source.read();
+            WebThemeManifest manifest = parse(url, target, json);
             putCached(cacheKey, manifest);
+            persistBestEffort(persistent, cacheKey, json);
             return new LoadResult(manifest, CacheState.REFRESHED, null);
         } catch (IOException failure) {
             WebThemeManifest fallback = getCached(cacheKey);
-            if (fallback != null) return new LoadResult(fallback, CacheState.LAST_KNOWN_GOOD, failure);
+            if (fallback == null) fallback = readPersistent(persistent, cacheKey, url, target);
+            if (fallback != null) {
+                putCached(cacheKey, fallback);
+                return new LoadResult(fallback, CacheState.LAST_KNOWN_GOOD, failure);
+            }
             throw failure;
         }
     }
@@ -109,6 +148,29 @@ final class WebThemeManifestLoader {
                 String eldest = CACHE.keySet().iterator().next();
                 CACHE.remove(eldest);
             }
+        }
+    }
+
+    private static void persistBestEffort(PersistentCache persistent, String cacheKey, String json) {
+        try {
+            persistent.write(cacheKey, json);
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static WebThemeManifest readPersistent(PersistentCache persistent, String cacheKey,
+            String url, String target) {
+        try {
+            String json = persistent.read(cacheKey);
+            if (json == null) return null;
+            if (json.isEmpty()) {
+                persistent.remove(cacheKey);
+                return null;
+            }
+            return parse(url, target, json);
+        } catch (IOException ignored) {
+            persistent.remove(cacheKey);
+            return null;
         }
     }
 
