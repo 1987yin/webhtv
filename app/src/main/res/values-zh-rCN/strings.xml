@@ -227,6 +227,7 @@
     <string name="group_rule_ai_current_interface">当前点播接口</string>
 
     <string name="setting_home_vod_auto_load">默认加载点播</string>
+    <string name="setting_home_site_lock">首页源锁定</string>
     <string name="setting_auto_backup">自动备份</string>
     <string name="setting_fullscreen_menu_key">全屏菜单键</string>
     <string name="setting_home_menu_key">首页菜单键</string>
@@ -541,6 +542,12 @@
     <string name="setting_web_home_theme_invalid_url">请输入 HTTPS WebHome 网址</string>
     <string name="setting_web_home_theme_remote_warning_title">信任这个远程主题吗？</string>
     <string name="setting_web_home_theme_remote_warning_message">来自 %1$s 的远程主题会运行网站代码，并可请求媒体库数据或触发获准的应用操作。仅在信任提供方时继续。</string>
+    <string name="setting_web_home_theme_recovery">版本恢复</string>
+    <string name="setting_web_home_theme_recovery_unavailable">暂无可恢复的主题版本</string>
+    <string name="setting_web_home_theme_rollback_message">回退到上一个已验证的主题版本？当前版本会保留，之后仍可重试。</string>
+    <string name="setting_web_home_theme_retry_message">重试已回退的主题版本？如果首次加载再次失败，将自动恢复稳定版本。</string>
+    <string name="setting_web_home_theme_recovery_success">主题版本已更新</string>
+    <string name="setting_web_home_theme_recovery_failed">无法更新主题版本</string>
     <string name="setting_web_home_fullscreen">WebHome 主页全屏</string>
     <string name="setting_csp_warmup">CSP预热</string>
     <string name="setting_csp_warmup_default">默认</string>
@@ -1724,6 +1731,7 @@
     <string name="detail_tmdb_match_title">匹配 TMDB 条目</string>
     <string name="detail_tmdb_rematch">TMDB</string>
     <string name="detail_tmdb_match_saved">已记录 TMDB 匹配</string>
+    <string name="detail_tmdb_current_match">当前匹配</string>
     <string name="detail_tmdb_searching">正在搜索 TMDB...</string>
     <string name="detail_tmdb_search_hint">搜索标题</string>
     <string name="detail_tmdb_search_action">搜索</string>

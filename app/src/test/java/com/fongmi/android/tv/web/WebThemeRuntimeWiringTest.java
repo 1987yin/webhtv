@@ -21,7 +21,7 @@ public class WebThemeRuntimeWiringTest {
         assertTrue(controller.contains("private final WebThemePageHost pageHost;"));
         assertTrue(controller.contains("private final WebThemeSession themeSession;"));
         assertTrue(controller.contains("private final Object themeStateLock = new Object();"));
-        assertTrue(controller.contains("manifestResolver.resolvePage(configured, page, force)"));
+        assertTrue(controller.contains("manifestResolver.resolvePageResult(configured, page, force)"));
         assertTrue(controller.contains("ThemeRuntimeSnapshot getThemeRuntimeSnapshot()"));
         assertTrue(localBridge.contains("HomeWebController.ThemeRuntimeSnapshot runtime = controller.getThemeRuntimeSnapshot()"));
         assertTrue(bridge.contains("HomeWebController.ThemeRuntimeSnapshot runtime = controller.getThemeRuntimeSnapshot()"));
@@ -84,6 +84,56 @@ public class WebThemeRuntimeWiringTest {
         assertTrue(snapshot.contains("synchronized (themeStateLock)"));
         assertTrue(snapshot.contains("pageHost.snapshot()"));
         assertTrue(snapshot.contains("themeSession.snapshot()"));
+    }
+
+    @Test
+    public void manifestAndDocumentLifecycleEmitStructuredRuntimeDiagnostics() throws Exception {
+        String controller = read("HomeWebController.java");
+
+        assertTrue(controller.contains("Event.MANIFEST_LOAD_STARTED"));
+        assertTrue(controller.contains("Event.MANIFEST_LOAD_RESOLVED"));
+        assertTrue(controller.contains("Event.MANIFEST_LOAD_IGNORED"));
+        assertTrue(controller.contains("Event.MANIFEST_LOAD_FAILED"));
+        assertTrue(controller.contains("Event.MANIFEST_CACHE_FALLBACK"));
+        assertTrue(controller.contains("Reason.LAST_KNOWN_GOOD"));
+        assertTrue(controller.contains("manifestResolver.resolvePageResult(configured, page, force)"));
+        assertTrue(controller.contains("Event.DOCUMENT_LOAD_STARTED"));
+        assertTrue(controller.contains("Event.DOCUMENT_READY"));
+        assertTrue(controller.contains("Event.DOCUMENT_RECOVERY"));
+        assertTrue(controller.contains("Reason.BRIDGE_UNAVAILABLE"));
+        assertTrue(controller.contains("Reason.LOAD_TIMEOUT"));
+        assertTrue(controller.contains("Reason.WEB_RESOURCE_ERROR"));
+        assertTrue(controller.contains("Reason.HTTP_ERROR"));
+        assertTrue(controller.contains("Reason.RENDER_PROCESS_GONE"));
+        assertFalse(controller.contains("manifest/page load failed"));
+    }
+
+    @Test
+    public void pendingManifestIsAcceptedOnlyAfterDocumentReadyAndRollsBackOnFirstLoadFailure()
+            throws Exception {
+        String controller = read("HomeWebController.java");
+        String pageFinished = section(controller, "public void onPageFinished", "public void onReceivedError");
+        String failure = section(controller, "private void handleMainFrameFailure", "private WebChromeClient chrome()");
+
+        assertTrue(controller.contains("record ManifestActivation"));
+        assertTrue(controller.contains("manifestResolver.rollbackPageResult("));
+        assertTrue(controller.contains("manifestResolver.accept("));
+        assertTrue(controller.contains("private boolean rollbackPendingManifest("));
+        assertTrue(pageFinished.contains("if (manifestRollbackInProgress) return;"));
+        assertTrue(pageFinished.contains("acceptManifestActivation(currentTarget);"));
+        assertTrue(failure.contains("rollbackPendingManifest(code)"));
+        assertTrue(controller.contains("Event.MANIFEST_ROLLBACK"));
+        assertTrue(controller.contains("Reason.ROLLBACK"));
+    }
+
+    @Test
+    public void consolePersistenceUsesSanitizedMetadataWhileDebugUiKeepsRawLine() throws Exception {
+        String controller = read("HomeWebController.java");
+        String console = section(controller, "private WebChromeClient chrome()", "private void injectSdk()");
+
+        assertTrue(console.contains("WebThemeRuntimeDiagnostics.logConsole("));
+        assertFalse(console.contains("SpiderDebug.log"));
+        assertTrue(console.contains("listener.onWebConsole(line);"));
     }
 
     @Test

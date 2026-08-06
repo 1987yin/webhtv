@@ -11,12 +11,17 @@ import android.widget.FrameLayout;
 
 import androidx.appcompat.app.AlertDialog;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.web.WebHomeTarget;
+import com.fongmi.android.tv.web.WebThemeManifestRollback;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+
+import java.io.IOException;
 
 public final class WebHomeThemeDialog {
 
@@ -33,7 +38,8 @@ public final class WebHomeThemeDialog {
                 activity.getString(R.string.setting_web_home_theme_eclipse),
                 activity.getString(R.string.setting_web_home_theme_custom)
         };
-        AlertDialog alert = new MaterialAlertDialogBuilder(activity, R.style.Theme_WebHTV_LightDialog)
+        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(
+                activity, R.style.Theme_WebHTV_LightDialog)
                 .setTitle(R.string.setting_web_home_theme)
                 .setNegativeButton(R.string.dialog_negative, null)
                 .setSingleChoiceItems(items, selectedMode(), (dialog, which) -> {
@@ -41,8 +47,12 @@ public final class WebHomeThemeDialog {
                     if (which == MODE_DISABLED) apply(false, null, onChanged);
                     else if (which == MODE_ECLIPSE) apply(true, WebHomeTarget.ECLIPSE_URL, onChanged);
                     else showCustomUrl(activity, onChanged);
-                })
-                .show();
+                });
+        if (canShowRecovery()) {
+            builder.setNeutralButton(R.string.setting_web_home_theme_recovery,
+                    (dialog, which) -> showRecovery(activity, onChanged));
+        }
+        AlertDialog alert = builder.show();
         LightDialog.apply(alert);
     }
 
@@ -58,6 +68,69 @@ public final class WebHomeThemeDialog {
     private static int selectedMode() {
         if (!Setting.isWebHomeThemeEnabled()) return MODE_DISABLED;
         return WebHomeTarget.ECLIPSE_URL.equals(Setting.getWebHomeThemeUrl()) ? MODE_ECLIPSE : MODE_CUSTOM;
+    }
+
+    private static boolean canShowRecovery() {
+        return Setting.isWebHomeThemeEnabled()
+                && WebThemeManifestRollback.supports(Setting.getWebHomeThemeUrl());
+    }
+
+    private static void showRecovery(Activity activity, Runnable onChanged) {
+        String url = Setting.getWebHomeThemeUrl();
+        Task.execute(() -> {
+            WebThemeManifestRollback.Action action = WebThemeManifestRollback.action(activity, url);
+            App.post(() -> {
+                if (!isAlive(activity) || !Setting.isWebHomeThemeEnabled()
+                        || !url.equals(Setting.getWebHomeThemeUrl())) return;
+                if (action == WebThemeManifestRollback.Action.NONE) {
+                    Notify.show(R.string.setting_web_home_theme_recovery_unavailable);
+                    return;
+                }
+                showRecoveryConfirmation(activity, url, action, onChanged);
+            });
+        });
+    }
+
+    private static void showRecoveryConfirmation(Activity activity, String url,
+            WebThemeManifestRollback.Action action, Runnable onChanged) {
+        int message = action == WebThemeManifestRollback.Action.ROLLBACK
+                ? R.string.setting_web_home_theme_rollback_message
+                : R.string.setting_web_home_theme_retry_message;
+        AlertDialog alert = new MaterialAlertDialogBuilder(activity, R.style.Theme_WebHTV_LightDialog)
+                .setTitle(R.string.setting_web_home_theme_recovery)
+                .setMessage(message)
+                .setNegativeButton(R.string.dialog_negative, null)
+                .setPositiveButton(R.string.dialog_positive,
+                        (dialog, which) -> applyRecovery(activity, url, action, onChanged))
+                .show();
+        LightDialog.apply(alert);
+    }
+
+    private static void applyRecovery(Activity activity, String url,
+            WebThemeManifestRollback.Action action, Runnable onChanged) {
+        Task.execute(() -> {
+            try {
+                boolean applied = WebThemeManifestRollback.apply(activity, url, action);
+                App.post(() -> {
+                    if (!isAlive(activity)) return;
+                    if (!applied) {
+                        Notify.show(R.string.setting_web_home_theme_recovery_unavailable);
+                        return;
+                    }
+                    Notify.show(R.string.setting_web_home_theme_recovery_success);
+                    if (onChanged != null) onChanged.run();
+                    RefreshEvent.home();
+                });
+            } catch (IOException e) {
+                App.post(() -> {
+                    if (isAlive(activity)) Notify.show(R.string.setting_web_home_theme_recovery_failed);
+                });
+            }
+        });
+    }
+
+    private static boolean isAlive(Activity activity) {
+        return !activity.isFinishing() && !activity.isDestroyed();
     }
 
     private static void showCustomUrl(Activity activity, Runnable onChanged) {

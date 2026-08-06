@@ -518,6 +518,12 @@
     <string name="setting_web_home_theme_invalid_url">請輸入 HTTPS WebHome 網址</string>
     <string name="setting_web_home_theme_remote_warning_title">信任這個遠端主題嗎？</string>
     <string name="setting_web_home_theme_remote_warning_message">來自 %1$s 的遠端主題會執行網站程式碼，並可要求媒體庫資料或觸發獲准的應用程式操作。僅在信任提供者時繼續。</string>
+    <string name="setting_web_home_theme_recovery">版本復原</string>
+    <string name="setting_web_home_theme_recovery_unavailable">目前沒有可復原的主題版本</string>
+    <string name="setting_web_home_theme_rollback_message">回退到上一個已驗證的主題版本？目前版本會保留，之後仍可重試。</string>
+    <string name="setting_web_home_theme_retry_message">重試已回退的主題版本？若首次載入再次失敗，將自動復原穩定版本。</string>
+    <string name="setting_web_home_theme_recovery_success">主題版本已更新</string>
+    <string name="setting_web_home_theme_recovery_failed">無法更新主題版本</string>
     <string name="setting_web_home_fullscreen">WebHome 主頁全屏</string>
     <string name="setting_csp_warmup">CSP預熱</string>
     <string name="setting_csp_warmup_default">預設</string>
@@ -1609,6 +1615,7 @@
     <string name="detail_tmdb_match_title">匹配 TMDB 條目</string>
     <string name="detail_tmdb_rematch">TMDB</string>
     <string name="detail_tmdb_match_saved">已記錄 TMDB 匹配</string>
+    <string name="detail_tmdb_current_match">目前匹配</string>
     <string name="detail_tmdb_searching">正在搜尋 TMDB...</string>
     <string name="detail_tmdb_search_hint">搜尋標題</string>
     <string name="detail_tmdb_search_action">搜尋</string>
@@ -2195,6 +2202,7 @@
     <!-- Auto-generated missing translations -->
     <string name="live_no_epg">00:00 - 23:59 暫無節目信息</string>
     <string name="setting_home_vod_auto_load">默認加載點播</string>
+    <string name="setting_home_site_lock">首頁源鎖定</string>
     <string name="setting_auto_backup">自動備份</string>
     <string name="setting_fullscreen_menu_key">全屏菜單鍵</string>
     <string name="setting_home_menu_key">首頁菜單鍵</string>
