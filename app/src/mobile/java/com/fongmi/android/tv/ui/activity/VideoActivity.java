@@ -15,6 +15,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Parcelable;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.text.style.ClickableSpan;
@@ -159,7 +160,6 @@ import com.fongmi.android.tv.ui.player.VodPlayerUiHost;
 import com.fongmi.android.tv.utils.ActivityLaunch;
 import com.fongmi.android.tv.utils.AudioUtil;
 import com.fongmi.android.tv.utils.Clock;
-import com.fongmi.android.tv.utils.EpisodeTitleCompact;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.DownloadManager;
@@ -1263,12 +1263,7 @@ private int mAudioBackgroundRandomNonce;
         initTmdbMode();
         setShortDisplay();
         if (hasInitialPreview()) showInitialPreview();
-        else {
-            android.util.Log.d("VideoActivity", "onCreate - 调用 showProgress()");
-            mBinding.progressLayout.showProgress();
-        }
-        mBinding.progressLayout.showProgress();
-        showProgress();
+        else mBinding.progressLayout.showProgress();
         setAnimator();
         initNightModeOverlay();
         if (isShortDramaSource()) enterShortDramaFullscreen();
@@ -1469,6 +1464,7 @@ private int mAudioBackgroundRandomNonce;
         mBinding.episode.setLayoutManager(new GridLayoutManager(this, mEpisodeSpanCount));
         mBinding.episode.addItemDecoration(mEpisodeDecoration = new SpaceItemDecoration(mEpisodeSpanCount, 8));
         mBinding.episode.setAdapter(mEpisodeAdapter = new EpisodeAdapter(this, ViewType.GRID));
+        mEpisodeAdapter.setOnTitleReadyListener(this::onEpisodeTitlesReady);
         installEpisodeLongPressFallback();
         mBinding.episode.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
@@ -1789,16 +1785,17 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private void getDetail() {
+        getDetail(false);
+    }
+
+    private void getDetail(boolean refresh) {
         detailStartTime = System.currentTimeMillis();
         detailHealthRecorded = false;
         cancelTmdbDetailFallback();
-        SpiderDebug.log("video-flow", "detail start key=%s id=%s name=%s", getKey(), getId(), getName());
-
-        // 显示加载指示器
+        SpiderDebug.log("video-flow", "detail start key=%s id=%s name=%s refresh=%s", getKey(), getId(), getName(), refresh);
         mBinding.progressLayout.showProgress();
-
         prefetchDirectTmdbDetail();
-        mViewModel.detailContent(getKey(), getId());
+        mViewModel.detailContent(getKey(), getId(), refresh);
     }
 
     private void prefetchDirectTmdbDetail() {
@@ -1886,7 +1883,6 @@ private int mAudioBackgroundRandomNonce;
             mBinding.quick.setVisibility(View.GONE);
             mBinding.search.setVisibility(View.GONE);
             if (mBinding.videoShadow != null) mBinding.videoShadow.setVisibility(View.GONE);
-            mBinding.progressLayout.showProgress();
             scheduleTmdbDetailFallback();
         } else {
             cancelTmdbDetailFallback();
@@ -1899,21 +1895,17 @@ private int mAudioBackgroundRandomNonce;
             mBinding.progressLayout.showContent();
         }
 
-        // 显示内容容器（默认隐藏以显示加载指示器）
+        // 源站详情一旦可用就先显示当前集数页；TMDB 头部在富集完成后增量出现。
         ViewGroup scrollContainer = (ViewGroup) mBinding.scroll.getChildAt(0);
-        scrollContainer.setVisibility(tmdbMode ? View.GONE : View.VISIBLE);
+        scrollContainer.setVisibility(View.VISIBLE);
 
         // TMDB 集数处理：排序和应用标题
         if (isIntentTmdbPlayback()) com.fongmi.android.tv.utils.TmdbEpisodeSorter.sort(item);
         applyTmdbEpisodeTitles(item);
 
-        // TMDB 模式下隐藏原生标题
-        if (tmdbMode) {
-            mBinding.name.setVisibility(View.GONE);
-        } else {
-            mBinding.name.setText(item.getName());
-            mBinding.name.setVisibility(View.VISIBLE);
-        }
+        // TMDB 富集完成前保留源站标题，避免详情页只剩全屏转圈。
+        mBinding.name.setText(item.getName());
+        mBinding.name.setVisibility(View.VISIBLE);
         mFlagAdapter.addAll(item.getFlags());
         App.removeCallbacks(mR4);
         if (!checkHistory(item)) return;
@@ -1922,8 +1914,12 @@ private int mAudioBackgroundRandomNonce;
         updateTmdbKeepState();
         setText(item);
         updateKeep();
-        if (tmdbMode) hideNativePersonalRecommendations();
-        else loadNativePersonalRecommendations(item);
+        if (tmdbMode) {
+            hideNativePersonalRecommendations();
+            showDetailContent();
+        } else {
+            loadNativePersonalRecommendations(item);
+        }
 
         // TMDB 增强：全局开关启用或 Intent 传入 TmdbItem 时触发
         if (shouldLoadTmdbDetail()) {
@@ -2237,10 +2233,10 @@ private int mAudioBackgroundRandomNonce;
         SpiderDebug.log("playback-action", "flag switch ui=mobile site=%s from=%s to=%s fullscreen=%s", getKey(), previous == null ? "" : previous.getFlag(), item.getFlag(), isFullscreen());
         mFlagAdapter.setSelected(item);
         scrollToPosition(mBinding.flag, mFlagAdapter.getPosition());
-        setEpisodeAdapter(item.getEpisodes());
+        boolean episodeChanged = seamless(item);
+        if (!episodeChanged) setEpisodeAdapter(item.getEpisodes());
         scrollEpisodeToSelected();
         setQualityVisible(false);
-        seamless(item);
     }
 
     @Override
@@ -2323,11 +2319,11 @@ private int mAudioBackgroundRandomNonce;
         }
         mBinding.episode.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
         mBinding.more.setVisibility(View.GONE);
-        int maxGroupSize = useTmdbCard ? EpisodeRangePolicy.CARD_PAGE_MAX_SIZE : 0;
+        int maxGroupSize = shouldUseTmdbDetailLayout() ? EpisodeRangePolicy.CARD_PAGE_MAX_SIZE : 0;
         List<EpisodeGroupAdapter.Group> groups = EpisodeGroupAdapter.build(size, getSelectedEpisodePosition(items), mHistory != null && mHistory.isRevSort(), maxGroupSize);
         mEpisodeGroupAdapter.addAll(groups);
         updateEpisodeGroupVisibility();
-        setEpisodeItems(items);
+        setEpisodeItems(items, useTmdbCard);
         mBinding.episode.post(this::updateEpisodeViewportHeight);
     }
 
@@ -2347,7 +2343,7 @@ private int mAudioBackgroundRandomNonce;
         List<EpisodeGroupAdapter.Group> groups = EpisodeGroupAdapter.build(size, getSelectedEpisodePosition(items), mHistory != null && mHistory.isRevSort());
         mEpisodeGroupAdapter.addAll(groups);
         mBinding.episodeGroup.setVisibility(groups.size() > 1 ? View.VISIBLE : View.GONE);
-        setEpisodeItems(items);
+        setEpisodeItems(items, false);
         mBinding.episode.post(this::updateEpisodeViewportHeight);
     }
 
@@ -2408,14 +2404,17 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private void setEpisodeItems(List<Episode> items) {
-        boolean useTmdbCard = shouldUseTmdbEpisodeCards(items);
+        setEpisodeItems(items, shouldUseTmdbEpisodeCards(items));
+    }
+
+    private void setEpisodeItems(List<Episode> items, boolean useTmdbCard) {
         List<Episode> displayItems = getEpisodeDisplayItems(items);
         if (!useTmdbCard) mEpisodeGridMode = true;
         updateEpisodeFallbackStillUrl();
         mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
         mEpisodeAdapter.setViewType(useTmdbCard && !mEpisodeGridMode ? ViewType.HORI : ViewType.GRID);
-        updateEpisodeLayout(displayItems, useTmdbCard);
         mEpisodeAdapter.addAll(displayItems);
+        updateEpisodeLayout(displayItems, useTmdbCard);
         if (shouldUseEpisodeRangePaging(items)) scrollToPosition(mBinding.episodeGroup, mEpisodeGroupAdapter.getPosition());
         else selectEpisodeGroupByPosition(mEpisodeAdapter.getPosition());
         updateEpisodeViewModeButton();
@@ -2455,7 +2454,6 @@ private int mAudioBackgroundRandomNonce;
 
     private int getEpisodeSpan(List<Episode> items, boolean useTmdbCard) {
         if (useTmdbCard) return getEpisodeGridSpanCount();
-        EpisodeTitleCompact.apply(items);
         if (items.size() == 1) return 1;
         int maxLen = 0;
         for (Episode item : items) maxLen = Math.max(maxLen, item.getDisplayName().length());
@@ -2502,13 +2500,14 @@ private int mAudioBackgroundRandomNonce;
         return mFlagAdapter == null || mFlagAdapter.isEmpty() ? mEpisodeAdapter.getItemCount() : getFlag().getEpisodes().size();
     }
 
-    private void seamless(Flag flag) {
+    private boolean seamless(Flag flag) {
         Episode episode = getMark().isEmpty() ? flag.find(mHistory.getEpisode(), true) : flag.find(mHistory.getVodRemarks(), false);
         setQualityVisible(episode != null && episode.isSelected() && mQualityAdapter.getItemCount() > 1);
-        if (episode == null || episode.isSelected()) return;
+        if (episode == null || episode.isSelected()) return false;
         mHistory.setVodRemarks(getHistoryEpisodeName(episode));
         mHistory.setEpisodeUrl(episode.getUrl());
         onItemClick(episode);
+        return true;
     }
 
     private void setQualityVisible(boolean visible) {
@@ -2672,6 +2671,7 @@ private int mAudioBackgroundRandomNonce;
             android.util.Log.d("VideoActivity", "First episode tmdbEpisode=" + (items.isEmpty() ? "empty" : (items.get(0).getTmdbEpisode() != null ? "not null" : "null")));
             int viewType = useTmdbCard && !mEpisodeGridMode ? ViewType.HORI : ViewType.GRID;
             mEpisodeAdapter = new EpisodeAdapter(this, viewType, items);
+            mEpisodeAdapter.setOnTitleReadyListener(this::onEpisodeTitlesReady);
             mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
             updateEpisodeFallbackStillUrl();
             mBinding.episode.setAdapter(mEpisodeAdapter);
@@ -4343,8 +4343,8 @@ private int mAudioBackgroundRandomNonce;
 
         if (mSeekProgressFallback != null) App.removeCallbacks(mSeekProgressFallback);
         mBinding.progress.getRoot().setVisibility(View.VISIBLE);
-        if (shouldLoadTmdbDetail() && !mTmdbContentLoaded) mBinding.progressLayout.showProgress();
-        else if (!mBinding.progressLayout.isContent()) mBinding.progressLayout.hideContent();
+        if (mVod == null && shouldLoadTmdbDetail() && !mTmdbContentLoaded) mBinding.progressLayout.showProgress();
+        else if (mVod != null && !mBinding.progressLayout.isContent()) mBinding.progressLayout.showContent();
         App.post(mR2, 0);
         hideError();
     }
@@ -4375,6 +4375,7 @@ private int mAudioBackgroundRandomNonce;
             mTmdbHeaderView.hideNativeHeroBackdrop();
         }
         mTmdbContentLoaded = true;
+        mBinding.name.setVisibility(View.GONE);
         if (mVod != null) setText(mVod);
         showDetailContent();
     }
@@ -4755,7 +4756,7 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private boolean canRevealPlaybackContent() {
-        return !shouldWaitForTmdbDetailReveal();
+        return mVod != null || !shouldWaitForTmdbDetailReveal();
     }
 
     private void showInitialPreview() {
@@ -4952,7 +4953,7 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private void updateVod(Vod item) {
-        mSourceEpisodeSeasonCache.clear();
+        if (mVod != item) mSourceEpisodeSeasonCache.clear();
         mVod = item;
         boolean id = !item.getId().isEmpty();
         boolean pic = !item.getPic().isEmpty();
@@ -5021,6 +5022,64 @@ private int mAudioBackgroundRandomNonce;
         refreshLyrics();
     }
 
+
+    private void refreshTmdbRecommendations() {
+        if (mTmdbHeaderView == null || mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
+        mTmdbHeaderView.refreshRecommendations();
+    }
+
+    private void refreshTmdbPersonalRecommendations() {
+        if (mTmdbHeaderView == null || mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
+        mTmdbHeaderView.refreshPersonalRecommendationRows();
+    }
+
+    private void refreshTmdbEpisodeTitles() {
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
+        mSourceEpisodeSeasonCache.clear();
+        updateEpisodeSeasonContext();
+        if (mTmdbHeaderView != null) mTmdbHeaderView.refreshEpisodeMetadata();
+        if (mEpisodeAdapter == null || mEpisodeGroupAdapter == null || mFlagAdapter == null || mFlagAdapter.isEmpty()) return;
+        Flag flag = getFlag();
+        if (flag == null) return;
+        List<Episode> items = flag.getEpisodes();
+        int size = items.size();
+        boolean useTmdbCard = shouldUseTmdbEpisodeCards(items);
+        boolean showViewMode = useTmdbCard && size > 1;
+        if (showViewMode) mEpisodeGridMode = Setting.getTmdbEpisodeGridMode();
+        if (!showViewMode) mEpisodeGridMode = true;
+        mBinding.control.action.episodes.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
+        mBinding.control.action.next.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
+        mBinding.control.action.prev.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
+        applyActionButtonVisibility();
+        mBinding.control.next.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
+        mBinding.control.prev.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
+        mBinding.reverse.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
+        if (mBinding.episodeViewMode != null) mBinding.episodeViewMode.setVisibility(showViewMode ? View.VISIBLE : View.GONE);
+        if (mBinding.episodeFileName != null) mBinding.episodeFileName.setVisibility(showViewMode ? View.VISIBLE : View.GONE);
+        mBinding.episode.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
+        mBinding.more.setVisibility(View.GONE);
+        int maxGroupSize = shouldUseTmdbDetailLayout() ? EpisodeRangePolicy.CARD_PAGE_MAX_SIZE : 0;
+        List<EpisodeGroupAdapter.Group> groups = EpisodeGroupAdapter.build(size, getSelectedEpisodePosition(items), mHistory != null && mHistory.isRevSort(), maxGroupSize);
+        mEpisodeGroupAdapter.addAll(groups);
+        updateEpisodeGroupVisibility();
+        List<Episode> displayItems = getEpisodeDisplayItems(items);
+        updateEpisodeFallbackStillUrl();
+        mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
+        mEpisodeAdapter.setViewType(useTmdbCard && !mEpisodeGridMode ? ViewType.HORI : ViewType.GRID);
+        mEpisodeAdapter.refreshMetadata(displayItems);
+        updateEpisodeLayout(displayItems, useTmdbCard);
+        if (shouldUseEpisodeRangePaging(items)) scrollToPosition(mBinding.episodeGroup, mEpisodeGroupAdapter.getPosition());
+        else selectEpisodeGroupByPosition(mEpisodeAdapter.getPosition());
+        updateEpisodeViewModeButton();
+        updateEpisodeFileNameButton();
+        boolean episodeTitleChanged = refreshCurrentHistoryEpisodeTitle();
+        mBinding.control.title.setText(getPlaybackControlTitle());
+        if (episodeTitleChanged) syncHistory();
+        if (mHistory != null) PlaybackEventCollector.get().updateHistory(mHistory);
+        scrollEpisodeToSelected();
+        mBinding.episode.post(this::updateEpisodeViewportHeight);
+    }
+
     private String getHistoryEpisodeName(Episode episode) {
         return EpisodeHistoryTitleResolver.resolve(
                 episode,
@@ -5080,6 +5139,7 @@ private int mAudioBackgroundRandomNonce;
     private void updateFlag(Flag activated, List<Flag> items) {
         items.forEach(item -> mFlagAdapter.getItems().stream()
                 .filter(item::equals).findFirst().ifPresentOrElse(target -> {
+                    if (target == item || target.getEpisodes() == item.getEpisodes()) return;
                     target.mergeEpisodes(item.getEpisodes(), mHistory.isRevSort());
                     if (target.equals(activated)) setEpisodeAdapter(target.getEpisodes());
                 }, () -> mFlagAdapter.add(item)));
@@ -6439,17 +6499,26 @@ private int mAudioBackgroundRandomNonce;
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onRefreshEvent(RefreshEvent event) {
         if (isRedirect()) return;
-        if (event.getType() == RefreshEvent.Type.DETAIL) getDetail();
+        if (event.getType() == RefreshEvent.Type.DETAIL) getDetail(true);
         else if (event.getType() == RefreshEvent.Type.PLAYER) onRefresh();
-        else if (event.getType() == RefreshEvent.Type.VOD_CORE ||
-                 event.getType() == RefreshEvent.Type.VOD_RECOMMENDATIONS ||
-                 event.getType() == RefreshEvent.Type.VOD_PERSONAL ||
-                 event.getType() == RefreshEvent.Type.VOD_EPISODE_TITLES) {
+        else if (event.getType() == RefreshEvent.Type.VOD_CORE) {
             if (!isCurrentVodEvent(event.getVod())) {
                 SpiderDebug.log("tmdb-mobile", "drop stale vod event current=%s/%s event=%s/%s", getKey(), getId(), event.getVod() == null ? "" : event.getVod().getSiteKey(), event.getVod() == null ? "" : event.getVod().getId());
                 return;
             }
             updateVod(event.getVod());
+        }
+        else if (event.getType() == RefreshEvent.Type.VOD_RECOMMENDATIONS) {
+            if (!isCurrentVodEvent(event.getVod())) return;
+            refreshTmdbRecommendations();
+        }
+        else if (event.getType() == RefreshEvent.Type.VOD_PERSONAL) {
+            if (!isCurrentVodEvent(event.getVod())) return;
+            refreshTmdbPersonalRecommendations();
+        }
+        else if (event.getType() == RefreshEvent.Type.VOD_EPISODE_TITLES) {
+            if (!isCurrentVodEvent(event.getVod())) return;
+            refreshTmdbEpisodeTitles();
         }
         else if (event.getType() == RefreshEvent.Type.HISTORY) refreshPersonalRecommendationsForHistory();
         else if (event.getType() == RefreshEvent.Type.SUBTITLE) player().setSub(Sub.from(event.getPath()));
@@ -7137,6 +7206,8 @@ private int mAudioBackgroundRandomNonce;
         restoreDefaultVideoLayout();
         setNativeDetailInfoVisible(true);
         setOriginalEnhancedActionVisibility(false);
+        mBinding.name.setText(item.getName());
+        mBinding.name.setVisibility(View.VISIBLE);
         mBinding.search.setVisibility(View.VISIBLE);
         if (mBinding.videoShadow != null) mBinding.videoShadow.setVisibility(View.VISIBLE);
         setText(item);
@@ -7707,12 +7778,21 @@ private int mAudioBackgroundRandomNonce;
         refreshEpisodeTitles();
     }
 
+    private void onEpisodeTitlesReady() {
+        if (isFinishing() || isDestroyed() || mEpisodeAdapter == null || mEpisodeAdapter.isEmpty()) return;
+        RecyclerView.LayoutManager previous = mBinding.episode.getLayoutManager();
+        Parcelable state = previous == null ? null : previous.onSaveInstanceState();
+        updateEpisodeLayout(mEpisodeAdapter.getItems(), mEpisodeAdapter.isUsingTmdbCard());
+        RecyclerView.LayoutManager current = mBinding.episode.getLayoutManager();
+        if (state != null && current != null) current.onRestoreInstanceState(state);
+        mBinding.episode.post(this::updateEpisodeViewportHeight);
+    }
+
     private void refreshEpisodeTitles() {
         updateEpisodeSeasonContext();
         if (mEpisodeAdapter == null) return;
         if ((mFlagAdapter == null || mFlagAdapter.isEmpty()) && !shouldUseEpisodeRangePaging(getCurrentEpisodeItems())) {
-            updateEpisodeLayout(mEpisodeAdapter.getItems());
-            mEpisodeAdapter.notifyItemRangeChanged(0, mEpisodeAdapter.getItemCount());
+            mEpisodeAdapter.refreshTitles();
         } else {
             setEpisodeItems(getCurrentEpisodeItems());
         }
