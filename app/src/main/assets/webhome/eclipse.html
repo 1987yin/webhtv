@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="theme-color" content="#080b15">
   <title>Eclipse · WebHome</title>
   <script>
@@ -37,6 +37,14 @@
     }(window, document));
   </script>
   <style>
+    :root {
+      --eclipse-safe-top: var(--fm-safe-top, 0px);
+      --eclipse-active-safe-top: 0px;
+    }
+    @supports (top: max(0px, 1px)) {
+      :root { --eclipse-safe-top: max(var(--fm-safe-top, 0px), env(safe-area-inset-top, 0px)); }
+    }
+    html.safe-top-active { --eclipse-active-safe-top: var(--eclipse-safe-top); }
     * { box-sizing: border-box; }
     html, body { min-height: 100%; margin: 0; }
     body {
@@ -61,7 +69,10 @@
     body:after { right: -22vw; top: 18vh; background: #00d8ff; box-shadow: 0 0 150px #00d8ff; }
     button, input { font: inherit; }
     button { color: inherit; }
-    .shell { width: 100%; max-width: 1680px; margin: 0 auto; padding: 24px 42px 56px; }
+    .shell {
+      width: 100%; max-width: 1680px; margin: 0 auto; padding: 24px 42px 56px;
+      padding-top: calc(24px + var(--eclipse-active-safe-top, 0px));
+    }
     .topbar {
       display: flex;
       align-items: center;
@@ -175,7 +186,7 @@
     .poster {
       position: relative; display: block; width: 100%; height: 0; padding-top: 140%; overflow: hidden;
       border: 2px solid transparent; border-radius: 14px; background: #151b31;
-      box-shadow: 0 10px 25px rgba(0,0,0,.22); transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
+      box-shadow: 0 10px 25px rgba(0,0,0,.22);
     }
     .poster img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; background: #161c31; }
     .poster:after { position: absolute; left: 0; right: 0; bottom: 0; height: 42%; background: linear-gradient(transparent, rgba(6,8,17,.74)); content: ""; }
@@ -196,15 +207,18 @@
     }
     .toast.show { opacity: 1; transform: translate(-50%, 0); }
     button:focus, input:focus { outline: 0; }
-    .card-button:focus .poster, .tab:focus, .filter-chip:focus, .source-pill:focus, .top-action:focus, .search button:focus {
+    .tab:focus, .filter-chip:focus, .source-pill:focus, .top-action:focus, .search button:focus {
       border-color: #fff; box-shadow: 0 0 0 3px #785fff, 0 0 26px rgba(85, 225, 255, .5);
     }
-    .card-button:focus .poster { transform: scale(1.055); }
+    .card-button:focus .poster {
+      border-color: #fff;
+      box-shadow: 0 0 0 3px #785fff;
+    }
     .search input:focus { border-color: #67e8ff; box-shadow: inset 0 0 0 1px #67e8ff, 0 0 18px rgba(80,220,255,.2); }
     .noscript { margin: 30px; padding: 20px; border: 1px solid #5d4665; border-radius: 12px; background: #211425; }
     @media (max-width: 1200px) { .card { width: 20%; } .hero-copy { width: 64%; } .hero-art { width: 36%; } }
     @media (max-width: 900px) {
-      .shell { padding: 18px 22px 45px; }
+      .shell { padding: 18px 22px 45px; padding-top: calc(18px + var(--eclipse-active-safe-top, 0px)); }
       .topbar { flex-wrap: wrap; }
       .source-pill { max-width: 180px; }
       .search { order: 4; width: 100%; margin: 12px 0 0; }
@@ -215,13 +229,21 @@
     }
     @media (max-width: 640px) {
       body { font-size: 14px; }
-      .shell { padding: 14px 12px 38px; }
-      .topbar { margin-bottom: 14px; }
-      .brand { margin-right: 10px; }
+      .shell { padding: 14px 12px 38px; padding-top: calc(14px + var(--eclipse-active-safe-top, 0px)); }
+      .topbar {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 10px;
+        min-height: 0;
+        margin-bottom: 14px;
+      }
+      .brand { grid-column: 1 / 3; grid-row: 1; min-width: 0; margin-right: 0; }
       .brand-mark { width: 36px; height: 36px; }
       .brand strong { font-size: 17px; }
-      .source-pill { max-width: 120px; margin-right: auto; }
-      .top-action { height: 38px; padding: 0 11px; font-size: 12px; }
+      .source-pill { grid-column: 3; grid-row: 1; width: 34vw; max-width: 120px; margin: 0; justify-self: end; }
+      .search { grid-column: 2 / 4; grid-row: 2; width: 100%; min-width: 0; margin: 0; order: 0; }
+      #libraryButton { grid-column: 1; grid-row: 2; margin-left: 0; }
+      .top-action { height: 42px; padding: 0 11px; font-size: 12px; }
       .top-action.settings-action { display: none; }
       .hero { min-height: 218px; border-radius: 18px; }
       .hero-copy { width: 74%; padding: 25px 21px; }
@@ -332,7 +354,9 @@
         generation: 0,
         focusKey: '',
         toastTimer: 0,
-        autoPageTimer: 0
+        autoPageTimer: 0,
+        safeChromeMode: '',
+        systemBarsHidden: false
       };
 
       var sampleTitles = [
@@ -348,6 +372,59 @@
       function setText(id, value) { var el = byId(id); if (el) el.textContent = text(value); }
       function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
       function listen(el, name, fn) { if (el) el.addEventListener(name, fn, false); }
+
+      function readRootPixel(name) {
+        var value = '';
+        var number;
+        try { value = w.getComputedStyle(d.documentElement).getPropertyValue(name); } catch (ignore) {}
+        number = parseFloat(value || '0');
+        return isNaN(number) ? 0 : number;
+      }
+
+      function shouldUseTopSafeArea(detail) {
+        var mode;
+        var hidden;
+        var safeTop;
+        var statusBarHeight;
+        detail = detail || {};
+        mode = text(detail.chromeMode || state.safeChromeMode).toLowerCase();
+        hidden = typeof detail.systemBarsHidden === 'undefined' ? state.systemBarsHidden : !!detail.systemBarsHidden;
+        safeTop = Number(detail.safeTop);
+        statusBarHeight = Number(detail.statusBarHeight);
+        if (isNaN(safeTop)) safeTop = readRootPixel('--fm-safe-top');
+        if (isNaN(statusBarHeight)) statusBarHeight = readRootPixel('--fm-status-bar-height');
+        if (hidden && safeTop <= 0 && statusBarHeight <= 0) return false;
+        return (mode === 'edge' || mode === 'immersive') && (safeTop > 0 || statusBarHeight > 0);
+      }
+
+      function updateSafeAreaMode(detail) {
+        detail = detail || {};
+        if (detail.chromeMode) state.safeChromeMode = text(detail.chromeMode).toLowerCase();
+        if (typeof detail.systemBarsHidden !== 'undefined') state.systemBarsHidden = !!detail.systemBarsHidden;
+        if (shouldUseTopSafeArea(detail)) d.documentElement.classList.add('safe-top-active');
+        else d.documentElement.classList.remove('safe-top-active');
+      }
+
+      function refreshSafeAreaMode() {
+        var result;
+        if (w.__fmViewport) {
+          updateSafeAreaMode(w.__fmViewport);
+          return;
+        }
+        if (!w.fm || !w.fm.ui || typeof w.fm.ui.getViewport !== 'function') {
+          updateSafeAreaMode({});
+          return;
+        }
+        try {
+          result = w.fm.ui.getViewport();
+          if (result && typeof result.then === 'function') {
+            result.then(function (detail) { updateSafeAreaMode(detail || {}); }, function () { updateSafeAreaMode({}); });
+          } else updateSafeAreaMode(result || {});
+        } catch (ignore) {
+          updateSafeAreaMode({});
+        }
+      }
+
       function focusId(prefix, value) { return prefix + '-' + text(value).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48); }
 
       function posterData(title, index) {
@@ -853,15 +930,23 @@
         } else toast(fallbackMessage);
       }
 
-      function getFocusable() {
+      function getFocusableSnapshot() {
         var nodes = d.querySelectorAll('[data-focus]');
         var list = [];
+        var rects = [];
         var i;
         for (i = 0; i < nodes.length; i += 1) {
           var rect = nodes[i].getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0 && !nodes[i].disabled) list.push(nodes[i]);
+          if (rect.width > 0 && rect.height > 0 && !nodes[i].disabled) {
+            list.push(nodes[i]);
+            rects.push(rect);
+          }
         }
-        return list;
+        return { list: list, rects: rects };
+      }
+
+      function getFocusable() {
+        return getFocusableSnapshot().list;
       }
 
       function rememberFocus(event) {
@@ -892,15 +977,15 @@
         }, 20);
       }
 
-      function reveal(element) {
-        var rect = element.getBoundingClientRect();
+      function reveal(element, cachedRect) {
+        var rect = cachedRect || element.getBoundingClientRect();
         var topGuard = 70;
         var bottomGuard = w.innerHeight - 55;
         if (rect.top < topGuard) w.scrollTo(0, w.pageYOffset + rect.top - topGuard > 0 ? w.pageYOffset + rect.top - topGuard : 0);
         else if (rect.bottom > bottomGuard) w.scrollTo(0, w.pageYOffset + rect.bottom - bottomGuard);
       }
 
-      function moveFocusInRow(list, current, direction) {
+      function moveFocusInRow(list, rects, current, direction) {
         var row = current && current.getAttribute ? current.getAttribute('data-focus-row') : '';
         var items = [];
         var currentIndex = -1;
@@ -908,7 +993,7 @@
         var i;
         if ((direction !== 'left' && direction !== 'right') || !row || !w.EclipseFocusNavigation) return false;
         for (i = 0; i < list.length; i += 1) {
-          var rect = list[i].getBoundingClientRect();
+          var rect = rects[i];
           items.push({
             row: list[i].getAttribute('data-focus-row') || '',
             x: rect.left + rect.width / 2
@@ -918,28 +1003,32 @@
         targetIndex = w.EclipseFocusNavigation.findHorizontalTarget(items, currentIndex, direction);
         if (targetIndex >= 0) {
           list[targetIndex].focus();
-          reveal(list[targetIndex]);
+          reveal(list[targetIndex], rects[targetIndex]);
         }
         return true;
       }
 
       function moveFocus(direction) {
-        var list = getFocusable();
+        var snapshot = getFocusableSnapshot();
+        var list = snapshot.list;
         var current = d.activeElement;
+        var currentIndex;
         var currentRect;
         var cx;
         var cy;
         var best = null;
+        var bestRect = null;
         var bestScore = Number.MAX_VALUE;
         var i;
         if (!list.length) return;
-        if (!current || list.indexOf(current) < 0) {
+        currentIndex = list.indexOf(current);
+        if (!current || currentIndex < 0) {
           list[0].focus();
-          reveal(list[0]);
+          reveal(list[0], snapshot.rects[0]);
           return;
         }
-        if (moveFocusInRow(list, current, direction)) return;
-        currentRect = current.getBoundingClientRect();
+        if (moveFocusInRow(list, snapshot.rects, current, direction)) return;
+        currentRect = snapshot.rects[currentIndex];
         cx = currentRect.left + currentRect.width / 2;
         cy = currentRect.top + currentRect.height / 2;
         for (i = 0; i < list.length; i += 1) {
@@ -951,7 +1040,7 @@
           var secondary;
           var score;
           if (candidate === current) continue;
-          rect = candidate.getBoundingClientRect();
+          rect = snapshot.rects[i];
           x = rect.left + rect.width / 2;
           y = rect.top + rect.height / 2;
           if (direction === 'left' && x >= cx - 3) continue;
@@ -962,9 +1051,16 @@
           secondary = direction === 'left' || direction === 'right' ? Math.abs(y - cy) : Math.abs(x - cx);
           if (secondary > primary) continue;
           score = primary * 10 + secondary * secondary / (primary > 1 ? primary : 1);
-          if (score < bestScore) { bestScore = score; best = candidate; }
+          if (score < bestScore) {
+            bestScore = score;
+            best = candidate;
+            bestRect = rect;
+          }
         }
-        if (best) { best.focus(); reveal(best); }
+        if (best) {
+          best.focus();
+          reveal(best, bestRect);
+        }
       }
 
       function keydown(event) {
@@ -989,6 +1085,7 @@
         listen(d, 'keydown', keydown);
         listen(w, 'scroll', scheduleAutoPageCheck);
         listen(w, 'resize', scheduleAutoPageCheck);
+        refreshSafeAreaMode();
         applyHome(fallbackHome());
         w.setTimeout(function () {
           if (hasNative()) requestNativeHome();
@@ -998,8 +1095,13 @@
         }, 700);
       }
 
+      listen(w, 'fmviewport', function (event) {
+        updateSafeAreaMode(event && event.detail ? event.detail : {});
+      });
+      listen(w, 'fmresume', refreshSafeAreaMode);
       listen(w, 'fmsdk', function () {
         state.nativeRequested = false;
+        refreshSafeAreaMode();
         requestNativeHome();
       });
       if (d.readyState === 'loading') listen(d, 'DOMContentLoaded', bind); else bind();

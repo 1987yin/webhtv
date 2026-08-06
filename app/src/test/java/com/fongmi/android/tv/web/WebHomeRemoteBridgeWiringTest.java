@@ -29,6 +29,15 @@ public class WebHomeRemoteBridgeWiringTest {
     }
 
     @Test
+    public void remoteSdkFormattingUsesAndroidCompatibleStringApi() throws Exception {
+        String controller = readMain("HomeWebController.java");
+        String sdk = methodBody(controller, "private String getRemoteSdk()", "private void prepareExtensions(");
+
+        assertTrue(sdk.contains("\"\"\".replace(\"%s\", session);"));
+        assertFalse(sdk.contains(".formatted("));
+    }
+
+    @Test
     public void remoteThemePinsRequestsToOneDocumentSession() throws Exception {
         String controller = readMain("HomeWebController.java");
         String registration = methodBody(controller, "private boolean registerRemoteMessageListener(",
