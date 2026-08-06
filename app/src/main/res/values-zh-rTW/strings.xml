@@ -1521,6 +1521,7 @@
     <string name="detail_tmdb_match_title">匹配 TMDB 條目</string>
     <string name="detail_tmdb_rematch">TMDB</string>
     <string name="detail_tmdb_match_saved">已記錄 TMDB 匹配</string>
+    <string name="detail_tmdb_current_match">目前匹配</string>
     <string name="detail_tmdb_searching">正在搜尋 TMDB...</string>
     <string name="detail_tmdb_search_hint">搜尋標題</string>
     <string name="detail_tmdb_search_action">搜尋</string>
