@@ -31,6 +31,12 @@ public class WebThemeManifestResolverTest {
         assertTrue(source.contains("WebThemeManifestLoader.loadResult"));
         assertTrue(source.contains("record Resolution"));
         assertTrue(source.contains("usedLastKnownGood"));
+        assertTrue(source.contains("usedRollback"));
+        assertTrue(source.contains("activationPending"));
+        assertTrue(source.contains("rollbackAvailable"));
+        assertTrue(source.contains("String revision"));
+        assertTrue(source.contains("WebThemeManifestLoader.accept"));
+        assertTrue(source.contains("WebThemeManifestLoader.rollbackPending"));
         assertTrue(source.contains("WebHomeTarget.forManifestPage"));
         assertTrue(source.contains("WebThemePage page"));
     }

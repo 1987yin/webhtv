@@ -109,6 +109,24 @@ public class WebThemeRuntimeWiringTest {
     }
 
     @Test
+    public void pendingManifestIsAcceptedOnlyAfterDocumentReadyAndRollsBackOnFirstLoadFailure()
+            throws Exception {
+        String controller = read("HomeWebController.java");
+        String pageFinished = section(controller, "public void onPageFinished", "public void onReceivedError");
+        String failure = section(controller, "private void handleMainFrameFailure", "private WebChromeClient chrome()");
+
+        assertTrue(controller.contains("record ManifestActivation"));
+        assertTrue(controller.contains("manifestResolver.rollbackPageResult("));
+        assertTrue(controller.contains("manifestResolver.accept("));
+        assertTrue(controller.contains("private boolean rollbackPendingManifest("));
+        assertTrue(pageFinished.contains("if (manifestRollbackInProgress) return;"));
+        assertTrue(pageFinished.contains("acceptManifestActivation(currentTarget);"));
+        assertTrue(failure.contains("rollbackPendingManifest(code)"));
+        assertTrue(controller.contains("Event.MANIFEST_ROLLBACK"));
+        assertTrue(controller.contains("Reason.ROLLBACK"));
+    }
+
+    @Test
     public void consolePersistenceUsesSanitizedMetadataWhileDebugUiKeepsRawLine() throws Exception {
         String controller = read("HomeWebController.java");
         String console = section(controller, "private WebChromeClient chrome()", "private void injectSdk()");

@@ -95,6 +95,15 @@ public class HomeWebController {
     record ThemeRuntimeSnapshot(WebThemePageHost.Snapshot page, WebThemeSession.Snapshot session) {
     }
 
+    private record ManifestActivation(Site site, String sourceKey, WebHomeTarget configured,
+            WebThemePage page, WebThemeRoute route, String revision, boolean rollbackAvailable) {
+        boolean matches(WebHomeTarget target) {
+            return target != null && target.isV2() && target.getManifest() != null
+                    && configured.getUrl().equals(target.getManifest().getManifestUrl())
+                    && page == target.getPage();
+        }
+    }
+
     private final Listener listener;
     private final Activity activity;
     private final Set<String> injectedExtensions;
@@ -133,6 +142,8 @@ public class HomeWebController {
     private int loadToken;
     private int loadTimeoutRecoveries;
     private int manifestLoadToken;
+    private ManifestActivation manifestActivation;
+    private boolean manifestRollbackInProgress;
     private volatile boolean bridgeReady;
     private volatile boolean sdkReady;
     private volatile boolean paused;
@@ -527,6 +538,9 @@ public class HomeWebController {
         WebHomeTarget resolved = WebHomeTarget.resolve(site);
         if (site == null || resolved == null) return false;
         if (resolved.isManifest()) return loadManifestPage(site, resolved, WebThemePage.HOME, WebThemeRoute.EMPTY, force);
+        manifestActivation = null;
+        manifestRollbackInProgress = false;
+        manifestLoadToken++;
         return loadResolved(site, resolved, WebThemeRoute.EMPTY, force);
     }
 
@@ -539,6 +553,8 @@ public class HomeWebController {
     private boolean loadManifestPage(Site site, WebHomeTarget configured, WebThemePage page,
             WebThemeRoute route, boolean force) {
         if (page == WebThemePage.DETAIL && (route == null || TextUtils.isEmpty(route.getVodId()))) return false;
+        manifestActivation = null;
+        manifestRollbackInProgress = false;
         bridgeReady = false;
         sdkReady = false;
         invalidateRemoteSession();
@@ -575,6 +591,11 @@ public class HomeWebController {
                                 token, generation, page, configured, manifestUrl,
                                 WebThemeRuntimeDiagnostics.manifestFailure(resolution.refreshFailure()), 0);
                     }
+                    if (resolution != null && resolution.usedRollback()) {
+                        WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_ROLLBACK,
+                                token, generation, page, configured, manifestUrl,
+                                WebThemeRuntimeDiagnostics.Reason.ROLLBACK, 0);
+                    }
                     if (resolved == null) {
                         WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_FAILED,
                                 token, generation, page, configured, manifestUrl,
@@ -585,12 +606,18 @@ public class HomeWebController {
                         listener.onWebError();
                         return;
                     }
-                    WebThemeRuntimeDiagnostics.Reason reason = resolution.usedLastKnownGood()
+                    WebThemeRuntimeDiagnostics.Reason reason = resolution.usedRollback()
+                            ? WebThemeRuntimeDiagnostics.Reason.ROLLBACK
+                            : resolution.usedLastKnownGood()
                             ? WebThemeRuntimeDiagnostics.Reason.LAST_KNOWN_GOOD
                             : WebThemeRuntimeDiagnostics.Reason.NONE;
                     WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_RESOLVED,
                             token, generation, page, resolved, resolved.getUrl(), reason, 0);
-                    if (!loadResolved(site, resolved, route, force)) listener.onWebError();
+                    armManifestActivation(site, sourceKey, configured, page, route, resolution);
+                    if (!loadResolved(site, resolved, route, force)
+                            && !rollbackPendingManifest(0)) {
+                        listener.onWebError();
+                    }
                 });
             } catch (Exception e) {
                 WebThemeRuntimeDiagnostics.Reason reason = WebThemeRuntimeDiagnostics.manifestFailure(e);
@@ -617,6 +644,100 @@ public class HomeWebController {
         WebThemePageHost.Snapshot page = pageHost.snapshot();
         return !destroyed && token == manifestLoadToken && page.site() != null && page.target() != null
                 && sourceKey.equals(page.site().getKey()) && manifestUrl.equals(page.target().getUrl());
+    }
+
+    private void armManifestActivation(Site site, String sourceKey, WebHomeTarget configured,
+            WebThemePage page, WebThemeRoute route, WebThemeManifestResolver.Resolution resolution) {
+        if (resolution == null || !resolution.activationPending()
+                || TextUtils.isEmpty(resolution.revision())) {
+            manifestActivation = null;
+            return;
+        }
+        manifestActivation = new ManifestActivation(site, sourceKey, configured, page,
+                route == null ? WebThemeRoute.EMPTY : route,
+                resolution.revision(), resolution.rollbackAvailable());
+    }
+
+    private void acceptManifestActivation(WebHomeTarget currentTarget) {
+        ManifestActivation pending = manifestActivation;
+        if (pending == null) return;
+        Site currentSite = pageHost.site();
+        manifestActivation = null;
+        if (currentSite == null || !pending.sourceKey().equals(currentSite.getKey())
+                || !pending.matches(currentTarget)) return;
+        Task.execute(() -> manifestResolver.accept(
+                pending.configured().getUrl(), pending.revision()));
+    }
+
+    private boolean rollbackPendingManifest(int code) {
+        if (manifestRollbackInProgress) return true;
+        ManifestActivation pending = manifestActivation;
+        manifestActivation = null;
+        if (pending == null || !pending.rollbackAvailable()) return false;
+        manifestRollbackInProgress = true;
+        bridgeReady = false;
+        sdkReady = false;
+        loadToken++;
+        int token = ++manifestLoadToken;
+        int generation;
+        synchronized (themeStateLock) {
+            generation = themeSession.invalidate();
+        }
+        invalidateRemoteSession();
+        webView.removeJavascriptInterface(BRIDGE);
+        webView.stopLoading();
+        bridgeKey = "";
+        loadTimeoutRecoveries = 0;
+        listener.onWebLoading();
+        Task.execute(() -> {
+            try {
+                WebThemeManifestResolver.Resolution resolution = manifestResolver.rollbackPageResult(
+                        pending.configured(), pending.page(), pending.revision());
+                App.post(() -> {
+                    if (!isManifestRollbackActive(token, pending)) {
+                        WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_IGNORED,
+                                token, generation, pending.page(), pending.configured(),
+                                pending.configured().getUrl(), WebThemeRuntimeDiagnostics.Reason.STALE_OPERATION, 0);
+                        return;
+                    }
+                    manifestRollbackInProgress = false;
+                    WebHomeTarget resolved = resolution == null ? null : resolution.target();
+                    if (resolved == null) {
+                        handleMainFrameFailure(WebThemeRuntimeDiagnostics.Reason.PAGE_UNAVAILABLE, 0, null);
+                        return;
+                    }
+                    WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_ROLLBACK,
+                            token, generation, pending.page(), resolved, resolved.getUrl(),
+                            WebThemeRuntimeDiagnostics.Reason.ROLLBACK, code);
+                    if (!loadResolved(pending.site(), resolved, pending.route(), true)) {
+                        handleMainFrameFailure(
+                                WebThemeRuntimeDiagnostics.Reason.BRIDGE_UNAVAILABLE, 0, null);
+                    }
+                });
+            } catch (Exception e) {
+                WebThemeRuntimeDiagnostics.Reason reason = WebThemeRuntimeDiagnostics.manifestFailure(e);
+                App.post(() -> {
+                    if (!isManifestRollbackActive(token, pending)) {
+                        WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_IGNORED,
+                                token, generation, pending.page(), pending.configured(),
+                                pending.configured().getUrl(), WebThemeRuntimeDiagnostics.Reason.STALE_OPERATION, 0);
+                        return;
+                    }
+                    manifestRollbackInProgress = false;
+                    WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_FAILED,
+                            token, generation, pending.page(), pending.configured(),
+                            pending.configured().getUrl(), reason, 0);
+                    handleMainFrameFailure(reason, 0, null);
+                });
+            }
+        });
+        return true;
+    }
+
+    private boolean isManifestRollbackActive(int token, ManifestActivation pending) {
+        Site current = pageHost.site();
+        return !destroyed && token == manifestLoadToken && current != null
+                && pending.sourceKey().equals(current.getKey());
     }
 
     private void logRuntime(WebThemeRuntimeDiagnostics.Event event, int operation, WebThemePage page,
@@ -727,6 +848,7 @@ public class HomeWebController {
             logRuntime(WebThemeRuntimeDiagnostics.Event.FALLBACK, token,
                     page.target() == null ? null : page.target().getPage(), page.target(), url,
                     WebThemeRuntimeDiagnostics.Reason.LOAD_TIMEOUT, loadTimeoutRecoveries);
+            if (rollbackPendingManifest(loadTimeoutRecoveries)) return;
             listener.onWebError();
             return;
         }
@@ -738,6 +860,7 @@ public class HomeWebController {
             logRuntime(WebThemeRuntimeDiagnostics.Event.FALLBACK, token,
                     page.target() == null ? null : page.target().getPage(), page.target(), target,
                     WebThemeRuntimeDiagnostics.Reason.LOAD_TIMEOUT, loadTimeoutRecoveries);
+            if (rollbackPendingManifest(loadTimeoutRecoveries)) return;
             listener.onWebError();
             return;
         }
@@ -1127,6 +1250,8 @@ public class HomeWebController {
         bridgeReady = false;
         sdkReady = false;
         manifestLoadToken++;
+        manifestActivation = null;
+        manifestRollbackInProgress = false;
         synchronized (themeStateLock) {
             themeSession.invalidate();
             pageHost.clearDetail();
@@ -1443,10 +1568,12 @@ public class HomeWebController {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                if (manifestRollbackInProgress) return;
                 if (!isCurrentPageFinish(view, url)) return;
                 WebHomeTarget currentTarget = pageHost.target();
                 if (currentTarget == null) return;
                 if (currentTarget.isRemoteGlobal() && !currentTarget.allowsMainFrameUrl(url)) return;
+                acceptManifestActivation(currentTarget);
                 logRuntime(WebThemeRuntimeDiagnostics.Event.DOCUMENT_READY, loadToken,
                         currentTarget.getPage(), currentTarget, url, WebThemeRuntimeDiagnostics.Reason.NONE, 0);
                 loadToken++;
@@ -1513,6 +1640,18 @@ public class HomeWebController {
                 SpiderDebug.log("webhome-webview", "render process gone didCrash=%s priority=%s", detail.didCrash(), detail.rendererPriorityAtExit());
                 WebThemePageHost.Snapshot page = pageHost.snapshot();
                 int code = detail.didCrash() ? 1 : 0;
+                boolean rollbackCandidate = manifestRollbackInProgress
+                        || manifestActivation != null && manifestActivation.rollbackAvailable();
+                if (rollbackCandidate) {
+                    logRuntime(WebThemeRuntimeDiagnostics.Event.FALLBACK, loadToken,
+                            page.target() == null ? null : page.target().getPage(), page.target(), homePage,
+                            WebThemeRuntimeDiagnostics.Reason.RENDER_PROCESS_GONE, code);
+                    if (recreateWebView() && rollbackPendingManifest(code)) return true;
+                    manifestActivation = null;
+                    manifestRollbackInProgress = false;
+                    listener.onWebError();
+                    return true;
+                }
                 if (recreateWebView() && !TextUtils.isEmpty(homePage)) {
                     logRuntime(WebThemeRuntimeDiagnostics.Event.DOCUMENT_RECOVERY, loadToken,
                             page.target() == null ? null : page.target().getPage(), page.target(), homePage,
@@ -1535,6 +1674,7 @@ public class HomeWebController {
         WebThemePageHost.Snapshot page = pageHost.snapshot();
         logRuntime(WebThemeRuntimeDiagnostics.Event.FALLBACK, loadToken,
                 page.target() == null ? null : page.target().getPage(), page.target(), webView.getUrl(), reason, code);
+        if (rollbackPendingManifest(code)) return;
         loadToken++;
         manifestLoadToken++;
         bridgeReady = false;
@@ -1654,7 +1794,7 @@ public class HomeWebController {
                   window.fm={vodHome:window.fongmi.vod.home,vodCategory:window.fongmi.vod.category,vodDetail:window.fongmi.vod.detail,vod:window.fongmi.player.playVod,themeInfo:window.fongmi.theme.info,openDetail:window.fongmi.navigation.openDetail,openNativeDetail:window.fongmi.navigation.openNativeDetail,favoriteStatus:window.fongmi.favorite.status,favoriteSet:window.fongmi.favorite.set,detailHistory:window.fongmi.history.item,person:window.fongmi.person,image:window.fongmi.image,recommendation:window.fongmi.recommendation,external:window.fongmi.external,episode:window.fongmi.episode,back:window.fongmi.navigation.back,reload:window.fongmi.navigation.reload,search:window.fongmi.app.search,openVod:window.fongmi.app.openVod,openSite:window.fongmi.app.openSite,openSetting:window.fongmi.app.openSetting};
                   window.dispatchEvent(new CustomEvent('fmsdk'));
                 })();
-                """.formatted(session);
+                """.replace("%s", session);
     }
 
     private void prepareExtensions(Site site) {

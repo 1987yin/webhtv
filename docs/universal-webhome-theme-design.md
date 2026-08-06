@@ -1618,6 +1618,8 @@ RESPONSE_TOO_LARGE
 
 **2026-08-06 Manifest 条件刷新状态（第三增量第二切片）：** 远程 Manifest 的进程内与磁盘条目现同时保存已验证 JSON、规范化 ETag 和最近验证时间，并采用宿主控制的 15 分钟新鲜期。非强制加载命中新鲜条目时直接返回 `CACHE_HIT`，包括进程重启后从磁盘恢复的条目；条目到期或调用方强制刷新时，Loader 携带可用 ETag 发出 `If-None-Match` 条件请求。`304 Not Modified` 仅延长验证时间并保留原 Manifest，响应未提供可用 ETag 时继续沿用旧值；`200` 响应仍需通过大小、严格 UTF-8、Schema 与目标平台校验后才替换缓存。网络、HTTP 或校验失败不会延长旧条目时间，仍返回 `LAST_KNOWN_GOOD`；没有可用缓存时继续抛错并走原生 fallback。系统时间回拨会把条目视为过期，非法、超长或含控制字符的 ETag 不会写入请求头。磁盘格式升级为带魔数、时间戳和十六进制 ETag 的 V2 包装，上一切片的纯 JSON 文件按“已过期但可回退”兼容读取。单元测试覆盖跨进程新鲜命中、到期与强制条件刷新、`304` 续期、`200` 替换、离线回退、时间回拨、冷缓存 `304`、请求头净化、元数据往返、旧格式兼容和最大 Manifest 边界；真实设备上的远程故障注入仍保留为发布验收项。
 
+**2026-08-06 Manifest 可控回滚状态（第三增量第三切片）：** 远程 Manifest 缓存格式升级为 V3，每个 `Manifest URL + platform target` 最多保留当前与上一份两个已校验版本，磁盘总条目仍限制为 8。新候选版本先标记 `activationPending`，只有首个目标文档完成才由控制器确认；在确认前发生 Bridge 不可用、加载超时、主框架资源/HTTP 错误或渲染进程退出时，会按候选 revision 原子切回上一稳定版本，保留失败候选并标记为 blocked，防止同一失败内容被再次自动提升。远端发布新 revision 后可重新进入候选流程；设置页新增“版本恢复”，稳定状态可手动回滚，已回滚状态可手动重试，重试失败仍自动恢复稳定版本。磁盘当前内容损坏时不会把已知 blocked 候选误提升为稳定版本；V2 与纯 JSON 缓存继续兼容迁移。单元测试覆盖双版本上限、首次确认、失败回滚状态机、过期 revision、防重复提升、手动回滚/重试、V3 往返与损坏恢复，Mobile/Leanback arm64 Debug 单测和 APK 构建均通过。`emulator-5562` 实际注入“候选主页 404 + 上一稳定页 200”：日志出现 `manifest_load_resolved(candidate) → fallback(http_error, 404) → manifest_rollback → document_ready(stable)`；设置页识别 blocked 版本并展示“重试”，确认后提示“主题版本已更新”，随后测试 Manifest 强制刷新失败仍安全回滚。验证中同时修复了 Android 9 不支持 `String.formatted` 导致远程 SDK 注入崩溃的问题，改用 Android 兼容的字面替换并补回归测试；测试结束后已恢复模拟器原偏好与内置主题，未发现新的崩溃或 ANR。
+
 #### P1：公共 WebTheme Runtime 与焦点层
 
 1. 抽取 Manifest resolver、页面 host、会话 generation/cancellation 和 Bridge router；
@@ -1633,7 +1635,7 @@ RESPONSE_TOO_LARGE
 
 **2026-08-05 mobile 阶段性验收：** `emulator-5562` 已安装本轮 `mobileArm64_v8aDebug` 构建并验证 Eclipse 首页、WebTheme 详情页、方向键横向焦点、原生播放器进入与首帧、播放返回详情、Home 键后台切换与恢复；进程在这些路径中保持存活，未发现崩溃或 ANR。首页和详情页都实际产生了 `manifest_load_started → manifest_load_resolved → document_load_started → document_ready` 事件。该模拟器显示面固定为 `1920×1080`，锁定 `user_rotation` 未改变 `SurfaceOrientation`，因此不能据此宣称旋转通过；Leanback 运行时也尚无分配设备，本轮仅完成对应单测和 APK 构建。
 
-本轮已完成 P1 的代码拆分、Eclipse 首批迁移、结构化生命周期诊断、进程内及进程重启后的 Manifest 更新/缓存/last-known-good 基础矩阵、ETag/TTL 条件刷新和 mobile 关键路径阶段性验收，但不宣称整个 P1 的发布验收已完成：可旋转 mobile 设备、真实 Leanback 设备上的遥控全路径、远程主题故障注入仍需验证；可控回滚、生成式兼容矩阵、远程主题数据隔离和其余 Bridge/扩展调试日志的敏感字段审计继续按独立发布任务推进。
+本轮已完成 P1 的代码拆分、Eclipse 首批迁移、结构化生命周期诊断、进程内及进程重启后的 Manifest 更新/缓存/last-known-good 基础矩阵、ETag/TTL 条件刷新、可控回滚和 mobile 关键路径阶段性验收，但不宣称整个 P1 的发布验收已完成：可旋转 mobile 设备、真实 Leanback 设备上的遥控全路径，以及 DNS/TLS/超时、渲染进程退出等更完整远程故障矩阵仍需验证；生成式兼容矩阵、远程主题数据隔离和其余 Bridge/扩展调试日志的敏感字段审计继续按独立发布任务推进。
 
 #### P2：通用列表页面
 
@@ -1691,7 +1693,7 @@ spacing.small / medium / large
 在公共远程主题生态开放前再增加：
 
 - ETag / TTL 条件刷新（已完成）；
-- 持久化 last-known-good 版本（已完成）与手动回滚（待实现）；
+- 持久化 last-known-good 与最多双版本的自动/手动回滚（已完成）；
 - Manifest 与静态资源哈希；
 - 签名主题包；
 - 本地目录或 ZIP 安装；
@@ -1708,11 +1710,11 @@ spacing.small / medium / large
 - 远程主题独立的数据/Cookie 策略，避免与受信站点页共享不必要状态；
 - `external.open` 首次域名或非 HTTPS 链接的用户可见确认；
 - 引用预算耗尽时返回可区分的错误或 `truncated`，而不是不可诊断的通用失败；
-- 远程 Manifest 更新失败时优先使用进程内 last-known-good；进程内无缓存时使用重新校验后的磁盘 last-known-good，仍失败才走原生 fallback；
+- 继续扩充远程 Manifest 故障矩阵，覆盖 DNS/TLS/超时、渲染进程退出和跨进程 blocked/retry；当前已覆盖进程/磁盘 last-known-good、条件刷新、候选主页 404 自动回滚和设置页重试；
 - 恶意 Manifest、IDN/IPv6/私网地址、超长消息、能力绕过和旧 generation 回调的安全测试；
 - 500 集详情、多推荐轨道、频繁切源和低配电视 WebView 的内存与响应时间测试。
 
-真实设备上的旋转、遥控全路径、播放返回、后台恢复和远程主题故障注入仍是发布门槛，不能只由 Java 单元测试替代。
+真实设备上的旋转、Leanback 遥控全路径，以及 DNS/TLS/超时、渲染进程退出等更完整远程故障矩阵仍是发布门槛，不能只由 Java 单元测试或单一 404 注入替代。
 
 ### 20.5 明确非目标与下一项工作
 
@@ -1721,7 +1723,7 @@ spacing.small / medium / large
 - 不把 `VideoActivity` 或播放器内核迁入 WebView；
 - 不向主题暴露原始 `Vod`、`Site`、播放地址、解析器或内部 Bean；
 - 不同时实现搜索、历史、收藏、设置和播放器；
-- 不在缺少签名/回滚时先做 ZIP 或主题市场；
+- 不在缺少签名与完整性校验时先做 ZIP 或主题市场；
 - 不允许任意 CSS 或脚本反向控制原生 Android 布局。
 
-当前推荐的下一个独立变更是 **P1 发布验收与运行时加固第三增量的第三切片：可控回滚**。该切片应在现有单条 LKG 与 ETag/TTL 协议之上明确保留版本、自动回滚触发条件、用户可见恢复入口和容量上限，不与主题市场、签名包或远程数据隔离混合。在可旋转 mobile 设备和真实 Leanback 设备上补齐旋转、遥控全路径及远程主题故障注入仍是发布门槛，同时继续推进生成式兼容矩阵、远程主题数据隔离及 Bridge/扩展/开发调试日志的敏感字段审计。已在 `emulator-5562` 通过的首页/详情、后台恢复、原生播放与返回路径不再重复作为未验证项；P0 尚未完成的运维与发布加固仍不与页面功能增量混合推进。
+当前推荐的下一个独立变更是 **P1 发布验收与运行时加固第三增量的第四切片：远程主题数据隔离**。该切片应明确远程 WebTheme 与受信站点页之间的 Cookie、DOM storage、缓存和登录态边界，默认禁止主题读取或复用业务站点状态，并补齐跨来源与进程重启测试；不与主题市场、签名包或新页面增量混合。在可旋转 mobile 设备和真实 Leanback 设备上补齐旋转与遥控全路径，以及 DNS/TLS/超时、渲染进程退出等更完整远程故障矩阵，仍是发布门槛；同时继续推进生成式兼容矩阵及 Bridge/扩展/开发调试日志的敏感字段审计。`emulator-5562` 已通过的首页/详情、后台恢复、原生播放与返回、候选主页 404 自动回滚和设置页 blocked 版本重试路径不再重复列为未验证项；P0 尚未完成的运维与发布加固仍不与页面功能增量混合推进。
