@@ -229,6 +229,7 @@
     <string name="group_rule_ai_current_interface">Current VOD configuration</string>
 
     <string name="setting_home_vod_auto_load">Auto-load VOD</string>
+    <string name="setting_home_site_lock">Home source lock</string>
     <string name="setting_auto_backup">Automatic backup</string>
     <string name="setting_fullscreen_menu_key">Fullscreen menu key</string>
     <string name="setting_home_menu_key">Home menu key</string>

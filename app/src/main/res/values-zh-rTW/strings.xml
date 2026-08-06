@@ -2108,6 +2108,7 @@
     <!-- Auto-generated missing translations -->
     <string name="live_no_epg">00:00 - 23:59 暫無節目信息</string>
     <string name="setting_home_vod_auto_load">默認加載點播</string>
+    <string name="setting_home_site_lock">首頁源鎖定</string>
     <string name="setting_auto_backup">自動備份</string>
     <string name="setting_fullscreen_menu_key">全屏菜單鍵</string>
     <string name="setting_home_menu_key">首頁菜單鍵</string>
