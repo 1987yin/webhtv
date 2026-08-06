@@ -87,6 +87,35 @@ public class WebThemeRuntimeWiringTest {
     }
 
     @Test
+    public void manifestAndDocumentLifecycleEmitStructuredRuntimeDiagnostics() throws Exception {
+        String controller = read("HomeWebController.java");
+
+        assertTrue(controller.contains("Event.MANIFEST_LOAD_STARTED"));
+        assertTrue(controller.contains("Event.MANIFEST_LOAD_RESOLVED"));
+        assertTrue(controller.contains("Event.MANIFEST_LOAD_IGNORED"));
+        assertTrue(controller.contains("Event.MANIFEST_LOAD_FAILED"));
+        assertTrue(controller.contains("Event.DOCUMENT_LOAD_STARTED"));
+        assertTrue(controller.contains("Event.DOCUMENT_READY"));
+        assertTrue(controller.contains("Event.DOCUMENT_RECOVERY"));
+        assertTrue(controller.contains("Reason.BRIDGE_UNAVAILABLE"));
+        assertTrue(controller.contains("Reason.LOAD_TIMEOUT"));
+        assertTrue(controller.contains("Reason.WEB_RESOURCE_ERROR"));
+        assertTrue(controller.contains("Reason.HTTP_ERROR"));
+        assertTrue(controller.contains("Reason.RENDER_PROCESS_GONE"));
+        assertFalse(controller.contains("manifest/page load failed"));
+    }
+
+    @Test
+    public void consolePersistenceUsesSanitizedMetadataWhileDebugUiKeepsRawLine() throws Exception {
+        String controller = read("HomeWebController.java");
+        String console = section(controller, "private WebChromeClient chrome()", "private void injectSdk()");
+
+        assertTrue(console.contains("WebThemeRuntimeDiagnostics.logConsole("));
+        assertFalse(console.contains("SpiderDebug.log"));
+        assertTrue(console.contains("listener.onWebConsole(line);"));
+    }
+
+    @Test
     public void remoteCallsArePinnedToBothDocumentAndThemeGenerations() throws Exception {
         String controller = read("HomeWebController.java");
         String remote = section(controller, "private void handleRemoteMessage", "private boolean isRemoteSession");
