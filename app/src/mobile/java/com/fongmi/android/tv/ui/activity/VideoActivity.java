@@ -404,6 +404,7 @@ private int mAudioBackgroundRandomNonce;
     private long detailStartTime;
     private long playerStartTime;
     private long pendingResumeSeekMs = C.TIME_UNSET;
+    private boolean tmdbHistoryResumePending;
     private final List<ShortDramaControlItem> mShortDramaControlItems = new ArrayList<>();
     private ViewGroup mShortDramaControlDock;
     private boolean shortDramaControlsDocked;
@@ -631,6 +632,10 @@ private int mAudioBackgroundRandomNonce;
 
     public static void startFromResolvedHistory(Activity activity, History source, Vod target, Flag flag, Episode episode) {
         if (source == null || target == null || flag == null || episode == null) return;
+        if (shouldOpenLegacyTmdbDetail(target.getSiteKey(), target.getId())) {
+            start(activity, target.getSiteKey(), target.getId(), target.getName(), target.getPic(), episode.getName());
+            return;
+        }
         Intent intent = new Intent(activity, VideoActivity.class);
         intent.putExtra("collect", false);
         intent.putExtra("mark", episode.getName());
@@ -1026,6 +1031,61 @@ private int mAudioBackgroundRandomNonce;
         TmdbItem item = mTmdbUIAdapter == null ? null : mTmdbUIAdapter.getTmdbItem();
         if (item == null) item = getTmdbItem();
         return item;
+    }
+
+    private boolean reloadHistoryAfterTmdbMatch() {
+        return reloadHistoryAfterTmdbMatch(getHistoryTmdbItem());
+    }
+
+    private boolean reloadHistoryAfterTmdbMatch(TmdbItem matched) {
+        Vod item = mVod;
+        if (item == null || matched == null || hasIntentResumeHistory()) return false;
+        if (mHistory != null && mHistory.isCrossSourcePlayback()
+                && mHistory.getTmdbId() == matched.getTmdbId()
+                && TextUtils.equals(mHistory.getMediaType(), matched.getMediaType())) return false;
+        History resolved = History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), matched, currentSourceSeasonNumber(item));
+        if (resolved == null) return false;
+        mHistory = resolved;
+        return resolved.isCrossSourcePlayback();
+    }
+
+    private void resumeHistoryAfterTmdbMatch() {
+        if (mHistory == null || mFlagAdapter == null || mFlagAdapter.isEmpty()) return;
+        Flag requested = mHistory.getFlag();
+        Flag targetFlag = null;
+        for (Flag candidate : mFlagAdapter.getItems()) {
+            if (candidate.equals(requested)) {
+                targetFlag = candidate;
+                break;
+            }
+        }
+        if (targetFlag == null) targetFlag = mFlagAdapter.getItems().get(0);
+        Episode targetEpisode = targetFlag.find(mHistory.getEpisode(), true);
+        if (targetEpisode == null) return;
+
+        long position = Math.max(mHistory.getOpening(), mHistory.getPosition());
+        if (position > 0) {
+            pendingResumeSeekMs = position;
+            tmdbHistoryResumePending = true;
+        }
+        if (!targetFlag.isSelected() || !targetEpisode.isSelected()) {
+            onItemClick(requested);
+            return;
+        }
+
+        alignHistoryWithSelectedEpisode(targetFlag, targetEpisode);
+        if (position > 0) {
+            setPosition();
+            applyPendingResumeSeek();
+        }
+    }
+
+    private void alignHistoryWithSelectedEpisode(Flag flag, Episode episode) {
+        Episode identity = withSourceSeasonEpisodeIdentity(episode);
+        mHistory.setVodFlag(flag.getFlag());
+        mHistory.setVodRemarks(getHistoryEpisodeName(episode));
+        mHistory.setEpisodeUrl(episode.getUrl());
+        if (identity.getTmdbEpisode() != null) mHistory.setTmdbEpisodePosition(identity);
     }
 
     /**
@@ -3747,17 +3807,19 @@ private int mAudioBackgroundRandomNonce;
         if (mHistory == null || Setting.isIncognito()) return;
         boolean hasPlayback = service() != null && isOwner() && !player().isEmpty();
         if (hasPlayback) {
-            // 播放位置缓存继续使用源站集名，避免刮削展示名变化后无法恢复。
-            String cacheName = getCurrentHistoryEpisodeCacheName();
-            if (!TextUtils.isEmpty(cacheName)) {
-                EpisodePositionCache.get().put(
-                    getKey(),
-                    getId(),
-                    getFlag().getFlag(),
-                    cacheName,
-                    player().getPosition(),
-                    player().getDuration()
-                );
+            if (!tmdbHistoryResumePending) {
+                // 播放位置缓存继续使用源站集名，避免刮削展示名变化后无法恢复。
+                String cacheName = getCurrentHistoryEpisodeCacheName();
+                if (!TextUtils.isEmpty(cacheName)) {
+                    EpisodePositionCache.get().put(
+                        getKey(),
+                        getId(),
+                        getFlag().getFlag(),
+                        cacheName,
+                        player().getPosition(),
+                        player().getDuration()
+                    );
+                }
             }
             updatePlaybackHistoryPosition();
             mHistory.setCreateTime(System.currentTimeMillis());
@@ -3786,23 +3848,25 @@ private int mAudioBackgroundRandomNonce;
         boolean sameFlag = TextUtils.equals(mHistory.getVodFlag(), getFlag().getFlag());
         if (!sameEpisode || !sameFlag) mIntroSkipPlayback.reset();
         if ((!sameEpisode || !sameFlag) && service() != null) {
-            // 播放位置缓存继续使用源站集名，History 仅负责展示刮削后的标题。
-            String cacheName = getCurrentHistoryEpisodeCacheName();
-            if (!TextUtils.isEmpty(cacheName)) {
-                EpisodePositionCache.get().put(
-                    getKey(),
-                    getId(),
-                    getFlag().getFlag(),
-                    cacheName,
-                    player().getPosition(),
-                    player().getDuration()
-                );
+            if (!tmdbHistoryResumePending) {
+                // 播放位置缓存继续使用源站集名，History 仅负责展示刮削后的标题。
+                String cacheName = getCurrentHistoryEpisodeCacheName();
+                if (!TextUtils.isEmpty(cacheName)) {
+                    EpisodePositionCache.get().put(
+                        getKey(),
+                        getId(),
+                        getFlag().getFlag(),
+                        cacheName,
+                        player().getPosition(),
+                        player().getDuration()
+                    );
+                }
+                updatePlaybackHistoryPosition();
             }
-            updatePlaybackHistoryPosition();
             PlaybackEventCollector.get().onStop(player());
         }
 
-        if (!sameEpisode) {
+        if (!sameEpisode && !tmdbHistoryResumePending) {
             // 从缓存中恢复新集的播放位置
             EpisodePositionCache.EpisodePosition cached = EpisodePositionCache.get().get(
                 getKey(),
@@ -3882,6 +3946,7 @@ private int mAudioBackgroundRandomNonce;
                 if (keyChanged) mHistory.replace(nextKey);
             }
         }
+        boolean historyReloaded = reloadHistoryAfterTmdbMatch();
         if (name) mHistory.setVodName(item.getName());
         if (name) mBinding.name.setText(item.getName());
         // 原生增强：TMDB 富集完成后回写题材/地区/演员/主创到 History（enrichVod 已填充 item，仅补空字段）
@@ -3891,6 +3956,7 @@ private int mAudioBackgroundRandomNonce;
         // 跨源聚合：TMDB 匹配完成后把 tmdbId 盖章到 History，供列表去重与跨源续播使用（不依赖脆弱的名称回查缓存）
         boolean tmdbIdStamped = stampHistoryTmdbId();
         updateFlag(getFlag(), item.getFlags());
+        if (historyReloaded) resumeHistoryAfterTmdbMatch();
         boolean episodeTitleChanged = refreshCurrentHistoryEpisodeTitle();
         mBinding.control.title.setText(getPlaybackControlTitle());
         if (pic) setArtwork(item.getPic());
@@ -4215,7 +4281,7 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private void updatePlaybackHistoryPosition() {
-        if (mHistory == null) return;
+        if (mHistory == null || tmdbHistoryResumePending) return;
         long position = player().getPosition();
         long duration = player().getDuration();
         if (position > 0) mHistory.setPosition(position);
@@ -4312,6 +4378,7 @@ private int mAudioBackgroundRandomNonce;
         if (pendingResumeSeekMs == C.TIME_UNSET || controller() == null) return false;
         long target = pendingResumeSeekMs;
         pendingResumeSeekMs = C.TIME_UNSET;
+        tmdbHistoryResumePending = false;
         if (Math.abs(player().getPosition() - target) < 1500) return false;
         controller().seekTo(target);
         return true;
@@ -4319,17 +4386,26 @@ private int mAudioBackgroundRandomNonce;
 
     private void setPosition() {
         pendingResumeSeekMs = C.TIME_UNSET;
-        if (mHistory == null) return;
+        if (mHistory == null) {
+            tmdbHistoryResumePending = false;
+            return;
+        }
         if (mHistory.isNearEnding()) {
             SpiderDebug.log("video-flow", "reset near-end history position=%d duration=%d key=%s", mHistory.getPosition(), mHistory.getDuration(), getHistoryKey());
             mHistory.resetPlaybackPosition();
             syncHistory();
         }
         long position = Math.max(mHistory.getOpening(), mHistory.getPosition());
-        if (position <= 0) return;
+        if (position <= 0) {
+            tmdbHistoryResumePending = false;
+            return;
+        }
         mIntroSkipPlayback.setResumePosition(position);
         if (player().isIjk()) pendingResumeSeekMs = position;
-        else player().seekTo(position);
+        else {
+            player().seekTo(position);
+            tmdbHistoryResumePending = false;
+        }
     }
 
     private void setSpeed() {
@@ -5184,6 +5260,7 @@ private int mAudioBackgroundRandomNonce;
         mBinding.progressLayout.showProgress();
         scheduleTmdbDetailFallback();
         mTmdbUIAdapter.rememberManualMatch(mVod, item);
+        if (reloadHistoryAfterTmdbMatch(item)) resumeHistoryAfterTmdbMatch();
         mTmdbUIAdapter.load(item, mVod);
         Notify.show(R.string.detail_tmdb_match_saved);
     }

@@ -561,13 +561,19 @@ public class HomeWebController {
                 token, generation, page, configured, manifestUrl, WebThemeRuntimeDiagnostics.Reason.NONE, 0);
         Task.execute(() -> {
             try {
-                WebHomeTarget resolved = manifestResolver.resolvePage(configured, page, force);
+                WebThemeManifestResolver.Resolution resolution = manifestResolver.resolvePageResult(configured, page, force);
                 App.post(() -> {
                     if (!isManifestLoadActive(token, sourceKey, manifestUrl)) {
                         WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_IGNORED,
                                 token, generation, page, configured, manifestUrl,
                                 WebThemeRuntimeDiagnostics.Reason.STALE_OPERATION, 0);
                         return;
+                    }
+                    WebHomeTarget resolved = resolution == null ? null : resolution.target();
+                    if (resolution != null && resolution.usedLastKnownGood()) {
+                        WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_CACHE_FALLBACK,
+                                token, generation, page, configured, manifestUrl,
+                                WebThemeRuntimeDiagnostics.manifestFailure(resolution.refreshFailure()), 0);
                     }
                     if (resolved == null) {
                         WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_FAILED,
@@ -579,9 +585,11 @@ public class HomeWebController {
                         listener.onWebError();
                         return;
                     }
+                    WebThemeRuntimeDiagnostics.Reason reason = resolution.usedLastKnownGood()
+                            ? WebThemeRuntimeDiagnostics.Reason.LAST_KNOWN_GOOD
+                            : WebThemeRuntimeDiagnostics.Reason.NONE;
                     WebThemeRuntimeDiagnostics.log(WebThemeRuntimeDiagnostics.Event.MANIFEST_LOAD_RESOLVED,
-                            token, generation, page, resolved, resolved.getUrl(),
-                            WebThemeRuntimeDiagnostics.Reason.NONE, 0);
+                            token, generation, page, resolved, resolved.getUrl(), reason, 0);
                     if (!loadResolved(site, resolved, route, force)) listener.onWebError();
                 });
             } catch (Exception e) {

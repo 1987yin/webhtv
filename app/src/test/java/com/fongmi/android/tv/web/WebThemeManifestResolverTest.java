@@ -28,7 +28,9 @@ public class WebThemeManifestResolverTest {
     public void resolverOwnsManifestLoadingAndPageTargetResolution() throws Exception {
         String source = source();
 
-        assertTrue(source.contains("WebThemeManifestLoader.load"));
+        assertTrue(source.contains("WebThemeManifestLoader.loadResult"));
+        assertTrue(source.contains("record Resolution"));
+        assertTrue(source.contains("usedLastKnownGood"));
         assertTrue(source.contains("WebHomeTarget.forManifestPage"));
         assertTrue(source.contains("WebThemePage page"));
     }

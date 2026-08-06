@@ -1608,9 +1608,11 @@ RESPONSE_TOO_LARGE
 
 验收：V1 首页行为不变，V2 首页/详情现有测试全部通过，Manifest 校验、Bridge 授权和 `theme.info` 使用同一份能力定义。
 
-**2026-08-03 实施状态：** 本轮已完成 P0 的契约核心：正式 JSON Schema 与 Devkit 校验入口、统一能力注册表、保留字段策略、规范错误码/旧错误别名，以及对应的 Java/Python 契约测试。Manifest 运行时、Bridge 授权和 `theme.info.capabilities` 已统一依赖能力注册表；Schema 权限枚举由漂移测试约束。受信和远程 V2 Bridge 均通过 `Error.code` 暴露规范码，同时保持 `Error.message` 的旧别名；过期不透明引用返回 `STALE_REFERENCE`，Android 与 Devkit 均拒绝非法 UTF-8 Manifest。第 5～7 项继续按独立的运维与发布任务推进；第 5 项的首个增量见下述 2026-08-05 状态，更新/缓存矩阵和更完整的生成式兼容矩阵仍未完成。
+**2026-08-03 实施状态：** 本轮已完成 P0 的契约核心：正式 JSON Schema 与 Devkit 校验入口、统一能力注册表、保留字段策略、规范错误码/旧错误别名，以及对应的 Java/Python 契约测试。Manifest 运行时、Bridge 授权和 `theme.info.capabilities` 已统一依赖能力注册表；Schema 权限枚举由漂移测试约束。受信和远程 V2 Bridge 均通过 `Error.code` 暴露规范码，同时保持 `Error.message` 的旧别名；过期不透明引用返回 `STALE_REFERENCE`，Android 与 Devkit 均拒绝非法 UTF-8 Manifest。第 5～7 项继续按独立的运维与发布任务推进；第 5 项的首个增量见下述运行日志状态，第 7 项的进程内更新/缓存/last-known-good 基础矩阵见第二增量；持久缓存、ETag/TTL 和更完整的生成式兼容矩阵仍未完成。
 
 **2026-08-05 运行日志状态（第一增量）：** 已为 WebTheme Manifest 与文档生命周期增加结构化诊断，使用 `operation + generation` 关联请求，并以稳定原因码区分 `manifest_io`、`manifest_invalid`、`page_unavailable`、`bridge_unavailable`、`load_timeout`、`empty_document`、`web_resource_error`、`http_error`、`render_process_gone` 和 `stale_operation`。持久日志只记录页面、低基数目标模式、数值错误码以及移除 userinfo/query/fragment 的 URL，不记录 Manifest payload、Cookie、Bridge nonce、自由格式异常文本或页面控制台原文；控制台持久日志改为级别、行号、消息长度和脱敏来源 URL，原文只保留给现有调试界面回调。对应格式、原因分类、URL 脱敏和控制器 wiring 回归测试已补齐。
+
+**2026-08-05 Manifest 更新/缓存状态（第二增量）：** Manifest Loader 现以 `Manifest URL + platform target` 为键维护最多 8 项的进程内 LRU 已验证缓存：非强制加载命中缓存时不重复读取；强制刷新成功后替换缓存；强制刷新发生 I/O 失败或校验失败时，继续使用同键上一份已验证 Manifest；冷启动或无缓存失败仍抛给控制器并走原生 fallback，不会把失败内容写入缓存。Resolver 会携带 `REFRESHED`、`CACHE_HIT` 或 `LAST_KNOWN_GOOD` 状态，控制器记录 `manifest_cache_fallback` 及稳定失败分类，并在最终 `manifest_load_resolved` 上标记 `last_known_good`，不持久化自由格式异常文本。单元测试覆盖首次刷新、按平台 target 隔离、缓存命中、刷新替换、I/O 与非法 Manifest 回退以及冷缓存失败。重装本增量 `mobileArm64_v8aDebug` 后，`emulator-5562` 已回归首页进入详情及返回首页，结构化生命周期事件完整，进程保持存活且未发现崩溃或 ANR；设备仍使用内置 Manifest，因此不把远程刷新失败注入记为已验证。本增量仅保证当前进程内回退，磁盘持久化、跨进程恢复、ETag/TTL 和手动回滚仍未实现。
 
 #### P1：公共 WebTheme Runtime 与焦点层
 
@@ -1627,7 +1629,7 @@ RESPONSE_TOO_LARGE
 
 **2026-08-05 mobile 阶段性验收：** `emulator-5562` 已安装本轮 `mobileArm64_v8aDebug` 构建并验证 Eclipse 首页、WebTheme 详情页、方向键横向焦点、原生播放器进入与首帧、播放返回详情、Home 键后台切换与恢复；进程在这些路径中保持存活，未发现崩溃或 ANR。首页和详情页都实际产生了 `manifest_load_started → manifest_load_resolved → document_load_started → document_ready` 事件。该模拟器显示面固定为 `1920×1080`，锁定 `user_rotation` 未改变 `SurfaceOrientation`，因此不能据此宣称旋转通过；Leanback 运行时也尚无分配设备，本轮仅完成对应单测和 APK 构建。
 
-本轮已完成 P1 的代码拆分、Eclipse 首批迁移、结构化生命周期诊断和 mobile 关键路径阶段性验收，但不宣称整个 P1 的发布验收已完成：可旋转 mobile 设备、真实 Leanback 设备上的遥控全路径、远程主题故障注入仍需验证；更新/缓存矩阵、生成式兼容矩阵、远程主题数据隔离和其余 Bridge/扩展调试日志的敏感字段审计继续按独立发布任务推进。
+本轮已完成 P1 的代码拆分、Eclipse 首批迁移、结构化生命周期诊断、进程内 Manifest 更新/缓存/last-known-good 基础矩阵和 mobile 关键路径阶段性验收，但不宣称整个 P1 的发布验收已完成：可旋转 mobile 设备、真实 Leanback 设备上的遥控全路径、远程主题故障注入仍需验证；磁盘持久缓存、ETag/TTL、跨进程 last-known-good、生成式兼容矩阵、远程主题数据隔离和其余 Bridge/扩展调试日志的敏感字段审计继续按独立发布任务推进。
 
 #### P2：通用列表页面
 
@@ -1685,8 +1687,7 @@ spacing.small / medium / large
 在公共远程主题生态开放前再增加：
 
 - ETag / TTL 缓存；
-- last-known-good 版本；
-- 手动回滚；
+- 持久化 last-known-good 版本与手动回滚（进程内回退已完成）；
 - Manifest 与静态资源哈希；
 - 签名主题包；
 - 本地目录或 ZIP 安装；
@@ -1703,7 +1704,7 @@ spacing.small / medium / large
 - 远程主题独立的数据/Cookie 策略，避免与受信站点页共享不必要状态；
 - `external.open` 首次域名或非 HTTPS 链接的用户可见确认；
 - 引用预算耗尽时返回可区分的错误或 `truncated`，而不是不可诊断的通用失败；
-- 远程 Manifest 更新失败时使用 last-known-good 或原生 fallback；
+- 远程 Manifest 更新失败时优先使用进程内 last-known-good，冷缓存失败时使用原生 fallback；跨进程持久化仍待补充；
 - 恶意 Manifest、IDN/IPv6/私网地址、超长消息、能力绕过和旧 generation 回调的安全测试；
 - 500 集详情、多推荐轨道、频繁切源和低配电视 WebView 的内存与响应时间测试。
 
@@ -1719,4 +1720,4 @@ spacing.small / medium / large
 - 不在缺少签名/回滚时先做 ZIP 或主题市场；
 - 不允许任意 CSS 或脚本反向控制原生 Android 布局。
 
-当前推荐的下一个独立变更是 **P1 发布验收与运行时加固第二增量**：在可旋转 mobile 设备和真实 Leanback 设备上补齐旋转、遥控全路径及远程主题故障注入；同时建设 Manifest 更新/缓存/last-known-good 矩阵、生成式兼容矩阵、远程主题数据隔离，并继续审计 Bridge、扩展和开发调试日志的敏感字段。已在 `emulator-5562` 通过的首页/详情、后台恢复、原生播放与返回路径不再重复作为未验证项；P0 尚未完成的运维与发布加固仍不与页面功能增量混合推进。
+当前推荐的下一个独立变更是 **P1 发布验收与运行时加固第三增量**：在可旋转 mobile 设备和真实 Leanback 设备上补齐旋转、遥控全路径及远程主题故障注入；把本轮进程内 Manifest 回退扩展为磁盘持久化、ETag/TTL、跨进程 last-known-good 与可控回滚，同时继续推进生成式兼容矩阵、远程主题数据隔离及 Bridge/扩展/开发调试日志的敏感字段审计。已在 `emulator-5562` 通过的首页/详情、后台恢复、原生播放与返回路径不再重复作为未验证项；P0 尚未完成的运维与发布加固仍不与页面功能增量混合推进。

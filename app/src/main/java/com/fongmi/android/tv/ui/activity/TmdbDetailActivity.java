@@ -2254,6 +2254,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         long start = System.currentTimeMillis();
         TmdbBundle bundle = result == null ? null : result.bundle();
         applyTmdbBundle(bundle);
+        reloadHistoryAfterTmdbMatch();
         if (bundle != null) saveTmdbMatch(bundle.item());
         enrichVod();
         bindBackdrop();
@@ -4939,6 +4940,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (!TextUtils.isEmpty(getMarkText())) history.setVodRemarks(getMarkText());
         syncDanmakuCompatHistory();
         updatePlayLabel();
+    }
+
+    private void reloadHistoryAfterTmdbMatch() {
+        if (vod == null || matchedTmdbItem == null) return;
+        initHistory();
     }
 
     private float getInlinePlaybackSpeed() {
