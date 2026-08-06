@@ -5,6 +5,7 @@ import com.github.catvod.utils.Prefers;
 public final class KernelPerformanceSetting {
 
     private static final String KEY_MIGRATED = "perf_kernel_shared_migrated";
+    private static final String KEY_PAUSE_PRELOAD_MIGRATED = "perf_pause_preload_policy_v2_migrated";
 
     private KernelPerformanceSetting() {
     }
@@ -91,6 +92,29 @@ public final class KernelPerformanceSetting {
         Prefers.put(key(kernel, "preload_time"), clamp(value, PreloadSetting.MIN_TIME_SECONDS, PreloadSetting.MAX_TIME_SECONDS));
     }
 
+    public static int getPreloadAheadSeconds(int kernel) {
+        ensureMigrated();
+        return Prefers.getInt(key(kernel, "preload_ahead"), PreloadSetting.DEFAULT_AHEAD_SECONDS);
+    }
+
+    public static void putPreloadAheadSeconds(int kernel, int value) {
+        ensureMigrated();
+        Prefers.put(key(kernel, "preload_ahead"), value);
+    }
+
+    public static int getPausePreloadPolicy(int kernel) {
+        ensureMigrated();
+        ensurePausePreloadMigrated();
+        return PreloadSetting.normalizePausePreloadPolicy(
+                Prefers.getInt(key(kernel, "preload_pause"), PreloadSetting.DEFAULT_PAUSE_PRELOAD));
+    }
+
+    public static void putPausePreloadPolicy(int kernel, int value) {
+        ensureMigrated();
+        ensurePausePreloadMigrated();
+        Prefers.put(key(kernel, "preload_pause"), PreloadSetting.normalizePausePreloadPolicy(value));
+    }
+
     public static boolean isAudioPassThrough(int kernel) {
         ensureMigrated();
         return Prefers.getBoolean(key(kernel, "audio_pass_through"), true);
@@ -162,6 +186,8 @@ public final class KernelPerformanceSetting {
             putPreloadThreads(kernel, preloadThreadsForPreset(profile));
             putPreloadSizeMb(kernel, PreloadSetting.MIN_SIZE_MB);
             putPreloadTimeSeconds(kernel, preloadTimeForPreset(profile));
+            putPreloadAheadSeconds(kernel, PreloadSetting.DEFAULT_AHEAD_SECONDS);
+            putPausePreloadPolicy(kernel, PreloadSetting.DEFAULT_PAUSE_PRELOAD);
             putAudioPassThrough(kernel, false);
             putPreferAac(kernel, true);
             putAudioPrefer(kernel, false);
@@ -178,6 +204,8 @@ public final class KernelPerformanceSetting {
             putPreloadThreads(kernel, preloadThreadsForPreset(profile));
             putPreloadSizeMb(kernel, 512);
             putPreloadTimeSeconds(kernel, preloadTimeForPreset(profile));
+            putPreloadAheadSeconds(kernel, PreloadSetting.DEFAULT_AHEAD_SECONDS);
+            putPausePreloadPolicy(kernel, PreloadSetting.DEFAULT_PAUSE_PRELOAD);
             putAudioPassThrough(kernel, false);
             putPreferAac(kernel, false);
             putAudioPrefer(kernel, false);
@@ -195,6 +223,8 @@ public final class KernelPerformanceSetting {
         }
         putPreloadThreads(kernel, preloadThreadsForPreset(profile));
         putPreloadTimeSeconds(kernel, preloadTimeForPreset(profile));
+        putPreloadAheadSeconds(kernel, PreloadSetting.DEFAULT_AHEAD_SECONDS);
+        putPausePreloadPolicy(kernel, PreloadSetting.DEFAULT_PAUSE_PRELOAD);
     }
 
     static int preloadThreadsForPreset(int profile) {
@@ -296,13 +326,30 @@ public final class KernelPerformanceSetting {
         Prefers.put(KEY_MIGRATED, true);
     }
 
+    private static synchronized void ensurePausePreloadMigrated() {
+        if (Prefers.getBoolean(KEY_PAUSE_PRELOAD_MIGRATED)) return;
+        for (int kernel : new int[]{PlayerSetting.EXO, PlayerSetting.MPV, PlayerSetting.IJK}) {
+            String preferenceKey = key(kernel, "preload_pause");
+            int legacy = Prefers.getPrefers().contains(preferenceKey)
+                    ? Prefers.getInt(preferenceKey, PreloadSetting.DEFAULT_PAUSE_PRELOAD)
+                    : PreloadSetting.DEFAULT_PAUSE_PRELOAD;
+            // The previous default was value 1. Existing default installs move to
+            // the new "always" default; the removed "off" value falls back to WiFi.
+            int migrated = legacy == PreloadSetting.PAUSE_PRELOAD_LEGACY_OFF
+                    ? PreloadSetting.PAUSE_PRELOAD_WIFI
+                    : PreloadSetting.PAUSE_PRELOAD_ALWAYS;
+            Prefers.put(preferenceKey, migrated);
+        }
+        Prefers.put(KEY_PAUSE_PRELOAD_MIGRATED, true);
+    }
+
     private static String key(int kernel, String suffix) {
         String prefix = kernel == PlayerSetting.MPV ? "perf_mpv_" : kernel == PlayerSetting.IJK ? "perf_ijk_" : "perf_exo_";
         return prefix + suffix;
     }
 
     private static int closestPreloadSize(int value) {
-        int[] options = {128, 256, 512, 1024, 2048, 4096};
+        int[] options = {128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768};
         int closest = options[0];
         int distance = Math.abs(value - closest);
         for (int option : options) {

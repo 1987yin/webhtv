@@ -39,7 +39,10 @@ import androidx.media3.common.util.UnstableApi;
 import com.fongmi.android.tv.player.PlaybackAutoContext;
 import com.fongmi.android.tv.player.PlaybackRoute;
 import com.fongmi.android.tv.player.PlaybackResourceClassifier;
+import com.fongmi.android.tv.player.PlaybackSystemConditionMonitor;
 import com.fongmi.android.tv.player.PlaybackTrace;
+import com.fongmi.android.tv.player.PreloadPausePolicy;
+import com.fongmi.android.tv.player.cache.PlaybackDiskBufferStore;
 import com.fongmi.android.tv.player.engine.PlayerCacheState;
 import com.fongmi.android.tv.player.iso.IsoSessionManager;
 import com.fongmi.android.tv.player.lut.MpvLutShader;
@@ -47,6 +50,7 @@ import com.fongmi.android.tv.player.mpv.MpvNetworkRecoveryPolicy;
 import com.fongmi.android.tv.player.mpv.MpvSubtitleStylePolicy;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.MpvPerformanceSetting;
+import com.fongmi.android.tv.setting.PreloadSetting;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.common.collect.ImmutableList;
 import com.google.common.net.HttpHeaders;
@@ -189,6 +193,8 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
     private long cachedCacheSpeedSampleAtMs = -1;
     private long cachedCacheUnderrunCount;
     private long cachedSelectedHlsBitrate;
+    private int pauseCacheBaselineSeconds;
+    private int pauseCacheTargetSeconds;
     private long textOffsetMs;
     private long audioOffsetMs;
     private float subtitleTextSize;
@@ -210,6 +216,7 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
     private boolean idleActive;
     private boolean currentLikelyHls;
     private boolean currentLikelyDash;
+    private boolean pauseCacheOverlayApplied;
     private boolean sawNoAvData;
     private boolean sawInvalidData;
     private boolean sawPngVideo;
@@ -362,6 +369,7 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
 
     @Override
     protected ListenableFuture<?> handleSetMediaItems(List<MediaItem> mediaItems, int startIndex, long startPositionMs) {
+        restorePausePreloadCacheOverlay();
         boolean reusingContext = canReuseContextForMediaReplacement();
         boolean hadActiveMedia = mediaItem != null && (fileLoaded || loadStarted || playbackState != Player.STATE_IDLE);
         cancelScheduledTrackRefresh();
@@ -455,8 +463,15 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
     @Override
     protected ListenableFuture<?> handleSetPlayWhenReady(boolean playWhenReady) {
         this.playWhenReady = playWhenReady;
+        hlsProxy.setPlaybackPaused(!playWhenReady);
         if (initialized && playbackState != Player.STATE_IDLE && playbackState != Player.STATE_ENDED) {
             safeSetPropertyBoolean("pause", !playWhenReady);
+        }
+        if (playWhenReady) {
+            restorePausePreloadCacheOverlay();
+        } else {
+            updatePausePreloadCacheOverlay();
+            requestHlsPreload(cachedPositionMs);
         }
         invalidateState();
         return Futures.immediateVoidFuture();
@@ -504,7 +519,7 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
                 hlsProxy.cancelAutomaticPreloadForDiscontinuity();
             }
             seekMpv(cachedPositionMs);
-            if (currentLikelyHls && playbackRestarted) hlsProxy.preloadAround(cachedPositionMs);
+            if (currentLikelyHls && playbackRestarted) requestHlsPreload(cachedPositionMs);
             if (playbackState == Player.STATE_ENDED) playbackState = Player.STATE_BUFFERING;
         }
         invalidateState();
@@ -623,11 +638,24 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
     }
 
     public void requestAutomaticHlsPreload(long positionMs) {
-        MpvHlsProxy.HlsVariant selected = MpvHlsProxy.resolveSelectedVariant(
-                hlsProxy.variantSnapshot().variants(), cachedSelectedHlsBitrate);
         hlsProxy.requestAutomaticPreload(
                 positionMs,
-                selected == null ? 0 : selected.selectionBitsPerSecond());
+                selectedHlsBitsPerSecond());
+    }
+
+    private void requestHlsPreload(long positionMs) {
+        if (!currentLikelyHls) return;
+        if (playWhenReady) {
+            hlsProxy.preloadAround(positionMs);
+        } else {
+            hlsProxy.preloadWhilePaused(positionMs, selectedHlsBitsPerSecond());
+        }
+    }
+
+    private long selectedHlsBitsPerSecond() {
+        MpvHlsProxy.HlsVariant selected = MpvHlsProxy.resolveSelectedVariant(
+                hlsProxy.variantSnapshot().variants(), cachedSelectedHlsBitrate);
+        return selected == null ? 0 : selected.selectionBitsPerSecond();
     }
 
     public AutoHlsBitrateResult applyAutoHlsBitrate(String option) {
@@ -1094,7 +1122,9 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
             applyCacheTimePolicy();
             if (currentIsoUri == null && shouldProxyHls(currentPlayableUri, currentLikelyHls)) {
                 String originalUri = currentPlayableUri;
-                currentPlayableUri = hlsProxy.proxy(originalUri, headers);
+                currentPlayableUri = hlsProxy.proxy(
+                        originalUri, headers,
+                        PlaybackDiskBufferStore.mediaKey(mediaItem));
                 if (shouldCollectDebugDetails()) PlaybackTrace.log("mpv", playbackTraceId, "hls proxy enabled original=%s proxy=%s", MpvDiagnosticsPolicy.sourceSummary(originalUri), MpvDiagnosticsPolicy.sourceSummary(currentPlayableUri));
             } else {
                 hlsProxy.clear();
@@ -1645,10 +1675,12 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
                     pendingSeekPositionMs = C.TIME_UNSET;
                 }
                 safeSetPropertyBoolean("pause", !playWhenReady);
+                updatePausePreloadCacheOverlay();
                 startStateRefresh();
             }
             case MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
                 playbackRestarted = true;
+                if (currentLikelyHls) requestHlsPreload(positionMs());
                 updateVideoSize("event=playback-restart");
                 refreshTracks();
                 refreshChapters();
@@ -2211,6 +2243,7 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
     };
 
     private void stopInternal(boolean resetState) {
+        restorePausePreloadCacheOverlay();
         cancelScheduledTrackRefresh();
         cancelScheduledChapterRefresh();
         mainHandler.removeCallbacks(mediaReplacementStopTimeoutRunnable);
@@ -2475,6 +2508,11 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
 
     private void refreshPlaybackState() {
         if (released || mediaItem == null || playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED || playerError != null) return;
+        cachedPositionMs = positionMs();
+        cachedDurationMs = durationMs();
+        updatePausePreloadCacheOverlay();
+        if (currentLikelyHls) requestHlsPreload(cachedPositionMs);
+        refreshCacheState();
         invalidateState();
         startStateRefresh();
     }
@@ -2718,6 +2756,75 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
                 snapshot.hysteresisSeconds(), decision.rebufferWaitSeconds(),
                 snapshot.observedOptions(),
                 !decision.runtimeManaged() ? "mpv-conf" : applied ? "applied" : "failed");
+    }
+
+    private void updatePausePreloadCacheOverlay() {
+        int baselineSeconds = pauseCacheOverlayApplied
+                ? pauseCacheBaselineSeconds : cacheTimeState.snapshot().cacheSeconds();
+        PlaybackResourceClassifier.Classification classification = resourceClassification;
+        PlaybackAutoContext.Protocol protocol = classification == null
+                ? PlaybackAutoContext.Protocol.UNKNOWN : classification.protocol();
+        PlaybackAutoContext.StreamKind streamKind = classification == null
+                ? PlaybackAutoContext.StreamKind.UNKNOWN : classification.streamKind();
+        boolean pauseAllowed = PreloadPausePolicy.evaluate(
+                playWhenReady,
+                PreloadSetting.getPausePreloadPolicy(PlayerSetting.MPV),
+                PlaybackSystemConditionMonitor.process().currentNetworkSnapshot()).allowed();
+        MpvPausePreloadCachePolicy.Decision decision =
+                MpvPausePreloadCachePolicy.resolve(
+                        new MpvPausePreloadCachePolicy.Request(
+                                !playWhenReady,
+                                PreloadSetting.isPreload(PlayerSetting.MPV),
+                                pauseAllowed,
+                                config.performanceOptionsPriority(),
+                                config.cache(),
+                                protocol,
+                                streamKind,
+                                baselineSeconds,
+                                PreloadSetting.getPreloadAheadSeconds(PlayerSetting.MPV),
+                                cachedPositionMs,
+                                cachedDurationMs));
+        if (!decision.apply()) {
+            restorePausePreloadCacheOverlay();
+            return;
+        }
+        if (!initialized || !fileLoaded) return;
+        if (!pauseCacheOverlayApplied) {
+            pauseCacheBaselineSeconds = baselineSeconds;
+            pauseCacheOverlayApplied = true;
+        }
+        int targetSeconds = decision.targetSeconds();
+        if (pauseCacheTargetSeconds == targetSeconds
+                && cacheTimeState.snapshot().cacheSeconds() == targetSeconds) return;
+        if (setRuntimeStringChecked("cache-secs", String.valueOf(targetSeconds))) {
+            cacheTimeState.recordAccepted("cache-secs", String.valueOf(targetSeconds));
+            pauseCacheTargetSeconds = targetSeconds;
+            PlaybackTrace.log("mpv-pause-preload", playbackTraceId,
+                    "action=extend baseline=%d target=%d protocol=%s stream=%s",
+                    pauseCacheBaselineSeconds, targetSeconds,
+                    protocol.label(), streamKind.label());
+        }
+    }
+
+    private void restorePausePreloadCacheOverlay() {
+        if (!pauseCacheOverlayApplied) return;
+        int baselineSeconds = pauseCacheBaselineSeconds;
+        if (!initialized) {
+            clearPausePreloadCacheOverlay();
+            return;
+        }
+        if (!setRuntimeStringChecked("cache-secs", String.valueOf(baselineSeconds))) return;
+        cacheTimeState.recordAccepted("cache-secs", String.valueOf(baselineSeconds));
+        PlaybackTrace.log("mpv-pause-preload", playbackTraceId,
+                "action=restore baseline=%d previousTarget=%d",
+                baselineSeconds, pauseCacheTargetSeconds);
+        clearPausePreloadCacheOverlay();
+    }
+
+    private void clearPausePreloadCacheOverlay() {
+        pauseCacheOverlayApplied = false;
+        pauseCacheBaselineSeconds = 0;
+        pauseCacheTargetSeconds = 0;
     }
 
     private boolean isNetworkFailureLog(String lower) {

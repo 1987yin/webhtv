@@ -31,6 +31,7 @@ import androidx.media3.mpvplayer.MpvHlsProxy;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.BuildConfig;
+import com.fongmi.android.tv.player.cache.PlaybackDiskBufferStore;
 import com.fongmi.android.tv.player.exo.ExoUtil;
 import com.fongmi.android.tv.player.PlaybackResourceClassifier;
 import com.fongmi.android.tv.player.PlaybackRoute;
@@ -170,9 +171,10 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         if (mediaItem != null) {
             long duration = duration();
             long position = position();
+            long buffered = bufferedPosition(position, duration);
             builder.setContentPositionMs(isPlayingInternal() ? PositionSupplier.getExtrapolating(position, playbackParameters.speed) : PositionSupplier.getConstant(position));
-            builder.setContentBufferedPositionMs(PositionSupplier.getConstant(bufferedPosition(duration)));
-            builder.setTotalBufferedDurationMs(PositionSupplier.getConstant(Math.max(0, bufferedPosition(duration) - position)));
+            builder.setContentBufferedPositionMs(PositionSupplier.getConstant(buffered));
+            builder.setTotalBufferedDurationMs(PositionSupplier.getConstant(Math.max(0, buffered - position)));
         }
         return builder.build();
     }
@@ -421,10 +423,12 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
     @Override
     protected ListenableFuture<?> handleSetPlayWhenReady(boolean playWhenReady) {
         this.playWhenReady = playWhenReady;
+        hlsProxy.setPlaybackPaused(!playWhenReady);
         if (playbackState == Player.STATE_READY) {
             if (playWhenReady) ijk.start();
             else ijk.pause();
         }
+        if (!playWhenReady) requestPreload(Math.max(0, position()));
         return Futures.immediateVoidFuture();
     }
 
@@ -493,6 +497,7 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             ijk.seekTo(positionMs);
         }
         updateCurrentCues(positionMs);
+        requestPreload(positionMs);
         invalidateState();
         return Futures.immediateVoidFuture();
     }
@@ -541,6 +546,7 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         } else {
             updateCurrentCues(position());
         }
+        requestPreload(Math.max(0, position()));
         if (playWhenReady) ijk.start();
         invalidateState();
         startStateRefresh();
@@ -638,10 +644,14 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             boolean dash = isLikelyDash(mediaItem, playableUrl);
             currentDash = dash;
             if (dash) {
-                playableUrl = hlsProxy.proxyDash(playableUrl, headers);
+                playableUrl = hlsProxy.proxyDash(
+                        playableUrl, headers,
+                        PlaybackDiskBufferStore.mediaKey(mediaItem));
                 SpiderDebug.log("ijk", "proxy action=enabled mode=dash");
             } else if (shouldProxyHls(mediaItem, playableUrl)) {
-                playableUrl = hlsProxy.proxy(playableUrl, headers);
+                playableUrl = hlsProxy.proxy(
+                        playableUrl, headers,
+                        PlaybackDiskBufferStore.mediaKey(mediaItem));
                 SpiderDebug.log("ijk", "proxy action=enabled mode=hls");
             }
             SpiderDebug.log("ijk",
@@ -715,6 +725,7 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
     private void refreshPlaybackState() {
         if (mediaItem == null || playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED || playerError != null) return;
         updateCurrentCues(position());
+        requestPreload(Math.max(0, position()));
         invalidateState();
         startStateRefresh();
     }
@@ -751,6 +762,11 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         if (currentCues.cues.equals(next.cues)) return false;
         currentCues = next;
         return true;
+    }
+
+    private void requestPreload(long positionMs) {
+        if (playWhenReady) hlsProxy.preloadAround(positionMs);
+        else hlsProxy.preloadWhilePaused(positionMs);
     }
 
     private void setVideoOutput(Object output) {
@@ -1045,9 +1061,10 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         pendingSeekRequestedAtMs = positionMs == C.TIME_UNSET ? C.TIME_UNSET : SystemClock.elapsedRealtime();
     }
 
-    private long bufferedPosition(long duration) {
-        if (duration == C.TIME_UNSET || duration <= 0) return position();
-        return Math.min(duration, duration * bufferingPercent / 100);
+    private long bufferedPosition(long position, long duration) {
+        return IjkBufferedDurationPolicy.bufferedPosition(
+                position, duration, bufferingPercent,
+                getNativeBufferedDurationSnapshot());
     }
 
     private boolean isPlayingInternal() {
