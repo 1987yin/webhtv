@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.HttpUrl;
@@ -42,13 +44,29 @@ public class TmdbService {
     private static final long PERSON_CACHE_TTL = DAY * 7;
     private static final long SEASON_CACHE_TTL = DAY * 3;
     private static final long CN_ON_AIR_SEASON_CACHE_TTL = DAY;
+    private static final long AUTH_FAILURE_COOLDOWN = TimeUnit.MINUTES.toMillis(5);
+    private static final Map<String, Long> AUTH_FAILURE_BLOCKS = new ConcurrentHashMap<>();
+
+    public static final class AuthException extends IllegalStateException {
+
+        private final int statusCode;
+
+        public AuthException(int statusCode, String message) {
+            super(message);
+            this.statusCode = statusCode;
+        }
+
+        public int getStatusCode() {
+            return statusCode;
+        }
+    }
 
     public JsonObject configuration(@NonNull TmdbConfig config) throws Exception {
         ensureReady(config);
         HttpUrl url = apiBuilder(config.getApiBase() + "/configuration", config).build();
         try (Response response = execute(url.toString(), config)) {
+            if (!response.isSuccessful()) throw httpFailure(config, response.code(), "TMDB configuration failed: HTTP " + response.code());
             if (response.body() == null) throw new IllegalStateException("TMDB configuration returned empty");
-            if (!response.isSuccessful()) throw new IllegalStateException("TMDB configuration failed: HTTP " + response.code());
             try {
                 return App.gson().fromJson(response.body().string(), JsonObject.class);
             } catch (ClassCastException e) {
@@ -487,7 +505,41 @@ public class TmdbService {
         return builder;
     }
 
+    void throwIfAuthBlocked(TmdbConfig config) {
+        if (Thread.currentThread().isInterrupted()) throw new CancellationException("TMDB request cancelled");
+        String key = authCircuitKey(config);
+        Long blockedUntil = AUTH_FAILURE_BLOCKS.get(key);
+        if (blockedUntil == null) return;
+        long now = System.currentTimeMillis();
+        if (blockedUntil <= now) {
+            AUTH_FAILURE_BLOCKS.remove(key, blockedUntil);
+            return;
+        }
+        throw new AuthException(401, "TMDB authentication temporarily blocked after HTTP 401/403");
+    }
+
+    RuntimeException httpFailure(TmdbConfig config, int statusCode, String message) {
+        if (statusCode == 401 || statusCode == 403) {
+            AUTH_FAILURE_BLOCKS.put(authCircuitKey(config), System.currentTimeMillis() + AUTH_FAILURE_COOLDOWN);
+            SpiderDebug.log("tmdb", "authentication circuit opened status=%d cooldown=%dms", statusCode, AUTH_FAILURE_COOLDOWN);
+            return new AuthException(statusCode, message);
+        }
+        return new IllegalStateException(message);
+    }
+
+    static void clearAuthFailuresForTest() {
+        AUTH_FAILURE_BLOCKS.clear();
+    }
+
+    private String authCircuitKey(TmdbConfig config) {
+        String apiBase = config == null ? "" : config.getApiBase();
+        String apiKey = config == null ? "" : config.getApiKey();
+        String accessToken = config == null ? "" : config.getAccessToken();
+        return md5(apiBase + "|" + apiKey + "|" + accessToken);
+    }
+
     private Response execute(String url, TmdbConfig config) throws Exception {
+        throwIfAuthBlocked(config);
         Request.Builder builder = new Request.Builder().url(url);
         if (!TextUtils.isEmpty(config.getAccessToken())) builder.header("Authorization", "Bearer " + config.getAccessToken());
         return com.github.catvod.net.OkHttp.client().newCall(builder.build()).execute();
@@ -519,8 +571,8 @@ public class TmdbService {
             return cached;
         }
         try (Response response = execute(url, config)) {
+            if (!response.isSuccessful()) throw httpFailure(config, response.code(), failurePrefix + response.code());
             if (response.body() == null) throw new IllegalStateException(emptyMessage);
-            if (!response.isSuccessful()) throw new IllegalStateException(failurePrefix + response.code());
             String body = response.body().string();
             JsonObject object;
             try {

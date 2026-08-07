@@ -79,6 +79,7 @@ import com.fongmi.android.tv.player.lut.LutStore;
 import com.fongmi.android.tv.service.AiAdDetectionService;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.service.IntroSkipService;
+import com.fongmi.android.tv.service.OmdbService;
 import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.fongmi.android.tv.setting.PlayerButtonSetting;
@@ -371,6 +372,9 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private boolean mFastTmdbFullDetailBound;
     private boolean mFastTmdbDetailCacheChecked;
     private int mPersonalRecommendationGeneration;
+    private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.recommendationExecutor());
+    private final Task.Scope mTmdbRatingTasks = new Task.Scope(Task.recommendationExecutor());
+    private String mTmdbRatingContextKey = "";
     private int mAdFeedbackGeneration;
 
     // TMDB 模式相关字段
@@ -4613,7 +4617,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     @Override
     public void onTimeChanged(long time) {
         android.util.Log.d("VideoActivity", "onTimeChanged: isOwner=" + isOwner() + " mHistory=" + (mHistory != null));
-        if (!isOwner()) return;
+        if (!isOwner() || mHistory == null) return;
         long position, duration;
         mHistory.setCreateTime(time);
         updatePlaybackHistoryPosition();
@@ -4675,13 +4679,15 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void loadNativePersonalRecommendations(Vod item) {
+        if (isPlaybackExiting() || isFinishing() || isDestroyed()) return;
+        mPersonalRecommendationTasks.cancelAll();
         int generation = ++mPersonalRecommendationGeneration;
         if (!Setting.isPersonalRecommendation()) {
             clearNativePersonalRecommendations();
             return;
         }
         clearNativePersonalRecommendations();
-        Task.execute(() -> {
+        mPersonalRecommendationTasks.submit(() -> {
             PersonalRecommendationService.RecommendationPages recommendations = PersonalRecommendationService.RecommendationPages.empty();
             PersonalRecommendationService service = new PersonalRecommendationService();
             try {
@@ -4689,14 +4695,16 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             } catch (Throwable e) {
                 SpiderDebug.log("personal-rec", "tv native core failed error=%s", e.getMessage());
             }
+            if (Thread.currentThread().isInterrupted()) return;
             PersonalRecommendationService.RecommendationPages loaded = recommendations;
             runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
+                if (isPlaybackExiting() || isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
                 bindNativePersonalRecommendations(loaded);
             });
+            if (Thread.currentThread().isInterrupted()) return;
             service.enrichTmdbPageRatingsAsync(loaded.getTmdb(), enriched -> applyNativePersonalTmdbRatings(enriched, generation));
         });
-        Task.execute(() -> {
+        mPersonalRecommendationTasks.submit(() -> {
             PersonalRecommendationService.RecommendationPage page;
             try {
                 page = new PersonalRecommendationService().loadAiPage(item, null, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
@@ -4704,9 +4712,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 SpiderDebug.log("personal-rec", "tv native ai failed error=%s", e.getMessage());
                 page = PersonalRecommendationService.RecommendationPage.empty("");
             }
+            if (Thread.currentThread().isInterrupted()) return;
             PersonalRecommendationService.RecommendationPage loaded = page;
             runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
+                if (isPlaybackExiting() || isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
                 bindNativePersonalAiRecommendation(loaded);
             });
         });
@@ -4785,6 +4794,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private void hideNativePersonalRecommendations() {
         mPersonalRecommendationGeneration++;
+        mPersonalRecommendationTasks.cancelAll();
         clearNativePersonalRecommendations();
     }
 
@@ -4901,11 +4911,12 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private void loadMoreNativePersonalRecommendations(boolean tmdb) {
         PersonalRecommendationService.RecommendationPage page = tmdb ? mNativePersonalTmdbPage : mNativePersonalDoubanPage;
+        if (isPlaybackExiting() || isFinishing() || isDestroyed()) return;
         if (page == null || !page.hasMore() || (tmdb ? mNativePersonalTmdbLoading : mNativePersonalDoubanLoading) || mVod == null) return;
         int generation = mPersonalRecommendationGeneration;
         if (tmdb) mNativePersonalTmdbLoading = true;
         else mNativePersonalDoubanLoading = true;
-        Task.execute(() -> {
+        mPersonalRecommendationTasks.submit(() -> {
             PersonalRecommendationService.RecommendationPage nextPage;
             PersonalRecommendationService service = new PersonalRecommendationService();
             try {
@@ -4916,9 +4927,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 SpiderDebug.log("personal-rec", "tv native load more failed tmdb=%s error=%s", tmdb, e.getMessage());
                 nextPage = page;
             }
+            if (Thread.currentThread().isInterrupted()) return;
             PersonalRecommendationService.RecommendationPage loadedPage = nextPage;
             runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
+                if (isPlaybackExiting() || isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
                 if (tmdb) {
                     mNativePersonalTmdbLoading = false;
                     mNativePersonalTmdbPage = loadedPage;
@@ -4929,7 +4941,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                     appendLeanbackItems(mPersonalDoubanObjectAdapter, loadedPage.getItems());
                 }
             });
-            if (tmdb) service.enrichTmdbPageRatingsAsync(loadedPage, enriched -> applyNativePersonalTmdbRatings(enriched, generation));
+            if (tmdb && !Thread.currentThread().isInterrupted()) service.enrichTmdbPageRatingsAsync(loadedPage, enriched -> applyNativePersonalTmdbRatings(enriched, generation));
         });
     }
 
@@ -4939,6 +4951,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void refreshPersonalRecommendationsForHistory() {
+        if (isPlaybackExiting() || isFinishing() || isDestroyed()) return;
         if (!Setting.isPersonalRecommendation() || mVod == null || mTmdbDetailLoading) return;
         if (mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded()) {
             mTmdbUIAdapter.refreshPersonalRecommendations(changed -> {
@@ -5238,6 +5251,13 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             return;
         }
 
+        TmdbItem ratingItem = mTmdbUIAdapter.getTmdbItem();
+        String ratingContextKey = ratingItem == null ? "" : ratingItem.getMediaType() + "|" + ratingItem.getTmdbId();
+        if (!TextUtils.equals(mTmdbRatingContextKey, ratingContextKey)) {
+            mTmdbRatingContextKey = ratingContextKey;
+            mTmdbRatingTasks.cancelAll();
+        }
+
         com.google.gson.JsonObject detail = mTmdbUIAdapter.getTmdbDetail();
         if (detail == null) {
             hideTmdbRatingChips(label, container);
@@ -5384,22 +5404,13 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void fetchTmdbOmdbRatings(String imdbId, String omdbApiKey, String cacheKey, View label, ViewGroup container) {
-        Task.execute(() -> {
+        mTmdbRatingTasks.submit(() -> {
             try {
-                String url = "https://www.omdbapi.com/?i=" + imdbId + "&apikey=" + omdbApiKey;
-                okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
-                        .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-                        .build();
-                okhttp3.Request request = new okhttp3.Request.Builder().url(url).build();
-                okhttp3.Response response = client.newCall(request).execute();
-                if (!response.isSuccessful() || response.code() != 200 || response.body() == null) {
-                    SpiderDebug.log("tmdb-omdb", "请求失败 code=%d", response.code());
+                com.google.gson.JsonObject jsonObj = OmdbService.fetch(imdbId, omdbApiKey);
+                if (jsonObj == null) {
+                    SpiderDebug.log("tmdb-omdb", "请求失败");
                     return;
                 }
-
-                String json = response.body().string();
-                com.google.gson.JsonObject jsonObj = new com.google.gson.JsonParser().parse(json).getAsJsonObject();
                 if (jsonObj.has("Response") && "False".equals(jsonObj.get("Response").getAsString())) {
                     SpiderDebug.log("tmdb-omdb", "返回 Response=False");
                     return;
@@ -5411,7 +5422,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 mTmdbOmdbRatingCache.put(cacheKey, omdbChips);
 
                 runOnUiThread(() -> {
-                    if (isFinishing()) return;
+                    if (isPlaybackExiting() || isFinishing() || isDestroyed()) return;
                     if (!cacheKey.equals(container.getTag())) return;
                     renderTmdbRatingChips(label, container, mergeRatingChips(buildTmdbRatingChips(), omdbChips));
                 });
@@ -5422,7 +5433,6 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             }
         });
     }
-
     private void hideTmdbRatingChips(View label, ViewGroup container) {
         if (label != null) label.setVisibility(View.GONE);
         if (container == null) return;
@@ -5502,23 +5512,29 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         int year = parseTmdbYear(mTmdbUIAdapter.getYear());
         String cacheKey = tmdbDoubanRatingCacheKey(title, mediaType, year);
         if (mTmdbDoubanRatingCache.containsKey(cacheKey) || !mTmdbDoubanRatingLoading.add(cacheKey)) return;
-        Task.execute(() -> {
-            PersonalRecommendationService.DoubanRating rating = PersonalRecommendationService.DoubanRating.empty();
+        mTmdbRatingTasks.submit(() -> {
             try {
-                rating = new PersonalRecommendationService().loadDoubanRating(title, mediaType, year);
-            } catch (Throwable e) {
-                SpiderDebug.log("tmdb-douban", "评分获取失败 title=%s error=%s", title, e.getMessage());
+                PersonalRecommendationService.DoubanRating rating;
+                try {
+                    rating = new PersonalRecommendationService().loadDoubanRating(title, mediaType, year);
+                } catch (java.util.concurrent.CancellationException e) {
+                    return;
+                } catch (Throwable e) {
+                    SpiderDebug.log("tmdb-douban", "评分获取失败 title=%s error=%s", title, e.getMessage());
+                    rating = PersonalRecommendationService.DoubanRating.empty();
+                }
+                if (Thread.currentThread().isInterrupted()) return;
+                mTmdbDoubanRatingCache.put(cacheKey, rating);
+                runOnUiThread(() -> {
+                    if (isPlaybackExiting() || isFinishing() || isDestroyed()) return;
+                    if (!cacheKey.equals(currentTmdbDoubanRatingKey())) return;
+                    bindTmdbOmdbRatings();
+                });
+            } finally {
+                mTmdbDoubanRatingLoading.remove(cacheKey);
             }
-            mTmdbDoubanRatingCache.put(cacheKey, rating);
-            mTmdbDoubanRatingLoading.remove(cacheKey);
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                if (!cacheKey.equals(currentTmdbDoubanRatingKey())) return;
-                bindTmdbOmdbRatings();
-            });
         });
     }
-
     private String currentTmdbDoubanRatingKey() {
         return tmdbDoubanRatingCacheKey(currentTmdbDoubanTitle(), currentTmdbMediaType(), parseTmdbYear(mTmdbUIAdapter == null ? "" : mTmdbUIAdapter.getYear()));
     }
@@ -6474,13 +6490,23 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private void finishVideoPlayback() {
         if (isPlaybackExiting()) return;
         mViewModel.stopSearch();
-        saveHistory(true);
         markPlaybackExiting();
+        saveHistory(true);
         stopPlayback();
         if (isTaskRoot()) startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
         super.onBackInvoked();
     }
 
+    @Override
+    protected void markPlaybackExiting() {
+        if (isPlaybackExiting()) return;
+        super.markPlaybackExiting();
+        mPersonalRecommendationGeneration++;
+        mPersonalRecommendationTasks.close();
+        mTmdbRatingTasks.close();
+        if (mTmdbHeaderView != null) mTmdbHeaderView.onDestroy();
+        if (mTmdbUIAdapter != null) mTmdbUIAdapter.release();
+    }
     @Override
     protected void onDestroy() {
         mLyricsSearchSeq++;
@@ -6490,6 +6516,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (mKaraoke != null) mKaraoke.release();
         subtitlePlaybackSession.stop(this);
         mPlayerUi.release();
+        mPersonalRecommendationGeneration++;
+        mPersonalRecommendationTasks.close();
+        mTmdbRatingTasks.close();
+        if (mTmdbHeaderView != null) mTmdbHeaderView.onDestroy();
+        if (mTmdbUIAdapter != null) mTmdbUIAdapter.release();
         saveHistory(true);
         DanmakuApi.cancel();
         stopBackdropAutoScroll();
@@ -6500,7 +6531,6 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         App.removeCallbacks(mTmdbDetailTimeout);
         App.removeCallbacks(mTmdbEpisodeTimeout);
         resetPendingTmdbBind();
-        if (mTmdbUIAdapter != null) mTmdbUIAdapter.release();
         mViewModel.getResult().removeObserver(mObserveDetail);
         mViewModel.getPlayer().removeObserver(mObservePlayer);
         mViewModel.getSearch().removeObserver(mObserveSearch);
@@ -9958,8 +9988,8 @@ public void onShare(CharSequence title) {
 
 private void finishVideoPlaybackNow() {
         mViewModel.stopSearch();
-        saveHistory(true);
         markPlaybackExiting();
+        saveHistory(true);
         stopPlayback();
         if (isTaskRoot()) startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
         super.onBackInvoked();

@@ -730,7 +730,7 @@ public class TmdbDetailActivityLayoutTest {
         int method = source.indexOf("private void loadTmdbMediaBlocks(TmdbBundle bundle)");
         int bind = source.indexOf("bindTmdbSection();", method);
         int earlyCache = source.indexOf("loadTmdbPersonalAiCache(bundle, currentVod, generation);", method);
-        int task = source.indexOf("Task.execute(() ->", method);
+        int task = source.indexOf("detailTasks.submit(Task.recommendationExecutor(), () ->", method);
         int merge = source.indexOf("relatedItems.clear();", method);
         int fullAi = source.indexOf("loadTmdbPersonalAi(bundle, currentVod", method);
 
@@ -758,6 +758,44 @@ public class TmdbDetailActivityLayoutTest {
                 cachedApply >= 0 && enrich > cachedApply);
         assertTrue("cached AI rating enrichment must merge into the visible row without restoring hidden cards",
                 enrichedItems > enrich && enrichedApply > enrichedItems);
+    }
+    @Test
+    public void detailLoadsUseLifecycleScopeAndSeparateTmdbExecutor() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int load = source.indexOf("private void loadContent(@Nullable TmdbBundle reusableBundle)");
+        int helper = source.indexOf("private boolean shouldLoadInitialStandaloneTmdbDetailInSinglePass", load);
+        String body = source.substring(load, helper);
+        int destroy = source.indexOf("protected void onDestroy()");
+        int destroyEnd = source.indexOf("public String getSubtitlePlaybackKey()", destroy);
+        String destroyBody = source.substring(destroy, destroyEnd);
+
+        assertTrue("standalone detail must own a cancellable lifecycle task scope",
+                source.contains("private final Task.Scope detailTasks = new Task.Scope(Task.executor());"));
+        assertTrue("a new detail must cancel all work left by the previous load",
+                body.contains("detailTasks.cancelAll();"));
+        assertTrue("source detail coordination must be lifecycle scoped",
+                body.contains("detailTasks.submit(() -> {"));
+        assertTrue("TMDB detail work must not be queued behind coordinators on the same five-thread executor",
+                body.contains("detailTasks.submitCallable(Task.largeExecutor(), this::loadTmdbResult)")
+                        && !body.contains("Task.executor().submit(this::loadTmdbResult)"));
+        assertTrue("leaving a detail must invalidate callbacks and interrupt its outstanding work",
+                destroyBody.contains("loadGeneration++;") && destroyBody.contains("detailTasks.close();"));
+    }
+    @Test
+    public void standaloneOmdbRatingUsesSharedLifecycleScopedClient() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
+        int fetch = source.indexOf("private void fetchOmdbRating(String key)");
+        int next = source.indexOf("private void addOmdbRatingChips", fetch);
+        String body = source.substring(fetch, next);
+
+        assertTrue("standalone detail OMDb work must stay inside the lifecycle scope",
+                body.contains("detailTasks.submit(Task.recommendationExecutor(), () -> {"));
+        assertTrue("standalone detail OMDb work must use the shared service",
+                body.contains("OmdbService.fetch(imdb, omdbApiKey)"));
+        assertFalse("standalone detail must not create one OkHttp client per OMDb request",
+                body.contains("new okhttp3.OkHttpClient.Builder()"));
     }
     @Test
     public void standaloneDetailAppliesInitialTmdbResultInSinglePass() throws Exception {
