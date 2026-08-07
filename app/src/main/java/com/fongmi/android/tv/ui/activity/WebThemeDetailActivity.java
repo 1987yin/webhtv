@@ -115,7 +115,7 @@ public class WebThemeDetailActivity extends BaseActivity implements HomeWebContr
     @Override
     public void onWebReady() {
         mBinding.loading.setVisibility(View.GONE);
-        mBinding.web.requestFocus();
+        if (controller != null) controller.requestFocus("detail-ready");
     }
 
     @Override
@@ -171,13 +171,13 @@ public class WebThemeDetailActivity extends BaseActivity implements HomeWebContr
             if (!confirmKeyDown) {
                 confirmKeyDown = true;
                 confirmLongPress = false;
-                mBinding.web.postDelayed(confirmLongPressRunnable, CONFIRM_LONG_PRESS_MS);
+                mBinding.getRoot().postDelayed(confirmLongPressRunnable, CONFIRM_LONG_PRESS_MS);
             }
             if (event.isLongPress() || event.getRepeatCount() > 0) triggerFocusedLongPress();
             return true;
         }
         if (event.getAction() == KeyEvent.ACTION_UP) {
-            mBinding.web.removeCallbacks(confirmLongPressRunnable);
+            mBinding.getRoot().removeCallbacks(confirmLongPressRunnable);
             boolean click = confirmKeyDown && !confirmLongPress && !event.isCanceled();
             confirmKeyDown = false;
             confirmLongPress = false;
@@ -189,12 +189,12 @@ public class WebThemeDetailActivity extends BaseActivity implements HomeWebContr
 
     private void triggerFocusedLongPress() {
         if (!confirmKeyDown || confirmLongPress || controller == null) return;
-        mBinding.web.removeCallbacks(confirmLongPressRunnable);
+        mBinding.getRoot().removeCallbacks(confirmLongPressRunnable);
         confirmLongPress = controller.dispatchFocusedLongPress();
     }
 
     private void cancelConfirmKey() {
-        if (mBinding != null) mBinding.web.removeCallbacks(confirmLongPressRunnable);
+        if (mBinding != null) mBinding.getRoot().removeCallbacks(confirmLongPressRunnable);
         confirmKeyDown = false;
         confirmLongPress = false;
     }
