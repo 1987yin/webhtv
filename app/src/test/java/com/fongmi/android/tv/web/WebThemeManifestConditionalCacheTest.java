@@ -116,9 +116,9 @@ public class WebThemeManifestConditionalCacheTest {
     @Test
     public void futureValidationTimeIsTreatedAsExpired() throws Exception {
         MemoryPersistentCache persistent = new MemoryPersistentCache();
-        persistent.write(CACHE_KEY, new WebThemeManifestLoader.StoredManifest(
+        persistent.write(CACHE_KEY, stable(new WebThemeManifestLoader.StoredManifest(
                 manifest("1", "home-v1.html"), ETAG_V1,
-                NOW + WebThemeManifestLoader.CACHE_TTL_MILLIS));
+                NOW + WebThemeManifestLoader.CACHE_TTL_MILLIS)));
         AtomicInteger requests = new AtomicInteger();
 
         WebThemeManifestLoader.LoadResult refreshed = load(false, etag -> {
@@ -136,8 +136,8 @@ public class WebThemeManifestConditionalCacheTest {
     @Test
     public void notModifiedWithoutASentValidatorKeepsLegacyCacheExpired() throws Exception {
         MemoryPersistentCache persistent = new MemoryPersistentCache();
-        persistent.write(CACHE_KEY, new WebThemeManifestLoader.StoredManifest(
-                manifest("1", "home-v1.html"), "", 0));
+        persistent.write(CACHE_KEY, stable(new WebThemeManifestLoader.StoredManifest(
+                manifest("1", "home-v1.html"), "", 0)));
 
         WebThemeManifestLoader.LoadResult fallback = load(false, etag -> {
             assertEquals("", etag);
@@ -168,17 +168,22 @@ public class WebThemeManifestConditionalCacheTest {
                 + "\",\"contract\":\"vod.home@1\"}},\"permissions\":{\"home\":[\"vod.home\"]}}";
     }
 
+    private static WebThemeManifestLoader.StoredCache stable(
+            WebThemeManifestLoader.StoredManifest current) {
+        return new WebThemeManifestLoader.StoredCache(current, null, false, "");
+    }
+
     private static final class MemoryPersistentCache implements WebThemeManifestLoader.PersistentCache {
 
-        private final Map<String, WebThemeManifestLoader.StoredManifest> entries = new HashMap<>();
+        private final Map<String, WebThemeManifestLoader.StoredCache> entries = new HashMap<>();
 
         @Override
-        public WebThemeManifestLoader.StoredManifest read(String cacheKey) {
+        public WebThemeManifestLoader.StoredCache read(String cacheKey) {
             return entries.get(cacheKey);
         }
 
         @Override
-        public void write(String cacheKey, WebThemeManifestLoader.StoredManifest stored) {
+        public void write(String cacheKey, WebThemeManifestLoader.StoredCache stored) {
             entries.put(cacheKey, stored);
         }
 
@@ -189,7 +194,7 @@ public class WebThemeManifestConditionalCacheTest {
 
         private WebThemeManifestLoader.StoredManifest single() {
             assertEquals(1, entries.size());
-            return entries.values().iterator().next();
+            return entries.values().iterator().next().current();
         }
     }
 }

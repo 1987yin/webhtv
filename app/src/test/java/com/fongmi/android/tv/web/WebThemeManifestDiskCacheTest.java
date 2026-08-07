@@ -2,6 +2,7 @@ package com.fongmi.android.tv.web;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -38,9 +39,12 @@ public class WebThemeManifestDiskCacheTest {
     }
 
     @Test
-    public void cachedPayloadAndMetadataSurviveAStoreRecreationWithoutLeakingTheUrl() throws Exception {
+    public void cachedHistoryAndMetadataSurviveAStoreRecreationWithoutLeakingTheUrl() throws Exception {
         String cacheKey = "https://themes.example/theme.json?token=secret\nmobile";
-        WebThemeManifestLoader.StoredManifest expected = stored("{\"schemaVersion\":2}", "\"v1\"", 1234);
+        WebThemeManifestLoader.StoredCache expected = new WebThemeManifestLoader.StoredCache(
+                stored("{\"schemaVersion\":2,\"version\":\"2\"}", "\"v2\"", 2345),
+                stored("{\"schemaVersion\":2,\"version\":\"1\"}", "\"v1\"", 1234),
+                true, "");
         WebThemeManifestDiskCache first = new WebThemeManifestDiskCache(directory.toFile());
 
         first.write(cacheKey, expected);
@@ -56,28 +60,65 @@ public class WebThemeManifestDiskCacheTest {
     }
 
     @Test
-    public void legacyRawManifestRemainsAvailableAsExpiredLastKnownGood() throws Exception {
-        String cacheKey = "https://themes.example/theme.json\nmobile";
-        String json = "{\"schemaVersion\":2}";
+    public void blockedRollbackStateSurvivesAStoreRecreation() throws Exception {
+        WebThemeManifestLoader.StoredManifest rejected = stored(
+                "{\"schemaVersion\":2,\"version\":\"2\"}", "\"v2\"", 2345);
+        WebThemeManifestLoader.StoredCache expected = new WebThemeManifestLoader.StoredCache(
+                stored("{\"schemaVersion\":2,\"version\":\"1\"}", "\"v1\"", 3456),
+                rejected, false, WebThemeManifestLoader.revision(rejected.json()));
         WebThemeManifestDiskCache cache = new WebThemeManifestDiskCache(directory.toFile());
-        cache.write(cacheKey, stored(json, "\"v1\"", 1234));
-        Files.writeString(dataFiles().get(0), json, StandardCharsets.UTF_8);
 
-        WebThemeManifestLoader.StoredManifest migrated = cache.read(cacheKey);
+        cache.write("key", expected);
 
-        assertEquals(json, migrated.json());
-        assertEquals("", migrated.etag());
-        assertEquals(0, migrated.validatedAt());
+        assertEquals(expected, new WebThemeManifestDiskCache(directory.toFile()).read("key"));
     }
 
     @Test
-    public void maximumSizedManifestStillFitsInsideTheMetadataEnvelope() throws Exception {
-        String json = "x".repeat(WebThemeManifest.MAX_MANIFEST_BYTES);
+    public void legacyRawManifestRemainsAvailableAsExpiredStableVersion() throws Exception {
+        String cacheKey = "https://themes.example/theme.json\nmobile";
+        String json = "{\"schemaVersion\":2}";
         WebThemeManifestDiskCache cache = new WebThemeManifestDiskCache(directory.toFile());
+        cache.write(cacheKey, stable(stored(json, "\"v1\"", 1234)));
+        Files.writeString(dataFiles().get(0), json, StandardCharsets.UTF_8);
 
-        cache.write("key", stored(json, "\"v1\"", 1234));
+        WebThemeManifestLoader.StoredCache migrated = cache.read(cacheKey);
 
-        assertEquals(json, cache.read("key").json());
+        assertEquals(json, migrated.current().json());
+        assertEquals("", migrated.current().etag());
+        assertEquals(0, migrated.current().validatedAt());
+        assertNull(migrated.previous());
+        assertFalse(migrated.activationPending());
+    }
+
+    @Test
+    public void versionTwoEnvelopeMigratesAsAStableVersion() throws Exception {
+        String cacheKey = "https://themes.example/theme.json\nmobile";
+        String json = "{\"schemaVersion\":2}";
+        WebThemeManifestDiskCache cache = new WebThemeManifestDiskCache(directory.toFile());
+        cache.write(cacheKey, stable(stored(json, "\"seed\"", 1)));
+        String v2 = "WEBHTV_THEME_MANIFEST_CACHE_V2\n1234\n22763122\n" + json;
+        Files.writeString(dataFiles().get(0), v2, StandardCharsets.UTF_8);
+
+        WebThemeManifestLoader.StoredCache migrated = cache.read(cacheKey);
+
+        assertEquals(json, migrated.current().json());
+        assertEquals("\"v1\"", migrated.current().etag());
+        assertEquals(1234, migrated.current().validatedAt());
+        assertNull(migrated.previous());
+        assertFalse(migrated.activationPending());
+    }
+
+    @Test
+    public void twoMaximumSizedManifestsFitInsideTheMetadataEnvelope() throws Exception {
+        String current = "x".repeat(WebThemeManifest.MAX_MANIFEST_BYTES);
+        String previous = "y".repeat(WebThemeManifest.MAX_MANIFEST_BYTES);
+        WebThemeManifestDiskCache cache = new WebThemeManifestDiskCache(directory.toFile());
+        WebThemeManifestLoader.StoredCache expected = new WebThemeManifestLoader.StoredCache(
+                stored(current, "\"v2\"", 2345), stored(previous, "\"v1\"", 1234), true, "");
+
+        cache.write("key", expected);
+
+        assertEquals(expected, cache.read("key"));
     }
 
     @Test
@@ -86,19 +127,26 @@ public class WebThemeManifestDiskCacheTest {
 
         for (int index = 0; index < WebThemeManifestLoader.MAX_CACHE_ENTRIES + 1; index++) {
             cache.write("https://themes.example/" + index + ".json\nmobile",
-                    stored("{\"id\":" + index + "}", "\"v" + index + "\"", index + 1));
+                    stable(stored("{\"id\":" + index + "}", "\"v" + index + "\"", index + 1)));
         }
 
         assertEquals(WebThemeManifestLoader.MAX_CACHE_ENTRIES, dataFiles().size());
     }
 
     @Test
-    public void oversizedEntryIsRejectedBeforeItTouchesDisk() {
+    public void oversizedVersionIsRejectedBeforeItTouchesDisk() {
         WebThemeManifestDiskCache cache = new WebThemeManifestDiskCache(directory.toFile());
         String oversized = "x".repeat(WebThemeManifest.MAX_MANIFEST_BYTES + 1);
+        WebThemeManifestLoader.StoredCache entry = new WebThemeManifestLoader.StoredCache(
+                stored("{}", "", 1), stored(oversized, "", 1), false, "");
 
-        assertThrows(IOException.class, () -> cache.write("key", stored(oversized, "", 1)));
+        assertThrows(IOException.class, () -> cache.write("key", entry));
         assertTrue(dataFilesUnchecked().isEmpty());
+    }
+
+    private static WebThemeManifestLoader.StoredCache stable(
+            WebThemeManifestLoader.StoredManifest current) {
+        return new WebThemeManifestLoader.StoredCache(current, null, false, "");
     }
 
     private static WebThemeManifestLoader.StoredManifest stored(String json, String etag, long validatedAt) {

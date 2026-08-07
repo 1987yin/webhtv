@@ -196,7 +196,7 @@ public class WebThemeManifestLoaderTest {
     public void emptyPersistentEntryIsDiscardedWithoutMaskingColdFailure() throws Exception {
         MemoryPersistentCache persistent = new MemoryPersistentCache();
         persistent.write(CACHE_URL + "\nmobile",
-                new WebThemeManifestLoader.StoredManifest("", "", 0));
+                stable(new WebThemeManifestLoader.StoredManifest("", "", 0)));
         IOException offline = new IOException("offline");
 
         IOException thrown = assertThrows(IOException.class, () -> WebThemeManifestLoader.load(
@@ -261,18 +261,23 @@ public class WebThemeManifestLoaderTest {
                 + "\",\"contract\":\"vod.home@1\"}},\"permissions\":{\"home\":[\"vod.home\"]}}";
     }
 
+    private static WebThemeManifestLoader.StoredCache stable(
+            WebThemeManifestLoader.StoredManifest current) {
+        return new WebThemeManifestLoader.StoredCache(current, null, false, "");
+    }
+
     private static final class MemoryPersistentCache implements WebThemeManifestLoader.PersistentCache {
 
-        private final Map<String, WebThemeManifestLoader.StoredManifest> entries = new HashMap<>();
+        private final Map<String, WebThemeManifestLoader.StoredCache> entries = new HashMap<>();
         private boolean failWrites;
 
         @Override
-        public WebThemeManifestLoader.StoredManifest read(String cacheKey) {
+        public WebThemeManifestLoader.StoredCache read(String cacheKey) {
             return entries.get(cacheKey);
         }
 
         @Override
-        public void write(String cacheKey, WebThemeManifestLoader.StoredManifest stored) throws IOException {
+        public void write(String cacheKey, WebThemeManifestLoader.StoredCache stored) throws IOException {
             if (failWrites) throw new IOException("disk full");
             entries.put(cacheKey, stored);
         }
@@ -287,8 +292,10 @@ public class WebThemeManifestLoaderTest {
         }
 
         private void corruptAll(String json) {
-            entries.replaceAll((key, value) -> new WebThemeManifestLoader.StoredManifest(
-                    json, value.etag(), value.validatedAt()));
+            entries.replaceAll((key, value) -> new WebThemeManifestLoader.StoredCache(
+                    new WebThemeManifestLoader.StoredManifest(
+                            json, value.current().etag(), value.current().validatedAt()),
+                    value.previous(), value.activationPending(), value.blockedRevision()));
         }
     }
 

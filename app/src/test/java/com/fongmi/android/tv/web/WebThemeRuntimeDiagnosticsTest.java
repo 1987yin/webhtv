@@ -67,6 +67,24 @@ public class WebThemeRuntimeDiagnosticsTest {
                 + "url=https://themes.example/theme.json", line);
         assertFalse(line.contains("secret"));
     }
+
+    @Test
+    public void rollbackUsesDedicatedLowCardinalityEventAndReason() {
+        String line = WebThemeRuntimeDiagnostics.format(
+                WebThemeRuntimeDiagnostics.Event.MANIFEST_ROLLBACK,
+                9,
+                13,
+                WebThemePage.HOME,
+                null,
+                "https://themes.example/theme.json?token=secret",
+                WebThemeRuntimeDiagnostics.Reason.ROLLBACK,
+                0);
+
+        assertEquals("event=manifest_rollback operation=9 generation=13 page=home "
+                + "mode=none reason=rollback code=0 url=https://themes.example/theme.json", line);
+        assertFalse(line.contains("secret"));
+    }
+
     @Test
     public void consolePersistenceUsesMetadataWithoutPageControlledMessage() {
         String line = WebThemeRuntimeDiagnostics.formatConsole(
