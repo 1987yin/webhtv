@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class MpvStabilityGuardSourceTest {
@@ -33,6 +34,20 @@ public class MpvStabilityGuardSourceTest {
         assertTrue(method.contains("surfaceDirectOverride && decode == HARD && !zeroCopyBlocked"));
         assertTrue(method.contains("String hwdec = surfaceDirect ? \"mediacodec\""));
         assertTrue(method.contains(".hwdec(hwdec)"));
+    }
+
+    @Test
+    public void hardDecodePrimesSoftwareFallbackTuning() throws Exception {
+        String method = methodBody(
+                readMpvPlayerEngine(),
+                "private void applySoftDecodeOptions",
+                "private String resolveAudioSpdifCodecs");
+
+        assertFalse("mpv can silently fall back from hardware to software decoding",
+                method.contains("decode != SOFT"));
+        assertTrue(method.contains("vd-lavc-fast"));
+        assertTrue(method.contains("vd-lavc-threads"));
+        assertTrue(method.contains("vd-lavc-skiploopfilter"));
     }
 
     @Test

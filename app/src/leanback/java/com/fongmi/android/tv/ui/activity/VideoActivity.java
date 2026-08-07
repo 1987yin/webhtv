@@ -117,6 +117,7 @@ import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
 import com.fongmi.android.tv.ui.helper.EpisodeSeasonPolicy;
+import com.fongmi.android.tv.ui.helper.SourceEpisodeSeasonCache;
 import com.fongmi.android.tv.ui.helper.PlayerControlFocusHelper;
 import com.fongmi.android.tv.ui.helper.TmdbEpisodeGridPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
@@ -377,6 +378,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private com.fongmi.android.tv.ui.custom.TmdbHeaderView mTmdbHeaderView;
     private Vod mVod;
     private String mSourceVodName = "";
+    private final SourceEpisodeSeasonCache mSourceEpisodeSeasonCache = new SourceEpisodeSeasonCache();
     private boolean mTmdbAutoDialogShown;
     private int mTmdbDialogGeneration;
     private Runnable mR4;
@@ -901,31 +903,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private int resolveSourceEpisodeSeason(Flag flag) {
-        if (flag == null || flag.getEpisodes() == null) return -1;
-        Integer season = null;
-        for (Episode episode : flag.getEpisodes()) {
-            int candidate = EpisodeSeasonPolicy.resolveSourceSeason(episode == null ? "" : episode.getName());
-            if (candidate < 0) {
-                TmdbEpisode tmdbEpisode = episode == null ? null : episode.getTmdbEpisode();
-                candidate = tmdbEpisode != null && tmdbEpisode.getNumber() > 0 ? tmdbEpisode.getSeasonNumber() : -1;
-            }
-            if (candidate < 0) continue;
-            if (season != null && season != candidate) return -1;
-            season = candidate;
-        }
-        return season == null ? -1 : season;
+        return mSourceEpisodeSeasonCache.resolve(flag);
     }
 
     private int resolveSourceEpisodeSeason(Vod item) {
-        if (item == null || item.getFlags() == null) return -1;
-        Integer season = null;
-        for (Flag flag : item.getFlags()) {
-            int candidate = resolveSourceEpisodeSeason(flag);
-            if (candidate < 0) continue;
-            if (season != null && season != candidate) return -1;
-            season = candidate;
-        }
-        return season == null ? -1 : season;
+        return mSourceEpisodeSeasonCache.resolve(item);
     }
     private Episode withSourceSeasonEpisodeIdentity(Episode episode) {
         if (episode == null) return null;
@@ -1457,6 +1439,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void applyActionButtonVisibility() {
+        mBinding.control.action.cast.setVisibility(isFullscreen() ? View.GONE : View.VISIBLE);
         updateImmersiveAudioAction();
         updatePanDiagnosticAction();
         if (mActionButtons != null) PlayerButtonSetting.applyVisibility(mActionButtons);
@@ -1597,6 +1580,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private boolean tryStartFastTmdbPlayback(Vod item) {
         if (!isIntentTmdbPlayback() || mFastTmdbPlaybackStarted || item == null) return false;
         long start = System.currentTimeMillis();
+        mSourceEpisodeSeasonCache.clear();
         mVod = item;
         mFastTmdbPlaybackStarted = true;
         mFastTmdbFullDetailBound = false;
@@ -1946,6 +1930,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         App.removeCallbacks(mPendingFastTmdbPlaybackStart);
         mVod = null;
         mSourceVodName = "";
+        mSourceEpisodeSeasonCache.clear();
         mFastTmdbDetailCache = null;
         mFastPlaybackFlag = null;
         mFastPlaybackEpisode = null;
@@ -2031,11 +2016,15 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void getDetail() {
+        getDetail(false);
+    }
+
+    private void getDetail(boolean refresh) {
         detailStartTime = System.currentTimeMillis();
         detailHealthRecorded = false;
-        SpiderDebug.log("video-flow", "detail start key=%s id=%s name=%s", getKey(), getId(), getName());
+        SpiderDebug.log("video-flow", "detail start key=%s id=%s name=%s refresh=%s", getKey(), getId(), getName(), refresh);
         prefetchDirectTmdbDetail();
-        mViewModel.detailContent(getKey(), getId());
+        mViewModel.detailContent(getKey(), getId(), refresh);
     }
 
     private void prefetchDirectTmdbDetail() {
@@ -2099,6 +2088,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void setDetail(Vod item) {
+        mSourceEpisodeSeasonCache.clear();
         mSourceVodName = item.getName();
         mVod = item;
         resetPendingTmdbBind();
@@ -4261,6 +4251,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void updateVod(Vod item) {
+        mSourceEpisodeSeasonCache.clear();
         mVod = item;
         boolean id = !item.getId().isEmpty();
         boolean pic = !item.getPic().isEmpty();
@@ -4653,7 +4644,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onRefreshEvent(RefreshEvent event) {
         if (isRedirect()) return;
-        if (event.getType() == RefreshEvent.Type.DETAIL) getDetail();
+        if (event.getType() == RefreshEvent.Type.DETAIL) getDetail(true);
         else if (event.getType() == RefreshEvent.Type.PLAYER) onRefresh();
         else if (event.getType() == RefreshEvent.Type.VOD_CORE) {
             if (!isCurrentVodEvent(event.getVod())) {
@@ -4990,6 +4981,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     // 会卡在文本态。这里重算卡片模式与 chrome 可见性即可，不走完整 setEpisodeAdapter：那会把
     // 列表拽回第一个分段（它只装载 items 的首段），用户停在 81-120 段时会被拉回 1-40。
     private void refreshTmdbEpisodeTitles() {
+        mSourceEpisodeSeasonCache.clear();
         updateEpisodeSeasonContext();
         if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded() || mTmdbDetailLoading) return;
         if (mEpisodeAdapter == null || mEpisodeGridAdapter == null) return;

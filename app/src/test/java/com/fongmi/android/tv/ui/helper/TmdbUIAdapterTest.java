@@ -67,6 +67,23 @@ public class TmdbUIAdapterTest {
     }
 
     @Test
+    public void episodeMetadataBindingIndexesTmdbEpisodesOnce() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "helper", "TmdbUIAdapter.java"));
+        String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
+        int method = source.indexOf("private boolean applyEpisodeTitles(Vod vod, TmdbItem item)");
+        int end = source.indexOf("static boolean shouldUseEpisodePosition", method);
+        String body = method >= 0 && end > method ? source.substring(method, end) : "";
+
+        assertTrue(sourcePath + " is missing applyEpisodeTitles", method >= 0);
+        assertTrue("TMDB episode metadata must be indexed once before source-line traversal",
+                body.contains("Map<Integer, TmdbEpisode> episodesByNumber = indexEpisodesByNumber(episodes);"));
+        assertTrue("each source episode must use O(1) number lookup",
+                body.contains("TmdbEpisode tmdbEp = episodesByNumber.get(resolvedNumber);"));
+        assertFalse("the source episode loop must not linearly rescan TMDB episodes",
+                body.contains("findEpisodeByNumber("));
+    }
+
+    @Test
     public void removeRecommendationFrom_removesThePersistedModelItem() {
         TmdbItem selected = new TmdbItem(1, "movie", "隐藏作品", "2024", "", "", "");
         List<TmdbItem> recommendations = new ArrayList<>(List.of(
@@ -670,6 +687,69 @@ public class TmdbUIAdapterTest {
     }
 
     @Test
+    public void mobileVideoActivityUsesFineGrainedTmdbRefreshHandlers() throws Exception {
+        Path activityPath = findFlavorJavaPath("mobile").resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String activity = Files.readString(activityPath, StandardCharsets.UTF_8);
+        int observer = activity.indexOf("public void onRefreshEvent(RefreshEvent event)");
+        int coreBranch = activity.indexOf("event.getType() == RefreshEvent.Type.VOD_CORE", observer);
+        int recommendationBranch = activity.indexOf("event.getType() == RefreshEvent.Type.VOD_RECOMMENDATIONS", coreBranch);
+        int personalBranch = activity.indexOf("event.getType() == RefreshEvent.Type.VOD_PERSONAL", recommendationBranch);
+        int episodeBranch = activity.indexOf("event.getType() == RefreshEvent.Type.VOD_EPISODE_TITLES", personalBranch);
+        int coreUpdate = activity.indexOf("updateVod(event.getVod());", coreBranch);
+        int recommendationCall = activity.indexOf("refreshTmdbRecommendations();", recommendationBranch);
+        int personalCall = activity.indexOf("refreshTmdbPersonalRecommendations();", personalBranch);
+        int episodeCall = activity.indexOf("refreshTmdbEpisodeTitles();", episodeBranch);
+
+        assertTrue("mobile must route each TMDB completion to a dedicated handler",
+                observer >= 0 && coreBranch > observer && recommendationBranch > coreBranch
+                        && personalBranch > recommendationBranch && episodeBranch > personalBranch);
+        assertTrue("only core detail completion may run the full VOD update",
+                coreUpdate > coreBranch && coreUpdate < recommendationBranch);
+        assertTrue("recommendation, personal and episode metadata events need fine-grained handlers",
+                recommendationCall > recommendationBranch && personalCall > personalBranch && episodeCall > episodeBranch);
+
+        int recommendationHelper = activity.indexOf("private void refreshTmdbRecommendations()");
+        int personalHelper = activity.indexOf("private void refreshTmdbPersonalRecommendations()", recommendationHelper);
+        int episodeHelper = activity.indexOf("private void refreshTmdbEpisodeTitles()", personalHelper);
+        int nextHelper = activity.indexOf("private ", episodeHelper + 1);
+        String recommendationBody = recommendationHelper >= 0 && personalHelper > recommendationHelper
+                ? activity.substring(recommendationHelper, personalHelper) : "";
+        String personalBody = personalHelper >= 0 && episodeHelper > personalHelper
+                ? activity.substring(personalHelper, episodeHelper) : "";
+        String episodeBody = episodeHelper >= 0 && nextHelper > episodeHelper
+                ? activity.substring(episodeHelper, nextHelper) : "";
+
+        assertTrue("related recommendations should only rebind their header row",
+                recommendationBody.contains("mTmdbHeaderView.refreshRecommendations();"));
+        assertTrue("personal recommendations should only rebind their header rows",
+                personalBody.contains("mTmdbHeaderView.refreshPersonalRecommendationRows();"));
+        assertFalse("recommendation refreshes must not rebuild source or episode state",
+                recommendationBody.contains("updateVod(") || recommendationBody.contains("updateFlag(")
+                        || recommendationBody.contains("setEpisodeAdapter(") || recommendationBody.contains("mSourceEpisodeSeasonCache.clear()")
+                        || personalBody.contains("updateVod(") || personalBody.contains("updateFlag(")
+                        || personalBody.contains("setEpisodeAdapter(") || personalBody.contains("mSourceEpisodeSeasonCache.clear()"));
+        assertTrue("episode metadata completion should refresh only the visible episode page",
+                episodeBody.contains("int maxGroupSize = shouldUseTmdbDetailLayout() ? EpisodeRangePolicy.CARD_PAGE_MAX_SIZE : 0;")
+                        && episodeBody.contains("mEpisodeAdapter.refreshMetadata(displayItems);")
+                        && episodeBody.contains("mTmdbHeaderView.refreshEpisodeMetadata();"));
+        assertFalse("shared TMDB episode metadata must not re-enter the full VOD/flag rebuild path",
+                episodeBody.contains("updateVod(") || episodeBody.contains("updateFlag(") || episodeBody.contains("setEpisodeAdapter("));
+
+        int updateVod = activity.indexOf("private void updateVod(Vod item)");
+        int updateVodEnd = activity.indexOf("private String tmdbEpisodeCompactText()", updateVod);
+        String updateVodBody = updateVod >= 0 && updateVodEnd > updateVod ? activity.substring(updateVod, updateVodEnd) : "";
+        assertTrue("core enrichment of the current Vod must retain the existing source-season cache",
+                updateVodBody.contains("if (mVod != item) mSourceEpisodeSeasonCache.clear();"));
+
+        Path headerPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "custom", "TmdbHeaderView.java"));
+        String header = Files.readString(headerPath, StandardCharsets.UTF_8);
+        assertTrue("mobile header must expose lightweight row and episode metadata refresh methods",
+                header.contains("public void refreshRecommendations()")
+                        && header.contains("public void refreshPersonalRecommendationRows()")
+                        && header.contains("public void refreshEpisodeMetadata()"));
+    }
+
+    @Test
     public void tmdbAdapterTracksAndCancelsAttachedPrefetchAndLogsReuseState() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "helper", "TmdbUIAdapter.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -690,15 +770,18 @@ public class TmdbUIAdapterTest {
     private static void assertDirectTmdbPrefetchOrder(String flavor) throws Exception {
         Path sourcePath = findFlavorJavaPath(flavor).resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
-        int getDetail = source.indexOf("private void getDetail()");
+        int getDetail = source.indexOf("private void getDetail(boolean refresh)");
+        String crawlerCall = "mViewModel.detailContent(getKey(), getId(), refresh);";
+        int refreshEvent = source.indexOf("if (event.getType() == RefreshEvent.Type.DETAIL) getDetail(true);");
         int prefetch = source.indexOf("prefetchDirectTmdbDetail();", getDetail);
-        int crawler = source.indexOf("mViewModel.detailContent(getKey(), getId());", getDetail);
+        int crawler = source.indexOf(crawlerCall, getDetail);
         int helper = source.indexOf("private void prefetchDirectTmdbDetail()", crawler);
         int invalidate = source.indexOf("mTmdbUIAdapter.beginDetailRequest();", helper);
         int explicitItem = source.indexOf("getTmdbItem()", invalidate);
         int adapterPrefetch = source.indexOf("mTmdbUIAdapter.prefetch(item);", explicitItem);
 
         assertTrue(sourcePath + " must start direct TMDB prefetch before crawler detail", getDetail >= 0 && prefetch > getDetail && crawler > prefetch);
+        assertTrue(sourcePath + " manual detail refresh must bypass the reusable detail cache", refreshEvent >= 0);
         assertTrue(sourcePath + " must invalidate the previous detail before reading the next explicit item", helper > crawler && invalidate > helper && explicitItem > invalidate);
         assertTrue(sourcePath + " must only prefetch an explicit TmdbItem", adapterPrefetch > explicitItem);
     }

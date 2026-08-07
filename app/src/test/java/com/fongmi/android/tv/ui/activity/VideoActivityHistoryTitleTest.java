@@ -121,6 +121,9 @@ public class VideoActivityHistoryTitleTest {
 
     @Test
     public void originalEnhancedCarriesSeasonContextIntoEpisodeHeaderAndPlaybackIdentity() throws Exception {
+        Path cachePath = mainJava().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "helper", "SourceEpisodeSeasonCache.java"));
+        String cacheSource = Files.readString(cachePath, StandardCharsets.UTF_8);
+        String episodeResolution = methodBody(cacheSource, "private static int resolveEpisodeSeason(Episode episode)");
         for (Path sourcePath : List.of(videoActivity("mobile"), videoActivity("leanback"))) {
             String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
             String checkHistory = methodBody(source, "private boolean checkHistory(Vod item)");
@@ -128,6 +131,9 @@ public class VideoActivityHistoryTitleTest {
             String seasonIdentity = methodBody(source, "private Episode withSourceSeasonEpisodeIdentity(Episode episode)");
             String cacheName = methodBody(source, "private String episodePositionCacheName(Episode episode, int preferredSeason)");
             String flagSeason = methodBody(source, "private int resolveSourceEpisodeSeason(Flag flag)");
+            String vodSeason = methodBody(source, "private int resolveSourceEpisodeSeason(Vod item)");
+            String setDetail = methodBody(source, "private void setDetail(Vod item)");
+            String updateVod = methodBody(source, "private void updateVod(Vod item)");
             assertTrue(sourcePath + " must expose a season-aware episode header",
                     source.contains("private void updateEpisodeSeasonContext()")
                             && source.contains("R.string.detail_episode_season_context"));
@@ -143,10 +149,17 @@ public class VideoActivityHistoryTitleTest {
                             && !resolveSeason.contains("if (season > 0) return season;")
                             && seasonIdentity.contains("if (season < 0) return episode;")
                             && cacheName.contains("if (season < 0) season = currentSourceSeasonNumber();"));
-            assertTrue(sourcePath + " must prefer explicit source episode names over previously bound TMDB metadata",
-                    flagSeason.indexOf("EpisodeSeasonPolicy.resolveSourceSeason(episode == null ? \"\" : episode.getName())") >= 0
-                            && flagSeason.indexOf("EpisodeSeasonPolicy.resolveSourceSeason(episode == null ? \"\" : episode.getName())")
-                            < flagSeason.indexOf("episode.getTmdbEpisode()"));
+            assertTrue(sourcePath + " must reuse the shared long-series season cache",
+                    source.contains("private final SourceEpisodeSeasonCache mSourceEpisodeSeasonCache = new SourceEpisodeSeasonCache();")
+                            && flagSeason.contains("mSourceEpisodeSeasonCache.resolve(flag)")
+                            && vodSeason.contains("mSourceEpisodeSeasonCache.resolve(item)"));
+            assertTrue(sourcePath + " must invalidate cached season scans when source or TMDB data changes",
+                    setDetail.contains("mSourceEpisodeSeasonCache.clear();")
+                            && updateVod.contains("mSourceEpisodeSeasonCache.clear();"));
+            assertTrue("shared season resolution must prefer explicit source episode names over previously bound TMDB metadata",
+                    episodeResolution.indexOf("EpisodeSeasonPolicy.resolveSourceSeason(episode == null ? \"\" : episode.getName())") >= 0
+                            && episodeResolution.indexOf("EpisodeSeasonPolicy.resolveSourceSeason(episode == null ? \"\" : episode.getName())")
+                            < episodeResolution.indexOf("episode.getTmdbEpisode()"));
             assertTrue(sourcePath + " must pass the resolved source season into ordinary playback history lookup",
                     checkHistory.contains("item.getFlags(), tmdbItem, currentSourceSeasonNumber(item)"));
             assertTrue(sourcePath + " must stamp season-aware episode identity before saving history",
