@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.service;
 
+import com.fongmi.android.tv.bean.TmdbConfig;
 import com.fongmi.android.tv.bean.TmdbItem;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -8,6 +9,7 @@ import com.google.gson.JsonParser;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -21,6 +23,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class PersonalRecommendationServiceTest {
@@ -436,6 +439,29 @@ public class PersonalRecommendationServiceTest {
         assertTrue(page.getItems().isEmpty());
         assertEquals(12, page.getNextOffset());
         assertTrue(page.hasMore());
+    }
+
+    @Test
+    public void tmdbHistoryCandidates_stopsAfterAuthenticationFailure() {
+        AtomicInteger searches = new AtomicInteger();
+        TmdbService tmdbService = new TmdbService() {
+            @Override
+            public List<TmdbItem> search(String keyword, TmdbConfig config) {
+                searches.incrementAndGet();
+                throw new TmdbService.AuthException(401, "TMDB search failed: HTTP 401");
+            }
+        };
+        PersonalRecommendationService service = new PersonalRecommendationService(
+                tmdbService, TmdbConfig.objectFrom("{\"apiKey\":\"invalid\"}"));
+
+        assertThrows(TmdbService.AuthException.class, () -> service.tmdbHistoryCandidates(
+                List.of("auth-seed-1", "auth-seed-2", "auth-seed-3"),
+                3,
+                new HashSet<>(),
+                new ArrayList<>(),
+                null,
+                null));
+        assertEquals(1, searches.get());
     }
 
     @Test

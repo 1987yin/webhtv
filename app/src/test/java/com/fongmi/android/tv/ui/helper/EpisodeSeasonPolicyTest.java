@@ -159,6 +159,22 @@ public class EpisodeSeasonPolicyTest {
     }
 
     @Test
+    public void resolveExplicitSourceSeason_ignoresLineOrdinalsAndPlainEpisodeNumbers() {
+        assertEquals(-1, EpisodeSeasonPolicy.resolveExplicitSourceSeason("摆渡普画#02"));
+        assertEquals(-1, EpisodeSeasonPolicy.resolveExplicitSourceSeason("UC原画#03"));
+        assertEquals(-1, EpisodeSeasonPolicy.resolveExplicitSourceSeason("线路3"));
+        assertEquals(-1, EpisodeSeasonPolicy.resolveExplicitSourceSeason("109"));
+    }
+
+    @Test
+    public void resolveExplicitSourceSeason_keepsActualSeasonMarkersAndSpecials() {
+        assertEquals(2, EpisodeSeasonPolicy.resolveExplicitSourceSeason("摆渡普画 第2季"));
+        assertEquals(3, EpisodeSeasonPolicy.resolveExplicitSourceSeason("UC原画 Season 3"));
+        assertEquals(3, EpisodeSeasonPolicy.resolveExplicitSourceSeason("线路 S03"));
+        assertEquals(0, EpisodeSeasonPolicy.resolveExplicitSourceSeason("特别篇"));
+    }
+
+    @Test
     public void resolveSourceSeason_ignoresReleaseDateLikeEpisodeNames() {
         assertEquals(-1, EpisodeSeasonPolicy.resolveSourceSeason("2026-07-02"));
         assertEquals(-1, EpisodeSeasonPolicy.resolveSourceSeason("2026-07-29"));

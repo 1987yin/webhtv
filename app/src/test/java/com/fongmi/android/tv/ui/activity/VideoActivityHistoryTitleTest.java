@@ -141,7 +141,7 @@ public class VideoActivityHistoryTitleTest {
                     source.contains("currentSourceSeasonNumber()")
                             && source.contains("currentSourceSeasonNumber(item)"));
             assertTrue(sourcePath + " must prioritize the selected source line over the overall title",
-                    resolveSeason.indexOf("sourceFlag == null ? \"\" : sourceFlag.getShow()") >= 0
+                    resolveSeason.indexOf("EpisodeSeasonPolicy.resolveExplicitSourceSeason(sourceFlag == null ? \"\" : sourceFlag.getShow())") >= 0
                             && resolveSeason.indexOf("sourceFlag == null ? \"\" : sourceFlag.getShow()")
                             < resolveSeason.indexOf("getName(), mSourceVodName"));
             assertTrue(sourcePath + " must preserve explicit TMDB season zero for specials",
@@ -157,8 +157,8 @@ public class VideoActivityHistoryTitleTest {
                     setDetail.contains("mSourceEpisodeSeasonCache.clear();")
                             && updateVod.contains("mSourceEpisodeSeasonCache.clear();"));
             assertTrue("shared season resolution must prefer explicit source episode names over previously bound TMDB metadata",
-                    episodeResolution.indexOf("EpisodeSeasonPolicy.resolveSourceSeason(episode == null ? \"\" : episode.getName())") >= 0
-                            && episodeResolution.indexOf("EpisodeSeasonPolicy.resolveSourceSeason(episode == null ? \"\" : episode.getName())")
+                    episodeResolution.indexOf("EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode == null ? \"\" : episode.getName())") >= 0
+                            && episodeResolution.indexOf("EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode == null ? \"\" : episode.getName())")
                             < episodeResolution.indexOf("episode.getTmdbEpisode()"));
             assertTrue(sourcePath + " must pass the resolved source season into ordinary playback history lookup",
                     checkHistory.contains("item.getFlags(), tmdbItem, currentSourceSeasonNumber(item)"));
@@ -183,17 +183,22 @@ public class VideoActivityHistoryTitleTest {
                 captureSeason.contains("if (season < 0) season =")
                         && !captureSeason.contains("if (season <= 0 && sourceVod")
                         && !captureSeason.contains("if (flagSeason <= 0)"));
+        assertTrue("TMDB source-season capture must not treat source-line ordinals as seasons",
+                captureSeason.contains("EpisodeSeasonPolicy.resolveExplicitSourceSeason(flag == null ? \"\" : flag.getShow())"));
         assertTrue("TMDB source-season capture must prefer source episode names over bound metadata",
-                captureSeason.indexOf("EpisodeSeasonPolicy.resolveSourceSeason(episode == null ? \"\" : episode.getName())") >= 0
-                        && captureSeason.indexOf("EpisodeSeasonPolicy.resolveSourceSeason(episode == null ? \"\" : episode.getName())")
+                captureSeason.indexOf("EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode == null ? \"\" : episode.getName())") >= 0
+                        && captureSeason.indexOf("EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode == null ? \"\" : episode.getName())")
                         < captureSeason.indexOf("TmdbEpisode tmdbEpisode ="));
         Path detailPath = mainJava().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String detailSource = Files.readString(detailPath, StandardCharsets.UTF_8);
         String detailEpisodeSeason = methodBody(detailSource, "private int sourceSeasonNumber(Episode episode)");
         assertTrue("standalone detail must prefer source episode names over bound TMDB metadata",
-                detailEpisodeSeason.indexOf("EpisodeSeasonPolicy.resolveSourceSeason(episode.getName())") >= 0
-                        && detailEpisodeSeason.indexOf("EpisodeSeasonPolicy.resolveSourceSeason(episode.getName())")
+                detailEpisodeSeason.indexOf("EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode.getName())") >= 0
+                        && detailEpisodeSeason.indexOf("EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode.getName())")
                         < detailEpisodeSeason.indexOf("episode.getTmdbEpisode()"));
+        String detailTitleSeason = methodBody(detailSource, "private int sourceTitleSeasonNumber()");
+        assertTrue("standalone detail must not treat the selected source-line ordinal as a season",
+                detailTitleSeason.contains("EpisodeSeasonPolicy.resolveExplicitSourceSeason(selectedFlag.getShow())"));
         assertTrue("TMDB detail loading must preserve a previously captured source season",
                 detailSync.contains("if (sourceSeasonNumber < 0 && vod != null)"));
         assertTrue("TMDB detail loading must not overwrite the captured season from only the VOD name",

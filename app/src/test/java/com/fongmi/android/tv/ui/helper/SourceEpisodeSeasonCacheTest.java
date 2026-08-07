@@ -59,6 +59,11 @@ public class SourceEpisodeSeasonCacheTest {
         assertEquals(4, cache.resolve(flag));
     }
 
+    @Test
+    public void plainEpisodeNumberDoesNotBecomeASeason() {
+        assertEquals(-1, new SourceEpisodeSeasonCache().resolve(flag(episode("109"))));
+    }
+
     private static Episode episode(String name) {
         Episode episode = new Episode();
         episode.setName(name);
