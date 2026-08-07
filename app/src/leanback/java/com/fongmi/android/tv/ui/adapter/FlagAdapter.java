@@ -78,9 +78,9 @@ public class FlagAdapter extends RecyclerView.Adapter<FlagAdapter.ViewHolder> {
     }
 
     public void toggle(Episode item) {
+        // 线路焦点回调可能发生在 RecyclerView 布局期间，此处只同步选集状态，不通知线路列表。
         int flagPosition = getPosition();
         for (int i = 0; i < mItems.size(); i++) mItems.get(i).toggle(flagPosition == i, item);
-        notifyDataSetChanged();
     }
 
     public void reverse() {

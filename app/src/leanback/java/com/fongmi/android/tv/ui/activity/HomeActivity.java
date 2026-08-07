@@ -172,6 +172,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
         mResult = Result.empty();
         mHomeResult = Result.empty();
         mClock = Clock.create(mBinding.clock);
+        syncHomeSiteLock();
         mBinding.progressLayout.showProgress();
         setRecyclerView();
         setViewModel();
@@ -484,6 +485,10 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
         List<String> items = Arrays.asList(getHome().getDisplayName(), getConfig().getName(), getString(R.string.app_name));
         Optional<String> optional = items.stream().filter(s -> !TextUtils.isEmpty(s)).findFirst();
         optional.ifPresent(s -> mBinding.title.setText(s));
+    }
+
+    private void syncHomeSiteLock() {
+        mBinding.title.setSiteLocked(Setting.isHomeSiteLock());
     }
 
     private void initConfig() {
@@ -1098,6 +1103,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     protected void onResume() {
         super.onResume();
         mClock.start();
+        syncHomeSiteLock();
         if (mWeb != null) mWeb.onResume();
         setFunc();
         syncTypeItems();

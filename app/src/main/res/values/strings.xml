@@ -229,6 +229,7 @@
     <string name="group_rule_ai_current_interface">Current VOD configuration</string>
 
     <string name="setting_home_vod_auto_load">Auto-load VOD</string>
+    <string name="setting_home_site_lock">Home source lock</string>
     <string name="setting_auto_backup">Automatic backup</string>
     <string name="setting_fullscreen_menu_key">Fullscreen menu key</string>
     <string name="setting_home_menu_key">Home menu key</string>
@@ -544,6 +545,12 @@
     <string name="setting_web_home_theme_invalid_url">Enter an HTTPS WebHome URL</string>
     <string name="setting_web_home_theme_remote_warning_title">Trust this remote theme?</string>
     <string name="setting_web_home_theme_remote_warning_message">The remote theme from %1$s runs website code and can request catalog data or trigger permitted app actions. Continue only if you trust its provider.</string>
+    <string name="setting_web_home_theme_recovery">Version recovery</string>
+    <string name="setting_web_home_theme_recovery_unavailable">No recoverable theme version is available</string>
+    <string name="setting_web_home_theme_rollback_message">Roll back to the previous validated theme version? The current version will be kept so you can retry it later.</string>
+    <string name="setting_web_home_theme_retry_message">Retry the rolled-back theme version? If its first load fails again, the stable version will be restored automatically.</string>
+    <string name="setting_web_home_theme_recovery_success">Theme version updated</string>
+    <string name="setting_web_home_theme_recovery_failed">Unable to update the theme version</string>
     <string name="setting_web_home_fullscreen">WebHome homepage fullscreen</string>
     <string name="setting_csp_warmup">CSP warmup</string>
     <string name="setting_csp_warmup_default">Default</string>

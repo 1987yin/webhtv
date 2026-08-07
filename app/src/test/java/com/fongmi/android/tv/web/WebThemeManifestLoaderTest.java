@@ -16,6 +16,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class WebThemeManifestLoaderTest {
@@ -100,11 +102,124 @@ public class WebThemeManifestLoaderTest {
     }
 
     @Test
+    public void failedRefreshDoesNotOverwriteANewerConcurrentSuccess() throws Exception {
+        WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", false, () -> manifest("1", "home-v1.html"));
+        IOException refreshFailure = new IOException("offline");
+
+        WebThemeManifestLoader.LoadResult fallback = WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", true, () -> {
+                    WebThemeManifestLoader.load(
+                            CACHE_URL, "mobile", true,
+                            () -> manifest("2", "home-v2.html"));
+                    throw refreshFailure;
+                });
+
+        assertEquals(WebThemeManifestLoader.CacheState.LAST_KNOWN_GOOD, fallback.state());
+        assertEquals("https://cache.example/home-v2.html",
+                fallback.manifest().getPage(WebThemePage.HOME).getEntryUrl());
+        assertSame(refreshFailure, fallback.refreshFailure());
+    }
+
+    @Test
     public void coldFailureIsNotSilentlyRecovered() {
         assertThrows(IOException.class, () -> WebThemeManifestLoader.load(
                 CACHE_URL, "mobile", true, () -> {
                     throw new IOException("offline");
                 }));
+    }
+
+    @Test
+    public void persistentLastKnownGoodSurvivesMemoryCacheReset() throws Exception {
+        MemoryPersistentCache persistent = new MemoryPersistentCache();
+        String original = manifest("1", "home-v1.html");
+
+        WebThemeManifestLoader.LoadResult refreshed = WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", false, () -> original, persistent);
+        WebThemeManifestLoader.clearCache();
+        IOException refreshFailure = new IOException("offline");
+        WebThemeManifestLoader.LoadResult fallback = WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", true, () -> {
+                    throw refreshFailure;
+                }, persistent);
+        WebThemeManifestLoader.LoadResult memoryHit = WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", false, () -> {
+                    throw new AssertionError("restored manifest must be cached in memory");
+                }, persistent);
+
+        assertEquals(WebThemeManifestLoader.CacheState.REFRESHED, refreshed.state());
+        assertEquals(1, persistent.size());
+        assertEquals(WebThemeManifestLoader.CacheState.LAST_KNOWN_GOOD, fallback.state());
+        assertSame(refreshFailure, fallback.refreshFailure());
+        assertEquals("https://cache.example/home-v1.html",
+                fallback.manifest().getPage(WebThemePage.HOME).getEntryUrl());
+        assertEquals(WebThemeManifestLoader.CacheState.CACHE_HIT, memoryHit.state());
+        assertSame(fallback.manifest(), memoryHit.manifest());
+    }
+
+    @Test
+    public void persistentCacheRemainsIsolatedByPlatformTarget() throws Exception {
+        MemoryPersistentCache persistent = new MemoryPersistentCache();
+        WebThemeManifestLoader.load(CACHE_URL, "mobile", false,
+                () -> manifest("1", "mobile.html"), persistent);
+        WebThemeManifestLoader.clearCache();
+        IOException offline = new IOException("offline");
+
+        IOException thrown = assertThrows(IOException.class, () -> WebThemeManifestLoader.load(
+                CACHE_URL, "leanback", false, () -> {
+                    throw offline;
+                }, persistent));
+
+        assertSame(offline, thrown);
+        assertEquals(1, persistent.size());
+    }
+
+    @Test
+    public void corruptPersistentEntryDoesNotMaskColdFailure() throws Exception {
+        MemoryPersistentCache persistent = new MemoryPersistentCache();
+        WebThemeManifestLoader.load(CACHE_URL, "mobile", false,
+                () -> manifest("1", "home-v1.html"), persistent);
+        persistent.corruptAll("{\"schemaVersion\":2}");
+        WebThemeManifestLoader.clearCache();
+        IOException offline = new IOException("offline");
+
+        IOException thrown = assertThrows(IOException.class, () -> WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", false, () -> {
+                    throw offline;
+                }, persistent));
+
+        assertSame(offline, thrown);
+        assertEquals(0, persistent.size());
+    }
+
+    @Test
+    public void emptyPersistentEntryIsDiscardedWithoutMaskingColdFailure() throws Exception {
+        MemoryPersistentCache persistent = new MemoryPersistentCache();
+        persistent.write(CACHE_URL + "\nmobile",
+                stable(new WebThemeManifestLoader.StoredManifest("", "", 0)));
+        IOException offline = new IOException("offline");
+
+        IOException thrown = assertThrows(IOException.class, () -> WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", false, () -> {
+                    throw offline;
+                }, persistent));
+
+        assertSame(offline, thrown);
+        assertEquals(0, persistent.size());
+    }
+
+    @Test
+    public void persistentWriteFailureDoesNotRejectFreshManifest() throws Exception {
+        MemoryPersistentCache persistent = new MemoryPersistentCache();
+        persistent.failWrites = true;
+
+        WebThemeManifestLoader.LoadResult result = WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", false, () -> manifest("1", "home-v1.html"), persistent);
+
+        assertEquals(WebThemeManifestLoader.CacheState.REFRESHED, result.state());
+        assertEquals("https://cache.example/home-v1.html",
+                result.manifest().getPage(WebThemePage.HOME).getEntryUrl());
+        assertEquals(0, persistent.size());
     }
 
     @Test
@@ -144,6 +259,44 @@ public class WebThemeManifestLoaderTest {
         return "{\"schemaVersion\":2,\"id\":\"cache.theme\",\"version\":\"" + version
                 + "\",\"minHostApi\":2,\"pages\":{\"home\":{\"entry\":\"" + entry
                 + "\",\"contract\":\"vod.home@1\"}},\"permissions\":{\"home\":[\"vod.home\"]}}";
+    }
+
+    private static WebThemeManifestLoader.StoredCache stable(
+            WebThemeManifestLoader.StoredManifest current) {
+        return new WebThemeManifestLoader.StoredCache(current, null, false, "");
+    }
+
+    private static final class MemoryPersistentCache implements WebThemeManifestLoader.PersistentCache {
+
+        private final Map<String, WebThemeManifestLoader.StoredCache> entries = new HashMap<>();
+        private boolean failWrites;
+
+        @Override
+        public WebThemeManifestLoader.StoredCache read(String cacheKey) {
+            return entries.get(cacheKey);
+        }
+
+        @Override
+        public void write(String cacheKey, WebThemeManifestLoader.StoredCache stored) throws IOException {
+            if (failWrites) throw new IOException("disk full");
+            entries.put(cacheKey, stored);
+        }
+
+        @Override
+        public void remove(String cacheKey) {
+            entries.remove(cacheKey);
+        }
+
+        private int size() {
+            return entries.size();
+        }
+
+        private void corruptAll(String json) {
+            entries.replaceAll((key, value) -> new WebThemeManifestLoader.StoredCache(
+                    new WebThemeManifestLoader.StoredManifest(
+                            json, value.current().etag(), value.current().validatedAt()),
+                    value.previous(), value.activationPending(), value.blockedRevision()));
+        }
     }
 
     private static ByteArrayInputStream stream(String value) {
