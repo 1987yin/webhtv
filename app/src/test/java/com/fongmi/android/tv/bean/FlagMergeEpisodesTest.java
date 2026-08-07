@@ -2,12 +2,37 @@ package com.fongmi.android.tv.bean;
 
 import org.junit.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 public class FlagMergeEpisodesTest {
+
+    @Test
+    public void mergeEpisodesUsesSharedListFastPathAndIndexedLookup() throws Exception {
+        Path sourcePath = Path.of("app", "src", "main", "java", "com", "fongmi", "android", "tv", "bean", "Flag.java");
+        if (!Files.exists(sourcePath)) sourcePath = Path.of("src", "main", "java", "com", "fongmi", "android", "tv", "bean", "Flag.java");
+        String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
+        int start = source.indexOf("public void mergeEpisodes(List<Episode> items, boolean rev)");
+        int end = source.indexOf("private void mergeEpisode", start);
+        String body = start >= 0 && end > start ? source.substring(start, end) : "";
+
+        assertTrue("merging a list with itself must be a constant-time no-op",
+                body.contains("if (items == getEpisodes()) return;"));
+        assertTrue("long episode lists must use indexed identity, URL, value and name lookups",
+                body.contains("IdentityHashMap<Episode, Episode>")
+                        && body.contains("Map<String, Episode> byUrl")
+                        && body.contains("Map<Episode, Episode> byValue")
+                        && body.contains("Map<String, Episode> byName"));
+        assertFalse("long episode merges must not repeatedly scan the target list",
+                body.contains("int index = indexOf(item);"));
+    }
 
     @Test
     public void mergeEpisodes_updatesTmdbMetadataForExistingEpisode() {
