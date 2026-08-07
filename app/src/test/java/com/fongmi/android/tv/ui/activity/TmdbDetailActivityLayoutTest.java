@@ -1046,8 +1046,8 @@ public class TmdbDetailActivityLayoutTest {
                 resolverBody.contains("sourceSeasonNumbers(episodes)")
                         && resolverBody.contains("EpisodeSeasonPolicy.resolveAvailableSeasons("));
         assertTrue("current-line labels must participate in season resolution before generic detail titles",
-                source.contains("selectedFlag == null ? -1 : sourceSeasonNumber(selectedFlag.getShow())")
-                        && source.contains("int titleSeason = sourceSeasonNumber(initialFlag.getShow());"));
+                source.contains("selectedFlag == null ? -1 : EpisodeSeasonPolicy.resolveExplicitSourceSeason(selectedFlag.getShow())")
+                        && source.contains("int titleSeason = EpisodeSeasonPolicy.resolveExplicitSourceSeason(initialFlag.getShow());"));
         assertTrue("season chips must iterate only the current line's available seasons",
                 renderBody.contains("List<Integer> availableSeasons = availableSeasonNumbers(episodes);")
                         && renderBody.contains("for (Integer season : availableSeasons)")

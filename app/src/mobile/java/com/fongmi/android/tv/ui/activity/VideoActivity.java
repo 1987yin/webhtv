@@ -878,7 +878,7 @@ private int mAudioBackgroundRandomNonce;
         int season = getIntent().getIntExtra(EXTRA_TMDB_PLAY_SEASON_NUMBER, -1);
         if (season >= 0) return season;
         Flag sourceFlag = getFlag();
-        season = EpisodeSeasonPolicy.resolveSourceSeason(sourceFlag == null ? "" : sourceFlag.getShow());
+        season = EpisodeSeasonPolicy.resolveExplicitSourceSeason(sourceFlag == null ? "" : sourceFlag.getShow());
         if (season >= 0) return season;
         season = resolveSourceEpisodeSeason(sourceFlag);
         if (season >= 0) return season;
