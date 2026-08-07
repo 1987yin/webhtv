@@ -16,6 +16,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class WebThemeManifestLoaderTest {
@@ -108,6 +110,97 @@ public class WebThemeManifestLoaderTest {
     }
 
     @Test
+    public void persistentLastKnownGoodSurvivesMemoryCacheReset() throws Exception {
+        MemoryPersistentCache persistent = new MemoryPersistentCache();
+        String original = manifest("1", "home-v1.html");
+
+        WebThemeManifestLoader.LoadResult refreshed = WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", false, () -> original, persistent);
+        WebThemeManifestLoader.clearCache();
+        IOException refreshFailure = new IOException("offline");
+        WebThemeManifestLoader.LoadResult fallback = WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", false, () -> {
+                    throw refreshFailure;
+                }, persistent);
+        WebThemeManifestLoader.LoadResult memoryHit = WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", false, () -> {
+                    throw new AssertionError("restored manifest must be cached in memory");
+                }, persistent);
+
+        assertEquals(WebThemeManifestLoader.CacheState.REFRESHED, refreshed.state());
+        assertEquals(1, persistent.size());
+        assertEquals(WebThemeManifestLoader.CacheState.LAST_KNOWN_GOOD, fallback.state());
+        assertSame(refreshFailure, fallback.refreshFailure());
+        assertEquals("https://cache.example/home-v1.html",
+                fallback.manifest().getPage(WebThemePage.HOME).getEntryUrl());
+        assertEquals(WebThemeManifestLoader.CacheState.CACHE_HIT, memoryHit.state());
+        assertSame(fallback.manifest(), memoryHit.manifest());
+    }
+
+    @Test
+    public void persistentCacheRemainsIsolatedByPlatformTarget() throws Exception {
+        MemoryPersistentCache persistent = new MemoryPersistentCache();
+        WebThemeManifestLoader.load(CACHE_URL, "mobile", false,
+                () -> manifest("1", "mobile.html"), persistent);
+        WebThemeManifestLoader.clearCache();
+        IOException offline = new IOException("offline");
+
+        IOException thrown = assertThrows(IOException.class, () -> WebThemeManifestLoader.load(
+                CACHE_URL, "leanback", false, () -> {
+                    throw offline;
+                }, persistent));
+
+        assertSame(offline, thrown);
+        assertEquals(1, persistent.size());
+    }
+
+    @Test
+    public void corruptPersistentEntryDoesNotMaskColdFailure() throws Exception {
+        MemoryPersistentCache persistent = new MemoryPersistentCache();
+        WebThemeManifestLoader.load(CACHE_URL, "mobile", false,
+                () -> manifest("1", "home-v1.html"), persistent);
+        persistent.corruptAll("{\"schemaVersion\":2}");
+        WebThemeManifestLoader.clearCache();
+        IOException offline = new IOException("offline");
+
+        IOException thrown = assertThrows(IOException.class, () -> WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", false, () -> {
+                    throw offline;
+                }, persistent));
+
+        assertSame(offline, thrown);
+        assertEquals(0, persistent.size());
+    }
+
+    @Test
+    public void emptyPersistentEntryIsDiscardedWithoutMaskingColdFailure() throws Exception {
+        MemoryPersistentCache persistent = new MemoryPersistentCache();
+        persistent.write(CACHE_URL + "\nmobile", "");
+        IOException offline = new IOException("offline");
+
+        IOException thrown = assertThrows(IOException.class, () -> WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", false, () -> {
+                    throw offline;
+                }, persistent));
+
+        assertSame(offline, thrown);
+        assertEquals(0, persistent.size());
+    }
+
+    @Test
+    public void persistentWriteFailureDoesNotRejectFreshManifest() throws Exception {
+        MemoryPersistentCache persistent = new MemoryPersistentCache();
+        persistent.failWrites = true;
+
+        WebThemeManifestLoader.LoadResult result = WebThemeManifestLoader.load(
+                CACHE_URL, "mobile", false, () -> manifest("1", "home-v1.html"), persistent);
+
+        assertEquals(WebThemeManifestLoader.CacheState.REFRESHED, result.state());
+        assertEquals("https://cache.example/home-v1.html",
+                result.manifest().getPage(WebThemePage.HOME).getEntryUrl());
+        assertEquals(0, persistent.size());
+    }
+    @Test
     public void boundedReaderAcceptsLimitAndRejectsOneExtraByte() throws Exception {
         assertEquals("1234", WebThemeManifestLoader.read(stream("1234"), 4));
         assertThrows(IOException.class, () -> WebThemeManifestLoader.read(stream("12345"), 4));
@@ -146,6 +239,35 @@ public class WebThemeManifestLoaderTest {
                 + "\",\"contract\":\"vod.home@1\"}},\"permissions\":{\"home\":[\"vod.home\"]}}";
     }
 
+    private static final class MemoryPersistentCache implements WebThemeManifestLoader.PersistentCache {
+
+        private final Map<String, String> entries = new HashMap<>();
+        private boolean failWrites;
+
+        @Override
+        public String read(String cacheKey) {
+            return entries.get(cacheKey);
+        }
+
+        @Override
+        public void write(String cacheKey, String json) throws IOException {
+            if (failWrites) throw new IOException("disk full");
+            entries.put(cacheKey, json);
+        }
+
+        @Override
+        public void remove(String cacheKey) {
+            entries.remove(cacheKey);
+        }
+
+        private int size() {
+            return entries.size();
+        }
+
+        private void corruptAll(String json) {
+            entries.replaceAll((key, value) -> json);
+        }
+    }
     private static ByteArrayInputStream stream(String value) {
         return new ByteArrayInputStream(value.getBytes(StandardCharsets.UTF_8));
     }

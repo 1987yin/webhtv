@@ -1614,6 +1614,8 @@ RESPONSE_TOO_LARGE
 
 **2026-08-05 Manifest 更新/缓存状态（第二增量）：** Manifest Loader 现以 `Manifest URL + platform target` 为键维护最多 8 项的进程内 LRU 已验证缓存：非强制加载命中缓存时不重复读取；强制刷新成功后替换缓存；强制刷新发生 I/O 失败或校验失败时，继续使用同键上一份已验证 Manifest；冷启动或无缓存失败仍抛给控制器并走原生 fallback，不会把失败内容写入缓存。Resolver 会携带 `REFRESHED`、`CACHE_HIT` 或 `LAST_KNOWN_GOOD` 状态，控制器记录 `manifest_cache_fallback` 及稳定失败分类，并在最终 `manifest_load_resolved` 上标记 `last_known_good`，不持久化自由格式异常文本。单元测试覆盖首次刷新、按平台 target 隔离、缓存命中、刷新替换、I/O 与非法 Manifest 回退以及冷缓存失败。重装本增量 `mobileArm64_v8aDebug` 后，`emulator-5562` 已回归首页进入详情及返回首页，结构化生命周期事件完整，进程保持存活且未发现崩溃或 ANR；设备仍使用内置 Manifest，因此不把远程刷新失败注入记为已验证。本增量仅保证当前进程内回退，磁盘持久化、跨进程恢复、ETag/TTL 和手动回滚仍未实现。
 
+**2026-08-06 Manifest 持久回退状态（第三增量第一切片）：** 远程 Manifest 每次成功校验后，会以 `Manifest URL + platform target` 为键把原始 JSON 最佳努力写入应用私有 `noBackup` 目录；文件名只保留键的 SHA-256 摘要，磁盘条目与进程内缓存同样最多保留 8 项。写入使用同目录临时文件、`fsync`、备份和重命名发布；持久化失败不会拒绝已经校验成功的新 Manifest。进程内缓存为空且远程读取或校验失败时，Loader 才读取磁盘 LKG，并再次执行大小、严格 UTF-8、Schema/目标平台校验；有效条目返回既有 `LAST_KNOWN_GOOD` 状态并回填进程内缓存，损坏或 0 字节条目会被清理，仍无可用版本时继续抛出原始刷新失败并走原生 fallback。内置 Eclipse asset 不落盘，进程重启后仍优先尝试远端源，因此本切片不冒充 ETag/TTL 缓存或手动回滚。单元测试覆盖进程内缓存清空后的恢复、平台隔离、损坏/截断条目、写盘失败、文件名脱敏、容量上限和超限拒绝；真实远程故障注入仍是设备验收项。
+
 #### P1：公共 WebTheme Runtime 与焦点层
 
 1. 抽取 Manifest resolver、页面 host、会话 generation/cancellation 和 Bridge router；
@@ -1629,7 +1631,7 @@ RESPONSE_TOO_LARGE
 
 **2026-08-05 mobile 阶段性验收：** `emulator-5562` 已安装本轮 `mobileArm64_v8aDebug` 构建并验证 Eclipse 首页、WebTheme 详情页、方向键横向焦点、原生播放器进入与首帧、播放返回详情、Home 键后台切换与恢复；进程在这些路径中保持存活，未发现崩溃或 ANR。首页和详情页都实际产生了 `manifest_load_started → manifest_load_resolved → document_load_started → document_ready` 事件。该模拟器显示面固定为 `1920×1080`，锁定 `user_rotation` 未改变 `SurfaceOrientation`，因此不能据此宣称旋转通过；Leanback 运行时也尚无分配设备，本轮仅完成对应单测和 APK 构建。
 
-本轮已完成 P1 的代码拆分、Eclipse 首批迁移、结构化生命周期诊断、进程内 Manifest 更新/缓存/last-known-good 基础矩阵和 mobile 关键路径阶段性验收，但不宣称整个 P1 的发布验收已完成：可旋转 mobile 设备、真实 Leanback 设备上的遥控全路径、远程主题故障注入仍需验证；磁盘持久缓存、ETag/TTL、跨进程 last-known-good、生成式兼容矩阵、远程主题数据隔离和其余 Bridge/扩展调试日志的敏感字段审计继续按独立发布任务推进。
+本轮已完成 P1 的代码拆分、Eclipse 首批迁移、结构化生命周期诊断、进程内及进程重启后的 Manifest 更新/缓存/last-known-good 基础矩阵和 mobile 关键路径阶段性验收，但不宣称整个 P1 的发布验收已完成：可旋转 mobile 设备、真实 Leanback 设备上的遥控全路径、远程主题故障注入仍需验证；ETag/TTL、可控回滚、生成式兼容矩阵、远程主题数据隔离和其余 Bridge/扩展调试日志的敏感字段审计继续按独立发布任务推进。
 
 #### P2：通用列表页面
 
@@ -1687,7 +1689,7 @@ spacing.small / medium / large
 在公共远程主题生态开放前再增加：
 
 - ETag / TTL 缓存；
-- 持久化 last-known-good 版本与手动回滚（进程内回退已完成）；
+- 持久化 last-known-good 版本（已完成）与手动回滚（待实现）；
 - Manifest 与静态资源哈希；
 - 签名主题包；
 - 本地目录或 ZIP 安装；
@@ -1704,7 +1706,7 @@ spacing.small / medium / large
 - 远程主题独立的数据/Cookie 策略，避免与受信站点页共享不必要状态；
 - `external.open` 首次域名或非 HTTPS 链接的用户可见确认；
 - 引用预算耗尽时返回可区分的错误或 `truncated`，而不是不可诊断的通用失败；
-- 远程 Manifest 更新失败时优先使用进程内 last-known-good，冷缓存失败时使用原生 fallback；跨进程持久化仍待补充；
+- 远程 Manifest 更新失败时优先使用进程内 last-known-good；进程内无缓存时使用重新校验后的磁盘 last-known-good，仍失败才走原生 fallback；
 - 恶意 Manifest、IDN/IPv6/私网地址、超长消息、能力绕过和旧 generation 回调的安全测试；
 - 500 集详情、多推荐轨道、频繁切源和低配电视 WebView 的内存与响应时间测试。
 
@@ -1720,4 +1722,4 @@ spacing.small / medium / large
 - 不在缺少签名/回滚时先做 ZIP 或主题市场；
 - 不允许任意 CSS 或脚本反向控制原生 Android 布局。
 
-当前推荐的下一个独立变更是 **P1 发布验收与运行时加固第三增量**：在可旋转 mobile 设备和真实 Leanback 设备上补齐旋转、遥控全路径及远程主题故障注入；把本轮进程内 Manifest 回退扩展为磁盘持久化、ETag/TTL、跨进程 last-known-good 与可控回滚，同时继续推进生成式兼容矩阵、远程主题数据隔离及 Bridge/扩展/开发调试日志的敏感字段审计。已在 `emulator-5562` 通过的首页/详情、后台恢复、原生播放与返回路径不再重复作为未验证项；P0 尚未完成的运维与发布加固仍不与页面功能增量混合推进。
+当前推荐的下一个独立变更是 **P1 发布验收与运行时加固第三增量的第二切片**：在现有进程内与磁盘 LKG 基础上增加 ETag/TTL 条件刷新和对应的远程失败注入测试；可控回滚继续作为后续独立切片，不与本次缓存协议混合。在可旋转 mobile 设备和真实 Leanback 设备上补齐旋转、遥控全路径及远程主题故障注入仍是发布门槛，同时继续推进生成式兼容矩阵、远程主题数据隔离及 Bridge/扩展/开发调试日志的敏感字段审计。已在 `emulator-5562` 通过的首页/详情、后台恢复、原生播放与返回路径不再重复作为未验证项；P0 尚未完成的运维与发布加固仍不与页面功能增量混合推进。
