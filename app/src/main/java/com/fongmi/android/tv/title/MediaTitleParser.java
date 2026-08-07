@@ -12,6 +12,7 @@ public final class MediaTitleParser {
     private static final Pattern EPISODE_PATTERN = Pattern.compile("(?i)(?:s(\\d{1,2})[-._\\s]*e(\\d{1,3})|第\\s*([0-9零〇一二三四五六七八九十两百]+)\\s*[集话話回期章节節]|\\b(?:EP|E|Episode)\\s*0*([0-9]{1,5})\\b)");
     private static final Pattern SEASON_PATTERN = Pattern.compile("(?i)(?:第\\s*([0-9零〇一二三四五六七八九十两百]+)\\s*[季部]|season\\s*([0-9]{1,2})|s([0-9]{1,2})(?:[-._\\s]*e[0-9]{1,3})?|([一二三四五六七八九十两0-9]{1,3})\\s*(?:st|nd|rd|th)?\\s*(?:季|部))");
     private static final Pattern YEAR_PATTERN = Pattern.compile("(?<!\\d)(19\\d{2}|20\\d{2})(?!\\d)");
+    private static final Pattern RELEASE_DATE_PATTERN = Pattern.compile("(?<!\\d)(?:19|20)\\d{2}(?:[-./_](?:0?[1-9]|1[0-2])[-./_](?:0?[1-9]|[12]\\d|3[01])|(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01]))(?!\\d)");
     private static final Pattern BRACKET_PATTERN = Pattern.compile("[\\[【「『(（]([^\\]】」』)）]{1,60})[\\]】」』)）]");
     private static final Pattern NOISE_WORDS = Pattern.compile("(?i)\\b(HD|4K|8K|1080P|2160P|720P|HDR|HDR10|DV|BluRay|WEB[- ]?DL|HDTV|BDRip|Remux|HEVC|H\\.?265|H\\.?264|x265|x264|AAC|DTS|DDP|Atmos|NF|Netflix|AMZN|DSNP)\\b");
     private static final Pattern SUSPICIOUS_MARKERS = Pattern.compile("[#＃]");
@@ -341,7 +342,10 @@ public final class MediaTitleParser {
 
     private int inferTrailingSeason(String raw) {
         if (isBlank(raw)) return -1;
-        Matcher matcher = Pattern.compile("^(.+?)([2-9])(?:\\s|\\.|_|-|$)").matcher(raw.trim());
+        String value = raw.trim();
+        Matcher releaseDate = RELEASE_DATE_PATTERN.matcher(value);
+        if (releaseDate.find()) value = value.substring(0, releaseDate.start()).trim();
+        Matcher matcher = Pattern.compile("^(.+?)([2-9])(?:\\s|\\.|_|-|$)").matcher(value);
         if (!matcher.find()) return -1;
         String prefix = matcher.group(1);
         return prefix.length() >= 2 ? normalizeNumber(matcher.group(2)) : -1;
