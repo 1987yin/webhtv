@@ -2,6 +2,7 @@ package com.fongmi.android.tv.web;
 
 import android.content.Context;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -14,6 +15,9 @@ import java.util.Arrays;
 final class WebThemeManifestDiskCache implements WebThemeManifestLoader.PersistentCache {
 
     private static final String DIRECTORY_NAME = "webtheme-manifests-v1";
+    private static final String CACHE_MAGIC = "WEBHTV_THEME_MANIFEST_CACHE_V2\n";
+    private static final int MAX_CACHE_METADATA_BYTES = 4096;
+    private static final int MAX_CACHE_BYTES = WebThemeManifest.MAX_MANIFEST_BYTES + MAX_CACHE_METADATA_BYTES;
     private static final Object LOCK = new Object();
 
     private final File directory;
@@ -31,25 +35,22 @@ final class WebThemeManifestDiskCache implements WebThemeManifestLoader.Persiste
     }
 
     @Override
-    public String read(String cacheKey) throws IOException {
+    public WebThemeManifestLoader.StoredManifest read(String cacheKey) throws IOException {
         synchronized (LOCK) {
             ensureDirectory();
             File target = dataFile(cacheKey);
             recover(target);
             if (!target.isFile()) return null;
-            String json = WebThemeManifestLoader.read(
-                    new FileInputStream(target), WebThemeManifest.MAX_MANIFEST_BYTES);
+            String payload = WebThemeManifestLoader.read(new FileInputStream(target), MAX_CACHE_BYTES);
+            WebThemeManifestLoader.StoredManifest stored = decode(payload);
             target.setLastModified(System.currentTimeMillis());
-            return json;
+            return stored;
         }
     }
 
     @Override
-    public void write(String cacheKey, String json) throws IOException {
-        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
-        if (bytes.length > WebThemeManifest.MAX_MANIFEST_BYTES) {
-            throw new IOException("Theme manifest is too large");
-        }
+    public void write(String cacheKey, WebThemeManifestLoader.StoredManifest stored) throws IOException {
+        byte[] bytes = encode(stored);
         synchronized (LOCK) {
             ensureDirectory();
             File target = dataFile(cacheKey);
@@ -128,6 +129,49 @@ final class WebThemeManifestDiskCache implements WebThemeManifestLoader.Persiste
         }
     }
 
+    private static byte[] encode(WebThemeManifestLoader.StoredManifest stored) throws IOException {
+        if (stored == null) throw new IOException("Theme manifest cache entry is missing");
+        byte[] manifest = stored.json().getBytes(StandardCharsets.UTF_8);
+        if (manifest.length > WebThemeManifest.MAX_MANIFEST_BYTES) {
+            throw new IOException("Theme manifest is too large");
+        }
+        String payload = CACHE_MAGIC + stored.validatedAt() + "\n"
+                + encodeHex(stored.etag()) + "\n" + stored.json();
+        byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > MAX_CACHE_BYTES) {
+            throw new IOException("Theme manifest cache metadata is too large");
+        }
+        return bytes;
+    }
+
+    private static WebThemeManifestLoader.StoredManifest decode(String payload) throws IOException {
+        if (!payload.startsWith(CACHE_MAGIC)) {
+            if (payload.getBytes(StandardCharsets.UTF_8).length > WebThemeManifest.MAX_MANIFEST_BYTES) {
+                throw new IOException("Theme manifest is too large");
+            }
+            return new WebThemeManifestLoader.StoredManifest(payload, "", 0);
+        }
+        int validatedEnd = payload.indexOf('\n', CACHE_MAGIC.length());
+        int etagEnd = validatedEnd < 0 ? -1 : payload.indexOf('\n', validatedEnd + 1);
+        if (validatedEnd < 0 || etagEnd < 0
+                || etagEnd + 1 - CACHE_MAGIC.length() > MAX_CACHE_METADATA_BYTES) {
+            throw new IOException("Invalid theme manifest cache metadata");
+        }
+        long validatedAt;
+        try {
+            validatedAt = Long.parseLong(payload.substring(CACHE_MAGIC.length(), validatedEnd));
+        } catch (NumberFormatException e) {
+            throw new IOException("Invalid theme manifest cache timestamp", e);
+        }
+        if (validatedAt < 0) throw new IOException("Invalid theme manifest cache timestamp");
+        String etag = decodeHex(payload.substring(validatedEnd + 1, etagEnd));
+        String json = payload.substring(etagEnd + 1);
+        if (json.getBytes(StandardCharsets.UTF_8).length > WebThemeManifest.MAX_MANIFEST_BYTES) {
+            throw new IOException("Theme manifest is too large");
+        }
+        return new WebThemeManifestLoader.StoredManifest(json, etag, validatedAt);
+    }
+
     private static void writeAndSync(File file, byte[] bytes) throws IOException {
         try (FileOutputStream output = new FileOutputStream(file)) {
             output.write(bytes);
@@ -146,16 +190,35 @@ final class WebThemeManifestDiskCache implements WebThemeManifestLoader.Persiste
 
     private static String sha256(String value) {
         try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(digest.length * 2);
-            for (byte part : digest) {
-                hex.append(Character.forDigit((part >>> 4) & 0x0f, 16));
-                hex.append(Character.forDigit(part & 0x0f, 16));
-            }
-            return hex.toString();
+            return encodeHex(MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 unavailable", e);
         }
+    }
+
+    private static String encodeHex(String value) {
+        return encodeHex(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String encodeHex(byte[] bytes) {
+        StringBuilder hex = new StringBuilder(bytes.length * 2);
+        for (byte part : bytes) {
+            hex.append(Character.forDigit((part >>> 4) & 0x0f, 16));
+            hex.append(Character.forDigit(part & 0x0f, 16));
+        }
+        return hex.toString();
+    }
+
+    private static String decodeHex(String value) throws IOException {
+        if ((value.length() & 1) != 0) throw new IOException("Invalid theme manifest cache ETag");
+        byte[] bytes = new byte[value.length() / 2];
+        for (int index = 0; index < bytes.length; index++) {
+            int high = Character.digit(value.charAt(index * 2), 16);
+            int low = Character.digit(value.charAt(index * 2 + 1), 16);
+            if (high < 0 || low < 0) throw new IOException("Invalid theme manifest cache ETag");
+            bytes[index] = (byte) ((high << 4) | low);
+        }
+        return WebThemeManifestLoader.read(new ByteArrayInputStream(bytes), bytes.length);
     }
 }

@@ -38,15 +38,15 @@ public class WebThemeManifestDiskCacheTest {
     }
 
     @Test
-    public void cachedPayloadSurvivesAStoreRecreationWithoutLeakingTheUrlInItsFileName() throws Exception {
+    public void cachedPayloadAndMetadataSurviveAStoreRecreationWithoutLeakingTheUrl() throws Exception {
         String cacheKey = "https://themes.example/theme.json?token=secret\nmobile";
-        String json = "{\"schemaVersion\":2}";
+        WebThemeManifestLoader.StoredManifest expected = stored("{\"schemaVersion\":2}", "\"v1\"", 1234);
         WebThemeManifestDiskCache first = new WebThemeManifestDiskCache(directory.toFile());
 
-        first.write(cacheKey, json);
+        first.write(cacheKey, expected);
         WebThemeManifestDiskCache recreated = new WebThemeManifestDiskCache(directory.toFile());
 
-        assertEquals(json, recreated.read(cacheKey));
+        assertEquals(expected, recreated.read(cacheKey));
         List<Path> files = dataFiles();
         assertEquals(1, files.size());
         String fileName = files.get(0).getFileName().toString();
@@ -56,11 +56,37 @@ public class WebThemeManifestDiskCacheTest {
     }
 
     @Test
+    public void legacyRawManifestRemainsAvailableAsExpiredLastKnownGood() throws Exception {
+        String cacheKey = "https://themes.example/theme.json\nmobile";
+        String json = "{\"schemaVersion\":2}";
+        WebThemeManifestDiskCache cache = new WebThemeManifestDiskCache(directory.toFile());
+        cache.write(cacheKey, stored(json, "\"v1\"", 1234));
+        Files.writeString(dataFiles().get(0), json, StandardCharsets.UTF_8);
+
+        WebThemeManifestLoader.StoredManifest migrated = cache.read(cacheKey);
+
+        assertEquals(json, migrated.json());
+        assertEquals("", migrated.etag());
+        assertEquals(0, migrated.validatedAt());
+    }
+
+    @Test
+    public void maximumSizedManifestStillFitsInsideTheMetadataEnvelope() throws Exception {
+        String json = "x".repeat(WebThemeManifest.MAX_MANIFEST_BYTES);
+        WebThemeManifestDiskCache cache = new WebThemeManifestDiskCache(directory.toFile());
+
+        cache.write("key", stored(json, "\"v1\"", 1234));
+
+        assertEquals(json, cache.read("key").json());
+    }
+
+    @Test
     public void diskCachePrunesEntriesToTheSameBoundAsTheMemoryCache() throws Exception {
         WebThemeManifestDiskCache cache = new WebThemeManifestDiskCache(directory.toFile());
 
         for (int index = 0; index < WebThemeManifestLoader.MAX_CACHE_ENTRIES + 1; index++) {
-            cache.write("https://themes.example/" + index + ".json\nmobile", "{\"id\":" + index + "}");
+            cache.write("https://themes.example/" + index + ".json\nmobile",
+                    stored("{\"id\":" + index + "}", "\"v" + index + "\"", index + 1));
         }
 
         assertEquals(WebThemeManifestLoader.MAX_CACHE_ENTRIES, dataFiles().size());
@@ -71,8 +97,12 @@ public class WebThemeManifestDiskCacheTest {
         WebThemeManifestDiskCache cache = new WebThemeManifestDiskCache(directory.toFile());
         String oversized = "x".repeat(WebThemeManifest.MAX_MANIFEST_BYTES + 1);
 
-        assertThrows(IOException.class, () -> cache.write("key", oversized));
+        assertThrows(IOException.class, () -> cache.write("key", stored(oversized, "", 1)));
         assertTrue(dataFilesUnchecked().isEmpty());
+    }
+
+    private static WebThemeManifestLoader.StoredManifest stored(String json, String etag, long validatedAt) {
+        return new WebThemeManifestLoader.StoredManifest(json, etag, validatedAt);
     }
 
     private List<Path> dataFiles() throws Exception {

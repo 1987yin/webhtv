@@ -27,15 +27,18 @@ import okhttp3.ResponseBody;
 final class WebThemeManifestLoader {
 
     static final int MAX_CACHE_ENTRIES = 8;
-    private static final Map<String, WebThemeManifest> CACHE = new LinkedHashMap<>(8, 0.75f, true);
+    static final long CACHE_TTL_MILLIS = TimeUnit.MINUTES.toMillis(15);
+
+    private static final int MAX_ETAG_LENGTH = 256;
+    private static final Map<String, CachedManifest> CACHE = new LinkedHashMap<>(8, 0.75f, true);
     private static final PersistentCache NO_PERSISTENT_CACHE = new PersistentCache() {
         @Override
-        public String read(String cacheKey) {
+        public StoredManifest read(String cacheKey) {
             return null;
         }
 
         @Override
-        public void write(String cacheKey, String json) {
+        public void write(String cacheKey, StoredManifest stored) {
         }
 
         @Override
@@ -67,15 +70,54 @@ final class WebThemeManifestLoader {
         }
     }
 
+    record StoredManifest(String json, String etag, long validatedAt) {
+        StoredManifest {
+            json = json == null ? "" : json;
+            etag = normalizeEtag(etag);
+        }
+
+        boolean isFresh(long now) {
+            return validatedAt > 0 && now >= validatedAt && now - validatedAt < CACHE_TTL_MILLIS;
+        }
+
+        StoredManifest revalidated(String responseEtag, long now) {
+            String nextEtag = normalizeEtag(responseEtag);
+            return new StoredManifest(json, nextEtag.isEmpty() ? etag : nextEtag, now);
+        }
+    }
+
+    record FetchResult(String json, String etag, boolean notModified) {
+        FetchResult {
+            json = notModified ? null : json;
+            etag = normalizeEtag(etag);
+        }
+
+        static FetchResult modified(String json, String etag) {
+            return new FetchResult(json, etag, false);
+        }
+
+        static FetchResult notModified(String etag) {
+            return new FetchResult(null, etag, true);
+        }
+    }
+
+    private record CachedManifest(WebThemeManifest manifest, StoredManifest stored) {
+    }
+
     @FunctionalInterface
     interface ManifestSource {
         String read() throws IOException;
     }
 
-    interface PersistentCache {
-        String read(String cacheKey) throws IOException;
+    @FunctionalInterface
+    interface ConditionalSource {
+        FetchResult read(String etag) throws IOException;
+    }
 
-        void write(String cacheKey, String json) throws IOException;
+    interface PersistentCache {
+        StoredManifest read(String cacheKey) throws IOException;
+
+        void write(String cacheKey, StoredManifest stored) throws IOException;
 
         void remove(String cacheKey);
     }
@@ -89,13 +131,16 @@ final class WebThemeManifestLoader {
 
     static LoadResult loadResult(Context context, String url, String target, boolean force) throws IOException {
         String canonicalAsset = WebHomeTarget.canonicalThemeAsset(url);
-        ManifestSource source = WebHomeTarget.ECLIPSE_URL.equals(canonicalAsset)
-                ? () -> read(context.getAssets().open("webhome/theme.json"), WebThemeManifest.MAX_MANIFEST_BYTES)
-                : () -> fetch(url);
+        if (WebHomeTarget.ECLIPSE_URL.equals(canonicalAsset)) {
+            return load(url, target, force,
+                    () -> read(context.getAssets().open("webhome/theme.json"),
+                            WebThemeManifest.MAX_MANIFEST_BYTES));
+        }
         PersistentCache persistent = context != null && canonicalAsset.isEmpty()
                 ? WebThemeManifestDiskCache.create(context)
                 : NO_PERSISTENT_CACHE;
-        return load(url, target, force, source, persistent);
+        return load(url, target, force, etag -> fetch(url, etag), persistent,
+                System.currentTimeMillis());
     }
 
     static LoadResult load(String url, String target, boolean force, ManifestSource source) throws IOException {
@@ -104,22 +149,48 @@ final class WebThemeManifestLoader {
 
     static LoadResult load(String url, String target, boolean force, ManifestSource source,
             PersistentCache persistentCache) throws IOException {
+        return load(url, target, force,
+                etag -> FetchResult.modified(source.read(), ""), persistentCache,
+                System.currentTimeMillis());
+    }
+
+    static LoadResult load(String url, String target, boolean force, ConditionalSource source,
+            PersistentCache persistentCache, long now) throws IOException {
         PersistentCache persistent = persistentCache == null ? NO_PERSISTENT_CACHE : persistentCache;
         String cacheKey = cacheKey(url, target);
-        WebThemeManifest cached = getCached(cacheKey);
-        if (!force && cached != null) return new LoadResult(cached, CacheState.CACHE_HIT, null);
+        CachedManifest cached = getCached(cacheKey);
+        if (cached == null) {
+            cached = readPersistent(persistent, cacheKey, url, target);
+            if (cached != null) putCached(cacheKey, cached);
+        }
+        if (!force && cached != null && cached.stored().isFresh(now)) {
+            return new LoadResult(cached.manifest(), CacheState.CACHE_HIT, null);
+        }
         try {
-            String json = source.read();
-            WebThemeManifest manifest = parse(url, target, json);
-            putCached(cacheKey, manifest);
-            persistBestEffort(persistent, cacheKey, json);
+            String etag = cached == null ? "" : cached.stored().etag();
+            FetchResult fetched = source.read(etag);
+            if (fetched == null) throw new IOException("Theme manifest request returned no result");
+            if (fetched.notModified()) {
+                if (cached == null || etag.isEmpty()) {
+                    throw new IOException("Theme manifest was not modified without a cached validator");
+                }
+                StoredManifest stored = cached.stored().revalidated(fetched.etag(), now);
+                CachedManifest revalidated = new CachedManifest(cached.manifest(), stored);
+                putCached(cacheKey, revalidated);
+                persistBestEffort(persistent, cacheKey, stored);
+                return new LoadResult(revalidated.manifest(), CacheState.CACHE_HIT, null);
+            }
+            StoredManifest stored = new StoredManifest(fetched.json(), fetched.etag(), now);
+            WebThemeManifest manifest = parse(url, target, stored.json());
+            CachedManifest refreshed = new CachedManifest(manifest, stored);
+            putCached(cacheKey, refreshed);
+            persistBestEffort(persistent, cacheKey, stored);
             return new LoadResult(manifest, CacheState.REFRESHED, null);
         } catch (IOException failure) {
-            WebThemeManifest fallback = getCached(cacheKey);
-            if (fallback == null) fallback = readPersistent(persistent, cacheKey, url, target);
+            CachedManifest fallback = getCached(cacheKey);
+            if (fallback == null) fallback = cached;
             if (fallback != null) {
-                putCached(cacheKey, fallback);
-                return new LoadResult(fallback, CacheState.LAST_KNOWN_GOOD, failure);
+                return new LoadResult(fallback.manifest(), CacheState.LAST_KNOWN_GOOD, failure);
             }
             throw failure;
         }
@@ -135,15 +206,15 @@ final class WebThemeManifestLoader {
         return url + "\n" + target;
     }
 
-    private static WebThemeManifest getCached(String cacheKey) {
+    private static CachedManifest getCached(String cacheKey) {
         synchronized (CACHE) {
             return CACHE.get(cacheKey);
         }
     }
 
-    private static void putCached(String cacheKey, WebThemeManifest manifest) {
+    private static void putCached(String cacheKey, CachedManifest cached) {
         synchronized (CACHE) {
-            CACHE.put(cacheKey, manifest);
+            CACHE.put(cacheKey, cached);
             while (CACHE.size() > MAX_CACHE_ENTRIES) {
                 String eldest = CACHE.keySet().iterator().next();
                 CACHE.remove(eldest);
@@ -151,23 +222,24 @@ final class WebThemeManifestLoader {
         }
     }
 
-    private static void persistBestEffort(PersistentCache persistent, String cacheKey, String json) {
+    private static void persistBestEffort(PersistentCache persistent, String cacheKey,
+            StoredManifest stored) {
         try {
-            persistent.write(cacheKey, json);
+            persistent.write(cacheKey, stored);
         } catch (IOException ignored) {
         }
     }
 
-    private static WebThemeManifest readPersistent(PersistentCache persistent, String cacheKey,
+    private static CachedManifest readPersistent(PersistentCache persistent, String cacheKey,
             String url, String target) {
         try {
-            String json = persistent.read(cacheKey);
-            if (json == null) return null;
-            if (json.isEmpty()) {
+            StoredManifest stored = persistent.read(cacheKey);
+            if (stored == null) return null;
+            if (stored.json().isEmpty()) {
                 persistent.remove(cacheKey);
                 return null;
             }
-            return parse(url, target, json);
+            return new CachedManifest(parse(url, target, stored.json()), stored);
         } catch (IOException ignored) {
             persistent.remove(cacheKey);
             return null;
@@ -182,20 +254,39 @@ final class WebThemeManifestLoader {
         }
     }
 
-    private static String fetch(String url) throws IOException {
+    private static FetchResult fetch(String url, String etag) throws IOException {
         if (!WebHomeTarget.isSafeThemeUrl(url) || !WebHomeTarget.isManifestUrl(url)) {
             throw new IOException("Unsafe theme manifest URL");
         }
-        Request request = new Request.Builder().url(url).get().header("Accept", "application/json").build();
-        try (Response response = CLIENT.newCall(request).execute()) {
-            if (!response.isSuccessful() || !response.request().url().equals(request.url())) {
+        return execute(CLIENT, buildRequest(url, etag));
+    }
+
+    static Request buildRequest(String url, String etag) {
+        Request.Builder request = new Request.Builder()
+                .url(url)
+                .get()
+                .header("Accept", "application/json");
+        String normalizedEtag = normalizeEtag(etag);
+        if (!normalizedEtag.isEmpty()) request.header("If-None-Match", normalizedEtag);
+        return request.build();
+    }
+
+    static FetchResult execute(OkHttpClient client, Request request) throws IOException {
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.request().url().equals(request.url())) {
+                throw new IOException("Theme manifest request was redirected");
+            }
+            String responseEtag = normalizeEtag(response.header("ETag"));
+            if (response.code() == 304) return FetchResult.notModified(responseEtag);
+            if (!response.isSuccessful()) {
                 throw new IOException("Theme manifest request failed: " + response.code());
             }
             ResponseBody body = response.body();
             if (body == null || body.contentLength() > WebThemeManifest.MAX_MANIFEST_BYTES) {
                 throw new IOException("Theme manifest is too large");
             }
-            return read(body.byteStream(), WebThemeManifest.MAX_MANIFEST_BYTES);
+            return FetchResult.modified(
+                    read(body.byteStream(), WebThemeManifest.MAX_MANIFEST_BYTES), responseEtag);
         }
     }
 
@@ -219,6 +310,22 @@ final class WebThemeManifestLoader {
                 throw new IOException("Theme manifest is not valid UTF-8", e);
             }
         }
+    }
+
+    private static String normalizeEtag(String etag) {
+        if (etag == null) return "";
+        String value = etag.trim();
+        if (value.isEmpty() || value.length() > MAX_ETAG_LENGTH) return "";
+        int opaqueStart;
+        if (value.startsWith("W/\"") && value.endsWith("\"")) opaqueStart = 3;
+        else if (value.startsWith("\"") && value.endsWith("\"")) opaqueStart = 1;
+        else return "";
+        if (opaqueStart >= value.length() - 1) return "";
+        for (int index = opaqueStart; index < value.length() - 1; index++) {
+            char part = value.charAt(index);
+            if (part == '"' || part < 0x20 || part > 0x7e) return "";
+        }
+        return value;
     }
 
     private static List<InetAddress> lookupPublic(String hostname) throws UnknownHostException {
