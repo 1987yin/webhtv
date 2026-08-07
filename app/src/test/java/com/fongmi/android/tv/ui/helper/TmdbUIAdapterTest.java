@@ -4,6 +4,7 @@ import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.TmdbEpisode;
 import com.fongmi.android.tv.bean.TmdbItem;
 import com.fongmi.android.tv.bean.Vod;
+import com.fongmi.android.tv.utils.Task;
 
 import org.junit.Test;
 
@@ -12,9 +13,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 
 public class TmdbUIAdapterTest {
@@ -155,7 +163,7 @@ public class TmdbUIAdapterTest {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "helper", "TmdbUIAdapter.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int method = source.indexOf("public void autoMatch(String videoName, Vod vod)");
-        int task = source.indexOf("Task.execute(() -> {", method);
+        int task = source.indexOf("backgroundTasks.submit(() -> {", method);
         int nextMethod = source.indexOf("private TmdbItem searchResolvedMatch", task);
         String body = source.substring(task, nextMethod);
         int failureHandler = body.indexOf("} catch (Exception e) {");
@@ -190,7 +198,7 @@ public class TmdbUIAdapterTest {
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int load = source.indexOf("public void load(TmdbItem item, Vod vod)");
         int call = source.indexOf("TmdbDetailCache.Entry cached = takeTmdbDetailCache(item);", load);
-        int loadCached = source.indexOf("Task.execute(() -> loadDetailSync(vod, cached.getItem(), cached.getDetail(), cached.getCast(), generation))", call);
+        int loadCached = source.indexOf("backgroundTasks.submit(() -> loadDetailSync(vod, cached.getItem(), cached.getDetail(), cached.getCast(), generation))", call);
         int helper = source.indexOf("private TmdbDetailCache.Entry takeTmdbDetailCache", loadCached);
         int take = source.indexOf("TmdbDetailCache.take", helper);
         int sync = source.indexOf("private void loadDetailSync(Vod vod, TmdbItem item, JsonObject cachedDetail", helper);
@@ -784,6 +792,91 @@ public class TmdbUIAdapterTest {
         assertTrue(sourcePath + " manual detail refresh must bypass the reusable detail cache", refreshEvent >= 0);
         assertTrue(sourcePath + " must invalidate the previous detail before reading the next explicit item", helper > crawler && invalidate > helper && explicitItem > invalidate);
         assertTrue(sourcePath + " must only prefetch an explicit TmdbItem", adapterPrefetch > explicitItem);
+    }
+
+    @Test
+    public void recommendationExecutorIsIsolatedFromDetailExecutor() {
+        assertNotSame(Task.executor(), Task.recommendationExecutor());
+    }
+
+    @Test
+    public void taskScopeCancelAllInterruptsWorkAndRejectsStaleNestedSubmissions() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        ExecutorService alternateExecutor = Executors.newSingleThreadExecutor();
+        Task.Scope scope = new Task.Scope(executor);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        AtomicInteger nestedRuns = new AtomicInteger();
+        try {
+            assertEquals(Integer.valueOf(42), scope.submitCallable(alternateExecutor, () -> 42).get(1, TimeUnit.SECONDS));
+            Future<?> running = scope.submit(() -> {
+                started.countDown();
+                try {
+                    new CountDownLatch(1).await();
+                } catch (InterruptedException e) {
+                    interrupted.countDown();
+                    Thread.currentThread().interrupt();
+                }
+                scope.submit(alternateExecutor, () -> nestedRuns.incrementAndGet());
+            });
+
+            assertTrue(started.await(1, TimeUnit.SECONDS));
+            scope.cancelAll();
+            assertTrue(interrupted.await(1, TimeUnit.SECONDS));
+            assertTrue(running.isCancelled());
+            assertEquals(0, nestedRuns.get());
+        } finally {
+            scope.close();
+            executor.shutdownNow();
+            alternateExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void tmdbRatingRequestsAreSharedAndLifecycleScoped() throws Exception {
+        Path headerPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "custom", "TmdbHeaderView.java"));
+        String header = Files.readString(headerPath, StandardCharsets.UTF_8);
+        assertTrue("TMDB header must own cancellable rating work",
+                header.contains("private final Task.Scope backgroundTasks = new Task.Scope(Task.recommendationExecutor());"));
+        assertTrue("rebinding or removing the header must cancel stale rating work",
+                header.contains("backgroundTasks.cancelAll();"));
+        assertTrue("destroying the header must close rating work",
+                header.contains("backgroundTasks.close();"));
+        assertTrue("all header OMDb calls must use the shared service",
+                header.contains("OmdbService.fetch("));
+        assertFalse("header ratings must not use the shared detail executor",
+                header.contains("com.fongmi.android.tv.utils.Task.execute(() -> {"));
+        assertFalse("header ratings must not create one OkHttp client per request",
+                header.contains("new okhttp3.OkHttpClient.Builder()"));
+
+        Path leanbackPath = findFlavorJavaPath("leanback").resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String leanback = Files.readString(leanbackPath, StandardCharsets.UTF_8);
+        int fetch = leanback.indexOf("private void fetchTmdbOmdbRatings");
+        int next = leanback.indexOf("private void hideTmdbRatingChips", fetch);
+        String fetchBody = leanback.substring(fetch, next);
+        assertTrue("leanback OMDb rating work must be lifecycle scoped",
+                leanback.contains("Task.Scope mTmdbRatingTasks") && fetchBody.contains("mTmdbRatingTasks.submit(() -> {"));
+        assertTrue("leanback OMDb ratings must use the shared service", fetchBody.contains("OmdbService.fetch("));
+        assertFalse("leanback OMDb ratings must not create one OkHttp client per request",
+                fetchBody.contains("new okhttp3.OkHttpClient.Builder()"));
+
+        for (String flavor : List.of("mobile", "leanback")) {
+            Path sourcePath = findFlavorJavaPath(flavor).resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+            String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
+            assertTrue(sourcePath + " must destroy TMDB header background work on exit",
+                    source.contains("mTmdbHeaderView.onDestroy();"));
+        }
+    }
+    @Test
+    public void videoActivitiesCancelNativeRecommendationsOnSwitchAndExit() throws Exception {
+        for (String flavor : List.of("mobile", "leanback")) {
+            Path sourcePath = findFlavorJavaPath(flavor).resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+            String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
+            assertTrue(sourcePath + " must own a cancellable recommendation scope", source.contains("Task.Scope mPersonalRecommendationTasks"));
+            assertTrue(sourcePath + " must cancel old recommendation work before a new detail", source.contains("mPersonalRecommendationTasks.cancelAll();"));
+            assertTrue(sourcePath + " must stop history refresh while leaving", source.contains("if (isPlaybackExiting() || isFinishing() || isDestroyed()) return;"));
+            assertTrue(sourcePath + " must close recommendation work on destroy", source.contains("mPersonalRecommendationTasks.close();"));
+        }
     }
 
     private static Path findMainJavaPath() {

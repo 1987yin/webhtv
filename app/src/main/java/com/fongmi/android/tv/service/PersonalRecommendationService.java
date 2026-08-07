@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -117,8 +118,11 @@ public class PersonalRecommendationService {
     }
 
     public RecommendationPages loadPage(@Nullable Vod currentVod, @Nullable TmdbItem currentItem, @Nullable JsonObject currentDetail, int offset, int pageSize) {
-        if (!Setting.isPersonalRecommendation()) return RecommendationPages.empty();
-        return new RecommendationPages(loadTmdbPage(currentVod, currentItem, currentDetail, offset, pageSize), loadDoubanPage(currentVod, offset, pageSize), RecommendationPage.empty(aiFingerprint(currentVod, currentItem)));
+        if (!Setting.isPersonalRecommendation() || Thread.currentThread().isInterrupted()) return RecommendationPages.empty();
+        RecommendationPage tmdb = loadTmdbPage(currentVod, currentItem, currentDetail, offset, pageSize);
+        if (Thread.currentThread().isInterrupted()) return new RecommendationPages(tmdb, RecommendationPage.empty(""), RecommendationPage.empty(""));
+        RecommendationPage douban = loadDoubanPage(currentVod, offset, pageSize);
+        return new RecommendationPages(tmdb, douban, RecommendationPage.empty(aiFingerprint(currentVod, currentItem)));
     }
 
     public List<TmdbItem> loadTmdb(@Nullable Vod currentVod, @Nullable TmdbItem currentItem, @Nullable JsonObject currentDetail) {
@@ -258,13 +262,18 @@ public class PersonalRecommendationService {
         if (!isBlank(currentTitle)) blockedTitles.add(normalizeTitle(currentTitle));
         List<String> historySeeds = historySeeds(currentTitle, Integer.MAX_VALUE, true);
         String fingerprint = recommendationFingerprint(historySeeds);
+        if (Thread.currentThread().isInterrupted()) return RecommendationPage.empty(fingerprint);
 
         TmdbItem anchorItem = currentItem;
         JsonObject anchorDetail = currentDetail;
         if (anchorDetail == null && anchorItem == null && !isBlank(currentTitle)) {
             try {
                 anchorItem = tmdbMatcher.searchAndMatch(currentTitle, currentVod);
+                throwIfInterrupted();
                 if (anchorItem != null) anchorDetail = tmdbService.detail(anchorItem, tmdbConfig);
+            } catch (TmdbService.AuthException | CancellationException e) {
+                SpiderDebug.log("personal-rec", "TMDB current match aborted title=%s error=%s", currentTitle, e.getMessage());
+                return RecommendationPage.empty(fingerprint);
             } catch (Throwable e) {
                 SpiderDebug.log("personal-rec", "TMDB current match failed title=%s error=%s", currentTitle, e.getMessage());
             }
@@ -278,14 +287,21 @@ public class PersonalRecommendationService {
         }
 
         int seedLimit = seedLimitForOffset(historySeeds.size(), pageOffset, limit, TMDB_HISTORY_SEED_BATCH);
-        List<RecommendationCandidate> ranked;
-        List<RecommendationCandidate> historyCandidates;
-        do {
-            historyCandidates = tmdbHistoryCandidates(historySeeds, seedLimit, blockedTitles, feedback, anchorItem, context);
-            ranked = mergeTmdbPersonalCandidates(currentCandidates, historyCandidates, requested, pageOffset == 0 ? MIN_TMDB_HISTORY_RESULTS : 0);
-            if (ranked.size() > pageOffset || seedLimit >= historySeeds.size()) break;
-            seedLimit = Math.min(historySeeds.size(), seedLimit + TMDB_HISTORY_SEED_BATCH);
-        } while (true);
+        List<RecommendationCandidate> ranked = new ArrayList<>(currentCandidates);
+        List<RecommendationCandidate> historyCandidates = new ArrayList<>();
+        try {
+            do {
+                throwIfInterrupted();
+                historyCandidates = tmdbHistoryCandidates(historySeeds, seedLimit, blockedTitles, feedback, anchorItem, context);
+                ranked = mergeTmdbPersonalCandidates(currentCandidates, historyCandidates, requested, pageOffset == 0 ? MIN_TMDB_HISTORY_RESULTS : 0);
+                if (ranked.size() > pageOffset || seedLimit >= historySeeds.size()) break;
+                seedLimit = Math.min(historySeeds.size(), seedLimit + TMDB_HISTORY_SEED_BATCH);
+            } while (true);
+        } catch (TmdbService.AuthException | CancellationException e) {
+            SpiderDebug.log("personal-rec", "TMDB history scan aborted seeds=%d error=%s", seedLimit, e.getMessage());
+            ranked = mergeTmdbPersonalCandidates(currentCandidates, historyCandidates, requested, 0);
+            seedLimit = historySeeds.size();
+        }
 
         RecommendationPage page = pageItems(ranked, pageOffset, limit, fingerprint, seedLimit < historySeeds.size());
         SpiderDebug.log("personal-rec", "TMDB candidates current=%d history=%d offset=%d result=%d more=%s title=%s", currentCandidates.size(), historyCandidates.size(), pageOffset, page.getItems().size(), page.hasMore(), currentTitle);
@@ -304,14 +320,15 @@ public class PersonalRecommendationService {
         String fingerprint = recommendationFingerprint(seeds);
 
         int seedLimit = seedLimitForOffset(seeds.size(), pageOffset, limit, DOUBAN_SEED_BATCH);
-        List<RecommendationCandidate> ranked;
+        List<RecommendationCandidate> ranked = new ArrayList<>();
         do {
+            if (Thread.currentThread().isInterrupted()) break;
             ranked = doubanRankedCandidates(seeds, seedLimit, sourceTitles, feedback, currentTitle, requested);
-            if (ranked.size() > pageOffset || seedLimit >= seeds.size()) break;
+            if (Thread.currentThread().isInterrupted() || ranked.size() > pageOffset || seedLimit >= seeds.size()) break;
             seedLimit = Math.min(seeds.size(), seedLimit + DOUBAN_SEED_BATCH);
         } while (true);
 
-        return enrichDoubanPage(pageItems(ranked, pageOffset, limit, fingerprint, seedLimit < seeds.size()));
+        return enrichDoubanPage(pageItems(ranked, pageOffset, limit, fingerprint, !Thread.currentThread().isInterrupted() && seedLimit < seeds.size()));
     }
 
     private RecommendationPage enrichDoubanPage(RecommendationPage page) {
@@ -434,10 +451,15 @@ public class PersonalRecommendationService {
         }
     }
 
-    private List<RecommendationCandidate> tmdbHistoryCandidates(List<String> seeds, int seedLimit, Set<String> blockedTitles, List<RecommendationFeedbackStore.Entry> feedback, TmdbItem anchorItem, TmdbContext context) {
+    private static void throwIfInterrupted() {
+        if (Thread.currentThread().isInterrupted()) throw new CancellationException("recommendation task cancelled");
+    }
+
+    List<RecommendationCandidate> tmdbHistoryCandidates(List<String> seeds, int seedLimit, Set<String> blockedTitles, List<RecommendationFeedbackStore.Entry> feedback, TmdbItem anchorItem, TmdbContext context) {
         List<RecommendationCandidate> candidates = new ArrayList<>();
         int seedIndex = 0;
         for (int i = 0; i < Math.min(seedLimit, seeds.size()); i++) {
+            throwIfInterrupted();
             String seed = seeds.get(i);
             try {
                 TmdbSeedData data = tmdbSeedData(seed);
@@ -446,6 +468,8 @@ public class PersonalRecommendationService {
                 addTmdbCandidates(candidates, blockedTitles, feedback, data.recommendations, anchorItem, seedScore, context);
                 addTmdbCandidates(candidates, blockedTitles, feedback, data.similar, anchorItem, seedScore + SCORE_TMDB_HISTORY_SIMILAR_DELTA, context);
                 seedIndex++;
+            } catch (TmdbService.AuthException | CancellationException e) {
+                throw e;
             } catch (Throwable e) {
                 SpiderDebug.log("personal-rec", "TMDB seed failed title=%s error=%s", seed, e.getMessage());
             }
@@ -454,13 +478,20 @@ public class PersonalRecommendationService {
     }
 
     private TmdbSeedData tmdbSeedData(String seed) throws Exception {
+        throwIfInterrupted();
         String key = tmdbSeedCacheKey(seed);
         TmdbSeedData cached = readTmdbSeedCache(key);
         if (cached != null) return cached;
         TmdbItem seedItem = tmdbMatcher.searchAndMatch(seed);
+        throwIfInterrupted();
         if (seedItem == null) return null;
         JsonObject detail = tmdbService.detail(seedItem, tmdbConfig);
-        TmdbSeedData data = new TmdbSeedData(seedItem, tmdbService.recommendations(detail, tmdbConfig), tmdbService.similar(detail, tmdbConfig), System.currentTimeMillis());
+        throwIfInterrupted();
+        List<TmdbItem> recommendations = tmdbService.recommendations(detail, tmdbConfig);
+        throwIfInterrupted();
+        List<TmdbItem> similar = tmdbService.similar(detail, tmdbConfig);
+        throwIfInterrupted();
+        TmdbSeedData data = new TmdbSeedData(seedItem, recommendations, similar, System.currentTimeMillis());
         writeTmdbSeedCache(key, data);
         return data;
     }
@@ -495,14 +526,17 @@ public class PersonalRecommendationService {
         int historySeedIndex = 0;
         Set<String> lookedUpSubjects = new HashSet<>();
         for (int i = 0; i < Math.min(seedLimit, seeds.size()); i++) {
+            if (Thread.currentThread().isInterrupted()) break;
             String seed = seeds.get(i);
             List<DoubanSubject> suggestions = fetchDoubanSuggest(seed);
+            if (Thread.currentThread().isInterrupted()) break;
             boolean currentSeed = !isBlank(currentTitle) && normalizeTitle(seed).equals(normalizeTitle(currentTitle));
             double relatedScore = currentSeed ? SCORE_DOUBAN_CURRENT_RELATED : SCORE_DOUBAN_HISTORY_RELATED - historySeedIndex * SCORE_DOUBAN_HISTORY_DECAY;
             addDoubanCandidates(fallbackCandidates, sourceTitles, feedback, suggestions, SCORE_DOUBAN_SUGGEST_FALLBACK - seedIndex);
 
             int lookupCount = 0;
             for (DoubanSubject subject : suggestions) {
+                if (Thread.currentThread().isInterrupted()) break;
                 if (isBlank(subject.id)) continue;
                 if (!lookedUpSubjects.add(doubanKey(subject))) continue;
                 addDoubanCandidates(relatedCandidates, sourceTitles, feedback, fetchDoubanRelated(subject), relatedScore);
@@ -513,13 +547,14 @@ public class PersonalRecommendationService {
             seedIndex++;
         }
         List<RecommendationCandidate> ranked = rankCandidates(relatedCandidates.isEmpty() ? fallbackCandidates : relatedCandidates, maxResults);
-        enrichDoubanRatings(ranked);
+        if (!Thread.currentThread().isInterrupted()) enrichDoubanRatings(ranked);
         return ranked;
     }
 
     private void enrichDoubanRatings(List<RecommendationCandidate> candidates) {
         if (candidates == null || candidates.isEmpty()) return;
         for (RecommendationCandidate candidate : candidates) {
+            if (Thread.currentThread().isInterrupted()) return;
             if (candidate == null || candidate.item == null || candidate.item.getRating() > 0) continue;
             String doubanId = doubanIdFromKey(candidate.key);
             if (isBlank(doubanId)) continue;

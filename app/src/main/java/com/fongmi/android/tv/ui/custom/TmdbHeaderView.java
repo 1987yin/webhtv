@@ -22,6 +22,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.TmdbItem;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.service.OmdbService;
 import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.ui.adapter.TmdbCastAdapter;
 import com.fongmi.android.tv.ui.helper.TmdbUIAdapter;
@@ -30,6 +31,7 @@ import com.fongmi.android.tv.ui.helper.TmdbNavigation;
 import com.fongmi.android.tv.ui.helper.TmdbCinemaTheme;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.TmdbImageSelector;
 import com.google.android.flexbox.FlexboxLayout;
 import com.google.android.material.button.MaterialButton;
@@ -105,6 +107,7 @@ public class TmdbHeaderView {
 
     private final Activity activity;
     private final ViewGroup scrollContainer;
+    private final Task.Scope backgroundTasks = new Task.Scope(Task.recommendationExecutor());
     private View headerRoot;
     private TmdbCastAdapter castAdapter;
     private com.fongmi.android.tv.ui.adapter.TmdbPhotoAdapter photoAdapter;
@@ -234,6 +237,7 @@ public class TmdbHeaderView {
             return;
         }
 
+        backgroundTasks.cancelAll();
         android.util.Log.d("TmdbHeaderView", "bind() 开始，标题=" + item.getTitle());
         boundAdapter = adapter;
         applyTheme();
@@ -373,6 +377,8 @@ public class TmdbHeaderView {
      * 移除头部面板（切换回普通模式时）。
      */
     public void remove() {
+        backgroundTasks.cancelAll();
+        stopBackdropSlideshow();
         if (headerRoot != null && headerRoot.getParent() == scrollContainer) {
             scrollContainer.removeView(headerRoot);
             headerRoot = null;
@@ -977,21 +983,10 @@ public class TmdbHeaderView {
     }
 
     private void fetchRatingChipsForDisplay(String imdbId, String omdbApiKey, String cacheKey, String displayKey, ViewGroup container) {
-        com.fongmi.android.tv.utils.Task.execute(() -> {
+        backgroundTasks.submit(() -> {
             try {
-                String url = "https://www.omdbapi.com/?i=" + imdbId + "&apikey=" + omdbApiKey;
-                okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
-                        .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-                        .build();
-                okhttp3.Request request = new okhttp3.Request.Builder().url(url).build();
-                okhttp3.Response response = client.newCall(request).execute();
-                if (!response.isSuccessful() || response.code() != 200) return;
-                if (response.body() == null) return;
-
-                String json = response.body().string();
-                com.google.gson.JsonObject jsonObj = new com.google.gson.JsonParser().parse(json).getAsJsonObject();
-                if (jsonObj.has("Response") && "False".equals(jsonObj.get("Response").getAsString())) return;
+                JsonObject jsonObj = OmdbService.fetch(imdbId, omdbApiKey);
+                if (jsonObj == null || jsonObj.has("Response") && "False".equals(jsonObj.get("Response").getAsString())) return;
 
                 List<String[]> omdbChips = buildRatingChips(jsonObj);
                 putCachedOmdbRatingChips(cacheKey, omdbChips);
@@ -1017,13 +1012,14 @@ public class TmdbHeaderView {
             applyDoubanRating(displayKey, container, externalRatingView, cached);
             return;
         }
-        com.fongmi.android.tv.utils.Task.execute(() -> {
+        backgroundTasks.submit(() -> {
             PersonalRecommendationService.DoubanRating rating = PersonalRecommendationService.DoubanRating.empty();
             try {
                 rating = new PersonalRecommendationService().loadDoubanRating(title, mediaType, year);
             } catch (Throwable e) {
                 android.util.Log.w("TmdbHeaderView", "获取豆瓣评分失败: " + e.getMessage());
             }
+            if (Thread.currentThread().isInterrupted()) return;
             putCachedDoubanRating(cacheKey, rating);
             PersonalRecommendationService.DoubanRating finalRating = rating;
             activity.runOnUiThread(() -> {
@@ -1239,23 +1235,13 @@ public class TmdbHeaderView {
      * 异步请求 OMDB 并渲染多来源评分。匹配不到数据时保持隐藏。
      */
     private void fetchOmdbRatings(String imdbId, String omdbApiKey, String cacheKey, com.google.android.material.textview.MaterialTextView label, View scroll, ViewGroup container) {
-        com.fongmi.android.tv.utils.Task.execute(() -> {
+        backgroundTasks.submit(() -> {
             try {
-                String url = "https://www.omdbapi.com/?i=" + imdbId + "&apikey=" + omdbApiKey;
-                okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
-                        .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-                        .build();
-                okhttp3.Request request = new okhttp3.Request.Builder().url(url).build();
-                okhttp3.Response response = client.newCall(request).execute();
-                if (!response.isSuccessful() || response.code() != 200 || response.body() == null) {
-                    android.util.Log.w("TmdbHeaderView", "OMDB 请求失败，code=" + response.code());
+                JsonObject jsonObj = OmdbService.fetch(imdbId, omdbApiKey);
+                if (jsonObj == null) {
+                    android.util.Log.w("TmdbHeaderView", "OMDB 请求失败");
                     return;
                 }
-
-                String json = response.body().string();
-                android.util.Log.d("TmdbHeaderView", "OMDB 响应: " + json.substring(0, Math.min(300, json.length())));
-                JsonObject jsonObj = new com.google.gson.JsonParser().parse(json).getAsJsonObject();
                 if (jsonObj.has("Response") && "False".equals(jsonObj.get("Response").getAsString())) {
                     android.util.Log.w("TmdbHeaderView", "OMDB 返回 Response=False");
                     return;
@@ -2196,20 +2182,10 @@ public class TmdbHeaderView {
                                           com.google.android.material.textview.MaterialTextView imdbRatingView,
                                           com.google.android.material.textview.MaterialTextView rottenRatingView,
                                           com.google.android.material.textview.MaterialTextView metacriticRatingView) {
-        com.fongmi.android.tv.utils.Task.execute(() -> {
+        backgroundTasks.submit(() -> {
             try {
-                String url = "https://www.omdbapi.com/?i=" + imdbId + "&apikey=" + omdbApiKey;
-                okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
-                        .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-                        .build();
-                okhttp3.Request request = new okhttp3.Request.Builder().url(url).build();
-                okhttp3.Response response = client.newCall(request).execute();
-                if (!response.isSuccessful() || response.code() != 200 || response.body() == null) return;
-
-                String json = response.body().string();
-                JsonObject jsonObj = new com.google.gson.JsonParser().parse(json).getAsJsonObject();
-                if (jsonObj.has("Response") && "False".equals(jsonObj.get("Response").getAsString())) return;
+                JsonObject jsonObj = OmdbService.fetch(imdbId, omdbApiKey);
+                if (jsonObj == null || jsonObj.has("Response") && "False".equals(jsonObj.get("Response").getAsString())) return;
 
                 String imdbRating = "";
                 String rottenRating = "";
@@ -2337,9 +2313,14 @@ public class TmdbHeaderView {
      * 清理资源（Activity 销毁时调用）
      */
     public void onDestroy() {
+        backgroundTasks.close();
         stopBackdropSlideshow();
         backdropHandler = null;
         backdropRunnable = null;
+        boundAdapter = null;
+        imagesLoadedListener = null;
+        backdropChangeListener = null;
+        actionListener = null;
     }
 
     /**
