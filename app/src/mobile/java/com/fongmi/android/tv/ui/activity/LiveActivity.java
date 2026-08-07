@@ -65,6 +65,7 @@ import com.fongmi.android.tv.model.LiveViewModel;
 import com.fongmi.android.tv.player.PlayerHelper;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.Source;
+import com.fongmi.android.tv.player.VideoAspectMode;
 import com.fongmi.android.tv.playback.PlaybackOrientation;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.setting.LiveEpgSetting;
@@ -132,6 +133,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private boolean rotate;
     private int count;
     private PiP mPiP;
+    private boolean mKeepPlaybackAfterPipExit;
     private OneShotPreDrawListener pipEntryListener;
     private boolean liveMenuRendered;
     private Boolean embeddedUiMode;
@@ -270,6 +272,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         setNavigation();
         setViewModel();
         applyPadLiveMode();
+        mBinding.exo.post(() -> applyLiveResizeMode(LiveSetting.getScale()));
     }
 
     @Override
@@ -407,8 +410,9 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         int parentHeight = mBinding.video.getHeight();
         if (parentWidth <= 0 || parentHeight <= 0) return;
         FrameLayout.LayoutParams params = getPlayerLayoutParams();
-        if (scale == 1 || scale == 2) {
-            float ratio = scale == 1 ? 16f / 9f : 4f / 3f;
+        float viewportRatio = (float) parentWidth / parentHeight;
+        float ratio = VideoAspectMode.resolve(scale, viewportRatio, PlayerSetting.getCustomAspectRatio()).targetAspectRatio();
+        if (ratio > 0f) {
             int width = parentWidth;
             int height = Math.round(width / ratio);
             if (height > parentHeight) {
@@ -746,10 +750,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void onScale() {
-        int index = LiveSetting.getScale();
-        String[] array = ResUtil.getStringArray(R.array.select_scale);
         if (mKeyDown.getScale() != 1.0f) mKeyDown.resetScale();
-        else setScale(index == array.length - 1 ? 0 : ++index);
+        else showResizeModeDialog(LiveSetting.getScale(), this::setScale);
         setR1Callback();
     }
 
@@ -1356,8 +1358,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     @Override
     public void onLiveBackgroundPanel() {
         dismissLiveControlDialog();
-        moveTaskToBack(true);
-        setAudioOnly(true);
+        switchToAudioBackground();
     }
 
     @Override
@@ -1404,8 +1405,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
         @Override
         public void onAudio() {
-            moveTaskToBack(true);
-            setAudioOnly(true);
+            switchToAudioBackground();
         }
     };
 
@@ -1860,6 +1860,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private boolean preparePiP(String reason) {
         if (isRedirect() || isPlaybackExiting()) return false;
         if (service() == null || !player().haveTrack(C.TRACK_TYPE_VIDEO)) return false;
+        if (syncPiPForPlaybackMode()) return false;
         mPiP.update(this, LIVE_PIP_WIDTH, LIVE_PIP_HEIGHT, LiveSetting.getScale());
         return true;
     }
@@ -1873,7 +1874,10 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, @NonNull Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
-        if (isInPictureInPictureMode) cancelPendingLivePiP(false);
+        if (isInPictureInPictureMode) {
+            mKeepPlaybackAfterPipExit = false;
+            cancelPendingLivePiP(false);
+        }
         setVideoView(isInPictureInPictureMode);
         if (isInPictureInPictureMode) {
             dismissLiveControlDialog();
@@ -1886,6 +1890,24 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             // 不能依赖 isStop() 时序，改为等生命周期 settle 后按最终状态判定。
             App.post(this::finishIfPipClosed, 0);
         }
+    }
+
+    private void switchToAudioBackground() {
+        boolean audioOnly = isAudioOnly();
+        mKeepPlaybackAfterPipExit = isInPictureInPictureMode();
+        setAudioOnly(true);
+        syncPiPForPlaybackMode();
+        if (!moveTaskToBack(true)) {
+            mKeepPlaybackAfterPipExit = false;
+            setAudioOnly(audioOnly);
+            syncPiPForPlaybackMode();
+        }
+    }
+
+    private boolean syncPiPForPlaybackMode() {
+        boolean audioMode = isAudioOnly();
+        if (mPiP != null) mPiP.setAudioMode(this, audioMode);
+        return audioMode;
     }
 
     private void setVideoView(boolean isInPictureInPictureMode) {
@@ -1911,13 +1933,16 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private boolean enterPiP(String reason) {
         if (service() == null || !player().haveTrack(C.TRACK_TYPE_VIDEO)) return false;
+        if (syncPiPForPlaybackMode()) return false;
         dismissLiveControlDialog();
         return mPiP.enter(this, LIVE_PIP_WIDTH, LIVE_PIP_HEIGHT, LiveSetting.getScale());
     }
 
     private void finishIfPipClosed() {
         boolean atLeastStarted = getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED);
-        if (PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed())) finishLivePlayback();
+        boolean keepPlayback = mKeepPlaybackAfterPipExit;
+        mKeepPlaybackAfterPipExit = false;
+        if (PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed(), keepPlayback)) finishLivePlayback();
     }
 
     private void dismissLiveControlDialog() {
@@ -1933,6 +1958,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         Log.i(ORIENTATION_TAG, "configuration changed new=" + newConfig.orientation + " " + orientationState());
         updateSystemUI();
         applyPadLiveMode();
+        mBinding.exo.post(() -> applyLiveResizeMode(LiveSetting.getScale()));
     }
 
     @Override
@@ -2133,6 +2159,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             mOsd.start();
         }
         setAudioOnly(false);
+        mPiP.resetAudioMode();
         setStop(false);
     }
 

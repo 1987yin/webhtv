@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.utils;
 
+import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.PictureInPictureParams;
@@ -17,7 +18,9 @@ import androidx.media3.ui.R;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.event.ActionEvent;
+import com.fongmi.android.tv.player.VideoAspectMode;
 import com.fongmi.android.tv.receiver.ActionReceiver;
+import com.fongmi.android.tv.setting.BackgroundPlaybackPolicy;
 import com.fongmi.android.tv.setting.PlayerSetting;
 
 import java.util.ArrayList;
@@ -26,6 +29,8 @@ import java.util.List;
 public class PiP {
 
     private PictureInPictureParams.Builder builder;
+    private boolean audioMode;
+    private float viewportAspectRatio;
 
     public static boolean noPiP() {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !App.get().getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
@@ -51,6 +56,7 @@ public class PiP {
             if (noPiP()) return;
             Rect rect = new Rect();
             view.getGlobalVisibleRect(rect);
+            updateViewportAspectRatio(rect.width(), rect.height());
             builder.setSourceRectHint(rect);
             setAutoEnter();
             activity.setPictureInPictureParams(builder.build());
@@ -62,7 +68,7 @@ public class PiP {
     public void update(Activity activity, int width, int height, int scale) {
         try {
             if (noPiP()) return;
-            setAspectRatio(width, height, scale);
+            setAspectRatio(activity, width, height, scale);
             setAutoEnter();
             activity.setPictureInPictureParams(builder.build());
         } catch (Exception e) {
@@ -84,10 +90,16 @@ public class PiP {
         }
     }
 
-    public void disableAutoEnter(Activity activity) {
+    public void resetAudioMode() {
+        this.audioMode = false;
+    }
+
+    public void setAudioMode(Activity activity, boolean audioMode) {
+        this.audioMode = audioMode;
         try {
-            if (noPiP() || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
-            builder.setAutoEnterEnabled(false);
+            if (noPiP()) return;
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+            setAutoEnter();
             activity.setPictureInPictureParams(builder.build());
         } catch (Exception e) {
             e.printStackTrace();
@@ -100,8 +112,8 @@ public class PiP {
 
     public boolean enter(Activity activity, int width, int height, int scale, boolean force) {
         try {
-            if (noPiP() || activity.isInPictureInPictureMode() || (!force && !PlayerSetting.isBackgroundPiP())) return false;
-            setAspectRatio(width, height, scale);
+            if (noPiP() || activity.isInPictureInPictureMode() || (!force && !shouldUsePictureInPicture())) return false;
+            setAspectRatio(activity, width, height, scale);
             setAutoEnter();
             return activity.enterPictureInPictureMode(builder.build());
         } catch (Exception e) {
@@ -112,15 +124,39 @@ public class PiP {
 
     private void setAutoEnter() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(PlayerSetting.isBackgroundPiP());
+            builder.setAutoEnterEnabled(shouldUsePictureInPicture());
         }
     }
 
-    private void setAspectRatio(int width, int height, int scale) {
+    private boolean shouldUsePictureInPicture() {
+        return BackgroundPlaybackPolicy.shouldUsePictureInPicture(PlayerSetting.getBackground(), audioMode);
+    }
+
+    @SuppressLint("NewApi")
+    private void setAspectRatio(Activity activity, int width, int height, int scale) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) builder.setSeamlessResizeEnabled(true);
-        if (scale == 1) builder.setAspectRatio(new Rational(16, 9));
-        else if (scale == 2) builder.setAspectRatio(new Rational(4, 3));
-        else builder.setAspectRatio(getRational(width, height));
+        float viewportRatio = VideoAspectMode.isValidRatio(viewportAspectRatio) ? viewportAspectRatio : getViewportRatio(activity);
+        VideoAspectMode.Spec spec = VideoAspectMode.resolve(scale, viewportRatio, PlayerSetting.getCustomAspectRatio());
+        builder.setAspectRatio(spec.hasTargetAspectRatio() ? getRational(spec.targetAspectRatio()) : getRational(width, height));
+    }
+
+    private void updateViewportAspectRatio(int width, int height) {
+        viewportAspectRatio = width > 0 && height > 0 ? (float) width / height : 0f;
+    }
+
+    private float getViewportRatio(Activity activity) {
+        View decor = activity.getWindow().getDecorView();
+        int width = decor.getWidth();
+        int height = decor.getHeight();
+        if (width <= 0 || height <= 0) {
+            width = activity.getResources().getDisplayMetrics().widthPixels;
+            height = activity.getResources().getDisplayMetrics().heightPixels;
+        }
+        return width > 0 && height > 0 ? (float) width / height : 0f;
+    }
+
+    private Rational getRational(float ratio) {
+        return getRational(Math.max(1, Math.round(ratio * 10000f)), 10000);
     }
 
     private Rational getRational(int width, int height) {

@@ -67,9 +67,10 @@ public class HomeWebBridge {
 
     @JavascriptInterface
     public void invoke(String requestId, String method, String payload) {
-        WebHomeTarget themeTarget = controller.getThemeTarget();
+        HomeWebController.ThemeRuntimeSnapshot runtime = controller.getThemeRuntimeSnapshot();
+        WebHomeTarget themeTarget = runtime.page().target();
         boolean v2Theme = themeTarget != null && themeTarget.isV2();
-        int themeGeneration = controller.getThemeSessionGeneration();
+        int themeGeneration = runtime.session().generation();
         Task.execute(() -> handle(requestId, method, WebCall.object(payload), v2Theme, themeGeneration));
     }
 
@@ -122,7 +123,9 @@ public class HomeWebBridge {
                     payload.toString().getBytes(StandardCharsets.UTF_8).length);
             resolve(requestId, execute(method, payload, v2Theme, themeGeneration), v2Theme, themeGeneration);
         } catch (Throwable e) {
-            reject(requestId, e.getMessage(), v2Theme, themeGeneration);
+            SpiderDebug.log("webhome", "invoke failed method=%s error=%s session=%s current=%s", method,
+                    e.toString(), themeGeneration, controller.getThemeSessionGeneration());
+            reject(requestId, e, v2Theme, themeGeneration);
         }
     }
 
@@ -149,6 +152,7 @@ public class HomeWebBridge {
                 case "player.status" -> WebCall.request(statusPayload());
                 case "app.search" -> search(payload);
                 case "app.openVod" -> openVod();
+                case "app.openSite" -> openSite();
                 case "app.openLive" -> openLive();
                 case "app.openKeep" -> openKeep();
                 case "app.openSetting" -> openSetting();
@@ -419,6 +423,11 @@ public class HomeWebBridge {
         return "{}";
     }
 
+    private String openSite() {
+        App.post(controller::openSite);
+        return "{}";
+    }
+
     private String openKeep() {
         App.post(() -> KeepActivity.start(activity));
         return "{}";
@@ -577,9 +586,16 @@ public class HomeWebBridge {
                 v2Theme, themeGeneration, storedResultId);
     }
 
-    private void reject(String requestId, String error, boolean v2Theme, int themeGeneration) {
-        eval("window.fongmiNative&&window.fongmiNative.reject(" + quote(requestId) + "," + quote(error) + ")",
-                v2Theme, themeGeneration, null);
+    private void reject(String requestId, Throwable error, boolean v2Theme, int themeGeneration) {
+        String message = error == null ? "" : error.getMessage();
+        String code = "";
+        if (v2Theme) {
+            WebThemeErrorCode mapped = WebThemeErrorCode.from(error);
+            message = mapped.getLegacyCode();
+            code = mapped.getCode();
+        }
+        eval("window.fongmiNative&&window.fongmiNative.reject(" + quote(requestId) + "," + quote(message)
+                + "," + quote(code) + ")", v2Theme, themeGeneration, null);
     }
 
     private void eval(String script, boolean v2Theme, int themeGeneration, String storedResultId) {

@@ -97,13 +97,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
-public class HomeActivity extends BaseActivity implements CustomTitleView.Listener, VodPresenter.OnClickListener, FuncPresenter.OnClickListener, HistoryPresenter.OnClickListener, TypeAdapter.OnClickListener, HomeWebController.Listener, ConfigListener, FolderFragment.FilterHost {
+public class HomeActivity extends BaseActivity implements ExitConfirmDialog.Listener, CustomTitleView.Listener, VodPresenter.OnClickListener, FuncPresenter.OnClickListener, HistoryPresenter.OnClickListener, TypeAdapter.OnClickListener, HomeWebController.Listener, ConfigListener, FolderFragment.FilterHost, FolderFragment.ScrollHeaderHost {
 
     private static final String TV_NORMAL = "tv-normal";
     private static final String TV_TOOLBAR_HIDDEN = "tv-toolbar-hidden";
     private static final String TV_OVERLAY = "tv-overlay";
     private static final String TV_FULL = "tv-full";
     private static final long TYPE_SWITCH_DELAY_MS = 100;
+    private static final long CONFIRM_LONG_PRESS_MS = 550;
 
     private ActivityHomeBinding mBinding;
     private ArrayObjectAdapter mHistoryAdapter;
@@ -127,7 +128,17 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     private boolean webToolbarVisible = true;
     private boolean loadingHomeCategory;
     private boolean pendingOpenVod; // 手动点击"点播"后等待数据加载完成再进分类页
+    private boolean webConfirmKeyDown;
+    private boolean webConfirmLongPress;
     private final Runnable mTypeSwitch = this::switchType;
+    private final Runnable mWebConfirmLongPress = this::triggerWebFocusedLongPress;
+    private final Runnable mDelayedInitConfig = this::initConfig;
+    private final Runnable mDelayedPermissionRequest = () -> {
+        if (!isFinishing() && !isDestroyed()) PermissionUtil.requestFile(this, allGranted -> PermissionUtil.requestNotify(this));
+    };
+    private final Runnable mDelayedDlnaStart = () -> {
+        if (!isFinishing() && !isDestroyed()) DLNARendererService.start(this);
+    };
 
     private Site getHome() {
         return VodConfig.get().getHome();
@@ -151,6 +162,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         setTheme(R.style.Theme_App);
+        App.resumeBackgroundServices();
         super.onCreate(savedInstanceState);
     }
 
@@ -170,9 +182,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     private void initAfterFirstFrame() {
         SpiderDebug.log("startup", "home first frame cost=%sms", System.currentTimeMillis() - App.time());
-        App.post(this::initConfig, 80);
-        App.post(() -> PermissionUtil.requestFile(this, allGranted -> PermissionUtil.requestNotify(this)), 1800);
-        App.post(() -> DLNARendererService.start(this), 2500);
+        App.post(mDelayedInitConfig, 80);
+        App.post(mDelayedPermissionRequest, 1800);
+        App.post(mDelayedDlnaStart, 2500);
     }
 
     private void runAfterFirstFrame(Runnable runnable) {
@@ -548,8 +560,13 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         if (!forceNative && mWeb != null && mWeb.load(getHome())) {
             mBinding.typeRecycler.setVisibility(View.GONE);
             mBinding.recycler.setVisibility(View.GONE);
-            mBinding.progressLayout.showContent();
-            showWebOverlay();
+            if (mWeb.isReady()) {
+                mBinding.progressLayout.showContent();
+                showWebOverlay();
+            } else {
+                hideWebOverlay();
+                mBinding.progressLayout.showProgress();
+            }
             return;
         }
         if (mWeb != null) mWeb.hide();
@@ -757,6 +774,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
                 getHistory();
                 break;
             case SIZE:
+                if (mWeb != null && mWeb.isVisible()) return;
                 getVideo();
                 getHistory(true);
                 break;
@@ -850,6 +868,16 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     @Override
     public void closeFilter() {
         if (isFilterVisible()) updateFilter(mCurrentType);
+    }
+
+    @Override
+    public int[] getScrollHeaderIds() {
+        return new int[]{R.id.typeRecycler, R.id.toolbar};
+    }
+
+    @Override
+    public void onScrollHeaderVisibilityChanged(boolean visible) {
+        updateToolbarVisibility(visible);
     }
 
     private void openCategory(Class item) {
@@ -989,7 +1017,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             else onHomeMenuKey();
             return true;
         }
-        if (mWeb != null && mWeb.isVisible()) {
+        if (mWeb != null && mWeb.isVisible() && mBinding.webOverlay.getVisibility() == View.VISIBLE) {
             if (KeyUtil.isBackKey(event)) {
                 if (KeyUtil.isActionUp(event)) onBackInvoked();
                 return true;
@@ -998,6 +1026,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
                 if (KeyUtil.isActionDown(event) && KeyUtil.isDownKey(event)) return requestWebFocus();
                 return super.dispatchKeyEvent(event);
             }
+            if (KeyUtil.isEnterKey(event)) return dispatchWebConfirmKey(event);
             if (KeyUtil.isUpKey(event) && isToolbarVisible()) return super.dispatchKeyEvent(event);
             if (mWeb.dispatchKeyEvent(event)) return true;
             return super.dispatchKeyEvent(event);
@@ -1007,6 +1036,39 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         if (KeyUtil.isActionDown(event) & KeyUtil.isUpKey(event) && mBinding.recycler.hasFocus() && mBinding.typeRecycler.getVisibility() == View.VISIBLE) updateToolbarVisibility(true);
         if (KeyUtil.isActionDown(event) & KeyUtil.isDownKey(event) && getCurrentFocus() == mBinding.title) return requestHomeFocus();
         return super.dispatchKeyEvent(event);
+    }
+
+    private boolean dispatchWebConfirmKey(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (!webConfirmKeyDown) {
+                webConfirmKeyDown = true;
+                webConfirmLongPress = false;
+                mBinding.webOverlay.postDelayed(mWebConfirmLongPress, CONFIRM_LONG_PRESS_MS);
+            }
+            if (event.isLongPress() || event.getRepeatCount() > 0) triggerWebFocusedLongPress();
+            return true;
+        }
+        if (event.getAction() == KeyEvent.ACTION_UP) {
+            mBinding.webOverlay.removeCallbacks(mWebConfirmLongPress);
+            boolean click = webConfirmKeyDown && !webConfirmLongPress && !event.isCanceled();
+            webConfirmKeyDown = false;
+            webConfirmLongPress = false;
+            if (click && mWeb != null) mWeb.dispatchFocusedClick();
+            return true;
+        }
+        return true;
+    }
+
+    private void triggerWebFocusedLongPress() {
+        if (!webConfirmKeyDown || webConfirmLongPress || mWeb == null) return;
+        mBinding.webOverlay.removeCallbacks(mWebConfirmLongPress);
+        webConfirmLongPress = mWeb.dispatchFocusedLongPress();
+    }
+
+    private void cancelWebConfirmKey() {
+        if (mBinding != null) mBinding.webOverlay.removeCallbacks(mWebConfirmLongPress);
+        webConfirmKeyDown = false;
+        webConfirmLongPress = false;
     }
 
     private boolean requestTitleFocus() {
@@ -1045,6 +1107,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     @Override
     protected void onPause() {
         mBinding.typeRecycler.removeCallbacks(mTypeSwitch);
+        cancelWebConfirmKey();
         if (mWeb != null) mWeb.onPause();
         super.onPause();
         mClock.stop();
@@ -1092,17 +1155,26 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void exitHome() {
-        ExitConfirmDialog.create(this::confirmExitHome).show(this);
+        ExitConfirmDialog.create(PlaybackService.canContinueInBackground()).show(this);
     }
 
-    private void confirmExitHome() {
-        if (PlaybackService.isRunning()) moveTaskToBack(true);
-        else super.onBackInvoked();
+    private void continueInBackground() {
+        moveTaskToBack(true);
+    }
+
+    private void exitCompletely() {
+        cancelPendingStartupTasks();
+        AppExitCoordinator.exit(this);
+    }
+
+    private void cancelPendingStartupTasks() {
+        App.removeCallbacks(mDelayedInitConfig, mDelayedPermissionRequest, mDelayedDlnaStart);
     }
 
     @Override
     protected void onDestroy() {
         mBinding.typeRecycler.removeCallbacks(mTypeSwitch);
+        cancelPendingStartupTasks();
         if (mWeb != null) mWeb.destroy();
         DLNARendererService.stop(this);
         LiveConfig.get().clear();
@@ -1121,8 +1193,19 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     @Override
+    public void onBackgroundPlayback() {
+        continueInBackground();
+    }
+
+    @Override
+    public void onFullExit() {
+        exitCompletely();
+    }
+
+    @Override
     public void onWebLoading() {
-        showWebOverlay();
+        cancelWebConfirmKey();
+        hideWebOverlay();
         mBinding.progressLayout.showProgress();
     }
 
@@ -1192,6 +1275,11 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         if (mWeb != null) mWeb.hide();
         hideWebOverlay();
         getVideo(true);
+    }
+
+    @Override
+    public void openSite() {
+        showDialog();
     }
 
     @Override

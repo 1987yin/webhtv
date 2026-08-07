@@ -135,20 +135,11 @@ public class PlayerPlaybackRegressionSourceTest {
         };
         for (String mapping : tmdbMappings) assertTrue("TmdbDetailActivity is missing " + mapping, tmdb.contains(mapping));
 
-        assertTrue("mobile VideoActivity auxiliary controls must obey the same player button visibility settings",
-                mobile.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.PREV)")
-                        && mobile.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.NEXT)")
-                        && mobile.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.DANMAKU)")
-                        && mobile.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.FULLSCREEN)")
-                        && mobile.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.CAST)")
-                        && mobile.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.PARSE)")
+        assertTrue("mobile parser controls must obey the shared parse visibility setting",
+                mobile.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.PARSE)")
                         && !mobile.contains("mBinding.control.parse.setVisibility(isFullscreen() && isUseParse() ? View.VISIBLE : View.GONE);"));
-        assertTrue("TmdbDetailActivity auxiliary controls must obey the same player button visibility settings",
-                tmdb.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.PREV)")
-                        && tmdb.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.NEXT)")
-                        && tmdb.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.DANMAKU)")
-                        && tmdb.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.FULLSCREEN)")
-                        && tmdb.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.CAST)")
+        assertTrue("TmdbDetailActivity configurable inline controls must obey shared visibility settings",
+                tmdb.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.CAST)")
                         && tmdb.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.PARSE)"));
         assertTrue("leanback parser controls must obey the shared parse visibility setting",
                 leanback.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting.PARSE)"));

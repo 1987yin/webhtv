@@ -255,6 +255,40 @@ public class HistoryPlaybackTest {
     }
 
     @Test
+    public void findPlaybackCandidateKeepsCurrentSourceFlagWithAggregatedProgress() {
+        History latest = history("site-b@@vod@@1", "武神主宰", "第2集", "remote-url-2", 120_000, 300_000);
+        latest.setVodFlag("远端线路");
+        History local = history("site-a@@vod@@1", "武神主宰", "第1集", "line-2-url-1", 30_000, 300_000);
+        local.setVodFlag("线路二");
+        Flag lineOne = new Flag("线路一");
+        lineOne.getEpisodes().addAll(List.of(Episode.create("第1集", "line-1-url-1"), Episode.create("第2集", "line-1-url-2")));
+        Flag lineTwo = new Flag("线路二");
+        lineTwo.getEpisodes().addAll(List.of(Episode.create("第1集", "line-2-url-1"), Episode.create("第2集", "line-2-url-2")));
+
+        History result = History.findPlaybackCandidate("site-a@@vod@@1", List.of(latest, local), List.of(lineOne, lineTwo));
+
+        assertEquals("线路二", result.getVodFlag());
+        assertEquals("第2集", result.getVodRemarks());
+        assertEquals("line-2-url-2", result.getEpisodeUrl());
+        assertEquals(120_000, result.getPosition());
+    }
+
+    @Test
+    public void findPlaybackCandidateUsesLineContainingAggregatedEpisodeWithoutLocalPreference() {
+        History latest = history("site-b@@vod@@1", "武神主宰", "第2集", "remote-url-2", 120_000, 300_000);
+        latest.setVodFlag("远端线路");
+        Flag lineOne = new Flag("线路一");
+        lineOne.getEpisodes().add(Episode.create("第1集", "line-1-url-1"));
+        Flag lineTwo = new Flag("线路二");
+        lineTwo.getEpisodes().addAll(List.of(Episode.create("第1集", "line-2-url-1"), Episode.create("第2集", "line-2-url-2")));
+
+        History result = History.findPlaybackCandidate("site-a@@vod@@1", List.of(latest), List.of(lineOne, lineTwo));
+
+        assertEquals("线路二", result.getVodFlag());
+        assertEquals("line-2-url-2", result.getEpisodeUrl());
+    }
+
+    @Test
     public void findPlaybackCandidatePrefersResumableHistory() {
         History empty = history("site@@vod@@1", "武神主宰", "第1集", "url-1", 0, 300_000);
         History resumable = history("site@@vod@@old", "武神主宰", "第2集", "url-2", 90_000, 300_000);
@@ -396,6 +430,83 @@ public class HistoryPlaybackTest {
 
         assertTrue(source.shouldMerge(independent, false));
     }
+
+    @Test
+    public void findPlaybackCandidateRejectsOtherSeasonWhenTargetSeasonIsKnownButEpisodesAreUnbound() {
+        History firstSeason = history("site-a@@vod@@season1", "示例剧", "第5集", "old-url", 90_000, 300_000);
+        firstSeason.setTmdbSeasonNumber(1);
+        firstSeason.setTmdbEpisodeNumber(5);
+        Episode current = Episode.create("第5集", "season2-url");
+
+        History result = History.findPlaybackCandidate(
+                "site-b@@vod@@season2", List.of(firstSeason), List.of(flag(current)), 2);
+
+        assertEquals(null, result);
+    }
+
+    @Test
+    public void findPlaybackCandidateAllowsSameSeasonAcrossSourcesBeforeCurrentEpisodesAreBound() {
+        History secondSeason = history("site-a@@vod@@season2", "示例剧", "第5集", "old-url", 90_000, 300_000);
+        secondSeason.setTmdbSeasonNumber(2);
+        secondSeason.setTmdbEpisodeNumber(5);
+        Episode current = Episode.create("第5集", "new-url");
+
+        History result = History.findPlaybackCandidate(
+                "site-b@@vod@@season2", List.of(secondSeason), List.of(flag(current)), 2);
+
+        assertEquals(90_000, result.getPosition());
+        assertEquals(2, result.getTmdbSeasonNumber());
+    }
+
+    @Test
+    public void findPlaybackCandidateDoesNotCrossSourceCopyLegacyUnknownSeasonWhenTargetSeasonIsKnown() {
+        History legacy = history("site-a@@vod@@legacy", "示例剧", "第5集", "old-url", 90_000, 300_000);
+        Episode current = Episode.create("第5集", "new-url");
+
+        History result = History.findPlaybackCandidate(
+                "site-b@@vod@@season2", List.of(legacy), List.of(flag(current)), 2);
+
+        assertEquals(null, result);
+    }
+
+    @Test
+    public void findPlaybackCandidateRejectsRegularSeasonWhenTargetIsSpecials() {
+        History regular = history("site-a@@vod@@season1", "示例剧", "第5集", "old-url", 90_000, 300_000);
+        regular.setTmdbSeasonNumber(1);
+        regular.setTmdbEpisodeNumber(5);
+        Episode current = Episode.create("特别篇第5集", "special-url");
+
+        History result = History.findPlaybackCandidate(
+                "site-b@@vod@@specials", List.of(regular), List.of(flag(current)), 0);
+
+        assertEquals(null, result);
+    }
+
+    @Test
+    public void findPlaybackCandidateAllowsSpecialSeasonAcrossSources() {
+        History special = history("site-a@@vod@@specials", "示例剧", "特别篇第5集", "old-url", 90_000, 300_000);
+        special.setTmdbSeasonNumber(0);
+        special.setTmdbEpisodeNumber(5);
+        Episode current = Episode.create("特别篇第5集", "new-url");
+
+        History result = History.findPlaybackCandidate(
+                "site-b@@vod@@specials", List.of(special), List.of(flag(current)), 0);
+
+        assertEquals(90_000, result.getPosition());
+        assertEquals(0, result.getTmdbSeasonNumber());
+    }
+
+    @Test
+    public void findPlaybackCandidateKeepsSameKeyLegacyCompatibilityWhenTargetSeasonIsKnown() {
+        History legacy = history("site-a@@vod@@season2", "示例剧", "第5集", "old-url", 90_000, 300_000);
+        Episode current = Episode.create("第5集", "new-url");
+
+        History result = History.findPlaybackCandidate(
+                "site-a@@vod@@season2", List.of(legacy), List.of(flag(current)), 2);
+
+        assertEquals(90_000, result.getPosition());
+    }
+
 
     private static History history(String key, String name, String remarks, String episodeUrl, long position, long duration) {
         History history = new History();

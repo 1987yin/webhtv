@@ -37,11 +37,25 @@ public class WebHomeRemoteBridgeWiringTest {
         assertTrue(registration.contains("int generation"));
         assertFalse(registration.contains("int generation = remoteBridgeGeneration;"));
         assertTrue(controller.contains("String requestNonce"));
-        assertTrue(controller.contains("isRemoteSession(expectedOrigin, generation, requestNonce)"));
+        assertTrue(controller.contains("isRemoteThemeSession(expectedOrigin, generation, requestNonce, themeGeneration)"));
+        assertTrue(registration.contains("ThemeRuntimeSnapshot runtime = getThemeRuntimeSnapshot()"));
+        assertTrue(registration.contains("int themeGeneration = runtime.session().generation()"));
         assertTrue(controller.contains("session:session"));
         assertTrue(controller.contains("window.fongmi.__session===session"));
         assertTrue(controller.contains("data.getBytes(StandardCharsets.UTF_8).length > MAX_REMOTE_MESSAGE_BYTES"));
         assertTrue(controller.contains("result.getBytes(StandardCharsets.UTF_8).length > MAX_REMOTE_RESPONSE_BYTES"));
+    }
+
+    @Test
+    public void remoteThemeGenerationGuardKeepsLegacyAndV2TargetsCompatible() throws Exception {
+        String controller = readMain("HomeWebController.java");
+        String guards = methodBody(controller, "private boolean isRemoteThemeSession(",
+                "private static String limitedRemoteValue(");
+
+        assertTrue(guards.contains("isRemoteBridgeSessionActive(themeGeneration)"));
+        assertTrue(guards.contains("current.isRemoteGlobal()"));
+        assertTrue(guards.contains("!current.isManifest()"));
+        assertFalse(guards.contains("isThemeSessionActive(themeGeneration)"));
     }
 
     @Test
@@ -52,6 +66,30 @@ public class WebHomeRemoteBridgeWiringTest {
         assertTrue(ordered(recreate, "invalidateRemoteSession();", "if (parent == null) return false;"));
         assertTrue(controller.contains("public void onReceivedHttpError("));
         assertTrue(controller.contains("handleMainFrameFailure("));
+    }
+
+    @Test
+    public void themeInfoCapabilitiesComeFromTheSharedRegistry() throws Exception {
+        String controller = readMain("HomeWebController.java");
+
+        assertTrue(controller.contains("WebThemeCapabilityRegistry.capabilities("));
+        assertFalse(controller.contains("declared.add(\"theme.info@1\")"));
+        assertFalse(controller.contains("permission + \"@1\""));
+    }
+
+    @Test
+    public void webThemeErrorsExposeCanonicalCodesWithoutChangingLegacyMessages() throws Exception {
+        String controller = readMain("HomeWebController.java");
+        String bridge = readMain("HomeWebBridge.java");
+
+        assertTrue(controller.contains("response.addProperty(\"errorCode\", error.getCode())"));
+        assertTrue(controller.contains("new Error(data.error)"));
+        assertTrue(controller.contains("error.code=data.errorCode||data.error"));
+        assertTrue(controller.contains("if(code)error.code=code"));
+        assertTrue(controller.contains("WebThemeErrorCode.RATE_LIMITED"));
+        assertTrue(controller.contains("WebThemeErrorCode.PAGE_UNAVAILABLE"));
+        assertTrue(bridge.contains("WebThemeErrorCode.from(error)"));
+        assertTrue(bridge.contains("mapped.getCode()"));
     }
 
     private static boolean ordered(String source, String first, String second) {

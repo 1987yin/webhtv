@@ -47,7 +47,53 @@
     return best;
   }
 
+  function nextFocusIndex(items, currentIndex, direction) {
+    var nodes = asArray(items);
+    var current = nodes[currentIndex];
+    var horizontal;
+    var fromX;
+    var fromY;
+    var candidates;
+    var row;
+    var sameRow;
+    var i;
+    if (!current) return nodes.length ? 0 : -1;
+
+    horizontal = direction === 'left' || direction === 'right';
+    fromX = Number(current.left || 0) + Number(current.width || 0) / 2;
+    fromY = Number(current.top || 0) + Number(current.height || 0) / 2;
+    candidates = [];
+    for (i = 0; i < nodes.length; i += 1) {
+      var node;
+      var dx;
+      var dy;
+      var primary;
+      var secondary;
+      if (i === currentIndex) continue;
+      node = nodes[i] && typeof nodes[i] === 'object' ? nodes[i] : {};
+      dx = Number(node.left || 0) + Number(node.width || 0) / 2 - fromX;
+      dy = Number(node.top || 0) + Number(node.height || 0) / 2 - fromY;
+      primary = direction === 'left' ? -dx : direction === 'right' ? dx : direction === 'up' ? -dy : dy;
+      if (primary <= 5) continue;
+      secondary = horizontal ? Math.abs(dy) : Math.abs(dx);
+      candidates.push({
+        index: i,
+        row: text(node.row),
+        score: primary * 10 + secondary * 2 + Math.sqrt(dx * dx + dy * dy)
+      });
+    }
+
+    row = text(current.row);
+    if (horizontal && row) {
+      sameRow = candidates.filter(function (candidate) { return candidate.row === row; });
+      if (sameRow.length) candidates = sameRow;
+    }
+    candidates.sort(function (left, right) { return left.score - right.score || left.index - right.index; });
+    return candidates.length ? candidates[0].index : -1;
+  }
+
   return {
-    findHorizontalTarget: findHorizontalTarget
+    findHorizontalTarget: findHorizontalTarget,
+    nextFocusIndex: nextFocusIndex
   };
 }));

@@ -39,26 +39,33 @@ public class WebThemeDetailWiringTest {
         String bridge = read("src/main/java/com/fongmi/android/tv/web/HomeWebBridge.java");
         String controller = read("src/main/java/com/fongmi/android/tv/web/HomeWebController.java");
 
-        assertTrue(bridge.contains("int themeGeneration = controller.getThemeSessionGeneration()"));
+        assertTrue(bridge.contains("HomeWebController.ThemeRuntimeSnapshot runtime = controller.getThemeRuntimeSnapshot()"));
+        assertTrue(bridge.contains("int themeGeneration = runtime.session().generation()"));
         assertTrue(bridge.contains("controller.isThemeSessionActive(themeGeneration)"));
-        assertTrue(controller.contains("if (currentTarget.isV2()) themeSessionGeneration++"));
+        assertTrue(controller.contains("if (currentTarget.isV2()) {"));
+        assertTrue(controller.contains("themeSession.cancelPending();"));
         assertTrue(controller.contains("history:detailHistory"));
     }
 
     @Test
     public void themeBridgeRejectsResultsWhenGenerationChangesDuringProviderCalls() throws Exception {
         String bridge = read("src/main/java/com/fongmi/android/tv/web/WebHomeThemeBridge.java");
-        String invoke = section(bridge, "String invoke", "private String vodHome");
+        String router = read("src/main/java/com/fongmi/android/tv/web/WebThemeCallRouter.java");
+        String invoke = section(bridge, "String invoke", "private String dispatch");
+        String dispatch = section(bridge, "private String dispatch", "private String vodHome");
         String home = section(bridge, "private String vodHome", "private String vodCategory");
         String category = section(bridge, "private String vodCategory", "private String playVod");
         String detail = section(bridge, "private String vodDetail", "private String favoriteStatus");
 
-        assertTrue(invoke.contains("WebHomeTarget themeTarget = context.target;"));
-        assertTrue(invoke.contains("themeTarget.getPermissions()"));
+        assertTrue(invoke.contains("CallContext context = new CallContext(runtime)"));
+        assertTrue(invoke.contains("callRouter.invoke(method, payload, context.target, active"));
+        assertTrue(dispatch.contains("controller.getThemeInfoJson(context.runtime)"));
+        assertTrue(router.contains("target.getPermissions()"));
         assertFalse(invoke.contains("controller.getThemeTarget().getPermissions()"));
         assertTrue(home.indexOf("requireActive(active);") > home.indexOf("SiteApi.homeContent"));
         assertTrue(category.indexOf("requireActive(active);") > category.indexOf("SiteApi.categoryContent"));
         assertTrue(detail.indexOf("requireActive(active);") > detail.indexOf("SiteApi.detailContent"));
+        assertTrue(detail.contains("controller.setDetailVodIfCurrent(context.runtime"));
     }
 
     @Test
@@ -75,12 +82,20 @@ public class WebThemeDetailWiringTest {
     @Test
     public void themeInfoUsesOneTargetAndRouteSnapshot() throws Exception {
         String controller = read("src/main/java/com/fongmi/android/tv/web/HomeWebController.java");
-        String method = section(controller, "String getThemeInfoJson()", "public void setViewport");
+        String compatibility = section(controller, "String getThemeInfoJson()",
+                "String getThemeInfoJson(ThemeRuntimeSnapshot runtime)");
+        String method = section(controller, "String getThemeInfoJson(ThemeRuntimeSnapshot runtime)",
+                "public void setViewport");
 
-        assertTrue(method.contains("WebHomeTarget currentTarget = target;"));
-        assertTrue(method.contains("WebThemeRoute currentRoute = themeRoute;"));
+        assertTrue(compatibility.contains("return getThemeInfoJson(getThemeRuntimeSnapshot());"));
+        assertFalse(method.contains("getThemeRuntimeSnapshot()"));
+        assertTrue(method.contains("WebThemePageHost.Snapshot page = runtime.page();"));
+        assertTrue(method.contains("WebHomeTarget currentTarget = page.target();"));
+        assertTrue(method.contains("WebThemeRoute currentRoute = page.route();"));
+        assertTrue(method.contains("runtime.session().accessSession()"));
         assertTrue(method.contains("currentRoute.json(currentAccessSession.issueRoute(currentRoute.getVodId()))"));
-        assertTrue(method.contains("WebHomeThemePolicy.allowsPermission"));
+        assertTrue(method.contains("WebThemeCapabilityRegistry.capabilities("));
+        assertFalse(method.contains("WebHomeThemePolicy.allowsPermission"));
         assertFalse(method.contains("target.get"));
     }
 
@@ -94,9 +109,11 @@ public class WebThemeDetailWiringTest {
         String detail = section(bridge, "private String vodDetail", "private String favoriteStatus");
         String openDetail = section(bridge, "private String openDetail", "private String openNativeDetail");
 
-        assertTrue(controller.contains("private volatile WebThemeAccessSession accessSession;"));
-        assertTrue(controller.contains("WebThemeAccessSession getAccessSession()"));
-        assertTrue(bridge.contains("controller.getAccessSession()"));
+        assertTrue(controller.contains("private final WebThemeSession themeSession;"));
+        assertTrue(controller.contains("ThemeRuntimeSnapshot getThemeRuntimeSnapshot()"));
+        assertTrue(bridge.contains("controller.getThemeRuntimeSnapshot()"));
+        assertTrue(bridge.contains("runtime.session()"));
+        assertTrue(bridge.contains("session.accessSession()"));
         assertTrue(home.contains("context.accessSession.protectHome"));
         assertTrue(category.contains("context.accessSession.resolveType"));
         assertTrue(category.contains("context.accessSession.resolveExtend"));
@@ -112,7 +129,7 @@ public class WebThemeDetailWiringTest {
         String bridge = read("src/main/java/com/fongmi/android/tv/web/HomeWebBridge.java");
         String load = section(controller, "private boolean loadManifestPage", "private boolean isManifestLoadActive");
         String execute = section(bridge, "private String execute", "private String vodHome");
-        int target = load.indexOf("this.target = configured;");
+        int target = load.indexOf("pageHost.beginDocument(site, configured, route);");
 
         assertTrue(load.indexOf("invalidateRemoteSession();") >= 0);
         assertTrue(load.indexOf("invalidateRemoteSession();") < target);
@@ -170,10 +187,65 @@ public class WebThemeDetailWiringTest {
         assertTrue(activity.contains("controller.dispatchDetailChanged()"));
         assertTrue(controller.contains("new CustomEvent('fmdetailchange'"));
         assertTrue(bridge.contains("optionalBoolean(payload, \"cached\", false)"));
-        assertTrue(bridge.contains("controller.getDetailMetadata()"));
+        assertTrue(bridge.contains("this.detailMetadata = page.detailMetadata();"));
         assertTrue(bridge.indexOf("if (!route.getVodId().equals(vod.getId())) vod.setId(route.getVodId());")
-                < bridge.indexOf("postIfActive(active, () -> controller.setDetailVod(detailVod, playSession));"));
+                < bridge.indexOf("postIfActive(active, () -> controller.setDetailVodIfCurrent(context.runtime, detailVod, playSession));"));
         assertTrue(bridge.contains("vod.setSite(site);"));
+    }
+
+    @Test
+    public void detailTmdbActionsResolveOpaqueReferencesBeforeNativeSideEffects() throws Exception {
+        String bridge = read("src/main/java/com/fongmi/android/tv/web/WebHomeThemeBridge.java");
+        String recommendationInfo = section(bridge, "private String recommendationInfo", "private String recommendationFeedback");
+        String recommendationFeedback = section(bridge, "private String recommendationFeedback", "private String openExternal");
+        String controller = read("src/main/java/com/fongmi/android/tv/web/HomeWebController.java");
+        String activity = read("src/main/java/com/fongmi/android/tv/ui/activity/WebThemeDetailActivity.java");
+        String viewer = read("src/main/java/com/fongmi/android/tv/ui/dialog/WebThemeImageViewer.java");
+        String recommendationDialog = read("src/main/java/com/fongmi/android/tv/ui/dialog/AiRecommendationInfoDialog.java");
+        String detailPage = read("src/main/assets/webhome/eclipse-detail.html");
+
+        assertTrue(bridge.contains("case \"person.open\""));
+        assertTrue(bridge.contains("case \"episode.info\""));
+        assertTrue(bridge.contains("resolvePerson(requiredRef(payload, \"personRef\"))"));
+        assertTrue(bridge.contains("resolveImage(requiredRef(payload, \"imageRef\"))"));
+        assertTrue(bridge.contains("resolveRecommendation(requiredRef(payload, \"recommendationRef\"))"));
+        assertTrue(bridge.contains("resolveExternal(requiredRef(payload, \"linkRef\"))"));
+        assertTrue(bridge.contains("resolveEpisode(requiredRef(payload, \"episodeRef\"))"));
+        assertTrue(bridge.contains("TmdbNavigation.open"));
+        assertTrue(recommendationInfo.contains("if (!active.getAsBoolean()) return;"));
+        assertTrue(recommendationInfo.contains("}, active));"));
+        assertTrue(recommendationFeedback.indexOf("postIfActive(active")
+                < recommendationFeedback.indexOf("markNotInterested"));
+        assertTrue(recommendationDialog.contains("if (active != null && !active.getAsBoolean())"));
+        assertFalse(bridge.contains("Json.safeString(payload, \"url\")"));
+        assertFalse(bridge.contains("catch (Throwable ignored)"));
+        assertTrue(controller.contains("private final WebThemeSession themeSession;"));
+        assertTrue(bridge.contains("session.detailActionSession()"));
+        assertTrue(controller.contains("person:{open:"));
+        assertTrue(controller.contains("const recommendation={"));
+        assertTrue(controller.contains("episode:{info:"));
+        assertTrue(activity.contains("getPersonalTmdbRecommendations()"));
+        assertTrue(activity.contains("getPersonalDoubanRecommendations()"));
+        assertTrue(activity.contains("getPersonalAiRecommendations()"));
+        assertTrue(activity.contains("RefreshEvent.Type.VOD_PERSONAL"));
+        assertTrue(activity.contains("dispatchKeyEvent"));
+        assertTrue(activity.contains("event.isLongPress() || event.getRepeatCount() > 0"));
+        assertTrue(activity.contains("controller.dispatchFocusedLongPress()"));
+        assertTrue(activity.contains("controller.dispatchFocusedClick()"));
+        assertTrue(activity.contains("postDelayed(confirmLongPressRunnable"));
+        assertTrue(controller.contains("new MouseEvent('contextmenu'"));
+        assertTrue(controller.contains("node.click()"));
+        assertTrue(viewer.contains("TmdbImageSelector.originalUrl"));
+        assertTrue(viewer.contains("TmdbImageSaver.save"));
+        assertTrue(viewer.contains("setNextFocusDownId"));
+        assertTrue(viewer.contains("setOnFocusChangeListener"));
+        assertTrue(viewer.contains("view.performClick()"));
+        assertTrue(viewer.contains("public boolean performClick()"));
+        assertTrue(viewer.contains("setStrokeColor"));
+        assertTrue(detailPage.contains("api.episode.info"));
+        assertTrue(detailPage.contains("bindLongPress"));
+        assertTrue(detailPage.contains("episodeRanges"));
+        assertTrue(detailPage.contains("episode-marquee-track"));
     }
 
     @Test
@@ -185,8 +257,8 @@ public class WebThemeDetailWiringTest {
         int replacement = detail.indexOf("loaded ? new WebThemePlaySession() : context.playSession");
 
         assertTrue(replacement > detail.indexOf("SiteApi.detailContent"));
-        assertTrue(replacement < detail.indexOf("postIfActive(active, () -> controller.setDetailVod(detailVod, playSession));"));
-        assertTrue(reload.contains("resetThemeSessions();"));
+        assertTrue(replacement < detail.indexOf("postIfActive(active, () -> controller.setDetailVodIfCurrent(context.runtime, detailVod, playSession));"));
+        assertTrue(reload.contains("themeSession.invalidate();"));
     }
 
     @Test
@@ -203,9 +275,11 @@ public class WebThemeDetailWiringTest {
 
         assertTrue(detail.contains("card.setAttribute('data-focus-row', 'people')"));
         assertTrue(detail.contains("frame.setAttribute('data-focus-row', 'gallery')"));
-        assertTrue(detail.contains("card.tabIndex = 0"));
-        assertTrue(detail.contains("frame.tabIndex = 0"));
-        assertTrue(detail.contains("best.scrollIntoView({ block: 'nearest', inline: 'nearest' })"));
+        assertTrue(detail.contains("card.tabIndex = interactive ? 0 : -1"));
+        assertTrue(detail.contains("frame.tabIndex = interactive ? 0 : -1"));
+        assertTrue(detail.contains("function ensureRailItemVisible(node)"));
+        assertTrue(detail.contains("ensureFocusVisible(best)"));
+        assertTrue(detail.contains("scroll-padding-inline: 12px"));
     }
 
     @Test

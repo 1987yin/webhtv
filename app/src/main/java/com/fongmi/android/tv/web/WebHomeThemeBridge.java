@@ -1,22 +1,37 @@
 package com.fongmi.android.tv.web;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.content.res.Configuration;
+import android.net.Uri;
 import android.text.TextUtils;
 
+import androidx.fragment.app.FragmentActivity;
+
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.config.VodConfig;
+import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.bean.Keep;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
+import com.fongmi.android.tv.bean.TmdbItem;
+import com.fongmi.android.tv.bean.TmdbPerson;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.db.AppDatabase;
+import com.fongmi.android.tv.service.RecommendationFeedbackStore;
 import com.fongmi.android.tv.ui.activity.SearchActivity;
 import com.fongmi.android.tv.ui.activity.TmdbDetailActivity;
+import com.fongmi.android.tv.ui.activity.TmdbPersonActivity;
 import com.fongmi.android.tv.ui.activity.VideoActivity;
 import com.fongmi.android.tv.ui.activity.WebThemeDetailActivity;
+import com.fongmi.android.tv.ui.dialog.AiRecommendationInfoDialog;
+import com.fongmi.android.tv.ui.dialog.EpisodeDetailDialog;
+import com.fongmi.android.tv.ui.dialog.WebThemeImageViewer;
+import com.fongmi.android.tv.ui.helper.TmdbNavigation;
+import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Util;
 import com.github.catvod.utils.Json;
 import com.google.gson.JsonElement;
@@ -35,45 +50,63 @@ final class WebHomeThemeBridge {
 
     private final HomeWebController controller;
     private final Activity activity;
+    private final WebThemeCallRouter callRouter;
 
     WebHomeThemeBridge(HomeWebController controller, Activity activity) {
         this.controller = controller;
         this.activity = activity;
+        this.callRouter = new WebThemeCallRouter();
     }
 
     String invoke(String method, JsonObject payload, BooleanSupplier active) throws Exception {
         requireActive(active);
-        CallContext context = new CallContext(controller.getThemeTarget(), controller.getContentSite(),
-                controller.getThemeRoute(), controller.getDetailVod(), controller.getDetailMetadata(),
-                controller.getPlaySession(), controller.getAccessSession());
-        requireActive(active);
-        WebHomeTarget themeTarget = context.target;
-        boolean allowed = themeTarget != null && themeTarget.isV2()
-                ? WebHomeThemePolicy.allowsMethod(themeTarget.getPage(), themeTarget.getPermissions(), method)
-                : themeTarget != null && !themeTarget.isManifest() && WebHomeThemePolicy.allowsMethod(method);
-        if (!allowed) throw new SecurityException("PERMISSION_DENIED");
-        JsonObject safe = payload == null ? new JsonObject() : payload;
-        String result = switch (method) {
-            case "theme.info" -> controller.getThemeInfoJson();
-            case "vod.home" -> vodHome(safe, context, active);
-            case "vod.category" -> vodCategory(safe, context, active);
-            case "vod.detail" -> vodDetail(safe, context, active);
-            case "favorite.status" -> favoriteStatus(safe, context);
-            case "favorite.set" -> favoriteSet(safe, context, active);
-            case "history.item" -> historyItem(safe, context);
-            case "player.playVod" -> playVod(safe, context, active);
-            case "navigation.openDetail" -> openDetail(safe, context, active);
-            case "navigation.openNativeDetail" -> openNativeDetail(safe, context, active);
-            case "app.search" -> search(safe, active);
-            case "app.openVod" -> openVod(active);
-            case "app.openSetting" -> openSetting(active);
-            case "ui.getViewport" -> controller.getViewportJson();
-            case "navigation.back" -> back(active);
-            case "navigation.reload" -> reload(active);
-            default -> throw new SecurityException("PERMISSION_DENIED");
+        HomeWebController.ThemeRuntimeSnapshot runtime = controller.getThemeRuntimeSnapshot();
+        CallContext context = new CallContext(runtime);
+        return callRouter.invoke(method, payload, context.target, active,
+                (api, routedMethod, safe, routedActive) -> dispatch(api, routedMethod, safe, context, routedActive));
+    }
+
+    private String dispatch(WebThemeCallRouter.Api api, String method, JsonObject payload,
+            CallContext context, BooleanSupplier active) throws Exception {
+        return switch (api) {
+            case HOME -> switch (method) {
+                case "theme.info" -> controller.getThemeInfoJson(context.runtime);
+                case "vod.home" -> vodHome(payload, context, active);
+                default -> throw new SecurityException("PERMISSION_DENIED");
+            };
+            case LIST -> vodCategory(payload, context, active);
+            case DETAIL -> switch (method) {
+                case "vod.detail" -> vodDetail(payload, context, active);
+                case "favorite.status" -> favoriteStatus(payload, context);
+                case "favorite.set" -> favoriteSet(payload, context, active);
+                case "history.item" -> historyItem(payload, context);
+                case "person.open" -> openPerson(payload, context, active);
+                case "recommendation.open" -> openRecommendation(payload, context, active);
+                case "recommendation.info" -> recommendationInfo(payload, context, active);
+                case "recommendation.feedback" -> recommendationFeedback(payload, context, active);
+                case "episode.info" -> episodeInfo(payload, context, active);
+                default -> throw new SecurityException("PERMISSION_DENIED");
+            };
+            case PLAYER -> playVod(payload, context, active);
+            case NAVIGATION -> switch (method) {
+                case "navigation.openDetail" -> openDetail(payload, context, active);
+                case "navigation.openNativeDetail" -> openNativeDetail(payload, context, active);
+                case "external.open" -> openExternal(payload, context, active);
+                case "app.search" -> search(payload, active);
+                case "app.openVod" -> openVod(active);
+                case "app.openSite" -> openSite(active);
+                case "app.openSetting" -> openSetting(active);
+                case "navigation.back" -> back(active);
+                case "navigation.reload" -> reload(active);
+                default -> throw new SecurityException("PERMISSION_DENIED");
+            };
+            case UI -> switch (method) {
+                case "image.preview" -> previewImage(payload, context, active);
+                case "image.save" -> saveImage(payload, context, active);
+                case "ui.getViewport" -> controller.getViewportJson();
+                default -> throw new SecurityException("PERMISSION_DENIED");
+            };
         };
-        requireActive(active);
-        return result;
     }
 
     private String vodHome(JsonObject payload, CallContext context, BooleanSupplier active) throws Exception {
@@ -174,12 +207,13 @@ final class WebHomeThemeBridge {
         WebThemePlaySession playSession = loaded ? new WebThemePlaySession() : context.playSession;
         JsonObject response = WebHomeVodContract.detail(site, vod, playSession, keep != null, history,
                 canReadFavorite, canReadHistory, permissions.contains("favorite.write"),
-                permissions.contains("player.playVod"), permissions.contains("app.search"), context.detailMetadata);
+                permissions.contains("player.playVod"), permissions.contains("app.search"), context.detailMetadata,
+                context.detailActionSession, permissions);
         if (context.isV2()) context.accessSession.protectDetail(response);
         String result = response.toString();
         if (loaded) {
             Vod detailVod = vod;
-            postIfActive(active, () -> controller.setDetailVod(detailVod, playSession));
+            postIfActive(active, () -> controller.setDetailVodIfCurrent(context.runtime, detailVod, playSession));
         }
         return result;
     }
@@ -290,6 +324,116 @@ final class WebHomeThemeBridge {
         return object.toString();
     }
 
+    private String openPerson(JsonObject payload, CallContext context, BooleanSupplier active) {
+        activeDetailRoute(payload, context);
+        Site site = activeSite(payload, context);
+        TmdbPerson person = context.detailActionSession.resolvePerson(requiredRef(payload, "personRef"));
+        if (person == null) throw new IllegalArgumentException("Unknown person reference");
+        postIfActive(active, () -> TmdbPersonActivity.start(activity, person, site.getKey()));
+        return acceptedJson();
+    }
+
+    private String previewImage(JsonObject payload, CallContext context, BooleanSupplier active) {
+        activeDetailRoute(payload, context);
+        WebThemeDetailActionSession.ImageSelection image = context.detailActionSession
+                .resolveImage(requiredRef(payload, "imageRef"));
+        if (image == null) throw new IllegalArgumentException("Unknown image reference");
+        postIfActive(active, () -> WebThemeImageViewer.show(activity, image.gallery(), image.index()));
+        return acceptedJson();
+    }
+
+    private String saveImage(JsonObject payload, CallContext context, BooleanSupplier active) {
+        activeDetailRoute(payload, context);
+        WebThemeDetailActionSession.ImageSelection image = context.detailActionSession
+                .resolveImage(requiredRef(payload, "imageRef"));
+        if (image == null) throw new IllegalArgumentException("Unknown image reference");
+        postIfActive(active, () -> WebThemeImageViewer.save(activity, image.url()));
+        return acceptedJson();
+    }
+
+    private String openRecommendation(JsonObject payload, CallContext context, BooleanSupplier active) {
+        activeDetailRoute(payload, context);
+        Site site = activeSite(payload, context);
+        WebThemeDetailActionSession.Recommendation recommendation = context.detailActionSession
+                .resolveRecommendation(requiredRef(payload, "recommendationRef"));
+        if (recommendation == null) throw new IllegalArgumentException("Unknown recommendation reference");
+        WebHomeTarget target = context.target;
+        String manifestUrl = target.getManifest().getManifestUrl();
+        postIfActive(active, () -> TmdbNavigation.open(activity, recommendation.item(), site, (matchedSite, match) -> {
+            if (!active.getAsBoolean()) return;
+            WebThemeDetailActivity.start(activity, manifestUrl, matchedSite.getKey(), match.getId(), match.getName(),
+                    match.getPic(), match.getRemarks(), match.getContent());
+        }, null, active));
+        return acceptedJson();
+    }
+
+    private String recommendationInfo(JsonObject payload, CallContext context, BooleanSupplier active) {
+        activeDetailRoute(payload, context);
+        String ref = requiredRef(payload, "recommendationRef");
+        WebThemeDetailActionSession.Recommendation recommendation = context.detailActionSession
+                .resolveRecommendation(ref);
+        if (recommendation == null) throw new IllegalArgumentException("Unknown recommendation reference");
+        postIfActive(active, () -> AiRecommendationInfoDialog.show(activity, recommendation.item(),
+                recommendation.source(), ignored -> {
+                    if (!active.getAsBoolean()) return;
+                    context.detailActionSession.markNotInterested(ref);
+                    controller.dispatchDetailChanged();
+                }, active));
+        return acceptedJson();
+    }
+
+    private String recommendationFeedback(JsonObject payload, CallContext context, BooleanSupplier active) {
+        activeDetailRoute(payload, context);
+        String action = limited(Json.safeString(payload, "action"), 32);
+        if (!"notInterested".equals(action)) throw new IllegalArgumentException("Unsupported feedback action");
+        String ref = requiredRef(payload, "recommendationRef");
+        WebThemeDetailActionSession.Recommendation recommendation = context.detailActionSession
+                .resolveRecommendation(ref);
+        if (recommendation == null) throw new IllegalArgumentException("Unknown recommendation reference");
+        postIfActive(active, () -> {
+            if (context.detailActionSession.markNotInterested(ref) == null) return;
+            RecommendationFeedbackStore.add(recommendation.item(), recommendation.source());
+            controller.dispatchDetailChanged();
+        });
+        return acceptedJson();
+    }
+
+    private String openExternal(JsonObject payload, CallContext context, BooleanSupplier active) {
+        activeDetailRoute(payload, context);
+        WebThemeDetailActionSession.ExternalLink link = context.detailActionSession
+                .resolveExternal(requiredRef(payload, "linkRef"));
+        if (link == null) throw new IllegalArgumentException("Unknown external link reference");
+        postIfActive(active, () -> {
+            try {
+                activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(link.url())));
+            } catch (RuntimeException ignored) {
+                Notify.show(R.string.detail_external_open_failed);
+            }
+        });
+        return acceptedJson();
+    }
+
+    private String episodeInfo(JsonObject payload, CallContext context, BooleanSupplier active) {
+        activeDetailRoute(payload, context);
+        Episode episode = context.detailActionSession.resolveEpisode(requiredRef(payload, "episodeRef"));
+        if (episode == null) throw new IllegalArgumentException("Unknown episode reference");
+        if (!(activity instanceof FragmentActivity host)) {
+            throw new IllegalStateException("Episode detail is unavailable");
+        }
+        postIfActive(active, () -> EpisodeDetailDialog.show(host, episode));
+        return acceptedJson();
+    }
+
+    private static String requiredRef(JsonObject payload, String key) {
+        String ref = limited(Json.safeString(payload, key), 128);
+        if (TextUtils.isEmpty(ref)) throw new IllegalArgumentException(key + " is required");
+        return ref;
+    }
+
+    private static String acceptedJson() {
+        return "{\"accepted\":true}";
+    }
+
     private String search(JsonObject payload, BooleanSupplier active) {
         String keyword = limited(Json.safeString(payload, "keyword"), 256);
         if (TextUtils.isEmpty(keyword)) throw new IllegalArgumentException("keyword is required");
@@ -355,6 +499,7 @@ final class WebHomeThemeBridge {
 
     private static final class CallContext {
 
+        private final HomeWebController.ThemeRuntimeSnapshot runtime;
         private final WebHomeTarget target;
         private final Site site;
         private final WebThemeRoute route;
@@ -362,17 +507,20 @@ final class WebHomeThemeBridge {
         private final WebThemeDetailMetadata detailMetadata;
         private final WebThemePlaySession playSession;
         private final WebThemeAccessSession accessSession;
+        private final WebThemeDetailActionSession detailActionSession;
 
-        private CallContext(WebHomeTarget target, Site site, WebThemeRoute route, Vod detailVod,
-                WebThemeDetailMetadata detailMetadata, WebThemePlaySession playSession,
-                WebThemeAccessSession accessSession) {
-            this.target = target;
-            this.site = site;
-            this.route = route == null ? WebThemeRoute.EMPTY : route;
-            this.detailVod = detailVod;
-            this.detailMetadata = detailMetadata == null ? WebThemeDetailMetadata.EMPTY : detailMetadata;
-            this.playSession = playSession == null ? new WebThemePlaySession() : playSession;
-            this.accessSession = accessSession == null ? new WebThemeAccessSession() : accessSession;
+        private CallContext(HomeWebController.ThemeRuntimeSnapshot runtime) {
+            WebThemePageHost.Snapshot page = runtime.page();
+            WebThemeSession.Snapshot session = runtime.session();
+            this.runtime = runtime;
+            this.target = page.target();
+            this.site = page.site();
+            this.route = page.route();
+            this.detailVod = page.detailVod();
+            this.detailMetadata = page.detailMetadata();
+            this.playSession = session.playSession();
+            this.accessSession = session.accessSession();
+            this.detailActionSession = session.detailActionSession();
         }
 
         private boolean isV2() {
@@ -391,6 +539,11 @@ final class WebHomeThemeBridge {
 
     private String openVod(BooleanSupplier active) {
         postIfActive(active, controller::openVod);
+        return "{}";
+    }
+
+    private String openSite(BooleanSupplier active) {
+        postIfActive(active, controller::openSite);
         return "{}";
     }
 

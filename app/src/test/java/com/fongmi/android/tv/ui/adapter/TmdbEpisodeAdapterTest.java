@@ -45,6 +45,8 @@ public class TmdbEpisodeAdapterTest {
         assertTrue("native-enhanced TMDB episode cards should bind the file-size badge instead of always hiding it",
                 nativeBody.contains("boolean showDate = !TextUtils.isEmpty(holder.binding.date.getText()) && mode == Mode.GRID;")
                         && nativeBody.contains("bindFileSize(holder, nativeEnhancedFileSizeBadge(fileSize, cleanTitle), showDate);")
+                        && source.contains("extractFileSize(episode.getRawDisplayName())")
+                        && source.contains("withSourceFileSize(episode.getRawDisplayName(), title")
                         && !nativeBody.contains("holder.binding.fileSize.setVisibility(View.GONE);"));
     }
 

@@ -24,6 +24,7 @@ public class VideoActivityLayoutTest {
 
     private static final List<String> REQUIRED_EPISODE_IDS = Arrays.asList(
             "episodeTitleBar",
+            "episodeTitle",
             "episodeViewMode"
     );
     private static final List<String> REQUIRED_TMDB_MOVABLE_IDS = Arrays.asList(
@@ -155,27 +156,32 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
-    public void mobileOverlayButtonsFollowPlayerButtonSetting() throws Exception {
+    public void mobileOverlayButtonsIgnorePlayerButtonSetting() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
 
-        String[][] controls = {
-                {"next", "NEXT"},
-                {"prev", "PREV"},
-                {"fullscreen", "FULLSCREEN"},
-                {"cast", "CAST"},
-                {"danmaku", "DANMAKU"}
-        };
-        for (String[] control : controls) {
-            String id = control[0];
-            String setting = control[1];
+        // 悬浮/图标按钮（中间上下集、进度条旁全屏、顶部弹幕/投屏）只受集数、锁定、功能可用性控制，
+        // 不受「播放器按钮设置」影响——那是仅面向底部横向动作栏的偏好。锁定这些可见性表达式，
+        // 防止有人再次把 PlayerButtonSetting 判断加回悬浮按钮（历史回归点）。
+        assertTrue("middle overlay next button must depend only on episode count",
+                source.contains("mBinding.control.next.setVisibility(size < 2 ? View.GONE : View.VISIBLE);"));
+        assertTrue("middle overlay prev button must depend only on episode count",
+                source.contains("mBinding.control.prev.setVisibility(size < 2 ? View.GONE : View.VISIBLE);"));
+        assertTrue("seekbar fullscreen button must depend only on lock and short-drama state",
+                source.contains("mBinding.control.fullscreen.setVisibility(isLock() || shortDrama ? View.GONE : View.VISIBLE);"));
+        assertTrue("top cast button must depend only on fullscreen and playback state",
+                source.contains("mBinding.control.cast.setVisibility(isFullscreen() && mHistory != null && !player().isEmpty() ? View.VISIBLE : View.GONE);"));
+        assertTrue("top danmaku button must depend only on lock and danmaku availability",
+                source.contains("mBinding.control.danmaku.setVisibility(isLock() || !player().haveDanmaku() ? View.GONE : View.VISIBLE);"));
+
+        for (String id : List.of("next", "prev", "fullscreen", "cast", "danmaku")) {
             int line = source.indexOf("mBinding.control." + id + ".setVisibility(");
             assertTrue("missing overlay visibility line for mBinding.control." + id, line >= 0);
             String stmt = source.substring(line, source.indexOf(';', line));
-            assertTrue("overlay button mBinding.control." + id + " must follow PlayerButtonSetting." + setting,
-                    stmt.contains("PlayerButtonSetting.isVisible(PlayerButtonSetting." + setting + ")"));
+            assertFalse("overlay button mBinding.control." + id + " must not gate on PlayerButtonSetting", stmt.contains("PlayerButtonSetting"));
         }
 
+        // 底部横向动作栏按钮仍必须通过 addActionButton 跟随设置，确认解耦没有误伤动作栏。
         assertTrue("bottom action bar fullscreen must still follow PlayerButtonSetting",
                 source.contains("addActionButton(PlayerButtonSetting.FULLSCREEN, mBinding.control.action.fullscreen);"));
         assertTrue("bottom action bar prev must still follow PlayerButtonSetting",
@@ -482,6 +488,39 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void mobilePipAudioActionKeepsBackgroundPlayback() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        String audioBody = methodBody(source, "public void onAudio()", "};");
+        String pipModeBody = methodBody(source, "public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, @NonNull Configuration newConfig)", "protected void onResume()");
+        String pipExitBody = methodBody(source, "private void finishIfPipClosed()", "public void onConfigurationChanged(@NonNull Configuration newConfig)");
+
+        int captureAudioMode = audioBody.indexOf("boolean audioOnly = isAudioOnly();");
+        int markIntentionalExit = audioBody.indexOf("mKeepPlaybackAfterPipExit = isInPictureInPictureMode();");
+        int syncPipMode = audioBody.indexOf("syncPiPForPlaybackMode();");
+        int moveToBackground = audioBody.indexOf("moveTaskToBack(true)");
+        assertTrue("PiP audio action must preserve and mark state before changing PiP mode",
+                captureAudioMode >= 0
+                        && markIntentionalExit > captureAudioMode
+                        && syncPipMode > markIntentionalExit
+                        && moveToBackground > syncPipMode);
+        assertTrue("a failed background transition must restore audio and PiP state",
+                audioBody.contains("mKeepPlaybackAfterPipExit = false;")
+                        && audioBody.contains("setAudioOnly(audioOnly);")
+                        && audioBody.lastIndexOf("syncPiPForPlaybackMode();") > moveToBackground);
+        int pipEntered = pipModeBody.indexOf("if (isInPictureInPictureMode) {");
+        int resetStaleIntent = pipModeBody.indexOf("mKeepPlaybackAfterPipExit = false;", pipEntered);
+        assertTrue("a new PiP session must clear any stale keep-playback marker",
+                pipEntered >= 0 && resetStaleIntent > pipEntered);
+
+        int captureIntent = pipExitBody.indexOf("boolean keepPlayback = mKeepPlaybackAfterPipExit;");
+        int consumeIntent = pipExitBody.indexOf("mKeepPlaybackAfterPipExit = false;");
+        int decideExit = pipExitBody.indexOf("PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed(), keepPlayback)");
+        assertTrue("intentional PiP exits must be consumed before close-button detection",
+                captureIntent >= 0 && consumeIntent > captureIntent && decideExit > consumeIntent);
+    }
+
+    @Test
     public void mobileAudioLifecycleKeepsStageStateInSync() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -493,7 +532,7 @@ public class VideoActivityLayoutTest {
 
         assertTrue("mobile track changes must refresh lyrics after reconciling the final track set",
                 tracksBody.contains("updateAudioOnlyState();")
-                        && tracksBody.contains("suppressPiPForAudio();")
+                        && tracksBody.contains("syncPiPForPlaybackMode();")
                         && tracksBody.contains("refreshLyrics();"));
         assertTrue("mobile audio state must update desktop lyrics, stage visibility, and karaoke actions",
                 audioStateBody.contains("LyricsController.isAudioOnly(player())")
@@ -564,7 +603,7 @@ public class VideoActivityLayoutTest {
         assertTrue("mobile play/pause changes must synchronize lyrics, karaoke, PiP, and the audio transport",
                 mobilePlaying.contains("syncLyricsPlaybackState(isPlaying);")
                         && mobilePlaying.contains("syncKaraokePosition();")
-                        && mobilePlaying.contains("suppressPiPForAudio()")
+                        && mobilePlaying.contains("syncPiPForPlaybackMode()")
                         && mobilePlaying.contains("checkAudioPlayImg("));
     }
 
@@ -2064,6 +2103,60 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void manualTmdbMatchReloadsCrossSourceHistoryInBothNativePlayers() throws Exception {
+        for (Path root : List.of(findMobileJavaPath(), findLeanbackJavaPath())) {
+            Path sourcePath = root.resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+            String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+            int method = source.indexOf("private void updateVod(Vod item)");
+            int end = source.indexOf("\n    private ", method + 1);
+            String body = method >= 0 && end > method ? source.substring(method, end) : "";
+            int reload = body.indexOf("reloadHistoryAfterTmdbMatch()");
+            int updateFlag = body.indexOf("updateFlag(getFlag(), item.getFlags())");
+            int resume = body.indexOf("if (historyReloaded) resumeHistoryAfterTmdbMatch();");
+
+            assertTrue(sourcePath + " must reload history after the matched TMDB identity becomes available", reload >= 0);
+            assertTrue(sourcePath + " must rebind flags before resuming the reloaded history", updateFlag > reload);
+            assertTrue(sourcePath + " must reselect the matching line and episode after flags are rebound", resume > updateFlag);
+            assertTrue(sourcePath + " must resolve playback with the explicit matched TMDB item",
+                    source.contains("History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), matched, currentSourceSeasonNumber(item))"));
+
+            int resumeMethod = source.indexOf("private void resumeHistoryAfterTmdbMatch()");
+            int alignMethod = source.indexOf("private void alignHistoryWithSelectedEpisode", resumeMethod);
+            String resumeBody = resumeMethod >= 0 && alignMethod > resumeMethod ? source.substring(resumeMethod, alignMethod) : "";
+            int setPosition = resumeBody.indexOf("setPosition();");
+            int applyPending = resumeBody.indexOf("applyPendingResumeSeek();");
+            assertTrue(sourcePath + " must protect the cross-source position while switching playback",
+                    source.contains("private boolean tmdbHistoryResumePending;")
+                            && source.contains("tmdbHistoryResumePending = true;")
+                            && source.contains("if (mHistory == null || tmdbHistoryResumePending) return;"));
+            assertTrue(sourcePath + " must not cache or clear the target progress while the old player is stopping",
+                    source.contains("if (!tmdbHistoryResumePending) {")
+                            && source.contains("if (!sameEpisode && !tmdbHistoryResumePending) {"));
+            int saveHistoryMethod = source.indexOf("private void saveHistory(boolean exit)");
+            int saveHistoryEnd = source.indexOf("\n    private ", saveHistoryMethod + 1);
+            String saveHistoryBody = saveHistoryMethod >= 0 && saveHistoryEnd > saveHistoryMethod
+                    ? source.substring(saveHistoryMethod, saveHistoryEnd) : "";
+            int saveCacheGuard = saveHistoryBody.indexOf("if (!tmdbHistoryResumePending) {");
+            int saveCacheWrite = saveHistoryBody.indexOf("EpisodePositionCache.get().put(");
+            assertTrue(sourcePath + " must not write the old player position into the resumed episode cache during refresh",
+                    saveCacheGuard >= 0 && saveCacheWrite > saveCacheGuard);
+
+            assertTrue(sourcePath + " must immediately apply a pending IJK seek when the selected episode is unchanged",
+                    setPosition >= 0 && applyPending > setPosition);
+
+            int manual = source.indexOf("private void applyManualTmdb(TmdbItem item)");
+            int manualEnd = source.indexOf("\n    private ", manual + 1);
+            String manualBody = manual >= 0 && manualEnd > manual ? source.substring(manual, manualEnd) : "";
+            int explicitReload = manualBody.indexOf("reloadHistoryAfterTmdbMatch(item)");
+            int explicitResume = manualBody.indexOf("resumeHistoryAfterTmdbMatch()", explicitReload);
+            int load = manualBody.indexOf("mTmdbUIAdapter.load(item, mVod)");
+            assertTrue(sourcePath + " must reload history directly from the manually selected TMDB identity", explicitReload >= 0);
+            assertTrue(sourcePath + " must resume the resolved history before the asynchronous TMDB detail load",
+                    explicitResume > explicitReload && load > explicitResume);
+        }
+    }
+
+    @Test
     public void mobileDirectTmdbPlaybackUsesCarriedSynopsisForUnmatchedFallback() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -2509,7 +2602,7 @@ public class VideoActivityLayoutTest {
             assertTrue(sourcePath + " must preserve progress when a history source refresh changes only the episode URL",
                     selection.contains("historyEpisode.matchesPlayback(mHistory.getEpisode())"));
             assertTrue(sourcePath + " must use the same tolerant episode identity when playback updates history",
-                    update.contains("item.matchesPlayback(mHistory.getEpisode())"));
+                    update.contains("historyEpisode.matchesPlayback(mHistory.getEpisode())"));
             if (source.contains("private void updateFastTmdbPlaybackHistory(Flag flag, Episode episode)")) {
                 String fast = methodBody(source, "private void updateFastTmdbPlaybackHistory(Flag flag, Episode episode)", "private void resetDetailForNewIntent()");
                 assertTrue(sourcePath + " fast TMDB playback must honor the aggregation progress-sharing switch",
