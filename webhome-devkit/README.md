@@ -21,6 +21,7 @@ WebHome 扩展脚本的主流场景不是把网站完全改写成 CSP 爬虫，�
 - `templates/homepages/`：首页起步模板；完整首页范式以 `examples/homepages/` 和 skill demo 为准。
 - `schemas/webtheme-v2.schema.json`：WebTheme V2 `theme.json` 的严格创作 Schema。
 - `scripts/validate_webtheme.py`：V2 Manifest 命令行校验器。
+- [`../docs/webtheme-compatibility-matrix.md`](../docs/webtheme-compatibility-matrix.md)：由 Android 运行时能力注册表生成并由单测锁定的页面契约、权限和 Bridge 兼容矩阵。
 - `skills/`：Codex/Claude/OpenCode 等客户端可安装的 WebHome skills。
 - `docs/`：长文档和跨主题说明。
 
@@ -36,7 +37,7 @@ py -3 webhome-devkit/scripts/validate_webtheme.py path/to/theme.json --target le
 
 校验器使用 `schemas/webtheme-v2.schema.json`，会拒绝非 UTF-8 输入、未知字段、未知权限、错误页面契约、非法 `uri-reference` 语法、缺少页面基础权限以及超过运行时 128 KiB 上限的 Manifest；当 Manifest 显式声明 `targets` 时，也会拒绝未列出的运行目标。入口与 Manifest 的 HTTPS 同源关系仍由 Android 运行时在解析实际 Manifest URL 时强制检查。`player` 和 `tokens` 当前为 **reserved**：Schema 只验证其为有界对象，Host API 3 不读取其中配置；校验器会输出警告。CI 若要禁止保留字段，可增加 `--warnings-as-errors`。
 
-退出码：`0` 表示通过，`1` 表示 Manifest 校验失败（或警告被提升为错误），`2` 表示命令行参数错误、文件缺失/不可读、非 UTF-8 输入或 JSON 无法解析。完整 V2 运行时、安全边界和路线说明见 [`../docs/universal-webhome-theme-design.md`](../docs/universal-webhome-theme-design.md) §18～§20。
+退出码：`0` 表示通过，`1` 表示 Manifest 校验失败（或警告被提升为错误），`2` 表示命令行参数错误、文件缺失/不可读、非 UTF-8 输入或 JSON 无法解析。创作前可查阅 [`WebTheme Host API 兼容矩阵`](../docs/webtheme-compatibility-matrix.md)；完整 V2 运行时、安全边界和路线说明见 [`../docs/universal-webhome-theme-design.md`](../docs/universal-webhome-theme-design.md) §18～§20。
 
 ## 1. 能力模型与架构
 

@@ -360,7 +360,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
     private void homeContent() {
         requestNormalChrome();
         showProgress();
-        mBinding.homeWeb.setVisibility(View.GONE);
+        if (mWeb != null) mWeb.hide();
         updateToolbarMenu();
         clearPagerTypes();
         mBinding.pager.setAdapter(new PageAdapter(getChildFragmentManager()));
@@ -619,7 +619,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         mBinding.type.setVisibility(View.VISIBLE);
         updateTypeMoreVisible();
         mBinding.pager.setVisibility(View.VISIBLE);
-        mBinding.homeWeb.setVisibility(View.GONE);
+        if (mWeb != null) mWeb.hide();
         updateToolbarMenu();
     }
 
@@ -649,10 +649,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
     }
 
     private void setHomeWebTopMargin(int margin) {
-        ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) mBinding.homeWeb.getLayoutParams();
-        if (params.topMargin == margin) return;
-        params.topMargin = margin;
-        mBinding.homeWeb.setLayoutParams(params);
+        if (mWeb != null) mWeb.setTopMargin(margin);
     }
 
     private void requestNormalChrome() {
