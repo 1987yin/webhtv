@@ -17,6 +17,7 @@ import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.utils.PushParser;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
+import com.fongmi.android.tv.utils.VodDetailCache;
 import com.fongmi.android.tv.web.WebHomeInlineVodStore;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderDebug;
@@ -113,28 +114,57 @@ public class SiteApi {
 
     @NonNull
     public static Result detailContent(@NonNull String key, @NonNull String id) throws Exception {
-        SpiderDebug.log("detail", "key=%s,id=%s", key, id);
+        return detailContent(key, id, false);
+    }
+
+    @NonNull
+    public static Result detailContent(@NonNull String key, @NonNull String id, boolean refresh) throws Exception {
+        SpiderDebug.log("detail", "key=%s,id=%s,refresh=%s", key, id, refresh);
         if (WebHomeInlineVodStore.KEY.equals(key)) return WebHomeInlineVodStore.detail(id);
         Site site = VodConfig.get().getSite(key);
         PushParser.Parsed push = PUSH.equals(key) ? PushParser.fromId(id) : null;
         String requestId = push == null ? id : push.getUrl();
         if (push != null && (site.isEmpty() || isLocalFileUrl(requestId))) return pushDetail(id, push);
+
+        String sourceKey = detailCacheSourceKey(key, site);
+        if (refresh) VodDetailCache.invalidateContent(sourceKey, id);
+        String cached = refresh ? null : VodDetailCache.getContent(sourceKey, id);
+        if (!TextUtils.isEmpty(cached)) {
+            Result result = Result.fromJson(cached);
+            if (!result.getList().isEmpty()) {
+                SpiderDebug.log("detail-cache", "hit key=%s,id=%s,size=%d", key, id, cached.length());
+                return result;
+            }
+            VodDetailCache.invalidateContent(sourceKey, id);
+        }
+
+        Result result;
         if (isSpider(site)) {
             String detailContent = site.recent().spider().detailContent(Arrays.asList(requestId));
             SpiderDebug.log("detail", detailContent);
-            Result result = Result.fromJson(detailContent);
-            Source.get().parse(result.getVod().setFlags());
-            return applyPushTitle(push, result);
+            result = Result.fromJson(detailContent);
         } else {
             ArrayMap<String, String> params = new ArrayMap<>();
             params.put("ac", ac(site.getType()));
             params.put("ids", requestId);
             String detailContent = call(site, params);
             SpiderDebug.log("detail", detailContent);
-            Result result = Result.fromType(site.getType(), detailContent);
-            Source.get().parse(result.getVod().setFlags());
-            return applyPushTitle(push, result);
+            result = Result.fromType(site.getType(), detailContent);
         }
+        Source.get().parse(result.getVod().setFlags());
+        result = applyPushTitle(push, result);
+        if (!result.getList().isEmpty()) {
+            String content = result.toString();
+            VodDetailCache.putContent(sourceKey, id, content);
+            SpiderDebug.log("detail-cache", "store key=%s,id=%s,size=%d", key, id, content.length());
+        }
+        return result;
+    }
+
+    private static String detailCacheSourceKey(String key, Site site) {
+        if (site == null) return key;
+        int signature = Objects.hash(site.getType(), site.getApi(), site.getExt(), site.getHeader());
+        return key + "#" + Integer.toHexString(signature);
     }
 
     private static Result applyPushTitle(PushParser.Parsed push, Result result) {

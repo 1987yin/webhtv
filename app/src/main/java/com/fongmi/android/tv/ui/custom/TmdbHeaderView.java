@@ -386,6 +386,39 @@ public class TmdbHeaderView {
         if (headerRoot != null) headerRoot.setVisibility(View.VISIBLE);
     }
 
+
+    public void refreshRecommendations() {
+        if (boundAdapter == null || headerRoot == null || recommendationAdapter == null) return;
+        bindRecommendationRow(R.id.tmdbRecommendationsLabel, R.id.tmdbRecommendations, recommendationAdapter, boundAdapter.getRecommendations());
+    }
+
+    public void refreshPersonalRecommendationRows() {
+        if (boundAdapter == null || headerRoot == null) return;
+        bindRecommendationRow(R.id.tmdbPersonalTmdbRecommendationsLabel, R.id.tmdbPersonalTmdbRecommendations, personalTmdbRecommendationAdapter, boundAdapter.getPersonalTmdbRecommendations());
+        bindRecommendationRow(R.id.tmdbPersonalDoubanRecommendationsLabel, R.id.tmdbPersonalDoubanRecommendations, personalDoubanRecommendationAdapter, boundAdapter.getPersonalDoubanRecommendations());
+        bindPersonalAiRecommendationRow(boundAdapter.getPersonalAiRecommendations());
+    }
+
+    public void refreshEpisodeMetadata() {
+        if (boundAdapter == null || headerRoot == null) return;
+        TmdbItem item = boundAdapter.getTmdbItem();
+        JsonObject detail = boundAdapter.getTmdbDetail();
+        if (item == null || detail == null) return;
+        TextView meta = headerRoot.findViewById(R.id.tmdbMeta);
+        String mediaType = "tv".equals(item.getMediaType())
+                ? activity.getString(R.string.detail_media_tv)
+                : activity.getString(R.string.detail_media_movie);
+        String year = extractYear(detail);
+        String episodeInfo = boundAdapter.getEpisodeDetailText();
+        List<String> metaParts = new ArrayList<>();
+        metaParts.add(mediaType);
+        if (!TextUtils.isEmpty(year)) metaParts.add(year);
+        if (!TextUtils.isEmpty(episodeInfo)) metaParts.add(episodeInfo);
+        meta.setText(TextUtils.join(" · ", metaParts));
+        TextView fusionSubtitle = headerRoot.findViewById(R.id.tmdbFusionSubtitle);
+        if (fusionSubtitle != null) fusionSubtitle.setText(buildFusionSubtitle(detail, boundAdapter.getRatingText(), episodeInfo));
+    }
+
     public void refreshPersonalRecommendations() {
         if (boundAdapter == null || headerRoot == null) return;
         boundAdapter.refreshPersonalRecommendations(changed -> {
