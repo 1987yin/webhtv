@@ -2083,13 +2083,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (bundle == null || loadedVod == null || bundle.item() == null || !"tv".equalsIgnoreCase(bundle.item().getMediaType()) || !canMatchTmdb()) return result;
         int seasonNumber = initialStandaloneSeasonNumber(loadedVod, bundle);
         if (seasonNumber < 0 || bundle.seasonEpisodes().containsKey(seasonNumber)) return result;
+        // 源站季号可能因 TMDB 更名与 season_number 存在偏移，仅向 TMDB 请求时校正，本地仍以源季号为 key
+        int tmdbSeason = EpisodeSeasonPolicy.correctTmdbSeason(seasonNumber, bundle.item().getTitle());
         try {
-            JsonObject season = tmdbService.season(bundle.item(), seasonNumber, tmdbConfig, bundle.detail(), false);
+            JsonObject season = tmdbService.season(bundle.item(), tmdbSeason, tmdbConfig, bundle.detail(), false);
             Map<Integer, Integer> seasonCounts = new HashMap<>(bundle.seasonCounts());
             Map<Integer, List<TmdbEpisode>> seasonEpisodes = new HashMap<>(bundle.seasonEpisodes());
             Map<Integer, List<TmdbPerson>> seasonCast = new HashMap<>(bundle.seasonCast());
             Map<Integer, List<String>> seasonPhotos = new HashMap<>(bundle.seasonPhotos());
-            List<TmdbEpisode> episodes = tmdbService.episodes(season, tmdbConfig, bundle.item().getTmdbId(), seasonNumber);
+            List<TmdbEpisode> episodes = tmdbService.episodes(season, tmdbConfig, bundle.item().getTmdbId(), tmdbSeason);
             seasonCounts.put(seasonNumber, episodes.size());
             seasonEpisodes.put(seasonNumber, episodes);
             seasonCast.put(seasonNumber, tmdbService.seasonCast(season, tmdbConfig));
