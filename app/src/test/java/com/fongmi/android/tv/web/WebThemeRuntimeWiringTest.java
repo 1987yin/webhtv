@@ -42,9 +42,18 @@ public class WebThemeRuntimeWiringTest {
         String resume = section(controller, "public void onResume()", "public void onPause()");
         String reload = section(controller, "public void reload()", "public void reloadExtensions()");
         String destroy = section(controller, "public void destroy()", "private void cancelPendingNativePlaybacks()");
-        String recreate = section(controller, "private boolean recreateWebView()", "private void recoverAfterResume()");
+        String ensureProfile = section(controller, "private boolean ensureDataProfile", "private boolean replaceWebView(");
+        String replace = section(controller, "private boolean replaceWebView(", "private boolean recreateWebView()");
         String failure = section(controller, "private void handleMainFrameFailure", "private WebChromeClient chrome()");
+        String receivedError = section(controller, "public void onReceivedError", "public void onReceivedHttpError");
+        String httpError = section(controller, "public void onReceivedHttpError", "public boolean shouldOverrideUrlLoading");
+        String override = section(controller, "public boolean shouldOverrideUrlLoading", "public WebResourceResponse shouldInterceptRequest");
+        String intercept = section(controller, "public WebResourceResponse shouldInterceptRequest", "public boolean onRenderProcessGone");
+        String renderGone = section(controller, "public boolean onRenderProcessGone", "private void handleMainFrameFailure");
 
+        assertTrue(controller.contains("private volatile WebView webView;"));
+        assertTrue(controller.contains("private boolean dataProfileReady = true;"));
+        assertTrue(ensureProfile.contains("if (dataProfileReady\n                && !WebThemeDataIsolation.requiresReplacement(dataProfile, desired)) return true;"));
         assertTrue(pageStarted.contains("if (destroyed || view != webView) return;"));
         assertTrue(ordered(pageStarted, "bridgeReady = false;", "themeSession.invalidate();"));
         assertTrue(ordered(pageStarted, "themeSession.invalidate();", "rotateRemoteDocumentNonce();"));
@@ -56,7 +65,17 @@ public class WebThemeRuntimeWiringTest {
         assertTrue(ordered(resume, "themeSession.cancelPending();", "paused = false;"));
         assertTrue(reload.contains("themeSession.invalidate();"));
         assertTrue(ordered(destroy, "themeSession.invalidate();", "webView.destroy();"));
-        assertTrue(ordered(recreate, "themeSession.invalidate();", "if (parent == null) return false;"));
+        assertTrue(ordered(replace, "themeSession.invalidate();", "invalidateRemoteSession();"));
+        assertTrue(ordered(replace, "invalidateRemoteSession();", "webView.destroy();"));
+        assertTrue(ordered(replace, "dataProfile = desired;", "dataProfileReady = false;"));
+        assertTrue(ordered(replace, "dataProfileReady = false;", "init();"));
+        assertTrue(ordered(replace, "init();", "dataProfileReady = true;"));
+        assertFalse(replace.contains("dataProfile = null;"));
+        assertTrue(receivedError.contains("if (destroyed || view != webView) return;"));
+        assertTrue(httpError.contains("if (destroyed || view != webView) return;"));
+        assertTrue(override.contains("if (destroyed || view != webView) return true;"));
+        assertTrue(intercept.contains("if (destroyed || view != webView) return blockedNavigation();"));
+        assertTrue(renderGone.contains("if (destroyed || view != webView) return true;"));
         assertTrue(ordered(failure, "bridgeReady = false;", "themeSession.invalidate();"));
     }
 
