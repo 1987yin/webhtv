@@ -1231,7 +1231,7 @@ public class Setting {
     }
 
     public static void putTmdbSeasonOffsetMap(Map<String, Integer> map) {
-        Prefers.put(KEY_TMDB_SEASON_OFFSET, map);
+        Prefers.put(KEY_TMDB_SEASON_OFFSET, App.gson().toJson(map));
     }
 
     public static int getTmdbSeasonOffset(String tmdbTitle) {

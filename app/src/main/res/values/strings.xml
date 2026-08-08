@@ -2437,15 +2437,15 @@
     <string name="download_long_press_tip">Tap to pause or resume, long press to delete</string>
 
     <!-- TMDB season offset (custom) -->
-    <string name="tmdb_season_offset_title">TMDB 季号偏移</string>
-    <string name="tmdb_season_offset_hint">当剧集因更名导致源站季号与 TMDB 季号不一致时，设置剧名对应的偏移量。源季号 + 偏移 = TMDB 季号。</string>
-    <string name="tmdb_season_offset_empty">尚未设置任何剧名偏移。点击"新增"添加。</string>
+    <string name="tmdb_season_offset_title">TMDB Season Offset</string>
+    <string name="tmdb_season_offset_hint">When a show was renamed, its source season number may differ from the TMDB season number. Set the offset per TMDB title. Source season + offset = TMDB season.</string>
+    <string name="tmdb_season_offset_empty">No season offset configured yet. Tap \"Add\" to add one.</string>
     <string name="add">Add</string>
     <string name="delete">Delete</string>
-    <string name="tmdb_season_offset_add_title">添加剧名偏移</string>
-    <string name="tmdb_season_offset_name_hint">TMDB 剧名（如：奔跑吧）</string>
-    <string name="tmdb_season_offset_value_hint">偏移量（整数，如：4）</string>
-    <string name="tmdb_season_offset_name_required">请输入剧名</string>
-    <string name="tmdb_season_offset_value_invalid">请输入有效的整数偏移量</string>
-    <string name="tmdb_season_offset_current">当前剧集：%s</string>
+    <string name="tmdb_season_offset_add_title">Add Season Offset</string>
+    <string name="tmdb_season_offset_name_hint">TMDB title (e.g. Running Man)</string>
+    <string name="tmdb_season_offset_value_hint">Offset (integer, e.g. 4)</string>
+    <string name="tmdb_season_offset_name_required">Please enter a title</string>
+    <string name="tmdb_season_offset_value_invalid">Please enter a valid integer offset</string>
+    <string name="tmdb_season_offset_current">Current show: %s</string>
 </resources>

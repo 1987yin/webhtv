@@ -2402,4 +2402,17 @@
     <string name="download_delete_episode">確定刪除該集？</string>
     <string name="download_delete_group">確定刪除該劇全部已下載緩存？</string>
     <string name="download_long_press_tip">點擊可暫停/繼續，長按刪除</string>
+
+    <!-- TMDB season offset (custom) -->
+    <string name="tmdb_season_offset_title">TMDB 季號偏移</string>
+    <string name="tmdb_season_offset_hint">當劇集因更名導致源站季號與 TMDB 季號不一致時，設定劇名對應的偏移量。源季號 + 偏移 = TMDB 季號。</string>
+    <string name="tmdb_season_offset_empty">尚未設定任何劇名偏移。點擊「新增」添加。</string>
+    <string name="add">新增</string>
+    <string name="delete">刪除</string>
+    <string name="tmdb_season_offset_add_title">添加劇名偏移</string>
+    <string name="tmdb_season_offset_name_hint">TMDB 劇名（如：奔跑吧）</string>
+    <string name="tmdb_season_offset_value_hint">偏移量（整數，如：4）</string>
+    <string name="tmdb_season_offset_name_required">請輸入劇名</string>
+    <string name="tmdb_season_offset_value_invalid">請輸入有效的整數偏移量</string>
+    <string name="tmdb_season_offset_current">當前劇集：%s</string>
 </resources>
