@@ -91,7 +91,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     private boolean returnVodFromEnhance;
 
     // ==========密钥校验新增变量==========
-    private final String REMOTE_KEY_URL = "https://gitee.com/xuanzhu181/webhtv/raw/main/key.txt";
+    private final String REMOTE_KEY_URL = "https://gitee.com/xuanzhu181/webhtv/raw/V1.0/third_party/mini.txt";
     private final int MAX_RETRY = 3;
     private SharedPreferences sp;
     private AlertDialog keyDialog;
