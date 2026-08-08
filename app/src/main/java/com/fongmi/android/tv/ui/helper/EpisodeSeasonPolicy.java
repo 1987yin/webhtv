@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.helper;
 
+import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.title.MediaTitleParser;
 import com.fongmi.android.tv.title.MediaTitleRequest;
 
@@ -108,10 +109,14 @@ public final class EpisodeSeasonPolicy {
             "奔跑吧兄弟", 4
     );
 
-    /** 返回源季 -> TMDB 季的固定偏移量（0 表示无需校正）。 */
+    /** 返回源季 -> TMDB 季的固定偏移量（0 表示无需校正）。优先用户自定义，再回退内置规则。 */
     public static int tmdbSeasonOffset(String tmdbTitle) {
         if (tmdbTitle == null || tmdbTitle.trim().isEmpty()) return 0;
         String title = tmdbTitle.trim();
+        // 1) 用户自定义优先
+        int userOffset = Setting.getTmdbSeasonOffset(title);
+        if (userOffset != 0) return userOffset;
+        // 2) 内置规则兜底
         Integer offset = TMDB_TITLE_SEASON_OFFSET.get(title);
         if (offset != null) return offset;
         // 别名匹配：去掉常见前缀/后缀后比较

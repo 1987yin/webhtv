@@ -138,6 +138,7 @@ import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleManualSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
+import com.fongmi.android.tv.ui.dialog.TmdbSeasonOffsetDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.helper.DetailThemeVisibility;
 import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
@@ -616,6 +617,14 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.rematch.setOnClickListener(view -> showManualTmdbMatchDialog());
         binding.rematchTop.setOnClickListener(view -> showManualTmdbMatchDialog());
         binding.rematchFusion.setOnClickListener(view -> showManualTmdbMatchDialog());
+        View.OnLongClickListener rematchLong = view -> {
+            String title = matchedTmdbItem != null ? matchedTmdbItem.getTitle() : null;
+            TmdbSeasonOffsetDialog.show(TmdbDetailActivity.this, title);
+            return true;
+        };
+        binding.rematch.setOnLongClickListener(rematchLong);
+        binding.rematchTop.setOnLongClickListener(rematchLong);
+        binding.rematchFusion.setOnLongClickListener(rematchLong);
         binding.changeSource.setOnClickListener(view -> changeSource());
         binding.changeSourceDetail.setOnClickListener(view -> changeSource());
         binding.changeSource.setOnLongClickListener(view -> openGlobalSourceSearch());
