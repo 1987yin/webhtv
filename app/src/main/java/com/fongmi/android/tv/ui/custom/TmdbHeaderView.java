@@ -104,6 +104,8 @@ public class TmdbHeaderView {
 
         void onRematch();
 
+        void onRematchLongClick();
+
         void onKeep();
 
         void onDownload();
@@ -595,6 +597,10 @@ public class TmdbHeaderView {
         });
         headerRoot.findViewById(R.id.tmdbRematch).setOnClickListener(view -> {
             if (actionListener != null) actionListener.onRematch();
+        });
+        headerRoot.findViewById(R.id.tmdbRematch).setOnLongClickListener(view -> {
+            if (actionListener != null) actionListener.onRematchLongClick();
+            return true;
         });
         headerRoot.findViewById(R.id.tmdbKeep).setOnClickListener(view -> {
             if (actionListener != null) actionListener.onKeep();
