@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.activity;
 import android.app.AlertDialog;
 import android.app.PendingIntent;
 import android.app.ProgressDialog;
+import android.app.SearchManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
@@ -190,7 +191,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
             intent.removeExtra(EXTRA_NAV_POSITION);
         } else if (Intent.ACTION_SEND.equals(intent.getAction())) {
             VideoActivity.push(this, intent.getStringExtra(Intent.EXTRA_TEXT));
-        } else if (Intent.ACTION_VIEW.equals(intent.getData()) != null) {
+        } else if (intent.getData() != null) {
             PermissionUtil.requestFile(this, allGranted -> checkType(intent));
         } else if (Intent.ACTION_SEARCH.equals(intent.getAction())) {
             String keyword = intent.getStringExtra(SearchManager.QUERY);
