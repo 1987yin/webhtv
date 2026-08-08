@@ -44,6 +44,7 @@ import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.audio.AudioHistory;
 import com.fongmi.android.tv.ui.audio.AudioMiniPlayer;
+import com.fongmi.android.tv.ui.audio.AudioPlaybackReconciliation;
 import com.fongmi.android.tv.ui.audio.AudioPlaybackResolver;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
 import com.fongmi.android.tv.ui.custom.CustomWallView;
@@ -364,15 +365,50 @@ public class AudioActivity extends PlaybackActivity {
     }
 
     @Override
+    protected boolean isOwner() {
+        if (super.isOwner()) return true;
+        PlayerManager manager = player();
+        return manager != null && currentPlaybackMatch(manager).owned();
+    }
+
+    private AudioPlaybackReconciliation.Match currentPlaybackMatch(PlayerManager manager) {
+        int count = episodes == null ? 0 : episodes.size();
+        return AudioPlaybackReconciliation.reconcile(manager == null ? null : manager.getKey(), getPlaybackKey(), getFlag(), index, count);
+    }
+
+    @Override
     protected void onServiceConnected() {
         AudioMiniPlayer.deactivateForFull(service());
         setMode(mode, false);
         PlayerManager manager = player();
-        if (isOwner() && manager != null && !manager.isReleased() && !manager.isEmpty() && getPlaybackKey().equals(manager.getKey())) {
-            restoreCurrent(manager);
-            return;
+        if (manager != null && !manager.isReleased() && !manager.isEmpty()) {
+            AudioPlaybackReconciliation.Match match = currentPlaybackMatch(manager);
+            if (match.owned()) {
+                reconcileCurrentPlayback(manager, match);
+                service().setNavigationCallback(navigationCallback, manager.getKey());
+                restoreCurrent(manager);
+                return;
+            }
         }
         if (!started) playCurrent(initialResult);
+    }
+
+    private void reconcileCurrentPlayback(PlayerManager manager, AudioPlaybackReconciliation.Match match) {
+        index = match.index();
+        getIntent().putExtra(EXTRA_INDEX, index);
+        Episode episode = getCurrentEpisode();
+        MediaMetadata metadata = manager.getMetadata();
+        String subtitle = episode == null ? "" : episode.getDisplayName();
+        if (TextUtils.isEmpty(subtitle) && metadata != null) subtitle = Objects.toString(metadata.subtitle, Objects.toString(metadata.artist, ""));
+        if (!TextUtils.isEmpty(subtitle)) getIntent().putExtra(EXTRA_SUBTITLE, subtitle);
+        Result current = manager.getCurrentResult();
+        if (current != null && !current.getRealUrl().isEmpty()) {
+            initialResult = Result.fromJson(current.toString());
+            if (!TextUtils.isEmpty(objectCacheKey)) RESULT_CACHE.put(objectCacheKey, initialResult.toString());
+        }
+        String pic = current != null && current.hasArtwork() ? current.getArtwork() : "";
+        if (TextUtils.isEmpty(pic) && metadata != null && metadata.artworkUri != null) pic = metadata.artworkUri.toString();
+        if (!TextUtils.isEmpty(pic)) getIntent().putExtra(EXTRA_PIC, pic);
     }
 
     private void restoreCurrent(PlayerManager manager) {
@@ -477,6 +513,7 @@ public class AudioActivity extends PlaybackActivity {
         updateAudioToolState();
         updateKeepState();
         MediaMetadata metadata = buildAudioMetadata();
+        updateNavigationKey();
         startPlayer(getPlaybackKey(), target, target.shouldUseParse(), getTimeout(), metadata);
         manager.play();
         if (lyricEnabled) {
@@ -587,7 +624,7 @@ public class AudioActivity extends PlaybackActivity {
             return;
         }
         AudioMiniPlayer.activate(buildMiniState(), service());
-        service().setNavigationCallback(null, null);
+        service().clearNavigationCallback(navigationCallback);
         finish();
     }
 

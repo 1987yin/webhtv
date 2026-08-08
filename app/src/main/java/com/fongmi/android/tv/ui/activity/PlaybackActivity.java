@@ -102,7 +102,9 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     protected void setRedirect(boolean redirect) {
         this.redirect = redirect;
-        if (mService != null) mService.setNavigationCallback(redirect ? null : getNavigationCallback(), getPlaybackKey());
+        if (mService == null) return;
+        if (redirect) mService.clearNavigationCallback(getNavigationCallback());
+        else mService.setNavigationCallback(getNavigationCallback(), getPlaybackKey());
     }
 
     protected boolean isPlaybackExiting() {
