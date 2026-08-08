@@ -49,6 +49,25 @@ public class SubtitleManualSearchDialogTest {
         assertFalse(source.substring(resolve, nextMethod).contains("maybeOfferAiTranslate("));
     }
 
+    @Test
+    public void keywordDialog_resizesAboveSoftKeyboard() throws Exception {
+        String source = readManualSearchDialogSource();
+        int methodStart = source.indexOf("private static void showKeywordDialog");
+        assertTrue(methodStart >= 0);
+        int methodEnd = source.indexOf("private static void search", methodStart);
+        assertTrue(methodEnd > methodStart);
+        String method = source.substring(methodStart, methodEnd);
+        int dialogShown = method.indexOf(".show();");
+        int keyboardShown = method.indexOf("Util.showKeyboard(input);", dialogShown);
+
+        assertTrue(dialogShown >= 0);
+        assertTrue(keyboardShown > dialogShown);
+        String windowSetup = method.substring(dialogShown, keyboardShown);
+        assertTrue(windowSetup.contains("window.clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);"));
+        assertTrue(windowSetup.contains("WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE"));
+        assertTrue(windowSetup.contains("WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE"));
+    }
+
     private static String readManualSearchDialogSource() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "SubtitleManualSearchDialog.java"));
         return new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);

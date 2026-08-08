@@ -8,8 +8,14 @@ import org.junit.Test;
 
 import java.lang.reflect.Field;
 
+import mockwebserver3.MockResponse;
+import mockwebserver3.MockWebServer;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class TmdbServiceCacheKeyTest {
@@ -86,6 +92,40 @@ public class TmdbServiceCacheKeyTest {
         assertEquals(7L * 24L * 60L * 60L * 1000L, service.detailCacheTtl(JsonParser.parseString(
                 "{\"status\":\"Released\",\"runtime\":120}")
                 .getAsJsonObject()));
+    }
+    @Test
+    public void authenticationFailuresOpenCredentialScopedCircuit() {
+        TmdbService service = new TmdbService();
+        TmdbConfig blocked = config("https://api.tmdb.org/3", "invalid-key", "zh-CN");
+        TmdbConfig different = config("https://api.tmdb.org/3", "different-key", "zh-CN");
+        TmdbService.clearAuthFailuresForTest();
+        try {
+            RuntimeException failure = service.httpFailure(blocked, 401, "TMDB search failed: HTTP 401");
+
+            assertTrue(failure instanceof TmdbService.AuthException);
+            assertEquals(401, ((TmdbService.AuthException) failure).getStatusCode());
+            assertThrows(TmdbService.AuthException.class, () -> service.throwIfAuthBlocked(blocked));
+            service.throwIfAuthBlocked(different);
+        } finally {
+            TmdbService.clearAuthFailuresForTest();
+        }
+    }
+
+    @Test
+    public void omdbRequestsReuseSharedClientAndRecoverAfterHttpFailure() throws Exception {
+        MockWebServer server = new MockWebServer();
+        server.start();
+        try {
+            server.enqueue(new MockResponse.Builder().code(503).body("temporarily unavailable").build());
+            server.enqueue(new MockResponse.Builder().code(200).body("{\"Response\":\"True\",\"imdbRating\":\"8.7\"}").build());
+
+            assertSame(OmdbService.clientForTest(), OmdbService.clientForTest());
+            assertNull(OmdbService.fetch(server.url("/").toString(), "tt123", "test-key"));
+            assertEquals("8.7", OmdbService.fetch(server.url("/").toString(), "tt123", "test-key").get("imdbRating").getAsString());
+            assertEquals(2, server.getRequestCount());
+        } finally {
+            server.close();
+        }
     }
     private static TmdbConfig config(String apiBase, String apiKey, String language) {
         try {

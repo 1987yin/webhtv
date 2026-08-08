@@ -95,6 +95,18 @@ public final class WebThemeCapabilityRegistry {
         return List.copyOf(result);
     }
 
+    static List<CompatibilityEntry> compatibilityEntries() {
+        return CAPABILITIES.stream()
+                .map(capability -> new CompatibilityEntry(
+                        capability.method,
+                        capability.permission,
+                        capability.contractVersion,
+                        capability.legacyAllowed,
+                        capability.manifestRequired,
+                        capability.pages))
+                .toList();
+    }
+
     private static Capability builtin(String method, boolean legacyAllowed, WebThemePage... pages) {
         return new Capability(method, null, CONTRACT_VERSION, legacyAllowed, false, pages);
     }
@@ -120,6 +132,19 @@ public final class WebThemeCapabilityRegistry {
 
     private static String value(String value) {
         return value == null ? "" : value;
+    }
+
+    record CompatibilityEntry(String method, String permission, int contractVersion,
+            boolean legacyAllowed, boolean manifestRequired, Set<WebThemePage> pages) {
+
+        CompatibilityEntry {
+            permission = permission == null ? "" : permission;
+            pages = Collections.unmodifiableSet(EnumSet.copyOf(pages));
+        }
+
+        String capabilityId() {
+            return (manifestRequired ? permission : method) + "@" + contractVersion;
+        }
     }
 
     private static final class Capability {

@@ -432,6 +432,7 @@ private int mAudioBackgroundRandomNonce;
     private View mFusionPlayerBottomSpacer;
     private int mTmdbDialogGeneration;
     private int mPersonalRecommendationGeneration;
+private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.recommendationExecutor());
     private int mAdFeedbackGeneration;
     private final List<TmdbMovedView> mTmdbMovedViews = new ArrayList<>();
     private boolean pendingLutImport;
@@ -883,7 +884,7 @@ private int mAudioBackgroundRandomNonce;
         int season = getIntent().getIntExtra(EXTRA_TMDB_PLAY_SEASON_NUMBER, -1);
         if (season >= 0) return season;
         Flag sourceFlag = getFlag();
-        season = EpisodeSeasonPolicy.resolveSourceSeason(sourceFlag == null ? "" : sourceFlag.getShow());
+        season = EpisodeSeasonPolicy.resolveExplicitSourceSeason(sourceFlag == null ? "" : sourceFlag.getShow());
         if (season >= 0) return season;
         season = resolveSourceEpisodeSeason(sourceFlag);
         if (season >= 0) return season;
@@ -2712,6 +2713,7 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private void finishVideoPlayback() {
+        markPlaybackExiting();
         saveHistory(true);
         finishPlayback();
     }
@@ -6461,7 +6463,7 @@ private int mAudioBackgroundRandomNonce;
     @Override
     public void onTimeChanged(long time) {
         android.util.Log.d("VideoActivity", "onTimeChanged: isOwner=" + isOwner() + " mHistory=" + (mHistory != null));
-        if (!isOwner()) return;
+        if (!isOwner() || mHistory == null) return;
         long position, duration;
         mHistory.setCreateTime(time);
         updatePlaybackHistoryPosition();
@@ -7226,13 +7228,15 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private void loadNativePersonalRecommendations(Vod item) {
+        if (isPlaybackExiting() || isFinishing() || isDestroyed()) return;
+        mPersonalRecommendationTasks.cancelAll();
         int generation = ++mPersonalRecommendationGeneration;
         if (!Setting.isPersonalRecommendation()) {
             clearNativePersonalRecommendations();
             return;
         }
         clearNativePersonalRecommendations();
-        Task.execute(() -> {
+        mPersonalRecommendationTasks.submit(() -> {
             PersonalRecommendationService.RecommendationPages recommendations = PersonalRecommendationService.RecommendationPages.empty();
             PersonalRecommendationService service = new PersonalRecommendationService();
             try {
@@ -7240,14 +7244,16 @@ private int mAudioBackgroundRandomNonce;
             } catch (Throwable e) {
                 SpiderDebug.log("personal-rec", "mobile native core failed error=%s", e.getMessage());
             }
+            if (Thread.currentThread().isInterrupted()) return;
             PersonalRecommendationService.RecommendationPages loaded = recommendations;
             runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
+                if (isPlaybackExiting() || isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
                 bindNativePersonalRecommendations(loaded);
             });
+            if (Thread.currentThread().isInterrupted()) return;
             service.enrichTmdbPageRatingsAsync(loaded.getTmdb(), enriched -> applyNativePersonalTmdbRatings(enriched, generation));
         });
-        Task.execute(() -> {
+        mPersonalRecommendationTasks.submit(() -> {
             PersonalRecommendationService.RecommendationPage page;
             try {
                 page = new PersonalRecommendationService().loadAiPage(item, null, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
@@ -7255,9 +7261,10 @@ private int mAudioBackgroundRandomNonce;
                 SpiderDebug.log("personal-rec", "mobile native ai failed error=%s", e.getMessage());
                 page = PersonalRecommendationService.RecommendationPage.empty("");
             }
+            if (Thread.currentThread().isInterrupted()) return;
             PersonalRecommendationService.RecommendationPage loaded = page;
             runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
+                if (isPlaybackExiting() || isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
                 bindNativePersonalAiRecommendation(loaded);
             });
         });
@@ -7303,6 +7310,7 @@ private int mAudioBackgroundRandomNonce;
 
     private void hideNativePersonalRecommendations() {
         mPersonalRecommendationGeneration++;
+        mPersonalRecommendationTasks.cancelAll();
         clearNativePersonalRecommendations();
     }
 
@@ -7340,6 +7348,7 @@ private int mAudioBackgroundRandomNonce;
     }
 
     private void refreshPersonalRecommendationsForHistory() {
+        if (isPlaybackExiting() || isFinishing() || isDestroyed()) return;
         if (!Setting.isPersonalRecommendation() || mVod == null) return;
         if (mTmdbHeaderView != null && mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded() && !mTmdbFallbackToNative) {
             mTmdbHeaderView.refreshPersonalRecommendations();
@@ -7358,11 +7367,12 @@ private int mAudioBackgroundRandomNonce;
 
     private void loadMoreNativePersonalRecommendations(boolean tmdb) {
         PersonalRecommendationService.RecommendationPage page = tmdb ? mNativePersonalTmdbPage : mNativePersonalDoubanPage;
+        if (isPlaybackExiting() || isFinishing() || isDestroyed()) return;
         if (page == null || !page.hasMore() || (tmdb ? mNativePersonalTmdbLoading : mNativePersonalDoubanLoading) || mVod == null) return;
         int generation = mPersonalRecommendationGeneration;
         if (tmdb) mNativePersonalTmdbLoading = true;
         else mNativePersonalDoubanLoading = true;
-        Task.execute(() -> {
+        mPersonalRecommendationTasks.submit(() -> {
             PersonalRecommendationService.RecommendationPage nextPage;
             PersonalRecommendationService service = new PersonalRecommendationService();
             try {
@@ -7373,9 +7383,10 @@ private int mAudioBackgroundRandomNonce;
                 SpiderDebug.log("personal-rec", "native load more failed tmdb=%s error=%s", tmdb, e.getMessage());
                 nextPage = page;
             }
+            if (Thread.currentThread().isInterrupted()) return;
             PersonalRecommendationService.RecommendationPage loadedPage = nextPage;
             runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
+                if (isPlaybackExiting() || isFinishing() || isDestroyed() || generation != mPersonalRecommendationGeneration) return;
                 if (tmdb) {
                     mNativePersonalTmdbLoading = false;
                     mNativePersonalTmdbPage = loadedPage;
@@ -7386,7 +7397,7 @@ private int mAudioBackgroundRandomNonce;
                     if (mPersonalDoubanRecommendationAdapter != null) mPersonalDoubanRecommendationAdapter.appendItems(loadedPage.getItems());
                 }
             });
-            if (tmdb) service.enrichTmdbPageRatingsAsync(loadedPage, enriched -> applyNativePersonalTmdbRatings(enriched, generation));
+            if (tmdb && !Thread.currentThread().isInterrupted()) service.enrichTmdbPageRatingsAsync(loadedPage, enriched -> applyNativePersonalTmdbRatings(enriched, generation));
         });
     }
 
@@ -7636,6 +7647,7 @@ private int mAudioBackgroundRandomNonce;
 
     private void finishShortDrama() {
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
+        markPlaybackExiting();
         saveHistory(true);
         finishPlayback();
     }
@@ -7981,6 +7993,7 @@ private int mAudioBackgroundRandomNonce;
         boolean keepPlayback = mKeepPlaybackAfterPipExit;
         mKeepPlaybackAfterPipExit = false;
         if (PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed(), keepPlayback)) {
+            markPlaybackExiting();
             saveHistory(true);
             finishPlayback();
         }
@@ -8077,14 +8090,23 @@ private int mAudioBackgroundRandomNonce;
             exitFullscreen();
         } else if (!isLock()) {
             mViewModel.stopSearch();
-            saveHistory(true);
             markPlaybackExiting();
+            saveHistory(true);
             stopPlayback();
             if (isTaskRoot()) startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
             super.onBackInvoked();
         }
     }
 
+    @Override
+    protected void markPlaybackExiting() {
+        if (isPlaybackExiting()) return;
+        super.markPlaybackExiting();
+        mPersonalRecommendationGeneration++;
+        mPersonalRecommendationTasks.close();
+        if (mTmdbHeaderView != null) mTmdbHeaderView.onDestroy();
+        if (mTmdbUIAdapter != null) mTmdbUIAdapter.release();
+    }
     @Override
     protected void onDestroy() {
         dismissKaraokeResultDialogForRecreation();
@@ -8099,12 +8121,15 @@ private int mAudioBackgroundRandomNonce;
         if (mKaraoke != null) mKaraoke.release();
         subtitlePlaybackSession.stop(this);
         mPlayerUi.release();
+        mPersonalRecommendationGeneration++;
+        mPersonalRecommendationTasks.close();
+        if (mTmdbHeaderView != null) mTmdbHeaderView.onDestroy();
+        if (mTmdbUIAdapter != null) mTmdbUIAdapter.release();
         saveHistory(true);
         Timer.get().reset();
         DanmakuApi.cancel();
         RefreshEvent.keep();
         App.removeCallbacks(mR1, mR2, mR3, mR4, mSeekProgressFallback, mTmdbDetailTimeout);
-        if (mTmdbUIAdapter != null) mTmdbUIAdapter.release();
         mViewModel.getResult().removeObserver(mObserveDetail);
         mViewModel.getPlayer().removeObserver(mObservePlayer);
         mViewModel.getSearch().removeObserver(mObserveSearch);
@@ -8753,6 +8778,7 @@ private void onAudioLyricsSeek(long positionMs) {
     }
 
 private void finishVideoPlaybackNow() {
+        markPlaybackExiting();
         saveHistory(true);
         finishPlayback();
     }
@@ -9561,8 +9587,8 @@ private boolean hasNextEpisode() {
 
 private void finishVideoPlaybackFromSystemBack() {
         mViewModel.stopSearch();
-        saveHistory(true);
         markPlaybackExiting();
+        saveHistory(true);
         stopPlayback();
         if (isTaskRoot()) startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
         super.onBackInvoked();

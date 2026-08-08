@@ -24,6 +24,7 @@ import android.webkit.ValueCallback;
 
 import androidx.webkit.ScriptHandler;
 import androidx.webkit.JavaScriptReplyProxy;
+import androidx.webkit.ProfileStore;
 import androidx.webkit.WebMessageCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
@@ -116,7 +117,10 @@ public class HomeWebController {
     private final Object themeStateLock = new Object();
     private final Runnable extensionReloadRunnable;
     private final boolean debugTools;
-    private WebView webView;
+    private volatile WebView webView;
+    private CookieManager cookieManager;
+    private WebThemeDataIsolation.DataProfile dataProfile = WebThemeDataIsolation.trustedProfile();
+    private boolean dataProfileReady = true;
     private HomeWebBridge bridge;
     private WebHomeThemeBridge themeBridge;
     private final float density;
@@ -182,11 +186,14 @@ public class HomeWebController {
     private void init() {
         if (debugTools) WebView.setWebContentsDebuggingEnabled(true);
         WebViewUtil.configureHome(webView);
+        cookieManager = dataProfile.isolated()
+                ? WebViewCompat.getProfile(webView).getCookieManager()
+                : CookieManager.getInstance();
         defaultUserAgent = webView.getSettings().getUserAgentString();
         if (Util.isLeanback()) webView.setNextFocusUpId(R.id.title);
         webView.setBackgroundColor(Color.TRANSPARENT);
-        CookieManager.getInstance().setAcceptCookie(true);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
+        cookieManager.setAcceptCookie(true);
+        cookieManager.setAcceptThirdPartyCookies(webView, !dataProfile.isolated());
         webView.setOnFocusChangeListener((v, hasFocus) -> SpiderDebug.log("webhome-focus", "webview focus=%s visible=%s url=%s", hasFocus, isVisible(), safeLogUrl(webView.getUrl())));
         webView.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> injectViewport());
         themeBridge = new WebHomeThemeBridge(this, activity);
@@ -209,7 +216,7 @@ public class HomeWebController {
         webView.getSettings().setMixedContentMode(remote ? WebSettings.MIXED_CONTENT_NEVER_ALLOW : WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         webView.getSettings().setAllowFileAccess(!remote);
         webView.getSettings().setAllowContentAccess(!remote);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, !remote);
+        cookieManager.setAcceptThirdPartyCookies(webView, !remote);
         if (!remote) {
             webView.addJavascriptInterface(bridge, BRIDGE);
             bridgeKey = desiredKey;
@@ -752,6 +759,12 @@ public class HomeWebController {
 
     private boolean loadResolved(Site site, WebHomeTarget resolved, WebThemeRoute route, boolean force) {
         if (site == null || resolved == null) return false;
+        if (!ensureDataProfile(resolved)) {
+            logRuntime(WebThemeRuntimeDiagnostics.Event.FALLBACK,
+                    resolved.isV2() ? manifestLoadToken : loadToken, resolved.getPage(), resolved, resolved.getUrl(),
+                    WebThemeRuntimeDiagnostics.Reason.DATA_ISOLATION_UNAVAILABLE, 0);
+            return false;
+        }
         String url = resolved.isGlobal() ? resolved.getUrl() : getHomePage(site);
         String identity = resolved.identity(site.getKey());
         boolean reload = requiresPageReload(force, bridgeReady, url, homePage, identity, homeIdentity);
@@ -877,7 +890,7 @@ public class HomeWebController {
             if (TextUtils.isEmpty(key) || value == null) continue;
             if (HttpHeaders.USER_AGENT.equalsIgnoreCase(key)) continue;
             if (HttpHeaders.COOKIE.equalsIgnoreCase(key)) {
-                CookieManager.getInstance().setCookie(url, value);
+                cookieManager.setCookie(url, value);
                 continue;
             }
             result.put(key, value);
@@ -917,6 +930,14 @@ public class HomeWebController {
 
     public void hide() {
         webView.setVisibility(View.GONE);
+    }
+
+
+    public void setTopMargin(int margin) {
+        ViewGroup.LayoutParams layoutParams = webView.getLayoutParams();
+        if (!(layoutParams instanceof ViewGroup.MarginLayoutParams params) || params.topMargin == margin) return;
+        params.topMargin = margin;
+        webView.setLayoutParams(params);
     }
 
     public boolean isVisible() {
@@ -1396,19 +1417,48 @@ public class HomeWebController {
         });
     }
 
-    private boolean recreateWebView() {
-        bridgeReady = false;
-        sdkReady = false;
-        synchronized (themeStateLock) {
-            themeSession.invalidate();
+    private boolean ensureDataProfile(WebHomeTarget target) {
+        WebThemeDataIsolation.DataProfile desired;
+        try {
+            desired = WebThemeDataIsolation.profileFor(target);
+        } catch (RuntimeException e) {
+            SpiderDebug.log("webhome-security", "remote data profile rejected error=%s", e.getMessage());
+            return false;
         }
-        invalidateRemoteSession();
+        if (dataProfileReady
+                && !WebThemeDataIsolation.requiresReplacement(dataProfile, desired)) return true;
+        if (desired.isolated() && !WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+            SpiderDebug.log("webhome-security", "remote data profile unavailable provider_feature=multi_profile");
+            return false;
+        }
+        return replaceWebView(desired, false);
+    }
+
+    private boolean replaceWebView(WebThemeDataIsolation.DataProfile desired, boolean restoreTarget) {
         ViewGroup parent = webView.getParent() instanceof ViewGroup ? (ViewGroup) webView.getParent() : null;
         if (parent == null) return false;
         int index = parent.indexOfChild(webView);
         int id = webView.getId();
         int visibility = webView.getVisibility();
         ViewGroup.LayoutParams params = webView.getLayoutParams();
+        WebView replacement = null;
+        try {
+            if (desired.isolated()) ProfileStore.getInstance().getOrCreateProfile(desired.name());
+            replacement = new WebView(activity);
+            if (desired.isolated()) WebViewCompat.setProfile(replacement, desired.name());
+        } catch (Throwable e) {
+            if (replacement != null) replacement.destroy();
+            SpiderDebug.log("webhome-security", "webview data profile creation failed isolated=%s error=%s",
+                    desired.isolated(), e.getMessage());
+            return false;
+        }
+        bridgeReady = false;
+        sdkReady = false;
+        synchronized (themeStateLock) {
+            themeSession.invalidate();
+        }
+        invalidateRemoteSession();
+        cancelPendingNativePlaybacks();
         try {
             removeDocumentStartScripts();
             webView.stopLoading();
@@ -1416,15 +1466,30 @@ public class HomeWebController {
             webView.destroy();
         } catch (Throwable ignored) {
         }
-        webView = new WebView(activity);
-        webView.setId(id);
-        webView.setVisibility(visibility);
-        parent.addView(webView, Math.max(0, index), params);
-        init();
-        WebHomeTarget currentTarget = pageHost.target();
-        if (currentTarget != null && !configureBridge(currentTarget, true)) return false;
-        registerDocumentStartScripts();
-        return true;
+        replacement.setId(id);
+        replacement.setVisibility(visibility);
+        parent.addView(replacement, Math.max(0, index), params);
+        webView = replacement;
+        dataProfile = desired;
+        dataProfileReady = false;
+        try {
+            init();
+            dataProfileReady = true;
+            WebHomeTarget currentTarget = pageHost.target();
+            if (restoreTarget && currentTarget != null && !configureBridge(currentTarget, true)) return false;
+            if (restoreTarget) registerDocumentStartScripts();
+            SpiderDebug.log("webhome-security", "webview data profile selected isolated=%s", desired.isolated());
+            return true;
+        } catch (Throwable e) {
+            SpiderDebug.log("webhome-security", "webview data profile init failed isolated=%s error=%s",
+                    desired.isolated(), e.getMessage());
+            return false;
+        }
+    }
+
+
+    private boolean recreateWebView() {
+        return replaceWebView(dataProfile, true);
     }
 
     private void recoverAfterResume() {
@@ -1592,6 +1657,7 @@ public class HomeWebController {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
                 super.onReceivedError(view, request, error);
+                if (destroyed || view != webView) return;
                 SpiderDebug.log("webhome-webview", "resource error main=%s code=%s url=%s",
                         request.isForMainFrame(), error.getErrorCode(), safeLogUrl(request.getUrl()));
                 listener.onWebConsole("ERROR " + error.getErrorCode() + " " + error.getDescription() + " " + safeLogUrl(request.getUrl()));
@@ -1604,6 +1670,7 @@ public class HomeWebController {
             @Override
             public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
                 super.onReceivedHttpError(view, request, errorResponse);
+                if (destroyed || view != webView) return;
                 int status = errorResponse.getStatusCode();
                 String reason = errorResponse.getReasonPhrase();
                 SpiderDebug.log("webhome-webview", "http error main=%s code=%s url=%s",
@@ -1617,6 +1684,7 @@ public class HomeWebController {
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (destroyed || view != webView) return true;
                 WebHomeTarget currentTarget = pageHost.target();
                 boolean blocked = currentTarget != null && currentTarget.isRemoteGlobal()
                         && !currentTarget.allowsMainFrameUrl(request.getUrl().toString());
@@ -1627,6 +1695,7 @@ public class HomeWebController {
 
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                if (destroyed || view != webView) return blockedNavigation();
                 listener.onWebRequest(request.getMethod(), request.getUrl().toString(), request.isForMainFrame(), request.getRequestHeaders());
                 WebHomeTarget currentTarget = pageHost.target();
                 if (currentTarget != null && currentTarget.isRemoteGlobal() && request.isForMainFrame()
@@ -1637,6 +1706,7 @@ public class HomeWebController {
 
             @Override
             public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                if (destroyed || view != webView) return true;
                 SpiderDebug.log("webhome-webview", "render process gone didCrash=%s priority=%s", detail.didCrash(), detail.rendererPriorityAtExit());
                 WebThemePageHost.Snapshot page = pageHost.snapshot();
                 int code = detail.didCrash() ? 1 : 0;

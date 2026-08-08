@@ -1620,6 +1620,10 @@ RESPONSE_TOO_LARGE
 
 **2026-08-06 Manifest 可控回滚状态（第三增量第三切片）：** 远程 Manifest 缓存格式升级为 V3，每个 `Manifest URL + platform target` 最多保留当前与上一份两个已校验版本，磁盘总条目仍限制为 8。新候选版本先标记 `activationPending`，只有首个目标文档完成才由控制器确认；在确认前发生 Bridge 不可用、加载超时、主框架资源/HTTP 错误或渲染进程退出时，会按候选 revision 原子切回上一稳定版本，保留失败候选并标记为 blocked，防止同一失败内容被再次自动提升。远端发布新 revision 后可重新进入候选流程；设置页新增“版本恢复”，稳定状态可手动回滚，已回滚状态可手动重试，重试失败仍自动恢复稳定版本。磁盘当前内容损坏时不会把已知 blocked 候选误提升为稳定版本；V2 与纯 JSON 缓存继续兼容迁移。单元测试覆盖双版本上限、首次确认、失败回滚状态机、过期 revision、防重复提升、手动回滚/重试、V3 往返与损坏恢复，Mobile/Leanback arm64 Debug 单测和 APK 构建均通过。`emulator-5562` 实际注入“候选主页 404 + 上一稳定页 200”：日志出现 `manifest_load_resolved(candidate) → fallback(http_error, 404) → manifest_rollback → document_ready(stable)`；设置页识别 blocked 版本并展示“重试”，确认后提示“主题版本已更新”，随后测试 Manifest 强制刷新失败仍安全回滚。验证中同时修复了 Android 9 不支持 `String.formatted` 导致远程 SDK 注入崩溃的问题，改用 Android 兼容的字面替换并补回归测试；测试结束后已恢复模拟器原偏好与内置主题，未发现新的崩溃或 ANR。
 
+**2026-08-06 远程主题数据隔离状态（第三增量第四切片）：** 受信站点页和内置 Eclipse 继续使用默认 WebView Profile；远程 V2 按规范化精确 Origin 派生稳定、无主机明文的命名 Profile，不同 Origin（包括非默认端口）不复用，同一 Origin 在进程重建后仍映射到同一分区。Profile 切换通过销毁并替换 WebView 完成，并在新 WebView 构造后、任何其他配置前调用 `WebViewCompat.setProfile`；Cookie 请求头和 Cookie 接受策略改用当前 Profile 的 `CookieManager`，远程 Profile 禁止第三方 Cookie。由此远程主题不复用默认 Profile 中受信站点的 Cookie、DOM/WebStorage、缓存及由这些状态形成的登录会话，只能延续自身 Origin 对应 Profile 的状态。提供方缺少 `MULTI_PROFILE`、Origin 无效或 Profile 创建失败时，宿主拒绝加载远程文档并以 `data_isolation_unavailable` 走原生 fallback，不降级到共享默认 Profile。WebView 替换同时推进主题 generation、取消旧 Bridge/播放请求，并让 mobile 首页、详情页和扩展调试宿主只操作控制器当前 WebView；已销毁旧 WebView 的错误、导航、资源拦截和渲染进程回调会被忽略或阻断。单元测试覆盖受信/内置默认分区、同 Origin 跨进程稳定映射、跨 Origin/端口隔离、Profile 切换及宿主 wiring；Leanback/Mobile arm64 Debug 完整单测与 Mobile APK 构建通过。`emulator-5562` 使用 `com.android.webview 91.0.4472.114`，实际远程清单解析后记录 `remote data profile unavailable provider_feature=multi_profile` 和 `fallback(... reason=data_isolation_unavailable)`，未发现崩溃并显示原生首页；测试后按相同 SHA-256 恢复原偏好，本地 Manifest 再次达到 `document_ready`。因此当前设备只验证了失败关闭路径，支持 `MULTI_PROFILE` 的真实设备或新版提供方上的实际 Profile 分区、进程重启后状态边界仍是发布门槛。
+
+**2026-08-07 生成式兼容矩阵状态（第三增量第五切片）：** 新增 [`webtheme-compatibility-matrix.md`](webtheme-compatibility-matrix.md)，从 `WebThemeCapabilityRegistry` 与 `WebThemePage` 确定性生成当前 Manifest Schema、Host API、页面基础契约，以及每个 Bridge method 的 capability ID、权限、页面范围、契约版本、V1 legacy 状态和 Manifest 权限要求。生成器只存在于测试源码，不进入 APK；运行时注册表提供不可变兼容条目视图。矩阵测试会逐条遍历所有 method × page 组合，验证页面范围、权限缺失拒绝、V1 allowlist、capability ID，并要求生成结果与提交的 Markdown 完全一致；已有 Schema 漂移测试继续保证页面权限枚举与同一注册表同步。新增能力或页面若只修改运行时、Schema 或文档中的任意一处，测试都会失败。本切片的 Mobile/Leanback arm64 Debug 完整单测（1653/1662，均 0 failure/error）、Devkit 校验器 9 项测试、Mobile APK 构建及 emulator-5562 覆盖安装冒烟均已通过；设备日志达到 `document_ready`，截图确认内置主题正常显示。
+
 #### P1：公共 WebTheme Runtime 与焦点层
 
 1. 抽取 Manifest resolver、页面 host、会话 generation/cancellation 和 Bridge router；
@@ -1635,7 +1639,7 @@ RESPONSE_TOO_LARGE
 
 **2026-08-05 mobile 阶段性验收：** `emulator-5562` 已安装本轮 `mobileArm64_v8aDebug` 构建并验证 Eclipse 首页、WebTheme 详情页、方向键横向焦点、原生播放器进入与首帧、播放返回详情、Home 键后台切换与恢复；进程在这些路径中保持存活，未发现崩溃或 ANR。首页和详情页都实际产生了 `manifest_load_started → manifest_load_resolved → document_load_started → document_ready` 事件。该模拟器显示面固定为 `1920×1080`，锁定 `user_rotation` 未改变 `SurfaceOrientation`，因此不能据此宣称旋转通过；Leanback 运行时也尚无分配设备，本轮仅完成对应单测和 APK 构建。
 
-本轮已完成 P1 的代码拆分、Eclipse 首批迁移、结构化生命周期诊断、进程内及进程重启后的 Manifest 更新/缓存/last-known-good 基础矩阵、ETag/TTL 条件刷新、可控回滚和 mobile 关键路径阶段性验收，但不宣称整个 P1 的发布验收已完成：可旋转 mobile 设备、真实 Leanback 设备上的遥控全路径，以及 DNS/TLS/超时、渲染进程退出等更完整远程故障矩阵仍需验证；生成式兼容矩阵、远程主题数据隔离和其余 Bridge/扩展调试日志的敏感字段审计继续按独立发布任务推进。
+本轮已完成 P1 的代码拆分、Eclipse 首批迁移、结构化生命周期诊断、进程内及进程重启后的 Manifest 更新/缓存/last-known-good 基础矩阵、ETag/TTL 条件刷新、可控回滚、远程主题数据隔离代码与旧提供方失败关闭验收，以及 mobile 关键路径阶段性验收，但不宣称整个 P1 的发布验收已完成：支持 `MULTI_PROFILE` 的真实设备或新版提供方上的实际 Profile 分区和跨进程状态边界、可旋转 mobile 设备、真实 Leanback 设备上的遥控全路径，以及 DNS/TLS/超时、渲染进程退出等更完整远程故障矩阵仍需验证；其余 Bridge/扩展调试日志的敏感字段审计继续按独立发布任务推进。
 
 #### P2：通用列表页面
 
@@ -1705,9 +1709,9 @@ spacing.small / medium / large
 
 ### 20.4 安全和发布门槛
 
-当前远程 V2 的 deny-by-default、精确 origin、页面权限交集、私网地址拦截、无重定向 Manifest 和短生命周期引用继续保留。后续至少补充：
+当前远程 V2 的 deny-by-default、精确 origin、页面权限交集、私网地址拦截、无重定向 Manifest、短生命周期引用和独立 Profile 数据边界继续保留。后续至少补充：
 
-- 远程主题独立的数据/Cookie 策略，避免与受信站点页共享不必要状态；
+- 在支持 `MULTI_PROFILE` 的真实设备或新版提供方上验证远程 Profile 的 Cookie、DOM/WebStorage、缓存与登录态隔离，以及同 Origin 跨进程延续和跨 Origin 不复用；当前旧提供方只完成失败关闭验收；
 - `external.open` 首次域名或非 HTTPS 链接的用户可见确认；
 - 引用预算耗尽时返回可区分的错误或 `truncated`，而不是不可诊断的通用失败；
 - 继续扩充远程 Manifest 故障矩阵，覆盖 DNS/TLS/超时、渲染进程退出和跨进程 blocked/retry；当前已覆盖进程/磁盘 last-known-good、条件刷新、候选主页 404 自动回滚和设置页重试；
@@ -1726,4 +1730,4 @@ spacing.small / medium / large
 - 不在缺少签名与完整性校验时先做 ZIP 或主题市场；
 - 不允许任意 CSS 或脚本反向控制原生 Android 布局。
 
-当前推荐的下一个独立变更是 **P1 发布验收与运行时加固第三增量的第四切片：远程主题数据隔离**。该切片应明确远程 WebTheme 与受信站点页之间的 Cookie、DOM storage、缓存和登录态边界，默认禁止主题读取或复用业务站点状态，并补齐跨来源与进程重启测试；不与主题市场、签名包或新页面增量混合。在可旋转 mobile 设备和真实 Leanback 设备上补齐旋转与遥控全路径，以及 DNS/TLS/超时、渲染进程退出等更完整远程故障矩阵，仍是发布门槛；同时继续推进生成式兼容矩阵及 Bridge/扩展/开发调试日志的敏感字段审计。`emulator-5562` 已通过的首页/详情、后台恢复、原生播放与返回、候选主页 404 自动回滚和设置页 blocked 版本重试路径不再重复列为未验证项；P0 尚未完成的运维与发布加固仍不与页面功能增量混合推进。
+当前推荐的下一个独立变更是 **P0 运维与发布加固：生成式兼容矩阵最小闭环**。该切片只从统一能力注册表生成或校验 Host API、页面契约、Manifest 权限与 `theme.info.capabilities` 的兼容矩阵，补齐 capability/version drift 测试和发布前检查；不同时扩展页面、主题市场、签名包或播放器。Bridge/扩展/开发调试日志的敏感字段审计继续作为随后独立切片。在支持 `MULTI_PROFILE` 的真实设备或新版提供方上补齐实际 Profile 分区及进程重启状态边界，在可旋转 mobile 设备和真实 Leanback 设备上补齐旋转与遥控全路径，以及 DNS/TLS/超时、渲染进程退出等更完整远程故障矩阵，仍是发布门槛。`emulator-5562` 已通过的首页/详情、后台恢复、原生播放与返回、候选主页 404 自动回滚、设置页 blocked 版本重试和远程数据隔离失败关闭路径不再重复列为未验证项；P0 尚未完成的运维与发布加固仍不与页面功能增量混合推进。

@@ -39,6 +39,7 @@ final class WebThemeRuntimeDiagnostics {
         ROLLBACK("rollback"),
         PAGE_UNAVAILABLE("page_unavailable"),
         BRIDGE_UNAVAILABLE("bridge_unavailable"),
+        DATA_ISOLATION_UNAVAILABLE("data_isolation_unavailable"),
         LOAD_TIMEOUT("load_timeout"),
         EMPTY_DOCUMENT("empty_document"),
         WEB_RESOURCE_ERROR("web_resource_error"),
