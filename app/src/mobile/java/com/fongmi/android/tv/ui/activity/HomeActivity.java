@@ -13,8 +13,10 @@ import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.RelativeLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -136,26 +138,34 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         LayoutInflater inflater = LayoutInflater.from(this);
         View dialogView = inflater.inflate(R.layout.dialog_key_input, null);
         EditText etInput = dialogView.findViewById(R.id.et_input_key);
+        Button btnConfirm = dialogView.findViewById(R.id.btn_confirm_key);
+        TextView tvExit = dialogView.findViewById(R.id.tv_exit_app);
 
+        // 重点：不要 setTitle setMessage setPositiveButton，全部使用自定义布局控件
         keyDialog = new AlertDialog.Builder(this)
-                .setTitle("访问密钥验证")
-                .setMessage("请输入访问密钥")
                 .setView(dialogView)
                 .setCancelable(false)
-                .setPositiveButton("确认", null)
                 .create();
+
+        //确认按钮
+        btnConfirm.setOnClickListener(v -> {
+            String userInput = etInput.getText().toString().trim();
+            if (userInput.isEmpty()) {
+                Toast.makeText(HomeActivity.this, "请输入密钥", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            checkNetKey(userInput, true, 0);
+        });
+
+        //退出软件按钮
+        tvExit.setOnClickListener(v -> {
+            finish();
+            System.exit(0);
+        });
 
         String localSavedKey = sp.getString("saved_key", null);
         if (localSavedKey == null) {
             keyDialog.show();
-            keyDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                String userInput = etInput.getText().toString().trim();
-                if (userInput.isEmpty()) {
-                    Toast.makeText(HomeActivity.this, "请输入密钥", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                checkNetKey(userInput, true, 0);
-            });
         } else {
             checkNetKey(localSavedKey, false, 0);
         }
@@ -584,14 +594,6 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
                     } else {
                         sp.edit().remove("saved_key").apply();
                         keyDialog.show();
-                        keyDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                            String newInput = ((EditText) keyDialog.findViewById(R.id.et_input_key)).getText().toString().trim();
-                            if (newInput.isEmpty()) {
-                                Toast.makeText(HomeActivity.this, "请输入新密钥", Toast.LENGTH_SHORT).show();
-                                return;
-                            }
-                            checkNetKey(newInput, true, 0);
-                        });
                     }
                 }
             });
