@@ -8484,6 +8484,19 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         params.setMarginStart(ResUtil.dp2px(horizontalMarginDp));
         params.setMarginEnd(ResUtil.dp2px(horizontalMarginDp));
         binding.playerPanel.setLayoutParams(params);
+        // 融合模式：把 scroll 区域整体下移到播放窗口下方，scroll 内容(按钮/选集)永不进入播放窗口区；
+        // 非融合模式：scroll 铺满，由 scroll 内的 spacer 占位把内容顶到播放窗口下方并随滚动跟随。
+        if (binding.scroll != null) {
+            ViewGroup.MarginLayoutParams scrollParams = (ViewGroup.MarginLayoutParams) binding.scroll.getLayoutParams();
+            if (isFusionMode()) {
+                int playerOccupied = ResUtil.dp2px(topMarginDp) + ResUtil.dp2px(252) + ResUtil.dp2px(bottomMarginDp);
+                scrollParams.topMargin = playerOccupied;
+                binding.playerPanel.setTranslationY(0);
+            } else {
+                scrollParams.topMargin = 0;
+            }
+            binding.scroll.setLayoutParams(scrollParams);
+        }
         // 内嵌 spacer 顶部对齐时，translationY 由 syncInlinePlayerToSpacer() 依据 spacer 位置更新
         alignInlinePlayerSpacerHeight();
         // post 确保在布局完成后（playerPanel 高度已知）再同步融合模式的固定位置
@@ -8511,9 +8524,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (binding == null || binding.playerPanelSpacer == null) return;
         ViewGroup.LayoutParams sp = binding.playerPanelSpacer.getLayoutParams();
         if (sp == null) return;
-        int target = ResUtil.dp2px(252);
-        int topMargin = ResUtil.dp2px(isFusionMode() ? 22 : 14);
-        int bottomMargin = ResUtil.dp2px(isFusionMode() ? 20 : 16);
+        // 融合模式下 scroll 已整体下移到播放窗口下方，spacer 只需保留按钮与播放窗口的间距(40dp)，
+        // 不再占据播放窗口高度；非融合模式 spacer 占满播放窗口高度并随滚动跟随。
+        boolean fusion = isFusionMode();
+        int target = ResUtil.dp2px(fusion ? 40 : 252);
+        int topMargin = ResUtil.dp2px(fusion ? 0 : 14);
+        int bottomMargin = ResUtil.dp2px(fusion ? 0 : 16);
         boolean changed = sp.height != target;
         if (sp instanceof ViewGroup.MarginLayoutParams marginParams) {
             if (marginParams.topMargin != topMargin || marginParams.bottomMargin != bottomMargin) {
@@ -8535,20 +8551,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void syncInlinePlayerToSpacer() {
         if (binding == null || inlineFullscreen || inlinePiPLayout) return;
         if (binding.playerPanel.getVisibility() != View.VISIBLE) return;
-        // 融合模式：播放窗口固定在"换源/收藏/TMDB/深色"按钮行上方，不随 scroll 滚动
+        // 融合模式：播放窗口已由 LayoutParams 固定在播放窗口区域(topMargin)，scroll 也整体下移到
+        // 播放窗口下方，故 scroll 内容(按钮/选集)永远在播放窗口之下，不会进入播放窗口覆盖区，
+        // 无需再随滚动调整位置。
         if (isFusionMode()) {
-            // 按钮行(fusionActions)本身也在 scroll 内容里，随滚动会上移进入播放窗口覆盖区。
-            // 用 translationY 抵消当前 scrollY，使其钉在播放窗口下方常驻可见，不被播放窗口遮挡。
-            binding.fusionActions.setTranslationY(binding.scroll.getScrollY());
-            if (binding.playerPanel.getHeight() > 0) {
-                int gap = ResUtil.dp2px(40);
-                // scroll 与 fusionActions 的 getTop 均为布局固定坐标，二者之和即按钮行初始窗口 y，不随滚动变化
-                float target = binding.scroll.getTop() + binding.fusionActions.getTop()
-                        - binding.playerPanel.getHeight() - gap;
-                if (Math.abs(binding.playerPanel.getTranslationY() - target) > 0.5f) {
-                    binding.playerPanel.setTranslationY(target);
-                }
-            }
+            binding.playerPanel.setTranslationY(0);
             return;
         }
         View spacer = binding.playerPanelSpacer;
