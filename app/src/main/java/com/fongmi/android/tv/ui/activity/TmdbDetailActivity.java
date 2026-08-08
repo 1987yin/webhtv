@@ -617,14 +617,24 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.rematch.setOnClickListener(view -> showManualTmdbMatchDialog());
         binding.rematchTop.setOnClickListener(view -> showManualTmdbMatchDialog());
         binding.rematchFusion.setOnClickListener(view -> showManualTmdbMatchDialog());
+        // 长按：触屏用 OnLongClickListener，TV 遥控器用 OnKeyListener（OK 键长按 repeatCount>0）
         View.OnLongClickListener rematchLong = view -> {
-            String title = matchedTmdbItem != null ? matchedTmdbItem.getTitle() : null;
-            TmdbSeasonOffsetDialog.show(TmdbDetailActivity.this, title);
+            openSeasonOffsetSetting();
             return true;
+        };
+        View.OnKeyListener rematchKey = (view, keyCode, event) -> {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() > 0) {
+                openSeasonOffsetSetting();
+                return true;
+            }
+            return false;
         };
         binding.rematch.setOnLongClickListener(rematchLong);
         binding.rematchTop.setOnLongClickListener(rematchLong);
         binding.rematchFusion.setOnLongClickListener(rematchLong);
+        binding.rematch.setOnKeyListener(rematchKey);
+        binding.rematchTop.setOnKeyListener(rematchKey);
+        binding.rematchFusion.setOnKeyListener(rematchKey);
         binding.changeSource.setOnClickListener(view -> changeSource());
         binding.changeSourceDetail.setOnClickListener(view -> changeSource());
         binding.changeSource.setOnLongClickListener(view -> openGlobalSourceSearch());
@@ -2558,6 +2568,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 .searchListener(this::searchTmdb)
                 .skipListener(skippable ? this::onPlay : null)
                 .show();
+    }
+
+    private void openSeasonOffsetSetting() {
+        String title = matchedTmdbItem != null ? matchedTmdbItem.getTitle() : null;
+        TmdbSeasonOffsetDialog.show(TmdbDetailActivity.this, title);
     }
 
     private void showManualTmdbMatchDialog() {

@@ -5,6 +5,7 @@ import android.content.res.Configuration;
 import android.content.res.ColorStateList;
 import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 
@@ -595,12 +596,21 @@ public class TmdbHeaderView {
             if (actionListener != null) actionListener.onChangeSourceLongClick();
             return true;
         });
-        headerRoot.findViewById(R.id.tmdbRematch).setOnClickListener(view -> {
+        View rematchView = headerRoot.findViewById(R.id.tmdbRematch);
+        rematchView.setOnClickListener(view -> {
             if (actionListener != null) actionListener.onRematch();
         });
-        headerRoot.findViewById(R.id.tmdbRematch).setOnLongClickListener(view -> {
+        rematchView.setOnLongClickListener(view -> {
             if (actionListener != null) actionListener.onRematchLongClick();
             return true;
+        });
+        // TV 遥控器：OK 键长按时系统发送重复 KeyEvent，用 repeatCount>0 识别
+        rematchView.setOnKeyListener((view, keyCode, event) -> {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() > 0) {
+                if (actionListener != null) actionListener.onRematchLongClick();
+                return true;
+            }
+            return false;
         });
         headerRoot.findViewById(R.id.tmdbKeep).setOnClickListener(view -> {
             if (actionListener != null) actionListener.onKeep();
