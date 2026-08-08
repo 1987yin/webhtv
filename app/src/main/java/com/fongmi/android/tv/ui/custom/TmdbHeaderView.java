@@ -7,6 +7,8 @@ import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
+
+import com.fongmi.android.tv.BuildConfig;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.ImageView;
@@ -103,6 +105,8 @@ public class TmdbHeaderView {
         void onRematch();
 
         void onKeep();
+
+        void onDownload();
     }
 
     private final Activity activity;
@@ -595,6 +599,14 @@ public class TmdbHeaderView {
         headerRoot.findViewById(R.id.tmdbKeep).setOnClickListener(view -> {
             if (actionListener != null) actionListener.onKeep();
         });
+        View downloadBtn = headerRoot.findViewById(R.id.tmdbDownload);
+        if (downloadBtn != null) {
+            // 下载按钮仅在 mobile 端可用（下载功能仅 mobile 源码集提供）
+            downloadBtn.setVisibility("mobile".equals(BuildConfig.FLAVOR_mode) ? View.VISIBLE : View.GONE);
+            downloadBtn.setOnClickListener(view -> {
+                if (actionListener != null) actionListener.onDownload();
+            });
+        }
     }
 
     private void updateOriginalEnhancedActionVisibility() {

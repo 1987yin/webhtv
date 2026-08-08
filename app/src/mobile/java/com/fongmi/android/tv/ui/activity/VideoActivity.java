@@ -6883,6 +6883,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             public void onKeep() {
                 VideoActivity.this.onKeep();
             }
+
+            @Override
+            public void onDownload() {
+                VideoActivity.this.onDownload();
+            }
         });
 
         // 设置图片加载完成监听器

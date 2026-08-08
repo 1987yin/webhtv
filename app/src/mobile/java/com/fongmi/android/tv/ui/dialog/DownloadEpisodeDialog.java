@@ -23,6 +23,7 @@ import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.databinding.DialogDownloadEpisodeBinding;
 import com.fongmi.android.tv.ui.activity.DownloadListActivity;
 import com.fongmi.android.tv.ui.adapter.DownloadEpisodeAdapter;
+import com.fongmi.android.tv.ui.dialog.OnDownload;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Util;
 
@@ -40,10 +41,6 @@ public class DownloadEpisodeDialog extends AppCompatDialogFragment implements Do
     private List<Episode> episodes;
     private Set<Integer> downloaded;
     private OnDownload listener;
-
-    public interface OnDownload {
-        void onDownload(List<Episode> episodes);
-    }
 
     public static void show(FragmentActivity activity, List<Episode> episodes, Set<Integer> downloaded, OnDownload listener) {
         if (episodes == null || episodes.isEmpty()) return;
