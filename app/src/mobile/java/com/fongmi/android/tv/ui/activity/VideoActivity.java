@@ -1545,8 +1545,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private int getEpisodeSpanCount() {
-        if (ResUtil.isLand(this)) return 6;
-        return ResUtil.isPad() ? 6 : 4;
+        return EpisodeGridLayoutPolicy.getMaxSpan(isLand(), ResUtil.isPad());
     }
 
     private void setVideoView() {
@@ -2460,7 +2459,13 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         for (Episode item : items) maxLen = Math.max(maxLen, item.getDisplayName().length());
         if (maxLen >= 12) return PlayerSetting.getEpisodeColumn();
         int ideal = maxLen >= 10 ? 130 : maxLen >= 7 ? 104 : 80;
-        int width = mBinding.episode.getWidth() > 0 ? mBinding.episode.getWidth() : ResUtil.getScreenWidth(App.get()) - ResUtil.dp2px(32);  // 使用 App.get() 获取实时屏幕宽度
+        int width = EpisodeGridLayoutPolicy.getAvailableWidth(
+                mBinding.episode.getWidth(),
+                ResUtil.getScreenWidth(this),
+                ResUtil.getScreenHeight(this),
+                ResUtil.dp2px(32),
+                isLand(),
+                ResUtil.isLand(this));
         int span = width / ResUtil.dp2px(ideal);
         return Math.max(2, Math.min(getEpisodeSpanCount(), span));
     }
