@@ -133,6 +133,8 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.preloadThread.setOnClickListener(this::onPreloadThread);
         mBinding.preloadSize.setOnClickListener(this::onPreloadSize);
         mBinding.preloadTime.setOnClickListener(this::onPreloadTime);
+        mBinding.preloadAhead.setOnClickListener(this::onPreloadAhead);
+        mBinding.preloadPause.setOnClickListener(this::onPreloadPause);
         mBinding.autoPlay.setOnClickListener(this::setAutoPlay);
         mBinding.autoChange.setOnClickListener(this::setAutoChange);
         mBinding.failureFallback.setOnClickListener(this::setFailureFallback);
@@ -346,15 +348,44 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         });
     }
 
+    private void onPreloadAhead(View view) {
+        String[] items = new String[PreloadSetting.getPreloadAheadOptionCount()];
+        for (int i = 0; i < items.length; i++) {
+            items[i] = getPreloadAheadText(PreloadSetting.getPreloadAheadSecondsAt(i));
+        }
+        ChoiceDialog.showSingle(this, R.string.player_preload_ahead, items, PreloadSetting.getPreloadAheadIndex(), which -> {
+            PreloadSetting.putPreloadAheadSeconds(PreloadSetting.getPreloadAheadSecondsAt(which));
+            PlaybackPerformanceSetting.markCustom();
+            setPreloadText();
+            setPerformanceText();
+        });
+    }
+
+    private void onPreloadPause(View view) {
+        String[] items = {
+                getString(R.string.player_preload_pause_always),
+                getString(R.string.player_preload_pause_wifi)};
+        ChoiceDialog.showSingle(this, R.string.player_preload_pause, items, PreloadSetting.getPausePreloadPolicyIndex(), which -> {
+            PreloadSetting.putPausePreloadPolicy(PreloadSetting.getPausePreloadPolicyAt(which));
+            PlaybackPerformanceSetting.markCustom();
+            setPreloadText();
+            setPerformanceText();
+        });
+    }
+
     private void setPreloadText() {
         boolean preload = PreloadSetting.isPreload();
         mBinding.preloadText.setText(getSwitch(preload));
         mBinding.preloadThread.setVisibility(preload ? View.VISIBLE : View.GONE);
         mBinding.preloadSize.setVisibility(preload ? View.VISIBLE : View.GONE);
         mBinding.preloadTime.setVisibility(preload ? View.VISIBLE : View.GONE);
+        mBinding.preloadAhead.setVisibility(preload ? View.VISIBLE : View.GONE);
+        mBinding.preloadPause.setVisibility(preload ? View.VISIBLE : View.GONE);
         mBinding.preloadThreadText.setText(getString(R.string.player_preload_threads_value, PreloadSetting.getPreloadThreads()));
         mBinding.preloadSizeText.setText(FileUtil.byteCountToDisplaySize(PreloadSetting.getPreloadSizeBytes()));
         mBinding.preloadTimeText.setText(getString(R.string.player_preload_time_value, PreloadSetting.getPreloadTimeSeconds()));
+        mBinding.preloadAheadText.setText(getPreloadAheadText(PreloadSetting.getPreloadAheadSeconds()));
+        mBinding.preloadPauseText.setText(getPreloadPauseText());
     }
 
     private String[] getPreloadThreadItems() {
@@ -381,6 +412,19 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
 
     private int getPreloadTimeCount() {
         return (PreloadSetting.MAX_TIME_SECONDS - PreloadSetting.MIN_TIME_SECONDS) / PreloadSetting.STEP_TIME_SECONDS + 1;
+    }
+
+    private String getPreloadAheadText(int seconds) {
+        return seconds == PreloadSetting.WHOLE_MEDIA_AHEAD_SECONDS
+                ? getString(R.string.player_preload_ahead_whole)
+                : getString(R.string.player_preload_ahead_value, seconds / 60);
+    }
+
+    private String getPreloadPauseText() {
+        return getString(switch (PreloadSetting.getPausePreloadPolicy()) {
+            case PreloadSetting.PAUSE_PRELOAD_ALWAYS -> R.string.player_preload_pause_always;
+            default -> R.string.player_preload_pause_wifi;
+        });
     }
 
     private void setAutoPlay(View view) {
@@ -456,6 +500,8 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.preloadThread.setVisibility(View.GONE);
         mBinding.preloadSize.setVisibility(View.GONE);
         mBinding.preloadTime.setVisibility(View.GONE);
+        mBinding.preloadAhead.setVisibility(View.GONE);
+        mBinding.preloadPause.setVisibility(View.GONE);
         mBinding.tunnel.setVisibility(View.GONE);
         mBinding.audioDecode.setVisibility(View.GONE);
         mBinding.audioPassThrough.setVisibility(View.GONE);

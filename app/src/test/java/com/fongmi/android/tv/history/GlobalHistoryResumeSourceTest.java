@@ -244,7 +244,8 @@ public class GlobalHistoryResumeSourceTest {
         String method = source.substring(start, end);
 
         assertTrue(method.contains("getHistoryDao().findAll()"));
-        assertTrue(method.contains("getTrackDao().delete(item.getKey())"));
+        assertTrue(method.contains("PlaybackProgressWriter.deleteAllFromUser(cid)"));
+        assertFalse(method.contains("getTrackDao().delete(item.getKey())"));
         assertFalse(method.contains("getTrackDao().deleteAll()"));
     }
 

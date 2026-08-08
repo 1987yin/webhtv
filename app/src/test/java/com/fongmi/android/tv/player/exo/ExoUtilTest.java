@@ -11,6 +11,10 @@ import com.fongmi.android.tv.setting.PlayerSetting;
 
 import org.junit.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 public class ExoUtilTest {
 
     @Test
@@ -34,6 +38,24 @@ public class ExoUtilTest {
     }
 
     @Test
+    public void hardDecodeFactory_keepsFfmpegVideoFallbackWired() throws Exception {
+        String source = readMainSource("player/exo/ExoUtil.java");
+        int start = source.indexOf("private static class FfmpegRenderersFactory");
+        int end = source.indexOf("private static class FfmpegFallbackRenderersFactory", start);
+        String factory = source.substring(start, end);
+
+        assertFalse(factory.contains("if (videoRenderMode == EXTENSION_RENDERER_MODE_OFF) return;"));
+        assertTrue(factory.contains("out.add(index, buildFfmpegVideoRenderer("));
+    }
+
+    @Test
+    public void automaticConstraintReasonLabel_avoidsUnsupportedAndroidStringBuilderApi() throws Exception {
+        String source = readMainSource("player/exo/ExoAutomaticVideoConstraintPolicy.java");
+
+        assertFalse(source.contains("builder.isEmpty()"));
+    }
+
+    @Test
     public void ffmpegRendererPolicy_usesFullNextLibRenderersInNextLibMode() {
         assertTrue(ExoUtil.useFfmpegAudioFallback(PlayerSetting.FFMPEG_MODE_NEXTLIB));
         assertTrue(ExoUtil.useFfmpegVideoRenderer(PlayerSetting.FFMPEG_MODE_NEXTLIB));
@@ -49,5 +71,11 @@ public class ExoUtilTest {
     public void ffmpegRendererPolicy_disablesNextLibInOfficialMode() {
         assertFalse(ExoUtil.useFfmpegAudioFallback(PlayerSetting.FFMPEG_MODE_OFFICIAL));
         assertFalse(ExoUtil.useFfmpegVideoRenderer(PlayerSetting.FFMPEG_MODE_OFFICIAL));
+    }
+
+    private static String readMainSource(String relative) throws Exception {
+        Path path = Path.of("app/src/main/java/com/fongmi/android/tv", relative);
+        if (!Files.exists(path)) path = Path.of("src/main/java/com/fongmi/android/tv", relative);
+        return Files.readString(path, StandardCharsets.UTF_8);
     }
 }

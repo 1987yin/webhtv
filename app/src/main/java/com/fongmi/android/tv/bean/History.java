@@ -19,6 +19,7 @@ import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.impl.Diffable;
 import com.fongmi.android.tv.history.HistoryDisplayPolicy;
 import com.fongmi.android.tv.player.VideoAspectMode;
+import com.fongmi.android.tv.playback.PlaybackProgressWriter;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -29,9 +30,11 @@ import com.google.gson.reflect.TypeToken;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 @Entity
@@ -311,12 +314,18 @@ public class History implements Diffable<History> {
     public static void deleteForDisplay() {
         if (Setting.isGlobalHistoryEnabled()) {
             List<History> items = AppDatabase.get().getHistoryDao().findAll();
-            int deleted = AppDatabase.get().getHistoryDao().delete();
-            for (History item : items) AppDatabase.get().getTrackDao().delete(item.getKey());
+            Set<Integer> cids = new HashSet<>();
+            for (History item : items) cids.add(item.getCid());
+            int deleted = 0;
+            for (int cid : cids) deleted += PlaybackProgressWriter.deleteAllFromUser(cid).affected;
             if (deleted > 0) notifyChanged();
         } else {
-            delete(VodConfig.getCid());
+            PlaybackProgressWriter.deleteAllFromUser(VodConfig.getCid());
         }
+    }
+
+    public static void deleteAndSync(int cid) {
+        PlaybackProgressWriter.deleteAllFromUser(cid);
     }
 
     public static void sync(List<History> targets) {
@@ -961,14 +970,12 @@ public class History implements Diffable<History> {
                     : AppDatabase.get().getHistoryDao().findByTmdbIdentity(getCid(), mediaType, getTmdbId());
         }
         if (!relatedItems.isEmpty()) {
-            deleted = true;
+            deleted = false;
             for (History item : relatedItems) {
-                AppDatabase.get().getHistoryDao().delete(item.getCid(), item.getKey());
-                AppDatabase.get().getTrackDao().delete(item.getKey());
+                deleted |= PlaybackProgressWriter.deleteFromUser(item).affected > 0;
             }
         } else {
-            deleted = AppDatabase.get().getHistoryDao().delete(getCid(), getKey()) > 0;
-            AppDatabase.get().getTrackDao().delete(getKey());
+            deleted = PlaybackProgressWriter.deleteFromUser(this).affected > 0;
         }
         if (deleted) notifyChanged();
         return this;
@@ -989,6 +996,10 @@ public class History implements Diffable<History> {
                 || !Objects.equals(before.getActor(), after.getActor())
                 || !Objects.equals(before.getDirector(), after.getDirector())
                 || !Objects.equals(before.getYear(), after.getYear());
+    }
+
+    public History deleteAndSync() {
+        return deleteDisplayItem();
     }
 
     public void findEpisode(List<Flag> flags) {

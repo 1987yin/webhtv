@@ -12,12 +12,18 @@ import androidx.media3.common.util.UnstableApi;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.Track;
 import com.fongmi.android.tv.player.PlaybackTrace;
+import com.fongmi.android.tv.player.PlaybackResourceClassifier;
+import com.fongmi.android.tv.player.PlaybackRoute;
 import com.fongmi.android.tv.player.exo.ExoUtil;
 import com.fongmi.android.tv.player.exo.TrackUtil;
+import com.fongmi.android.tv.player.ijk.IjkBufferPolicy;
+import com.fongmi.android.tv.player.ijk.IjkDecodePressurePolicy;
+import com.fongmi.android.tv.player.ijk.IjkRealtimeRecoveryPolicy;
 import com.fongmi.android.tv.utils.ResUtil;
 
 import java.util.List;
-import java.util.concurrent.TimeUnit;
+
+import tv.danmaku.ijk.media.player.IjkMediaPlayer;
 
 @UnstableApi
 public class IjkPlayerEngine implements PlayerEngine {
@@ -83,7 +89,9 @@ public class IjkPlayerEngine implements PlayerEngine {
     public void start(PlaySpec spec, long position, boolean playWhenReady) {
         this.spec = spec;
         PlaybackTrace.log("player-engine", getPlaybackTraceId(), "start ijk decode=%d position=%d play=%s urlLen=%d headers=%d", decode, position, playWhenReady, spec.getUrl() == null ? 0 : spec.getUrl().length(), spec.getHeaders() == null ? 0 : spec.getHeaders().size());
-        player.setMediaItem(ExoUtil.getMediaItem(spec, decode), position);
+        MediaItem item = ExoUtil.getMediaItem(spec, decode);
+        if (position > 0) player.setMediaItem(item, position);
+        else player.setMediaItem(item);
         player.prepare();
         if (playWhenReady) player.play();
         else player.pause();
@@ -91,7 +99,45 @@ public class IjkPlayerEngine implements PlayerEngine {
 
     @Override
     public void restart(PlaySpec spec, long position, boolean playWhenReady) {
+        player.stop();
         start(spec, position, playWhenReady);
+    }
+
+    public void stageAutomaticInputBufferConfig(IjkBufferPolicy.Config config) {
+        player.stageAutomaticInputBufferConfig(config);
+    }
+
+    public IjkBufferPolicy.Config getAppliedInputBufferConfig() {
+        return player.getAppliedInputBufferConfig();
+    }
+
+    public Long getLiveLagLowerBoundMs() {
+        return player.getLiveLagLowerBoundSnapshot();
+    }
+
+    public IjkRealtimeRecoveryPolicy.QueueSnapshot getRealtimeQueueSnapshot() {
+        return player.getRealtimeQueueSnapshot();
+    }
+
+    public void stageAutomaticDecodeControlConfig(
+            IjkDecodePressurePolicy.Config config) {
+        player.stageAutomaticDecodeControlConfig(config);
+    }
+
+    public IjkDecodePressurePolicy.Config getAppliedDecodeControlConfig() {
+        return player.getAppliedDecodeControlConfig();
+    }
+
+    public IjkDecodePressurePolicy.DecodeSnapshot getDecodePressureSnapshot() {
+        return player.getDecodePressureSnapshot();
+    }
+
+    public ErrorSnapshot getLastErrorSnapshot() {
+        return player.getLastErrorSnapshot();
+    }
+
+    public DropRateSnapshot getDropRateSnapshot() {
+        return player.getDropRateSnapshot();
     }
 
     @Override
@@ -107,12 +153,24 @@ public class IjkPlayerEngine implements PlayerEngine {
 
     @Override
     public boolean isLive() {
-        return player.getDuration() < TimeUnit.MINUTES.toMillis(1) || player.isCurrentMediaItemLive();
+        return player.getStreamSceneDecision().live();
     }
 
     @Override
     public boolean isVod() {
-        return player.getDuration() > TimeUnit.MINUTES.toMillis(1) && !player.isCurrentMediaItemLive();
+        return player.getStreamSceneDecision().vod();
+    }
+
+    @Override
+    public PlaybackResourceClassifier.Classification getResourceClassification() {
+        return player.getResourceClassification();
+    }
+
+    @Override
+    public PlaybackRoute.Resolution getEffectivePlaybackRoute() {
+        PlaybackRoute.Resolution current = player.getPlaybackRouteResolution();
+        if (current.route() != PlaybackRoute.OTHER) return current;
+        return spec == null ? current : spec.getPlaybackRoute();
     }
 
     @Override
@@ -139,18 +197,59 @@ public class IjkPlayerEngine implements PlayerEngine {
     }
 
     @Override
+    public PlaybackFactsSnapshot getPlaybackFactsSnapshot() {
+        Format video = player.getSelectedVideoFormatSnapshot();
+        Format audio = player.getSelectedAudioFormatSnapshot();
+        return new PlaybackFactsSnapshot(
+                video,
+                audio,
+                video,
+                audio,
+                player.getVideoCodecInfoSnapshot(),
+                player.getAudioCodecInfoSnapshot(),
+                decoderKind(player.getVideoDecoderSnapshot()),
+                null,
+                "",
+                "",
+                null);
+    }
+
+    @Override
+    public RuntimeMetrics getRuntimeMetrics() {
+        long tcpBytesPerSecond = player.getTcpSpeedSnapshot();
+        long bandwidth = tcpBytesPerSecond > Long.MAX_VALUE / 8L
+                ? Long.MAX_VALUE : tcpBytesPerSecond * 8L;
+        long bitrate = player.getBitrateSnapshot();
+        IjkDecodePressurePolicy.DecodeSnapshot decode =
+                player.getDecodePressureSnapshot();
+        return new RuntimeMetrics(
+                bandwidth > 0 ? bandwidth : null,
+                bitrate > 0 ? bitrate : null,
+                decode.available() ? decode.outputFps() : null,
+                null);
+    }
+
+    @Override
     public String getPlaybackTraceId() {
         return spec == null ? PlaybackTrace.NONE : spec.getPlaybackTraceId();
     }
 
     @Override
     public String getErrorMessage(PlaybackException e) {
-        return e.getMessage();
+        return e == null
+                ? "IJK playback failed"
+                : PlaybackException.getErrorCodeName(e.errorCode);
     }
 
     @Override
     public ErrorAction handleError(PlaybackException e) {
-        PlaybackTrace.log("player-engine", getPlaybackTraceId(), "handleError ijk code=%d message=%s urlLen=%d", e.errorCode, e.getMessage(), spec == null || spec.getUrl() == null ? 0 : spec.getUrl().length());
+        PlaybackTrace.log(
+                "player-engine",
+                getPlaybackTraceId(),
+                "handleError ijk code=%d errorType=%s action=fatal",
+                e == null ? PlaybackException.ERROR_CODE_UNSPECIFIED
+                        : e.errorCode,
+                e == null ? "none" : e.getClass().getSimpleName());
         return ErrorAction.FATAL;
     }
 
@@ -158,5 +257,31 @@ public class IjkPlayerEngine implements PlayerEngine {
         IjkSimplePlayer player = new IjkSimplePlayer(decode);
         player.addListener(listener);
         return player;
+    }
+
+    private DecoderKind decoderKind(int decoder) {
+        return switch (decoder) {
+            case IjkMediaPlayer.FFP_PROPV_DECODER_MEDIACODEC -> DecoderKind.HARDWARE;
+            case IjkMediaPlayer.FFP_PROPV_DECODER_AVCODEC -> DecoderKind.SOFTWARE;
+            default -> DecoderKind.UNKNOWN;
+        };
+    }
+
+    public record ErrorSnapshot(int what, int extra, boolean prepared) {
+
+        public static ErrorSnapshot none() {
+            return new ErrorSnapshot(0, 0, false);
+        }
+    }
+
+    public record DropRateSnapshot(boolean available, int permille) {
+
+        public DropRateSnapshot {
+            permille = Math.max(0, permille);
+        }
+
+        public static DropRateSnapshot unknown() {
+            return new DropRateSnapshot(false, 0);
+        }
     }
 }
