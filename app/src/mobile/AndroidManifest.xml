@@ -15,7 +15,7 @@
         android:resizeable="true"
         android:smallScreens="true"
         android:xlargeScreens="true" />
-
+    <uses-permission android:name="android.permission.INTERNET" />
     <application>
 
         <activity
