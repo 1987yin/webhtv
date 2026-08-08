@@ -8479,7 +8479,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         params.width = ViewGroup.LayoutParams.MATCH_PARENT;
         params.height = ResUtil.dp2px(252);
         params.gravity = Gravity.TOP | Gravity.START;
-        params.setMargins(ResUtil.dp2px(horizontalMarginDp), ResUtil.dp2px(topMarginDp), ResUtil.dp2px(horizontalMarginDp), ResUtil.dp2px(bottomMarginDp));
+        // 融合模式播放窗口由 translationY 浮动在按钮行上方（中上部），故 LayoutParams 顶部边距置 0，
+        // 避免与 translationY 叠加；非融合模式由 XML/spacer 跟随，保留 topMarginDp。
+        int playerTopDp = isFusionMode() ? 0 : topMarginDp;
+        params.setMargins(ResUtil.dp2px(horizontalMarginDp), ResUtil.dp2px(playerTopDp), ResUtil.dp2px(horizontalMarginDp), ResUtil.dp2px(bottomMarginDp));
         // XML 里的 layout_marginStart/End=16dp 在 RTL 解析时会覆盖 left/right，需显式清零
         params.setMarginStart(ResUtil.dp2px(horizontalMarginDp));
         params.setMarginEnd(ResUtil.dp2px(horizontalMarginDp));
@@ -8491,7 +8494,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             if (isFusionMode()) {
                 int playerOccupied = ResUtil.dp2px(topMarginDp) + ResUtil.dp2px(252) + ResUtil.dp2px(bottomMarginDp);
                 scrollParams.topMargin = playerOccupied;
-                binding.playerPanel.setTranslationY(0);
             } else {
                 scrollParams.topMargin = 0;
             }
@@ -8551,11 +8553,18 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void syncInlinePlayerToSpacer() {
         if (binding == null || inlineFullscreen || inlinePiPLayout) return;
         if (binding.playerPanel.getVisibility() != View.VISIBLE) return;
-        // 融合模式：播放窗口已由 LayoutParams 固定在播放窗口区域(topMargin)，scroll 也整体下移到
-        // 播放窗口下方，故 scroll 内容(按钮/选集)永远在播放窗口之下，不会进入播放窗口覆盖区，
-        // 无需再随滚动调整位置。
+        // 融合模式：播放窗口浮动在"换源/收藏/TMDB/深色"按钮行上方(mid-upper)，不随滚动移动；
+        // scroll 已整体下移到播放窗口下方占位，故按钮/选集等内容永远在播放窗口之下，不会被遮挡。
         if (isFusionMode()) {
-            binding.playerPanel.setTranslationY(0);
+            if (binding.playerPanel.getHeight() > 0) {
+                int gap = ResUtil.dp2px(40);
+                // scroll.getTop()(含下移占位) + fusionActions.getTop() = 按钮行屏幕绝对 y，不随滚动变化
+                float target = binding.scroll.getTop() + binding.fusionActions.getTop()
+                        - binding.playerPanel.getHeight() - gap;
+                if (Math.abs(binding.playerPanel.getTranslationY() - target) > 0.5f) {
+                    binding.playerPanel.setTranslationY(target);
+                }
+            }
             return;
         }
         View spacer = binding.playerPanelSpacer;
