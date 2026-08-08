@@ -11,15 +11,19 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Tracks;
 
+import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Sub;
 import com.fongmi.android.tv.player.engine.PlayerEngine;
 import com.fongmi.android.tv.player.engine.PlaySpec;
 import com.fongmi.android.tv.setting.PlayerSetting;
+import com.google.gson.Gson;
 
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class PlayerManagerTest {
 
@@ -156,6 +160,32 @@ public class PlayerManagerTest {
     @Test
     public void shouldStopOnManualSwitchFailure_allowsAutomaticFallbacks() {
         assertEquals(false, PlayerManager.shouldStopOnManualSwitchFailure(false, PlayerEngine.ErrorAction.FATAL));
+    }
+
+    @Test
+    public void snapshotCurrentResult_usesResolvedSpecStateWhilePreservingMetadata() {
+        Result source = new Gson().fromJson(
+                "{\"url\":\"source.m3u8\",\"playUrl\":\"https://proxy.example/?url=\",\"parse\":1,\"jx\":1,\"artwork\":\"https://img.example/art.jpg\"}",
+                Result.class);
+        source.setHeader(new HashMap<>(Map.of("Old", "1")));
+        PlaySpec spec = PlaySpec.fromParse(source, "VE:site@@vod|线路一|1", null);
+        spec.setUrl("https://cdn.example/current.m3u8");
+        spec.setHeaders(new HashMap<>(Map.of("Referer", "https://example.com/")));
+        spec.setFormat(MimeTypes.APPLICATION_M3U8);
+
+        Result snapshot = PlayerManager.snapshotCurrentResult(spec);
+
+        assertEquals("https://cdn.example/current.m3u8", snapshot.getRealUrl());
+        assertEquals("", snapshot.getPlayUrl());
+        assertEquals(0, snapshot.getParse().intValue());
+        assertFalse(snapshot.needParse());
+        assertEquals("https://example.com/", snapshot.getHeader().get("Referer"));
+        assertFalse(snapshot.getHeader().containsKey("Old"));
+        assertEquals(MimeTypes.APPLICATION_M3U8, snapshot.getFormat());
+        assertEquals("https://img.example/art.jpg", snapshot.getArtwork());
+        assertEquals("https://proxy.example/?url=source.m3u8", source.getRealUrl());
+        assertTrue(source.needParse());
+        assertEquals("1", source.getHeader().get("Old"));
     }
 
     @Test

@@ -102,7 +102,9 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     protected void setRedirect(boolean redirect) {
         this.redirect = redirect;
-        if (mService != null) mService.setNavigationCallback(redirect ? null : getNavigationCallback(), getPlaybackKey());
+        if (mService == null) return;
+        if (redirect) mService.clearNavigationCallback(getNavigationCallback());
+        else mService.setNavigationCallback(getNavigationCallback(), getPlaybackKey());
     }
 
     protected boolean isPlaybackExiting() {
@@ -404,7 +406,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         try {
             mController = mControllerFuture.get();
             getSeekView().setPlayer(mController);
-getSeekView().setSeekListener(this::onSeekStarted);
+            getSeekView().setSeekListener(this::onSeekStarted);
             onControllerReady(mController);
             mController.addListener(this);
             reconcileControllerReadyState();
@@ -605,8 +607,9 @@ getSeekView().setSeekListener(this::onSeekStarted);
     }
 
     private void releaseController() {
-        if (mControllerFuture != null) MediaController.releaseFuture(mControllerFuture);
+        getSeekView().setPlayer(null);
         if (mController != null) mController.removeListener(this);
+        if (mControllerFuture != null) MediaController.releaseFuture(mControllerFuture);
         mControllerFuture = null;
         mController = null;
     }
@@ -615,6 +618,7 @@ getSeekView().setSeekListener(this::onSeekStarted);
         if (!bound) return;
         bound = false;
         if (mService != null) mService.removePlayerCallback(mPlayerCallback);
+        getSeekView().setProgressPlayer(null);
         unbindService(this);
         mService = null;
     }
@@ -697,6 +701,7 @@ getSeekView().setSeekListener(this::onSeekStarted);
         @Override
         public void onPlayerRebuild(Player player, boolean resetVideoSurface) {
             if (isOwner()) {
+                getSeekView().setProgressPlayer(player);
                 if (resetVideoSurface) resetVideoSurfaceForDecoderSwitch();
                 setRender();
                 applyResizeMode(requestedAspectMode);
@@ -859,6 +864,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         mService.setPlaybackForeground(true);
         mService.setNavigationCallback(getNavigationCallback(), getPlaybackKey());
         mService.addPlayerCallback(mPlayerCallback);
+        getSeekView().setProgressPlayer(player().getPlayer());
         player().setLutAllowed(isLutAllowed());
         syncKeepScreenOn();
         player().setDanmakuForeground(true);
@@ -872,6 +878,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
     @Override
     public void onServiceDisconnected(ComponentName name) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service disconnected name=%s %s", name, lifecycleState());
+        getSeekView().setProgressPlayer(null);
         mService = null;
         preparedPlaybackKey = null;
     }

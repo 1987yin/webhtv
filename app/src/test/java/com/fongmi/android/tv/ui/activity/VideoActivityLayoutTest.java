@@ -1472,14 +1472,21 @@ public class VideoActivityLayoutTest {
         int seekTo = playback.indexOf("protected void seekTo(long time)");
         int seekHook = playback.indexOf("onSeekStarted();", seekTo);
         int controllerSeek = playback.indexOf("mController.seekTo", seekHook);
+        int releaseController = playback.indexOf("private void releaseController()");
+        int clearSeekPlayer = playback.indexOf("getSeekView().setPlayer(null);", releaseController);
+        int removeControllerListener = playback.indexOf("mController.removeListener(this);", clearSeekPlayer);
+        int releaseFuture = playback.indexOf("MediaController.releaseFuture", clearSeekPlayer);
 
         Path seekPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "custom", "CustomSeekView.java"));
         String seek = new String(Files.readAllBytes(seekPath), StandardCharsets.UTF_8);
         int listener = seek.indexOf("public interface SeekListener");
         int setListener = seek.indexOf("public void setSeekListener");
         int seekMethod = seek.indexOf("private void seekToTimeBarPosition");
-        int notify = seek.indexOf("seekListener.onSeekStarted();", seekMethod);
-        int playerSeek = seek.indexOf("player.seekTo(positionMs);", notify);
+        int commandPlayer = seek.indexOf("Player commandPlayer = player;", seekMethod);
+        int nullGuard = seek.indexOf("if (commandPlayer == null)", commandPlayer);
+        int notify = seek.indexOf("seekListener.onSeekStarted();", nullGuard);
+        int playerSeek = seek.indexOf("commandPlayer.seekTo(positionMs);", notify);
+        int playerPlay = seek.indexOf("commandPlayer.play();", playerSeek);
 
         Path mobilePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String mobile = new String(Files.readAllBytes(mobilePath), StandardCharsets.UTF_8);
@@ -1493,8 +1500,13 @@ public class VideoActivityLayoutTest {
 
         assertTrue(playbackPath + " is missing onSeekStarted", hook >= 0);
         assertTrue("remote seek must show loading before seeking", seekHook > seekTo && seekHook < controllerSeek);
+        assertTrue("controller release must detach the seek view before releasing the controller", clearSeekPlayer > releaseController && clearSeekPlayer < releaseFuture);
+        assertTrue("controller release must remove listeners before releasing the controller", removeControllerListener > clearSeekPlayer && removeControllerListener < releaseFuture);
         assertTrue(seekPath + " is missing SeekListener", listener >= 0 && setListener > listener);
-        assertTrue("drag seek must notify before player.seekTo", notify > seekMethod && notify < playerSeek);
+        assertTrue("drag seek must snapshot the controller before use", commandPlayer > seekMethod);
+        assertTrue("drag seek must ignore an unavailable controller before showing loading", nullGuard > commandPlayer && nullGuard < notify);
+        assertTrue("drag seek must notify before player.seekTo", notify > nullGuard && notify < playerSeek);
+        assertTrue("drag seek must play through the same controller snapshot", playerPlay > playerSeek);
         assertTrue("mobile video seek must show loading", mobileOverride >= 0 && mobileShow > mobileOverride);
         assertTrue("leanback video seek must show loading", leanbackOverride >= 0 && leanbackShow > leanbackOverride);
     }
