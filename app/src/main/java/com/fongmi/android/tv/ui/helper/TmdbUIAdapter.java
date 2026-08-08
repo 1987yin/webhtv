@@ -991,7 +991,7 @@ public class TmdbUIAdapter {
         try {
             JsonObject season = null;
             int seasonNumber = -1;
-            for (Integer candidate : EpisodeSeasonPolicy.episodeMetadataSeasonCandidates(sourceSeasonNumber)) {
+            for (Integer candidate : EpisodeSeasonPolicy.episodeMetadataSeasonCandidates(sourceSeasonNumber, item.getTitle())) {
                 try {
                     season = tmdbService.season(item, candidate, tmdbConfig);
                 } catch (Exception ignored) {

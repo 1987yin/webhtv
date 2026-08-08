@@ -138,6 +138,7 @@ import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleManualSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
+import com.fongmi.android.tv.ui.dialog.TmdbSeasonOffsetDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.helper.DetailThemeVisibility;
 import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
@@ -616,6 +617,24 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.rematch.setOnClickListener(view -> showManualTmdbMatchDialog());
         binding.rematchTop.setOnClickListener(view -> showManualTmdbMatchDialog());
         binding.rematchFusion.setOnClickListener(view -> showManualTmdbMatchDialog());
+        // 长按：触屏用 OnLongClickListener，TV 遥控器用 OnKeyListener（OK 键长按 repeatCount>0）
+        View.OnLongClickListener rematchLong = view -> {
+            openSeasonOffsetSetting();
+            return true;
+        };
+        View.OnKeyListener rematchKey = (view, keyCode, event) -> {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() > 0) {
+                openSeasonOffsetSetting();
+                return true;
+            }
+            return false;
+        };
+        binding.rematch.setOnLongClickListener(rematchLong);
+        binding.rematchTop.setOnLongClickListener(rematchLong);
+        binding.rematchFusion.setOnLongClickListener(rematchLong);
+        binding.rematch.setOnKeyListener(rematchKey);
+        binding.rematchTop.setOnKeyListener(rematchKey);
+        binding.rematchFusion.setOnKeyListener(rematchKey);
         binding.changeSource.setOnClickListener(view -> changeSource());
         binding.changeSourceDetail.setOnClickListener(view -> changeSource());
         binding.changeSource.setOnLongClickListener(view -> openGlobalSourceSearch());
@@ -2074,13 +2093,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (bundle == null || loadedVod == null || bundle.item() == null || !"tv".equalsIgnoreCase(bundle.item().getMediaType()) || !canMatchTmdb()) return result;
         int seasonNumber = initialStandaloneSeasonNumber(loadedVod, bundle);
         if (seasonNumber < 0 || bundle.seasonEpisodes().containsKey(seasonNumber)) return result;
+        // 源站季号可能因 TMDB 更名与 season_number 存在偏移，仅向 TMDB 请求时校正，本地仍以源季号为 key
+        int tmdbSeason = EpisodeSeasonPolicy.correctTmdbSeason(seasonNumber, bundle.item().getTitle());
         try {
-            JsonObject season = tmdbService.season(bundle.item(), seasonNumber, tmdbConfig, bundle.detail(), false);
+            JsonObject season = tmdbService.season(bundle.item(), tmdbSeason, tmdbConfig, bundle.detail(), false);
             Map<Integer, Integer> seasonCounts = new HashMap<>(bundle.seasonCounts());
             Map<Integer, List<TmdbEpisode>> seasonEpisodes = new HashMap<>(bundle.seasonEpisodes());
             Map<Integer, List<TmdbPerson>> seasonCast = new HashMap<>(bundle.seasonCast());
             Map<Integer, List<String>> seasonPhotos = new HashMap<>(bundle.seasonPhotos());
-            List<TmdbEpisode> episodes = tmdbService.episodes(season, tmdbConfig, bundle.item().getTmdbId(), seasonNumber);
+            List<TmdbEpisode> episodes = tmdbService.episodes(season, tmdbConfig, bundle.item().getTmdbId(), tmdbSeason);
             seasonCounts.put(seasonNumber, episodes.size());
             seasonEpisodes.put(seasonNumber, episodes);
             seasonCast.put(seasonNumber, tmdbService.seasonCast(season, tmdbConfig));
@@ -2547,6 +2568,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 .searchListener(this::searchTmdb)
                 .skipListener(skippable ? this::onPlay : null)
                 .show();
+    }
+
+    private void openSeasonOffsetSetting() {
+        String title = matchedTmdbItem != null ? matchedTmdbItem.getTitle() : null;
+        TmdbSeasonOffsetDialog.show(TmdbDetailActivity.this, title);
     }
 
     private void showManualTmdbMatchDialog() {
@@ -4543,12 +4569,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         TmdbItem item = matchedTmdbItem;
         JsonObject detail = matchedTmdbDetail;
         TmdbConfig config = tmdbConfig;
+        // 源站季号可能因 TMDB 更名与 season_number 存在偏移，仅向 TMDB 请求时使用校正后的季号，
+        // 本地缓存仍以源站季号(seasonNumber)为 key，保证 UI 层无感。
+        int tmdbSeason = EpisodeSeasonPolicy.correctTmdbSeason(seasonNumber, item.getTitle());
         loadingSeasons.add(seasonNumber);
         updateEpisodeSkeleton();
         detailTasks.submit(Task.largeExecutor(), () -> {
             try {
-                JsonObject season = tmdbService.season(item, seasonNumber, config, detail, refresh);
-                List<TmdbEpisode> episodes = tmdbService.episodes(season, config, item.getTmdbId(), seasonNumber);
+                JsonObject season = tmdbService.season(item, tmdbSeason, config, detail, refresh);
+                List<TmdbEpisode> episodes = tmdbService.episodes(season, config, item.getTmdbId(), tmdbSeason);
                 List<TmdbPerson> cast = tmdbService.seasonCast(season, config);
                 List<String> photos = tmdbService.seasonPhotos(season, config);
                 runOnAliveUi(() -> {
