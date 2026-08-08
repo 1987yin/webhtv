@@ -114,6 +114,7 @@ import com.fongmi.android.tv.ui.dialog.QuickSearchDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleManualSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
+import com.fongmi.android.tv.ui.dialog.TmdbSeasonOffsetDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
@@ -1213,6 +1214,18 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             return true;
         });
         mBinding.tmdbRematch.setOnClickListener(view -> showManualTmdbMatchDialog());
+        // 长按：触屏用 OnLongClickListener，TV 遥控器用 OnKeyListener（OK 键长按 repeatCount>0）
+        mBinding.tmdbRematch.setOnLongClickListener(view -> {
+            TmdbSeasonOffsetDialog.show(VideoActivity.this, getTmdbSearchQuery());
+            return true;
+        });
+        mBinding.tmdbRematch.setOnKeyListener((view, keyCode, event) -> {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() > 0) {
+                TmdbSeasonOffsetDialog.show(VideoActivity.this, getTmdbSearchQuery());
+                return true;
+            }
+            return false;
+        });
         mBinding.content.setOnClickListener(view -> onContent());
         mBinding.control.action.text.setOnClickListener(guardedView(this::onTrack));
         mBinding.control.action.audio.setOnClickListener(guardedView(this::onTrack));

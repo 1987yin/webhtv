@@ -8486,7 +8486,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerPanel.setLayoutParams(params);
         // 内嵌 spacer 顶部对齐时，translationY 由 syncInlinePlayerToSpacer() 依据 spacer 位置更新
         alignInlinePlayerSpacerHeight();
-        syncInlinePlayerToSpacer();
+        // post 确保在布局完成后（playerPanel 高度已知）再同步融合模式的固定位置
+        binding.playerPanel.post(this::syncInlinePlayerToSpacer);
     }
 
     private void applyInlinePlayerFullscreenLayout() {
@@ -8529,10 +8530,24 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     /**
      * 计算 spacer 顶端相对 root 的 y，把 playerPanel 的 translationY 对齐过去。全屏/PiP 时不同步。
+     * 融合/沉浸模式下，播放窗口常驻置顶，不随详情滚动（translationY 固定为 0）。
      */
     private void syncInlinePlayerToSpacer() {
         if (binding == null || inlineFullscreen || inlinePiPLayout) return;
         if (binding.playerPanel.getVisibility() != View.VISIBLE) return;
+        // 融合模式：播放窗口固定在"换源/收藏/TMDB/深色"按钮行上方，不随 scroll 滚动
+        if (isFusionMode()) {
+            if (binding.playerPanel.getHeight() > 0) {
+                int gap = ResUtil.dp2px(40);
+                // scroll 与 fusionActions 的 getTop 均为布局固定坐标，二者之和即按钮行初始窗口 y，不随滚动变化
+                float target = binding.scroll.getTop() + binding.fusionActions.getTop()
+                        - binding.playerPanel.getHeight() - gap;
+                if (Math.abs(binding.playerPanel.getTranslationY() - target) > 0.5f) {
+                    binding.playerPanel.setTranslationY(target);
+                }
+            }
+            return;
+        }
         View spacer = binding.playerPanelSpacer;
         if (spacer == null || spacer.getWidth() <= 0) return;
         int[] rootLoc = new int[2];
