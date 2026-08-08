@@ -21,6 +21,13 @@ public final class PlaybackProgressWriter {
     private PlaybackProgressWriter() {
     }
 
+    // Temporary or unsaved VOD configs legitimately persist local History rows with cid 0.
+    // Only a deliberate user deletion may target those rows; API and sync deletes still
+    // require a stable, positive config mapping.
+    static boolean canDeleteCid(int cid, boolean userInitiated) {
+        return cid > 0 || (userInitiated && cid == 0);
+    }
+
     public static PlaybackProgressApplyResult applyFromLocalApi(PlaybackProgressInput input) {
         if (!ViewingRecordSyncStore.isEnabled()) return PlaybackProgressApplyResult.failed(input, "观影记录同步未开启");
         if (!ViewingRecordSyncStore.isLocalWriteEnabled()) return PlaybackProgressApplyResult.failed(input, "本机 API 修改未开启");
@@ -195,16 +202,17 @@ public final class PlaybackProgressWriter {
         }
     }
 
-    private static synchronized PlaybackProgressApplyResult deleteInternal(PlaybackProgressDeleteInput input,
-                                                                            RemoteSyncConfig filter,
-                                                                            boolean remote,
-                                                                            boolean notify) {
-        if (Setting.isIncognito() && !notify) return PlaybackProgressApplyResult.failed(input, "隐身模式不允许清理");
+    static synchronized PlaybackProgressApplyResult deleteInternal(
+            PlaybackProgressDeleteInput input,
+            RemoteSyncConfig filter,
+            boolean remote,
+            boolean userInitiated) {
+        if (!userInitiated && Setting.isIncognito()) return PlaybackProgressApplyResult.failed(input, "隐身模式不允许清理");
         if (input == null) return PlaybackProgressApplyResult.failed((PlaybackProgressDeleteInput) null, "请求体不能为空");
         input.normalize();
         if (!matchesFilter(input, filter)) return PlaybackProgressApplyResult.skipped(input, input.historyKey, "站点不匹配");
-        int cid = targetCid(input);
-        if (cid <= 0) return PlaybackProgressApplyResult.skipped(input, input.historyKey, "接口不匹配");
+        int cid = targetCid(input, userInitiated);
+        if (!canDeleteCid(cid, userInitiated)) return PlaybackProgressApplyResult.skipped(input, input.historyKey, "接口不匹配");
         if (remote && input.deletedAt <= 0) return PlaybackProgressApplyResult.failed(input, "远端删除记录缺少deletedAt");
         if (!remote && input.isAllScope() && !input.confirm) return PlaybackProgressApplyResult.failed(input, "全量清理需要confirm=true");
         if (input.isSiteScope() && TextUtils.isEmpty(input.siteKey)) return PlaybackProgressApplyResult.failed(input, "按站点清理需要siteKey");
@@ -240,8 +248,8 @@ public final class PlaybackProgressWriter {
         // The history screens update their adapters themselves; avoid a second refresh
         // event while a user deletion is being animated. API/remote callers still need
         // to notify other history consumers.
-        if (affected > 0 && !notify) RefreshEvent.history();
-        if (notify) PlaybackEventCollector.get().onHistoryDeleted(input, cid);
+        if (affected > 0 && !userInitiated) RefreshEvent.history();
+        if (userInitiated) PlaybackEventCollector.get().onHistoryDeleted(input, cid);
         if (affected > 0) return PlaybackProgressApplyResult.deleted(input, resultKey(input), affected);
         if (newer > 0) return PlaybackProgressApplyResult.skipped(input, resultKey(input), "本地记录更新于删除事件");
         return PlaybackProgressApplyResult.skipped(input, resultKey(input), "本地记录不存在");
@@ -309,6 +317,10 @@ public final class PlaybackProgressWriter {
         if (cid > 0) return cid;
         if (!TextUtils.isEmpty(input.configKey)) return 0;
         return input.cid > 0 ? input.cid : VodConfig.getCid();
+    }
+
+    static int targetCid(PlaybackProgressDeleteInput input, boolean userInitiated) {
+        return userInitiated ? input.cid : targetCid(input);
     }
 
     private static int targetCid(PlaybackProgressDeleteInput input) {
