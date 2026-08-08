@@ -2,6 +2,8 @@ package com.fongmi.android.tv.ui.dialog;
 
 import android.text.TextUtils;
 import android.view.KeyEvent;
+import android.view.Window;
+import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 
@@ -65,6 +67,12 @@ public final class SubtitleManualSearchDialog {
                 .setPositiveButton(R.string.play_search, null)
                 .show();
         LightDialog.apply(dialog);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+                    | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
         Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
         positive.setOnClickListener(view -> {
             String keyword = input.getText() == null ? "" : input.getText().toString().trim();

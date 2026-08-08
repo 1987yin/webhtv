@@ -680,6 +680,21 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void videoClockIgnoresTicksBeforeHistoryInitialization() throws Exception {
+        Path leanbackPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String leanback = new String(Files.readAllBytes(leanbackPath), StandardCharsets.UTF_8);
+        String leanbackClock = methodBody(leanback, "public void onTimeChanged(long time)", "private void updatePlaybackHistoryPosition()");
+        assertTrue("TV clock ticks can arrive before history initialization",
+                leanbackClock.contains("if (!isOwner() || mHistory == null) return;"));
+
+        Path mobilePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String mobile = new String(Files.readAllBytes(mobilePath), StandardCharsets.UTF_8);
+        String mobileClock = methodBody(mobile, "public void onTimeChanged(long time)", "private void updatePlaybackHistoryPosition()");
+        assertTrue("mobile clock ticks can arrive before history initialization",
+                mobileClock.contains("if (!isOwner() || mHistory == null) return;"));
+    }
+
+    @Test
     public void videoDetailTextKeepsInlineLyricsMetadata() throws Exception {
         Path leanbackPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String leanback = new String(Files.readAllBytes(leanbackPath), StandardCharsets.UTF_8);
