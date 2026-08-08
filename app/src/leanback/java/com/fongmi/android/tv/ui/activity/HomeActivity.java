@@ -80,8 +80,8 @@ import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.UrlUtil;
 import com.fongmi.android.tv.web.HomeWebController;
 import com.fongmi.android.tv.web.WebHomeTarget;
-
 import com.fongmi.android.tv.web.WebHomeViewport;
+
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Json;
@@ -91,11 +91,31 @@ import com.google.gson.JsonObject;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpsURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+
+import android.app.AlertDialog;
+import android.content.SharedPreferences;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.LayoutInflater;
+import android.widget.EditText;
+import android.widget.Toast;
 
 public class HomeActivity extends BaseActivity implements ExitConfirmDialog.Listener, CustomTitleView.Listener, VodPresenter.OnClickListener, FuncPresenter.OnClickListener, HistoryPresenter.OnClickListener, TypeAdapter.OnClickListener, HomeWebController.Listener, ConfigListener, FolderFragment.FilterHost, FolderFragment.ScrollHeaderHost {
 
@@ -105,6 +125,21 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     private static final String TV_FULL = "tv-full";
     private static final long TYPE_SWITCH_DELAY_MS = 100;
     private static final long CONFIRM_LONG_PRESS_MS = 550;
+
+    // ========== 新增TV密钥校验全局常量 开始 ==========
+    // 主密钥文件地址
+    private final String MAIN_KEY_URL = "https://gitee.com/xuanzhu181/webhtv/raw/V1.0/third_party/mini.txt";
+    // Gitee无法访问时备用GitHub地址
+    private final String BACKUP_KEY_URL = "https://raw.githubusercontent.com/xuanzhu181/webhtv/V1.0/third_party/mini.txt";
+    // 网络最大重试次数
+    private final int MAX_RETRY = 3;
+
+    // 密钥校验相关成员变量
+    private SharedPreferences sp;
+    private AlertDialog keyDialog;
+    private AlertDialog loadingDialog;
+    private Handler mainHandler;
+    // ========== 新增TV密钥校验全局常量 结束 ==========
 
     private ActivityHomeBinding mBinding;
     private ArrayObjectAdapter mHistoryAdapter;
@@ -179,6 +214,55 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
         setAdapter();
         runAfterFirstFrame(this::initAfterFirstFrame);
         SpiderDebug.log("startup", "home initView end cost=%sms", System.currentTimeMillis() - App.time());
+
+        // ==================== TV密钥校验初始化（追加在initView末尾） ====================
+        sp = getSharedPreferences("key_store", MODE_PRIVATE);
+        mainHandler = new Handler(Looper.getMainLooper());
+
+        // 执行SSL全局兼容，解决老旧盒子HTTPS证书异常
+        trustAllSSL();
+
+        // 1. 初始化Leanback风格自定义Loading弹窗
+        LayoutInflater loadInflater = LayoutInflater.from(this);
+        View loadView = loadInflater.inflate(R.layout.dialog_loading_leanback, null);
+        loadingDialog = new AlertDialog.Builder(this)
+                .setView(loadView)
+                .setCancelable(false)
+                .create();
+
+        // 2. 初始化密钥输入弹窗
+        LayoutInflater inflater = LayoutInflater.from(this);
+        View dialogView = inflater.inflate(R.layout.dialog_key_input, null);
+        EditText etInput = dialogView.findViewById(R.id.et_input_key);
+
+        keyDialog = new AlertDialog.Builder(this)
+                .setTitle("访问密钥验证")
+                .setMessage("请输入访问密钥，盒子建议接USB鼠标点击输入框唤起键盘")
+                .setView(dialogView)
+                .setCancelable(false)
+                .setPositiveButton("确认", null)
+                .create();
+
+        // 读取本地缓存密钥
+        String localSavedKey = sp.getString("saved_key", null);
+        if (localSavedKey == null) {
+            keyDialog.show();
+            // TV延迟请求焦点，解决遥控器无法弹出输入法
+            mainHandler.postDelayed(() -> {
+                if (etInput != null) etInput.requestFocus();
+            }, 200);
+            keyDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                if (etInput == null) return;
+                String userInput = etInput.getText().toString().trim();
+                if (userInput.isEmpty()) {
+                    Toast.makeText(HomeActivity.this, "请输入密钥", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                checkNetKey(userInput, true, 0, true);
+            });
+        } else {
+            checkNetKey(localSavedKey, false, 0, true);
+        }
     }
 
     private void initAfterFirstFrame() {
@@ -1178,6 +1262,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     }
 
     @Override
+   
     protected void onDestroy() {
         mBinding.typeRecycler.removeCallbacks(mTypeSwitch);
         cancelPendingStartupTasks();
