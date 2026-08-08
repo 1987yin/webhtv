@@ -8537,6 +8537,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (binding.playerPanel.getVisibility() != View.VISIBLE) return;
         // 融合模式：播放窗口固定在"换源/收藏/TMDB/深色"按钮行上方，不随 scroll 滚动
         if (isFusionMode()) {
+            // 按钮行(fusionActions)本身也在 scroll 内容里，随滚动会上移进入播放窗口覆盖区。
+            // 用 translationY 抵消当前 scrollY，使其钉在播放窗口下方常驻可见，不被播放窗口遮挡。
+            binding.fusionActions.setTranslationY(binding.scroll.getScrollY());
             if (binding.playerPanel.getHeight() > 0) {
                 int gap = ResUtil.dp2px(40);
                 // scroll 与 fusionActions 的 getTop 均为布局固定坐标，二者之和即按钮行初始窗口 y，不随滚动变化
