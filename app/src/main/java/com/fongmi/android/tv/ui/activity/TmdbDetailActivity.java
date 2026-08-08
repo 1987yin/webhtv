@@ -8529,10 +8529,18 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     /**
      * 计算 spacer 顶端相对 root 的 y，把 playerPanel 的 translationY 对齐过去。全屏/PiP 时不同步。
+     * 融合/沉浸模式下，播放窗口常驻置顶，不随详情滚动（translationY 固定为 0）。
      */
     private void syncInlinePlayerToSpacer() {
         if (binding == null || inlineFullscreen || inlinePiPLayout) return;
         if (binding.playerPanel.getVisibility() != View.VISIBLE) return;
+        // 融合模式：播放窗口固定置顶，不跟随 scroll 滚动
+        if (isFusionMode()) {
+            if (Math.abs(binding.playerPanel.getTranslationY()) > 0.5f) {
+                binding.playerPanel.setTranslationY(0f);
+            }
+            return;
+        }
         View spacer = binding.playerPanelSpacer;
         if (spacer == null || spacer.getWidth() <= 0) return;
         int[] rootLoc = new int[2];
