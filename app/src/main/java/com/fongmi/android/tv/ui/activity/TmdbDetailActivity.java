@@ -103,6 +103,7 @@ import com.fongmi.android.tv.service.AiAdDetectionService;
 import com.fongmi.android.tv.service.AiRecommendationService;
 import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.service.IntroSkipService;
+import com.fongmi.android.tv.service.OmdbService;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.service.TmdbService;
 import com.fongmi.android.tv.setting.BackgroundPlaybackPolicy;
@@ -241,6 +242,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private ActivityResultLauncher<Intent> inlineLutFile;
 
     private final TmdbService tmdbService = new TmdbService();
+    private final Task.Scope detailTasks = new Task.Scope(Task.executor());
     private final IntroSkipPlayback introSkipPlayback = new IntroSkipPlayback();
     private final SubtitlePlaybackSession subtitlePlaybackSession = new SubtitlePlaybackSession(this);
     private final List<TmdbPerson> detailCastItems = new ArrayList<>();
@@ -813,7 +815,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 Notify.show(R.string.lut_import_failed);
                 return;
             }
-            Task.execute(() -> {
+            detailTasks.submit(() -> {
                 try {
                     LutPreset preset = LutStore.importFile(path);
                     App.post(() -> {
@@ -1956,15 +1958,19 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void loadContent(@Nullable TmdbBundle reusableBundle) {
         int generation = ++loadGeneration;
+        detailTasks.cancelAll();
         int mode = getDetailMode();
         String key = getKeyText();
         String id = getIdText();
         String title = getNameText();
         long loadStart = System.currentTimeMillis();
         SpiderDebug.log("tmdb-detail-flow", "load start mode=%d key=%s id=%s title=%s reusable=%s", mode, key, id, title, reusableBundle != null);
-        Task.execute(() -> {
+        detailTasks.submit(() -> {
+            if (generation != loadGeneration || Thread.currentThread().isInterrupted()) return;
             boolean tmdbAllowed = isTmdbAllowedForCurrentSite();
-            Future<TmdbLoadResult> tmdbFuture = reusableBundle == null && tmdbConfig.isReady() && tmdbAllowed ? Task.executor().submit(this::loadTmdbResult) : null;
+            Future<TmdbLoadResult> tmdbFuture = reusableBundle == null && tmdbConfig.isReady() && tmdbAllowed
+                    ? detailTasks.submitCallable(Task.largeExecutor(), this::loadTmdbResult)
+                    : null;
             boolean singlePassStandaloneTmdb = shouldLoadInitialStandaloneTmdbDetailInSinglePass(reusableBundle, tmdbFuture);
             SpiderDebug.log("tmdb-detail-flow", "load tasks mode=%d tmdbAllowed=%s singlePass=%s reusable=%s", mode, tmdbAllowed, singlePassStandaloneTmdb, reusableBundle != null);
             Vod loadedVod = null;
@@ -1983,6 +1989,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             }
             SpiderDebug.log("tmdb-detail-flow", "source detail cost=%dms mode=%d key=%s id=%s hit=%s error=%s", System.currentTimeMillis() - sourceStart, mode, key, id, loadedVod != null, TextUtils.isEmpty(error) ? "" : error);
 
+            if (generation != loadGeneration || Thread.currentThread().isInterrupted()) {
+                if (tmdbFuture != null) tmdbFuture.cancel(true);
+                return;
+            }
             Vod finalVod = loadedVod;
             String finalError = error;
             if (!singlePassStandaloneTmdb || finalVod == null) {
@@ -1998,6 +2008,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             try {
                 long tmdbWaitStart = System.currentTimeMillis();
                 TmdbLoadResult result = tmdbFuture.get();
+                if (generation != loadGeneration || Thread.currentThread().isInterrupted()) return;
                 SpiderDebug.log("tmdb-detail-flow", "tmdb wait cost=%dms mode=%d bundle=%s search=%d total=%dms", System.currentTimeMillis() - tmdbWaitStart, mode, result != null && result.bundle() != null, result == null ? 0 : result.searchItems().size(), System.currentTimeMillis() - loadStart);
                 if (result != null && result.bundle() == null && finalVod != null) {
                     String detailTitle = finalVod.getName();
@@ -2012,6 +2023,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                         }
                     }
                 }
+                if (generation != loadGeneration || Thread.currentThread().isInterrupted()) return;
                 if (result != null && result.bundle() == null && finalVod != null) {
                     String query = cleanTmdbSearchQuery(finalVod.getName());
                     logTmdbMatch("基础匹配未命中，使用站源详情继续消歧：片名=%s，清洗后=%s，年份=%s，演员=%s，导演=%s，简介长度=%d",
@@ -2027,8 +2039,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                     }
                     result = new TmdbLoadResult(bundle, matchedSearchItems);
                 }
+                if (generation != loadGeneration || Thread.currentThread().isInterrupted()) return;
                 TmdbLoadResult loadedResult = result;
                 if (singlePassStandaloneTmdb) loadedResult = preloadInitialStandaloneSeason(loadedResult, finalVod);
+                if (generation != loadGeneration || Thread.currentThread().isInterrupted()) return;
                 TmdbLoadResult finalResult = loadedResult;
                 runOnAliveUi(() -> {
                     if (generation != loadGeneration || (!singlePassStandaloneTmdb && vod == null)) return;
@@ -2039,6 +2053,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                     }
                 });
             } catch (Throwable ignored) {
+                if (generation != loadGeneration || Thread.currentThread().isInterrupted()) return;
                 SpiderDebug.log("tmdb-detail-flow", "tmdb wait failed mode=%d total=%dms", mode, System.currentTimeMillis() - loadStart);
                 if (singlePassStandaloneTmdb) {
                     runOnAliveUi(() -> {
@@ -2335,7 +2350,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         tmdbMediaLoading = true;
         bindTmdbSection();
         loadTmdbPersonalAiCache(bundle, currentVod, generation);
-        Task.execute(() -> {
+        detailTasks.submit(Task.recommendationExecutor(), () -> {
             List<TmdbPerson> cast = new ArrayList<>();
             List<TmdbPerson> creators = new ArrayList<>();
             List<String> photos = new ArrayList<>();
@@ -2404,7 +2419,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void loadTmdbPersonalAiCache(TmdbBundle bundle, Vod currentVod, int generation) {
         if (!Setting.isPersonalRecommendation() || bundle == null || bundle.item() == null) return;
-        Task.execute(() -> {
+        detailTasks.submit(Task.recommendationExecutor(), () -> {
             try {
                 long start = System.currentTimeMillis();
                 PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
@@ -2427,7 +2442,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void loadTmdbPersonalAi(TmdbBundle bundle, Vod currentVod, List<TmdbItem> related, List<TmdbItem> personalTmdb, List<TmdbItem> personalDouban, int generation) {
         if (!Setting.isPersonalRecommendation() || bundle == null || bundle.item() == null) return;
-        Task.execute(() -> {
+        detailTasks.submit(Task.recommendationExecutor(), () -> {
             long start = System.currentTimeMillis();
             PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
             AiRecommendationService.CachedPage cached = service.loadCachedAiPage(currentVod, bundle.item(), PersonalRecommendationService.DEFAULT_PAGE_SIZE);
@@ -2548,7 +2563,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         int dialogGeneration = ++tmdbDialogGeneration;
         String query = getTmdbSearchQuery();
         String fallback = getNameText();
-        Task.execute(() -> {
+        detailTasks.submit(Task.largeExecutor(), () -> {
             try {
                 List<TmdbItem> items = searchTmdbItems(query, fallback);
                 runOnAliveUi(() -> {
@@ -2729,7 +2744,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         dialog.loading();
         int generation = loadGeneration;
         int dialogGeneration = ++tmdbDialogGeneration;
-        Task.execute(() -> {
+        detailTasks.submit(Task.largeExecutor(), () -> {
             try {
                 String query = cleanTmdbSearchQuery(keyword);
                 List<TmdbItem> items = searchTmdbItems(query, keyword);
@@ -2773,7 +2788,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         int applyGeneration = ++tmdbApplyGeneration;
         tmdbDialogGeneration++;
         sourceSearchGeneration++;
-        Task.execute(() -> {
+        detailTasks.submit(Task.largeExecutor(), () -> {
             try {
                 TmdbBundle bundle = loadTmdbBundle(item);
                 runOnAliveUi(() -> {
@@ -3386,7 +3401,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (TextUtils.isEmpty(title)) return;
         String mediaType = matchedTmdbItem == null ? "" : matchedTmdbItem.getMediaType();
         int year = ratingYear();
-        Task.execute(() -> {
+        detailTasks.submit(Task.recommendationExecutor(), () -> {
             try {
                 PersonalRecommendationService.DoubanRating rating = new PersonalRecommendationService().loadDoubanRating(title, mediaType, year);
                 if (rating == null || rating.isEmpty()) return;
@@ -3401,20 +3416,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         String imdb = string(object(matchedTmdbDetail, "external_ids"), "imdb_id");
         String omdbApiKey = tmdbConfig == null ? "" : tmdbConfig.getOmdbApiKey();
         if (TextUtils.isEmpty(imdb) || TextUtils.isEmpty(omdbApiKey)) return;
-        Task.execute(() -> {
+        detailTasks.submit(Task.recommendationExecutor(), () -> {
             try {
-                String url = "https://www.omdbapi.com/?i=" + imdb + "&apikey=" + omdbApiKey;
-                okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
-                        .connectTimeout(8, TimeUnit.SECONDS)
-                        .readTimeout(8, TimeUnit.SECONDS)
-                        .build();
-                okhttp3.Request request = new okhttp3.Request.Builder().url(url).build();
-                try (okhttp3.Response response = client.newCall(request).execute()) {
-                    if (!response.isSuccessful() || response.body() == null) return;
-                    JsonObject body = JsonParser.parseString(response.body().string()).getAsJsonObject();
-                    if ("False".equalsIgnoreCase(string(body, "Response"))) return;
-                    runOnAliveUi(() -> addOmdbRatingChips(key, body));
-                }
+                JsonObject body = OmdbService.fetch(imdb, omdbApiKey);
+                if (body == null || "False".equalsIgnoreCase(string(body, "Response"))) return;
+                runOnAliveUi(() -> addOmdbRatingChips(key, body));
             } catch (Throwable ignored) {
             }
         });
@@ -4539,7 +4545,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         TmdbConfig config = tmdbConfig;
         loadingSeasons.add(seasonNumber);
         updateEpisodeSkeleton();
-        Task.execute(() -> {
+        detailTasks.submit(Task.largeExecutor(), () -> {
             try {
                 JsonObject season = tmdbService.season(item, seasonNumber, config, detail, refresh);
                 List<TmdbEpisode> episodes = tmdbService.episodes(season, config, item.getTmdbId(), seasonNumber);
@@ -5071,7 +5077,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         TmdbItem item = matchedTmdbItem;
         JsonObject baseDetail = matchedTmdbDetail;
         TmdbConfig config = tmdbConfig;
-        Task.execute(() -> {
+        detailTasks.submit(Task.largeExecutor(), () -> {
             try {
                 JsonObject detail = tmdbService.episode(item, seasonNumber, episodeNumber, config, baseDetail);
                 List<String> photos = tmdbService.episodePhotos(detail, config);
@@ -5184,7 +5190,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
         // 异步加载影片剧照与演员
         if (matchedTmdbDetail != null) {
-            Task.execute(() -> {
+            detailTasks.submit(Task.largeExecutor(), () -> {
                 try {
                     List<String> photos = tmdbService.photos(matchedTmdbDetail, tmdbConfig);
                     List<TmdbPerson> cast = tmdbService.cast(matchedTmdbDetail, tmdbConfig);
@@ -5932,7 +5938,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         stopInlinePlayerForReload();
         showInlineLoading();
         updateInlineDisplayPanel();
-        Task.execute(() -> {
+        detailTasks.submit(() -> {
             try {
                 Result result = SiteApi.playerContent(key, flag, episodeUrl);
                 runOnAliveUi(() -> {
@@ -7257,7 +7263,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         boolean repeat = player().isRepeatOne();
         MediaMetadata metadata = buildMetadata();
         SpiderDebug.log("webhome-inline", "switch player refresh start type=%d key=%s flag=%s episode=%s", playerType, key, flag, episodeUrl);
-        Task.execute(() -> {
+        detailTasks.submit(() -> {
             try {
                 Result result = SiteApi.playerContent(key, flag, episodeUrl, playerType);
                 runOnAliveUi(() -> {
@@ -7361,7 +7367,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         Notify.show(R.string.ad_feedback_analyzing);
         int generation = ++mAdFeedbackGeneration;
         AiConfig config = AiConfig.objectFrom(Setting.getAiConfig());
-        Task.execute(() -> {
+        detailTasks.submit(Task.recommendationExecutor(), () -> {
             enrichInlineAdDetectionRequest(request);
             AdDetectionResult result = new AiAdDetectionService(config).analyze(request);
             runOnAliveUi(() -> {
@@ -9291,6 +9297,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     @Override
     protected void onDestroy() {
+        loadGeneration++;
+        detailTasks.close();
         subtitlePlaybackSession.stop(this);
         if (inlinePiPLayout) exitInlinePiPLayout();
         if (inlineFullscreen) exitInlineFullscreen();
@@ -9608,7 +9616,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         int generation = loadGeneration;
         int searchGeneration = ++sourceSearchGeneration;
         Notify.show(getString(R.string.detail_source_searching));
-        Task.execute(() -> {
+        detailTasks.submit(() -> {
             SourceMatch match = searchChangeSource(keyword);
             runOnAliveUi(() -> {
                 if (generation != loadGeneration || searchGeneration != sourceSearchGeneration || vod == null) return;
@@ -9629,7 +9637,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         int generation = loadGeneration;
         int searchGeneration = ++sourceSearchGeneration;
         Notify.show(getString(R.string.detail_source_searching));
-        Task.execute(() -> {
+        detailTasks.submit(() -> {
             SourceMatch match = searchChangeSource(keyword);
             runOnAliveUi(() -> {
                 if (generation != loadGeneration || searchGeneration != sourceSearchGeneration) return;
@@ -9674,7 +9682,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         int generation = loadGeneration;
         int searchGeneration = ++sourceSearchGeneration;
         Notify.show(getString(R.string.detail_work_searching, item.getTitle()));
-        Task.execute(() -> {
+        detailTasks.submit(() -> {
             Vod match = searchCurrentSite(item.getTitle(), site);
             runOnAliveUi(() -> {
                 if (generation != loadGeneration || searchGeneration != sourceSearchGeneration) return;

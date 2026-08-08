@@ -12,6 +12,7 @@ import java.util.List;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 
 public class TmdbMatcherTest {
 
@@ -73,8 +74,24 @@ public class TmdbMatcherTest {
         assertEquals("movie", movie.getMediaType());
     }
 
+    @Test
+    public void searchAndMatchRethrowsAuthenticationFailures() {
+        TmdbConfig config = TmdbConfig.objectFrom("{\"apiKey\":\"invalid\"}");
+        TmdbMatcher matcher = new TmdbMatcher(new AuthFailureTmdbService(), config);
+
+        assertThrows(TmdbService.AuthException.class, () -> matcher.searchAndMatch("test title"));
+    }
+
     private static TmdbItem item(int id, String mediaType, String title, String subtitle) {
         return new TmdbItem(id, mediaType, title, subtitle, "", "", "", "", 8.0, "", "", new ArrayList<>());
+    }
+
+    private static final class AuthFailureTmdbService extends TmdbService {
+
+        @Override
+        public List<TmdbItem> search(String keyword, TmdbConfig config) {
+            throw new TmdbService.AuthException(401, "TMDB search failed: HTTP 401");
+        }
     }
 
     private static final class FakeTmdbService extends TmdbService {

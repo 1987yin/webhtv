@@ -69,6 +69,7 @@ public class TmdbUIAdapter {
     private final TmdbConfig tmdbConfig;
     private final Runnable pendingVodRefresh = this::dispatchPendingVodRefresh;
     private final TmdbDetailPrefetch detailPrefetch;
+    private final Task.Scope backgroundTasks;
     private ListenableFuture<TmdbDetailPrefetch.Result> activePrefetch;
 
     private TmdbItem tmdbItem;
@@ -114,7 +115,8 @@ public class TmdbUIAdapter {
         this.tmdbService = new TmdbService();
         this.tmdbConfig = TmdbConfig.objectFrom(Setting.getTmdbConfig());
         this.tmdbMatcher = new TmdbMatcher(tmdbService, tmdbConfig);
-        this.detailPrefetch = new TmdbDetailPrefetch(Task.executor());
+        this.backgroundTasks = new Task.Scope(Task.recommendationExecutor());
+        this.detailPrefetch = new TmdbDetailPrefetch(Task.recommendationExecutor());
     }
 
     public boolean isReady() {
@@ -187,12 +189,16 @@ public class TmdbUIAdapter {
      */
     public void beginDetailRequest() {
         resetLoadState();
+        backgroundTasks.cancelAll();
         cancelActivePrefetch();
         detailPrefetch.cancel();
     }
 
     public void release() {
-        beginDetailRequest();
+        resetLoadState();
+        backgroundTasks.close();
+        cancelActivePrefetch();
+        detailPrefetch.cancel();
     }
 
     /**
@@ -249,7 +255,7 @@ public class TmdbUIAdapter {
         TmdbDetailCache.Entry cached = takeTmdbDetailCache(item);
         if (cached != null) {
             detailPrefetch.cancel();
-            Task.execute(() -> loadDetailSync(vod, cached.getItem(), cached.getDetail(), cached.getCast(), generation));
+            backgroundTasks.submit(() -> loadDetailSync(vod, cached.getItem(), cached.getDetail(), cached.getCast(), generation));
             return;
         }
         ListenableFuture<TmdbDetailPrefetch.Result> prefetched = detailPrefetch.take(item);
@@ -268,7 +274,7 @@ public class TmdbUIAdapter {
             public void onSuccess(TmdbDetailPrefetch.Result result) {
                 clearActivePrefetch(prefetched);
                 if (result == null || !isCurrentGeneration(generation)) return;
-                Task.execute(() -> loadDetailSync(vod, result.getItem(), result.getDetail(), result.getCast(), generation));
+                backgroundTasks.submit(() -> loadDetailSync(vod, result.getItem(), result.getDetail(), result.getCast(), generation));
             }
 
             @Override
@@ -312,7 +318,7 @@ public class TmdbUIAdapter {
         detailPrefetch.cancel();
         this.tmdbItem = item;
         saveMatch(vod, item);
-        Task.execute(() -> loadDetailSync(vod, cached.getItem(), cached.getDetail(), cached.getCast(), generation));
+        backgroundTasks.submit(() -> loadDetailSync(vod, cached.getItem(), cached.getDetail(), cached.getCast(), generation));
     }
 
     public void rememberManualMatch(Vod vod, TmdbItem item) {
@@ -339,7 +345,7 @@ public class TmdbUIAdapter {
             notifyLoadComplete(vod, generation);
             return;
         }
-        Task.execute(() -> {
+        backgroundTasks.submit(() -> {
             long start = System.currentTimeMillis();
             try {
                 if (!isCurrentGeneration(generation)) return;
@@ -438,7 +444,7 @@ public class TmdbUIAdapter {
             notifyLoadComplete(vod, generation);
             return;
         }
-        Task.execute(() -> loadDetailSync(vod, item, generation));
+        backgroundTasks.submit(() -> loadDetailSync(vod, item, generation));
     }
 
     private TmdbDetailCache.Entry takeTmdbDetailCache(TmdbItem item) {
@@ -692,7 +698,7 @@ public class TmdbUIAdapter {
 
     private void loadEpisodeTitlesAsync(Vod vod, TmdbItem item, int generation) {
         if (vod == null || item == null || !item.isTv()) return;
-        Task.execute(() -> {
+        backgroundTasks.submit(() -> {
             long start = System.currentTimeMillis();
             boolean changed = applyEpisodeTitles(vod, item);
             SpiderDebug.log("tmdb", "episode titles async cost=%dms changed=%s title=%s", System.currentTimeMillis() - start, changed, item.getTitle());
@@ -703,7 +709,7 @@ public class TmdbUIAdapter {
     private void loadRelatedRecommendationsAsync(Vod vod, TmdbItem item, JsonObject detail, int generation) {
         if (item == null || detail == null) return;
         recommendationLoading = true;
-        Task.execute(() -> {
+        backgroundTasks.submit(() -> {
             long start = System.currentTimeMillis();
             List<TmdbItem> ranked = new ArrayList<>();
             boolean more = false;
@@ -742,7 +748,7 @@ public class TmdbUIAdapter {
     private void loadPersonalRecommendationsAsync(Vod vod, TmdbItem item, JsonObject detail, int generation) {
         if (vod == null || !Setting.isPersonalRecommendation()) return;
         personalRefreshLoading = true;
-        Task.execute(() -> {
+        backgroundTasks.submit(() -> {
             long start = System.currentTimeMillis();
             PersonalRecommendationService.RecommendationPages pages = PersonalRecommendationService.RecommendationPages.empty();
             PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
@@ -770,7 +776,7 @@ public class TmdbUIAdapter {
     private void loadPersonalAiRecommendationsAsync(Vod vod, TmdbItem item, int generation) {
         if (vod == null || !Setting.isPersonalRecommendation() || personalAiLoading) return;
         personalAiLoading = true;
-        Task.execute(() -> {
+        backgroundTasks.submit(() -> {
             long start = System.currentTimeMillis();
             PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
             AiRecommendationService.CachedPage cached = service.loadCachedAiPage(vod, item, PersonalRecommendationService.DEFAULT_PAGE_SIZE);
@@ -1219,7 +1225,7 @@ public class TmdbUIAdapter {
         int generation = loadGeneration;
         int nextPage = recommendationPage + 1;
         recommendationLoading = true;
-        Task.execute(() -> {
+        backgroundTasks.submit(() -> {
             List<TmdbItem> next = new ArrayList<>();
             boolean more = false;
             PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
@@ -1264,7 +1270,7 @@ public class TmdbUIAdapter {
         }
         int generation = loadGeneration;
         personalRefreshLoading = true;
-        Task.execute(() -> {
+        backgroundTasks.submit(() -> {
             boolean changed = false;
             PersonalRecommendationService.RecommendationPages pages = PersonalRecommendationService.RecommendationPages.empty();
             boolean aiChanged = false;
@@ -1312,7 +1318,7 @@ public class TmdbUIAdapter {
         int generation = loadGeneration;
         if (tmdb) personalTmdbLoading = true;
         else personalDoubanLoading = true;
-        Task.execute(() -> {
+        backgroundTasks.submit(() -> {
             PersonalRecommendationService.RecommendationPage nextPage;
             PersonalRecommendationService service = new PersonalRecommendationService(tmdbService, tmdbConfig);
             try {
