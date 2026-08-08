@@ -75,12 +75,23 @@ public final class EpisodeSeasonPolicy {
     }
 
     public static int resolveSourceSeason(String... candidates) {
+        return resolveSourceSeason(true, candidates);
+    }
+
+    /** Use for source-line labels and episode names, where trailing digits are ordinals rather than seasons. */
+    public static int resolveExplicitSourceSeason(String... candidates) {
+        return resolveSourceSeason(false, candidates);
+    }
+
+    private static int resolveSourceSeason(boolean allowTrailingSeason, String... candidates) {
         if (candidates == null || candidates.length == 0) return -1;
         MediaTitleParser parser = new MediaTitleParser();
         for (String candidate : candidates) {
             if (candidate == null || candidate.trim().isEmpty()) continue;
             if (SPECIAL_SEASON.matcher(candidate).find()) return 0;
-            int season = parser.parse(MediaTitleRequest.builder().rawTitle(candidate).build()).getSeasonNumber();
+            int season = allowTrailingSeason
+                    ? parser.parse(MediaTitleRequest.builder().rawTitle(candidate).build()).getSeasonNumber()
+                    : parser.seasonNumber(candidate);
             if (season > 0) return season;
         }
         return -1;

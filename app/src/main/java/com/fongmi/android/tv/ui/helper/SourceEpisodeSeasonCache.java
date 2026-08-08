@@ -69,7 +69,7 @@ public final class SourceEpisodeSeasonCache {
     }
 
     private static int resolveEpisodeSeason(Episode episode) {
-        int candidate = EpisodeSeasonPolicy.resolveSourceSeason(episode == null ? "" : episode.getName());
+        int candidate = EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode == null ? "" : episode.getName());
         if (candidate >= 0) return candidate;
         TmdbEpisode tmdbEpisode = episode == null ? null : episode.getTmdbEpisode();
         return tmdbEpisode != null && tmdbEpisode.getNumber() > 0 ? tmdbEpisode.getSeasonNumber() : -1;
