@@ -4543,12 +4543,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         TmdbItem item = matchedTmdbItem;
         JsonObject detail = matchedTmdbDetail;
         TmdbConfig config = tmdbConfig;
+        // 源站季号可能因 TMDB 更名与 season_number 存在偏移，仅向 TMDB 请求时使用校正后的季号，
+        // 本地缓存仍以源站季号(seasonNumber)为 key，保证 UI 层无感。
+        int tmdbSeason = EpisodeSeasonPolicy.correctTmdbSeason(seasonNumber, item.getTitle());
         loadingSeasons.add(seasonNumber);
         updateEpisodeSkeleton();
         detailTasks.submit(Task.largeExecutor(), () -> {
             try {
-                JsonObject season = tmdbService.season(item, seasonNumber, config, detail, refresh);
-                List<TmdbEpisode> episodes = tmdbService.episodes(season, config, item.getTmdbId(), seasonNumber);
+                JsonObject season = tmdbService.season(item, tmdbSeason, config, detail, refresh);
+                List<TmdbEpisode> episodes = tmdbService.episodes(season, config, item.getTmdbId(), tmdbSeason);
                 List<TmdbPerson> cast = tmdbService.seasonCast(season, config);
                 List<String> photos = tmdbService.seasonPhotos(season, config);
                 runOnAliveUi(() -> {
