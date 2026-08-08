@@ -404,7 +404,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         try {
             mController = mControllerFuture.get();
             getSeekView().setPlayer(mController);
-getSeekView().setSeekListener(this::onSeekStarted);
+            getSeekView().setSeekListener(this::onSeekStarted);
             onControllerReady(mController);
             mController.addListener(this);
             reconcileControllerReadyState();
@@ -605,8 +605,9 @@ getSeekView().setSeekListener(this::onSeekStarted);
     }
 
     private void releaseController() {
-        if (mControllerFuture != null) MediaController.releaseFuture(mControllerFuture);
+        getSeekView().setPlayer(null);
         if (mController != null) mController.removeListener(this);
+        if (mControllerFuture != null) MediaController.releaseFuture(mControllerFuture);
         mControllerFuture = null;
         mController = null;
     }
