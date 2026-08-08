@@ -1,14 +1,24 @@
 package com.fongmi.android.tv.ui.activity;
 
+import android.app.AlertDialog;
 import android.app.PendingIntent;
+import android.app.ProgressDialog;
 import android.app.SearchManager;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
+import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
 import android.widget.RelativeLayout;
+import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.pm.ShortcutInfoCompat;
@@ -59,6 +69,13 @@ import com.google.gson.JsonObject;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
+
 public class HomeActivity extends BaseActivity implements NavigationBarView.OnItemSelectedListener, WebHomeChromeController.Host {
 
     public static final String EXTRA_NAV_POSITION = "nav_position";
@@ -72,6 +89,14 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     private boolean wideWindow;
     private int currentPosition;
     private boolean returnVodFromEnhance;
+
+    // ==========密钥校验新增变量==========
+    private final String REMOTE_KEY_URL = "https://gitee.com/xuanzhu181/webhtv/raw/main/key.txt";
+    private final int MAX_RETRY = 3;
+    private SharedPreferences sp;
+    private AlertDialog keyDialog;
+    private ProgressDialog loadingDialog;
+    private Handler mainHandler;
 
     @Override
     protected ViewBinding getBinding() {
@@ -102,6 +127,49 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         PermissionUtil.requestFile(this, allGranted -> PermissionUtil.requestNotify(this));
         initFragment(savedInstanceState);
         initConfig();
+
+        // ==========密钥校验逻辑放在initView末尾==========
+        sp = getSharedPreferences("key_store", MODE_PRIVATE);
+        mainHandler = new Handler(Looper.getMainLooper());
+
+        loadingDialog = new ProgressDialog(this);
+        loadingDialog.setMessage("正在校验密钥，请稍候...");
+        loadingDialog.setCancelable(false);
+
+        LayoutInflater inflater = LayoutInflater.from(this);
+        View dialogView = inflater.inflate(R.layout.dialog_key_input, null);
+        EditText etInput = dialogView.findViewById(R.id.et_input_key);
+        Button btnConfirm = dialogView.findViewById(R.id.btn_confirm_key);
+        TextView tvExit = dialogView.findViewById(R.id.tv_exit_app);
+
+        // 重点：不要 setTitle setMessage setPositiveButton，全部使用自定义布局控件
+        keyDialog = new AlertDialog.Builder(this)
+                .setView(dialogView)
+                .setCancelable(false)
+                .create();
+
+        //确认按钮
+        btnConfirm.setOnClickListener(v -> {
+            String userInput = etInput.getText().toString().trim();
+            if (userInput.isEmpty()) {
+                Toast.makeText(HomeActivity.this, "请输入密钥", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            checkNetKey(userInput, true, 0);
+        });
+
+        //退出软件按钮
+        tvExit.setOnClickListener(v -> {
+            finish();
+            System.exit(0);
+        });
+
+        String localSavedKey = sp.getString("saved_key", null);
+        if (localSavedKey == null) {
+            keyDialog.show();
+        } else {
+            checkNetKey(localSavedKey, false, 0);
+        }
     }
 
     @Override
@@ -123,7 +191,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
             intent.removeExtra(EXTRA_NAV_POSITION);
         } else if (Intent.ACTION_SEND.equals(intent.getAction())) {
             VideoActivity.push(this, intent.getStringExtra(Intent.EXTRA_TEXT));
-        } else if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
+        } else if (intent.getData() != null) {
             PermissionUtil.requestFile(this, allGranted -> checkType(intent));
         } else if (Intent.ACTION_SEARCH.equals(intent.getAction())) {
             String keyword = intent.getStringExtra(SearchManager.QUERY);
@@ -453,5 +521,88 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         Source.get().exit();
         Server.get().stop();
         super.onDestroy();
+    }
+
+    // ==========密钥校验新增方法==========
+    private void checkNetKey(String inputKey, boolean isFirstInput, int retryCount) {
+        if (retryCount == 0) {
+            mainHandler.post(() -> loadingDialog.show());
+        }
+        new Thread(() -> {
+            List<String> remoteKeyList = null;
+            boolean netOk = true;
+            try {
+                URL url = new URL(REMOTE_KEY_URL);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestMethod("GET");
+                BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                remoteKeyList = new ArrayList<>();
+                String line;
+                while ((line = br.readLine()) != null) {
+                    String trimLine = line.trim();
+                    if (!trimLine.isEmpty()) remoteKeyList.add(trimLine);
+                }
+                br.close();
+                conn.disconnect();
+            } catch (Exception e) {
+                netOk = false;
+            }
+
+            List<String> finalKeyList = remoteKeyList;
+            boolean finalNetOk = netOk;
+            int currentRetry = retryCount;
+            mainHandler.post(() -> {
+                loadingDialog.dismiss();
+                if (!finalNetOk) {
+                    if (currentRetry < MAX_RETRY) {
+                        checkNetKey(inputKey, isFirstInput, currentRetry + 1);
+                        return;
+                    } else {
+                        new AlertDialog.Builder(HomeActivity.this)
+                                .setTitle("网络校验失败")
+                                .setMessage("多次网络请求失败，是否使用本地已保存密钥离线使用？")
+                                .setCancelable(false)
+                                .setPositiveButton("离线继续", (d, w) -> enterMainUi())
+                                .setNegativeButton("退出", (d, w) -> {
+                                    finish();
+                                    System.exit(0);
+                                }).show();
+                        return;
+                    }
+                }
+                if (finalKeyList == null || finalKeyList.isEmpty()) {
+                    Toast.makeText(HomeActivity.this, "云端密钥配置异常", Toast.LENGTH_SHORT).show();
+                    finish();
+                    System.exit(0);
+                    return;
+                }
+                boolean match = finalKeyList.contains(inputKey);
+                if (isFirstInput) {
+                    if (match) {
+                        sp.edit().putString("saved_key", inputKey).apply();
+                        keyDialog.dismiss();
+                        enterMainUi();
+                    } else {
+                        Toast.makeText(HomeActivity.this, "密钥错误，退出", Toast.LENGTH_SHORT).show();
+                        finish();
+                        System.exit(0);
+                    }
+                } else {
+                    if (match) {
+                        enterMainUi();
+                    } else {
+                        sp.edit().remove("saved_key").apply();
+                        keyDialog.show();
+                    }
+                }
+            });
+        }).start();
+    }
+
+    private void enterMainUi() {
+        keyDialog.dismiss();
+        loadingDialog.dismiss();
     }
 }
