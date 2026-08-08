@@ -88,7 +88,7 @@ public class PlaybackPerformanceSettingSourceTest {
         assertTrue(source.contains("case PlaybackPerformanceSetting.PROFILE_ORIGINAL -> 4"));
 
         String catalog = read(sourcePath("main", "java", "com", "fongmi", "android", "tv", "setting", "PlaybackPerformanceCatalog.java"));
-        assertTrue(catalog.contains("option(PROFILE, BASIC, \"性能配置\", profileDescription(kernel))"));
+        assertTrue(catalog.contains("profileDescription(kernel, recommendedMerged)"));
         assertTrue(catalog.contains("自动档"));
     }
 
