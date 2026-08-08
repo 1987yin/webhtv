@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#F0F6FF"
+    android:padding="24dp">
+
+    <!-- 标题：访问密钥验证 -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="访问密钥验证"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:textColor="#111111" />
+
+    <!-- 说明：请输入访问密钥 -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="请输入访问密钥"
+        android:textSize="15sp"
+        android:textColor="#666666"
+        android:layout_marginTop="8dp" />
+
+    <!-- 密钥输入框 -->
+    <EditText
+        android:id="@+id/et_input_key"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="输入访问密钥"
+        android:inputType="textNoSuggestions"
+        android:maxLines="1"
+        android:textSize="16sp"
+        android:padding="14dp"
+        android:background="@drawable/bg_key_input"
+        android:layout_marginTop="20dp" />
+
+    <!-- 确认按钮 -->
+    <Button
+        android:id="@+id/btn_confirm_key"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="确认"
+        android:textSize="17sp"
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#2B5B99"
+        android:paddingVertical="12dp"
+        android:layout_marginTop="24dp" />
+
+    <!-- 退出软件按钮 -->
+    <TextView
+        android:id="@+id/tv_exit_app"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="退出软件"
+        android:textSize="16sp"
+        android:textColor="#2B5B99"
+        android:layout_gravity="center"
+        android:layout_marginTop="28dp" />
+
+</LinearLayout>
