@@ -2098,7 +2098,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (episodes == null || episodes.isEmpty() || bundle == null) return -1;
         List<Integer> sourceSeasonNumbers = new ArrayList<>(episodes.size());
         for (Episode episode : episodes) sourceSeasonNumbers.add(sourceSeasonNumber(episode));
-        int titleSeason = sourceSeasonNumber(initialFlag.getShow());
+        int titleSeason = EpisodeSeasonPolicy.resolveExplicitSourceSeason(initialFlag.getShow());
         if (titleSeason < 0) titleSeason = sourceSeasonNumber(loadedVod.getName());
         int firstSeason = firstSeasonNumber(bundle.detail());
         List<Integer> availableSeasons = EpisodeSeasonPolicy.resolveAvailableSeasons(
@@ -4638,7 +4638,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             if (cached != null && TextUtils.equals(cached.name(), name)) {
                 sourceSeason = cached.season();
             } else {
-                sourceSeason = EpisodeSeasonPolicy.resolveSourceSeason(episode.getName());
+                sourceSeason = EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode.getName());
                 sourceEpisodeSeasonCache.put(episode, new SourceEpisodeSeason(name, sourceSeason));
             }
         }
@@ -4658,7 +4658,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private int sourceTitleSeasonNumber() {
-        int number = selectedFlag == null ? -1 : sourceSeasonNumber(selectedFlag.getShow());
+        int number = selectedFlag == null ? -1 : EpisodeSeasonPolicy.resolveExplicitSourceSeason(selectedFlag.getShow());
         if (number >= 0) return number;
         number = sourceSeasonNumber(sourceVodName);
         if (number >= 0) return number;

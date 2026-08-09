@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.custom;
 
 import android.content.Context;
+import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -18,6 +19,7 @@ import androidx.media3.ui.TimeBar;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.player.cache.PlaybackDiskBufferStore;
+import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.Formatter;
 import java.util.Locale;
@@ -33,6 +35,7 @@ public class CustomSeekView extends FrameLayout implements Player.Listener, Time
     private static final int MAX_UPDATE_INTERVAL_MS = 1000;
     private static final int MIN_UPDATE_INTERVAL_MS = 200;
     private static final long DISK_RANGE_GAP_TOLERANCE_MS = 2000;
+    private static final long PAUSED_BUFFER_LOG_INTERVAL_MS = 5000;
 
     private final StringBuilder timeBuilder = new StringBuilder();
     private final Formatter timeFormatter = new Formatter(timeBuilder, Locale.getDefault());
@@ -47,6 +50,9 @@ public class CustomSeekView extends FrameLayout implements Player.Listener, Time
     private boolean attached;
     private Player player;
     private SeekListener seekListener;
+    private Player progressPlayer;
+    private long lastPausedBufferLogAtMs;
+    private long lastPausedBufferedPosition;
 
     public CustomSeekView(Context context) {
         this(context, null);
@@ -82,13 +88,37 @@ public class CustomSeekView extends FrameLayout implements Player.Listener, Time
         this.seekListener = seekListener;
     }
 
+    /**
+     * Uses the in-process engine for timeline reads while commands continue to
+     * go through the MediaController. MediaSession does not continuously send
+     * buffered-position-only changes while playback is paused, which otherwise
+     * leaves native-player buffer bars stale until playback resumes.
+     */
+    public void setProgressPlayer(@Nullable Player progressPlayer) {
+        if (this.progressPlayer == progressPlayer) return;
+        this.progressPlayer = progressPlayer;
+        lastPausedBufferLogAtMs = 0;
+        lastPausedBufferedPosition = 0;
+        if (SpiderDebug.isEnabled()) {
+            SpiderDebug.log("playback-progress", "action=bind source=%s",
+                    progressPlayer == null ? "controller" : "direct-engine");
+        }
+        if (attached) updateTimeline();
+    }
+
+    @Nullable
+    private Player getProgressPlayer() {
+        return progressPlayer != null ? progressPlayer : player;
+    }
+
     private String stringToTime(long time) {
         return Util.getStringForTime(timeBuilder, timeFormatter, time);
     }
 
     private void updateTimeline() {
-        if (!attached || player == null) return;
-        long duration = player.getDuration();
+        Player progress = getProgressPlayer();
+        if (!attached || progress == null) return;
+        long duration = progress.getDuration();
         if (duration < 0) duration = 0;
         currentDuration = duration;
         setKeyTimeIncrement(duration);
@@ -99,10 +129,11 @@ public class CustomSeekView extends FrameLayout implements Player.Listener, Time
 
     private void updateProgress() {
         removeCallbacks(runnable);
-        if (!attached || player == null) return;
-        long position = player.getCurrentPosition();
-        long buffered = effectiveBufferedPosition();
-        long duration = player.getDuration();
+        Player progress = getProgressPlayer();
+        if (!attached || progress == null) return;
+        long position = progress.getCurrentPosition();
+        long buffered = effectiveBufferedPosition(progress);
+        long duration = progress.getDuration();
         if (duration < 0) duration = 0;
         if (duration != currentDuration) {
             currentDuration = duration;
@@ -121,21 +152,37 @@ public class CustomSeekView extends FrameLayout implements Player.Listener, Time
             currentBuffered = buffered;
             timeBar.setBufferedPosition(buffered);
         }
-        if (player.isPlaying()) {
-            postDelayed(runnable, delayMs(position));
+        logPausedBufferProgress(progress, position, buffered);
+        if (progress.isPlaying()) {
+            postDelayed(runnable, delayMs(progress, position));
         } else {
             postDelayed(runnable, MAX_UPDATE_INTERVAL_MS);
         }
     }
 
-    private long effectiveBufferedPosition() {
-        long buffered = Math.max(0, player.getBufferedPosition());
-        String mediaKey = PlaybackDiskBufferStore.mediaKey(player.getCurrentMediaItem());
+    private long effectiveBufferedPosition(Player progress) {
+        long buffered = Math.max(0, progress.getBufferedPosition());
+        String mediaKey = PlaybackDiskBufferStore.mediaKey(progress.getCurrentMediaItem());
         long diskBuffered = PlaybackDiskBufferStore.process().contiguousEnd(
                 mediaKey, buffered, DISK_RANGE_GAP_TOLERANCE_MS);
         long effective = Math.max(buffered, diskBuffered);
-        long duration = player.getDuration();
+        long duration = progress.getDuration();
         return duration > 0 ? Math.min(effective, duration) : effective;
+    }
+
+    private void logPausedBufferProgress(Player progress, long position, long buffered) {
+        if (progress.isPlaying() || buffered <= lastPausedBufferedPosition) return;
+        long now = SystemClock.elapsedRealtime();
+        if (lastPausedBufferLogAtMs > 0
+                && now - lastPausedBufferLogAtMs < PAUSED_BUFFER_LOG_INTERVAL_MS) return;
+        lastPausedBufferLogAtMs = now;
+        lastPausedBufferedPosition = buffered;
+        if (SpiderDebug.isEnabled()) {
+            SpiderDebug.log("playback-progress",
+                    "mode=paused source=%s positionMs=%d bufferedPositionMs=%d bufferedDurationMs=%d",
+                    progress == player ? "controller" : "direct-engine",
+                    position, buffered, Math.max(0, buffered - position));
+        }
     }
 
     private void resetView() {
@@ -160,8 +207,8 @@ public class CustomSeekView extends FrameLayout implements Player.Listener, Time
         }
     }
 
-    private long delayMs(long position) {
-        float speed = player.getPlaybackParameters().speed;
+    private long delayMs(Player progress, long position) {
+        float speed = progress.getPlaybackParameters().speed;
         long mediaTimeUntilNextFullSecondMs = 1000 - position % 1000;
         long mediaTimeDelayMs = Math.min(timeBar.getPreferredUpdateDelay(), mediaTimeUntilNextFullSecondMs);
         long delayMs = (long) (mediaTimeDelayMs / Math.max(speed, 0.1f));
@@ -169,14 +216,20 @@ public class CustomSeekView extends FrameLayout implements Player.Listener, Time
     }
 
     private void seekToTimeBarPosition(long positionMs) {
+        Player commandPlayer = player;
+        if (commandPlayer == null) {
+            updateProgress();
+            return;
+        }
         if (seekListener != null) seekListener.onSeekStarted();
-        player.seekTo(positionMs);
+        commandPlayer.seekTo(positionMs);
         updateProgress();
-        player.play();
+        commandPlayer.play();
     }
 
     public void previewSeekPosition(long positionMs) {
-        long duration = currentDuration > 0 ? currentDuration : player == null ? 0 : Math.max(0, player.getDuration());
+        Player progress = getProgressPlayer();
+        long duration = currentDuration > 0 ? currentDuration : progress == null ? 0 : Math.max(0, progress.getDuration());
         long position = duration > 0 ? Util.constrainValue(positionMs, 0, duration) : Math.max(0, positionMs);
         removeCallbacks(runnable);
         scrubbing = true;
@@ -185,7 +238,8 @@ public class CustomSeekView extends FrameLayout implements Player.Listener, Time
     }
 
     public void commitSeekPreview(long positionMs) {
-        long duration = currentDuration > 0 ? currentDuration : player == null ? 0 : Math.max(0, player.getDuration());
+        Player progress = getProgressPlayer();
+        long duration = currentDuration > 0 ? currentDuration : progress == null ? 0 : Math.max(0, progress.getDuration());
         long position = duration > 0 ? Util.constrainValue(positionMs, 0, duration) : Math.max(0, positionMs);
         scrubbing = false;
         timeBar.setPosition(position);

@@ -494,7 +494,9 @@ private AudioHistory.Record audioHistoryRecord;
 
     private void dispatch(Consumer<NavigationCallback> action) {
         NavigationCallback callback = navigationCallback;
-        if (callback != null) App.post(() -> action.accept(callback));
+        if (callback != null) App.post(() -> {
+            if (navigationCallback == callback) action.accept(callback);
+        });
     }
 
     private void navigateItem(int delta) {
