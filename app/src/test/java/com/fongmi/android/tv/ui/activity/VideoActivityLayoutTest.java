@@ -1359,6 +1359,54 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void playbackControllerUsesBoundSessionTokenAndSurvivesControllerSetupFailure() throws Exception {
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java"));
+        Path servicePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "service", "PlaybackService.java"));
+        String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
+        String service = new String(Files.readAllBytes(servicePath), StandardCharsets.UTF_8);
+        String bind = methodBody(activity, "private void bindPlaybackService()", "private void bindPlaybackServiceAfterFirstFrame()");
+        String build = methodBody(activity, "private void buildControllerAsync(SessionToken token)", "private void handleControllerConnectionFailure(Exception e)");
+        String failure = methodBody(activity, "private void handleControllerConnectionFailure(Exception e)", "protected void onControllerConnected()");
+        String handle = methodBody(activity, "private void handleControllerConnected()", "private boolean shouldRejectPlaybackConnection()");
+        String connected = methodBody(activity, "public void onServiceConnected(ComponentName name, IBinder binder)", "public void onServiceDisconnected(ComponentName name)");
+        String disconnected = methodBody(activity, "public void onServiceDisconnected(ComponentName name)", "protected void onResume()");
+        String token = methodBody(service, "public SessionToken getSessionToken()", "public PlayerManager player()");
+        int controllerBuild = connected.indexOf("buildControllerAsync(mService.getSessionToken());");
+        int rejectAfterBuild = connected.indexOf("if (shouldRejectPlaybackConnection()) return;", controllerBuild);
+
+        assertFalse("binding must not resolve a component SessionToken before the local service is connected",
+                bind.contains("buildControllerAsync()"));
+        assertTrue("the connected service must supply the already-created MediaLibrarySession token",
+                controllerBuild >= 0);
+        assertTrue("controller setup must accept the bound service token",
+                activity.contains("private void buildControllerAsync(SessionToken token)"));
+        assertFalse("controller setup must not query PackageManager through a ComponentName token",
+                build.contains("new SessionToken(") || build.contains("new ComponentName("));
+        assertTrue("missing session tokens must fail gracefully instead of leaving a partial controller state",
+                build.contains("if (token == null)")
+                        && build.contains("handleControllerConnectionFailure(new IllegalStateException(\"Playback session token is unavailable\"));"));
+        assertTrue("controller setup must reject duplicate or late connections",
+                build.contains("if (mControllerFuture != null || shouldRejectPlaybackConnection()) return;"));
+        assertTrue("synchronous and asynchronous controller failures must share the same cleanup path",
+                build.contains("catch (RuntimeException e)")
+                        && build.contains("handleControllerConnectionFailure(e);")
+                        && handle.contains("catch (Exception e)")
+                        && handle.contains("handleControllerConnectionFailure(e);")
+                        && !handle.contains("catch (Exception ignored)"));
+        assertTrue("controller failure must release partial state and exit playback without crashing the app",
+                failure.contains("SpiderDebug.log(\"playback-flow\", e);")
+                        && failure.indexOf("releaseController();") >= 0
+                        && failure.indexOf("releaseController();") < failure.indexOf("finishPlayback();"));
+        assertTrue("service setup must stop after a synchronous controller failure starts activity shutdown",
+                controllerBuild >= 0 && rejectAfterBuild > controllerBuild);
+        assertTrue("the playback service must expose its live session token without another manifest lookup",
+                token.contains("return session == null ? null : session.getToken();"));
+        assertTrue("a disconnected service must release the old session controller before reconnecting",
+                disconnected.indexOf("releaseController();") >= 0
+                        && disconnected.indexOf("releaseController();") < disconnected.indexOf("mService = null;"));
+    }
+
+    @Test
     public void playbackControllerConnectionDoesNotReplayStaleState() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
