@@ -493,7 +493,7 @@ public class TmdbUIAdapter {
             Integer candidate = null;
             boolean consistent = true;
             for (Flag flag : sourceVod.getFlags()) {
-                int flagSeason = EpisodeSeasonPolicy.resolveSourceSeason(flag == null ? "" : flag.getShow());
+                int flagSeason = EpisodeSeasonPolicy.resolveExplicitSourceSeason(flag == null ? "" : flag.getShow());
                 if (flagSeason < 0) continue;
                 if (candidate != null && candidate != flagSeason) {
                     consistent = false;
@@ -509,7 +509,7 @@ public class TmdbUIAdapter {
             for (Flag flag : sourceVod.getFlags()) {
                 if (flag == null || flag.getEpisodes() == null) continue;
                 for (Episode episode : flag.getEpisodes()) {
-                    int episodeSeason = EpisodeSeasonPolicy.resolveSourceSeason(episode == null ? "" : episode.getName());
+                    int episodeSeason = EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode == null ? "" : episode.getName());
                     if (episodeSeason < 0) continue;
                     if (candidate != null && candidate != episodeSeason) {
                         consistent = false;
