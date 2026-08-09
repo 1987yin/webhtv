@@ -148,7 +148,17 @@ public class WebThemeDetailWiringTest {
 
         assertTrue(remote.contains("!destroyed && !paused && bridgeReady"));
         assertTrue(v2.contains("!destroyed && !paused && bridgeReady"));
-        assertTrue(pause.contains("webView.pauseTimers();"));
+        assertTrue(pause.contains("webView.onPause();"));
+    }
+
+    @Test
+    public void pausingHomeWebViewDoesNotFreezeOtherWebViews() throws Exception {
+        String controller = read("src/main/java/com/fongmi/android/tv/web/HomeWebController.java");
+
+        assertTrue(controller.contains("webView.onPause();"));
+        assertTrue(controller.contains("webView.onResume();"));
+        assertFalse(controller.contains("webView.pauseTimers();"));
+        assertFalse(controller.contains("webView.resumeTimers();"));
     }
 
     @Test
