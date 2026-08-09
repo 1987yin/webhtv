@@ -8568,9 +8568,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (isFusionMode()) {
             if (binding.playerPanel.getHeight() > 0) {
                 int gap = ResUtil.dp2px(0);
+                int lift = ResUtil.dp2px(10); // 播放窗口整体上移 10dp
                 // scroll.getTop()(含下移占位) + fusionActions.getTop() = 按钮行屏幕绝对 y，不随滚动变化
                 float target = binding.scroll.getTop() + binding.fusionActions.getTop()
-                        - binding.playerPanel.getHeight() - gap;
+                        - binding.playerPanel.getHeight() - gap - lift;
                 if (Math.abs(binding.playerPanel.getTranslationY() - target) > 0.5f) {
                     binding.playerPanel.setTranslationY(target);
                 }
