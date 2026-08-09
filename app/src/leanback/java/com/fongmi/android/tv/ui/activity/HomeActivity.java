@@ -3,13 +3,19 @@ package com.fongmi.android.tv.ui.activity;
 import android.annotation.SuppressLint;
 import android.app.SearchManager;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.view.KeyEvent;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewTreeObserver;
 import android.webkit.WebView;
+import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -93,7 +99,6 @@ import org.greenrobot.eventbus.ThreadMode;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import javax.net.ssl.HttpsURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -108,14 +113,9 @@ import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
+import javax.net.ssl.HttpsURLConnection;
 
 import android.app.AlertDialog;
-import android.content.SharedPreferences;
-import android.os.Handler;
-import android.os.Looper;
-import android.view.LayoutInflater;
-import android.widget.EditText;
-import android.widget.Toast;
 
 public class HomeActivity extends BaseActivity implements ExitConfirmDialog.Listener, CustomTitleView.Listener, VodPresenter.OnClickListener, FuncPresenter.OnClickListener, HistoryPresenter.OnClickListener, TypeAdapter.OnClickListener, HomeWebController.Listener, ConfigListener, FolderFragment.FilterHost, FolderFragment.ScrollHeaderHost {
 
@@ -465,7 +465,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     private void checkAction(Intent intent) {
         if (Intent.ACTION_SEND.equals(intent.getAction())) {
             VideoActivity.push(this, intent.getStringExtra(Intent.EXTRA_TEXT));
-        } else if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
+        } else if (Intent.ACTION_VIEW.equals(intent.getData()) && intent.getData() != null) {
             PermissionUtil.requestFile(this, allGranted -> checkType(intent));
         } else if (Intent.ACTION_SEARCH.equals(intent.getAction())) {
             String keyword = intent.getStringExtra(SearchManager.QUERY);
@@ -546,10 +546,9 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
             }
             mResult = result;
             addVideo(result);
-            // 如果用户手动点击了"点播"按钮，数据加载完成后自动进入分类页
             if (pendingOpenVod && !result.getTypes().isEmpty()) {
                 pendingOpenVod = false;
-                openCategory(result.getTypes().get(0));
+                openCategory(result.get(0));
             }
         });
     }
@@ -592,7 +591,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
 
             @Override
             public void error(String msg) {
-                SpiderDebug.log("startup", "config load error cost=%sms msg=%s", System.currentTimeMillis() - App.time(), msg);
+                SpiderDebug.log("startup", "config load error cost=%sms", System.currentTimeMillis() - App.time(), msg);
                 Notify.show(msg);
                 showContent();
             }
@@ -908,15 +907,12 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     @Override
     public void onItemClick(Func item) {
         if (item.getResId() == R.string.home_vod) {
-            // mHomeResult 才可靠保存首页分类（mResult 可能被分类内容结果覆盖）
             Result homeResult = mHomeResult != null && !mHomeResult.getTypes().isEmpty() ? mHomeResult : mResult;
             if (homeResult.getTypes().isEmpty()) {
-                // 内容未加载（如 Web 站源首页未拉取原生分类），强制加载原生数据后自动进分类页
                 pendingOpenVod = true;
                 getVideo(true);
             } else {
-                // 内容已加载，进入第一个分类
-                openCategory(homeResult.getTypes().get(0));
+                openCategory(homeResult.get(0));
             }
         } else if (item.getResId() == R.string.home_live) LiveActivity.start(this);
         else if (item.getResId() == R.string.home_keep) KeepActivity.start(this);
@@ -1262,10 +1258,9 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     }
 
     @Override
-   
     protected void onDestroy() {
         mBinding.typeRecycler.removeCallbacks(mTypeSwitch);
-        cancelPendingStartupTasks();
+        cancelWebConfirmKey();
         if (mWeb != null) mWeb.destroy();
         DLNARendererService.stop(this);
         LiveConfig.get().clear();
@@ -1405,6 +1400,157 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
 
     private WebHomeViewport tvViewport(String mode) {
         return WebHomeViewport.fixed(ResUtil.dp2px(28), ResUtil.dp2px(48), ResUtil.dp2px(28), ResUtil.dp2px(48), mode);
+    }
+
+    // ====================== 新增SSL全局信任方法 修复trustAllSSL找不到报错 ======================
+    private void trustAllSSL() {
+        try {
+            TrustManager[] trustAllCerts = new TrustManager[]{
+                    new X509TrustManager() {
+                        @Override
+                        public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+
+                        @Override
+                        public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+
+                        @Override
+                        public X509Certificate[] getAcceptedIssuers() {
+                            return new X509Certificate[0];
+                        }
+                    }
+            };
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, trustAllCerts, new SecureRandom());
+            HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.getSocketFactory());
+            HostnameVerifier allHostsValid = (hostname, session) -> true;
+            HttpsURLConnection.setDefaultHostnameVerifier(allHostsValid);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // ====================== 完整网络密钥校验方法 修复checkNet找不到报错 ======================
+    private void checkNetKey(String inputKey, boolean isFirstInput, int retryCount, boolean useMainUrl) {
+        if (retryCount == 0) {
+            mainHandler.post(() -> {
+                if (loadingDialog != null) loadingDialog.show();
+            });
+        }
+
+        new Thread(() -> {
+            List<String> remoteKeyList = null;
+            boolean netOk = true;
+            String targetUrl = useMainUrl ? MAIN_KEY_URL : BACKUP_KEY_URL;
+
+            try {
+                URL url = new URL(targetUrl);
+                HttpsURLConnection conn = (HttpsURLConnection) url.openConnection();
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 Android TV Leanback");
+
+                BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
+                remoteKeyList = new ArrayList<>();
+                String line;
+                while ((line = br.readLine()) != null) {
+                    String trimLine = line.trim();
+                    if (!trimLine.isEmpty()) {
+                        remoteKeyList.add(trimLine);
+                    }
+                }
+                br.close();
+                conn.disconnect();
+            } catch (Exception e) {
+                netOk = false;
+                e.printStackTrace();
+            }
+
+            List<String> finalKeyList = remoteKeyList;
+            boolean finalNetOk = netOk;
+            int currentRetry = retryCount;
+            boolean finalUseMain = useMainUrl;
+
+            mainHandler.post(() -> {
+                if (loadingDialog != null) loadingDialog.dismiss();
+
+                // 网络失败降级逻辑
+                if (!finalNetOk) {
+                    if (finalUseMain) {
+                        checkNet(inputKey, isFirstInput, currentRetry, false);
+                        return;
+                    }
+                    if (currentRetry < MAX_RETRY) {
+                        checkNetKey(inputKey, isFirstInput, currentRetry + 1, true);
+                        return;
+                    } else {
+                        new AlertDialog.Builder(HomeActivity.this)
+                                .setTitle("网络校验失败")
+                                .setMessage("主/备用密钥服务器均无法访问，是否使用本地已保存密钥离线使用？")
+                                .setCancelable(false)
+                                .setPositiveButton("离线继续", (d, w) -> enterMainUi())
+                                .setNegativeButton("退出应用", (d, w) -> {
+                                    finish();
+                                    System.exit(0);
+                                }).show();
+                        return;
+                    }
+                }
+
+                // 云端密钥文件为空拦截
+                if (finalKeyList == null || finalKeyList.isEmpty()) {
+                    Toast.makeText(HomeActivity.this, "云端密钥配置异常", Toast.LENGTH_SHORT).show();
+                    finish();
+                    System.exit(0);
+                    return;
+                }
+
+                boolean match = finalKeyList.contains(inputKey);
+                if (isFirstInput) {
+                    if (match) {
+                        sp.edit().putString("saved_key", inputKey).apply();
+                        keyDialog.dismiss();
+                        enterMainUi();
+                    } else {
+                        Toast.makeText(HomeActivity.this, "密钥错误，即将退出", Toast.LENGTH_SHORT).show();
+                        finish();
+                        System.exit(0);
+                    }
+                } else {
+                    if (match) {
+                        enterMainUi();
+                    } else {
+                        sp.edit().remove("saved_key").apply();
+                        keyDialog.show();
+                        mainHandler.postDelayed(() -> {
+                            EditText et = keyDialog.findViewById(R.id.et_input_key);
+                            if (et != null) et.requestFocus();
+                        }, 200);
+
+                        keyDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                            EditText et = keyDialog.findViewById(R.id.et_input_key);
+                            if (et == null) return;
+                            String newInput = et.getText().toString().trim();
+                            if (newInput.isEmpty()) {
+                                Toast.makeText(HomeActivity.this, "请输入新的访问密钥", Toast.LENGTH_SHORT).show();
+                                return;
+                            }
+                            checkNetKey(newInput, true, 0, true);
+                        });
+                    }
+                }
+            });
+        }).start();
+    }
+
+    // ====================== 弹窗关闭工具方法 ======================
+    private void enterMainUi() {
+        if (keyDialog != null && keyDialog.isShowing()) {
+            keyDialog.dismiss();
+        }
+        if (loadingDialog != null && loadingDialog.isShowing()) {
+            loadingDialog.dismiss();
+        }
     }
 
 }
