@@ -1530,7 +1530,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
                         keyDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                             EditText et = keyDialog.findViewById(R.id.et_input_key);
                             if (et == null) return;
-                            String newInput = et.getText().trim();
+                            String newInput = et.getText().toString().trim();
                             if (newInput.isEmpty()) {
                                 Toast.makeText(HomeActivity.this, "请输入新的访问密钥", Toast.LENGTH_SHORT).show();
                                 return;
@@ -1552,3 +1552,5 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
             loadingDialog.dismiss();
         }
     }
+
+}
