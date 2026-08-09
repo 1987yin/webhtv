@@ -48,6 +48,17 @@ public class BackupPreferenceFilterTest {
     }
 
     @Test
+    public void githubProxyPreferencesFollowSettingsOption() {
+        SyncOptions settingsOnly = new SyncOptions().config(false).spider(false).webHome(false).settings(true);
+        SyncOptions webHomeOnly = new SyncOptions().config(false).spider(false).webHome(true).settings(false);
+
+        assertTrue(Backup.include("github_proxy", settingsOnly));
+        assertTrue(Backup.include("github_proxy_enabled", settingsOnly));
+        assertFalse(Backup.include("github_proxy", webHomeOnly));
+        assertFalse(Backup.include("github_proxy_enabled", webHomeOnly));
+    }
+
+    @Test
     public void manifestCountCoversSourcesSwitchAndPerExtensionState() {
         Backup backup = new Backup();
         backup.setPrefers(Map.of(

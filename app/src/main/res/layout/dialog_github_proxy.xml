@@ -26,6 +26,19 @@
         android:overScrollMode="never"
         app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
 
+    <com.google.android.material.switchmaterial.SwitchMaterial
+        android:id="@+id/enabled"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="10dp"
+        android:focusable="true"
+        android:nextFocusDown="@id/input"
+        android:text="@string/setting_github_proxy_enabled"
+        android:textColor="#202124"
+        android:textSize="15sp"
+        app:thumbTint="@color/dialog_switch_thumb"
+        app:trackTint="@color/dialog_switch_track" />
+
     <androidx.appcompat.widget.LinearLayoutCompat
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

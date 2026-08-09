@@ -93,15 +93,33 @@ public class EpisodeSeasonPolicyTest {
     }
 
     @Test
-    public void resolveAvailableSeasons_partialExplicitMappingFallsBackToUngrouped() {
-        assertEquals(List.of(), EpisodeSeasonPolicy.resolveAvailableSeasons(
+    public void resolveAvailableSeasons_partialExplicitSingleSeasonKeepsKnownSeason() {
+        assertEquals(List.of(1), EpisodeSeasonPolicy.resolveAvailableSeasons(
+                List.of(1, 1, -1, 1), -1, 1, List.of(1), Map.of(1, 206)));
+    }
+
+    @Test
+    public void resolveAvailableSeasons_partialExplicitSingleSeasonHidesUnrelatedTmdbSeasons() {
+        assertEquals(List.of(2), EpisodeSeasonPolicy.resolveAvailableSeasons(
                 List.of(2, -1), -1, 1, List.of(1, 2, 3), Map.of(1, 2, 2, 2, 3, 2)));
     }
 
     @Test
-    public void resolveAvailableSeasons_partialExplicitMappingDoesNotLetTitleDropUnknownEpisodes() {
+    public void resolveAvailableSeasons_partialExplicitSpecialSeasonStaysOnSeasonZero() {
+        assertEquals(List.of(0), EpisodeSeasonPolicy.resolveAvailableSeasons(
+                List.of(0, -1, 0), -1, 1, List.of(0, 1), Map.of(0, 2, 1, 2)));
+    }
+
+    @Test
+    public void resolveAvailableSeasons_partialExplicitMultipleSeasonsStaysUngrouped() {
         assertEquals(List.of(), EpisodeSeasonPolicy.resolveAvailableSeasons(
-                List.of(2, -1), 2, 1, List.of(1, 2, 3), Map.of(1, 2, 2, 2, 3, 2)));
+                List.of(1, -1, 2), -1, 1, List.of(1, 2), Map.of(1, 2, 2, 2)));
+    }
+
+    @Test
+    public void resolveAvailableSeasons_partialExplicitUnknownTmdbSeasonStaysUngrouped() {
+        assertEquals(List.of(), EpisodeSeasonPolicy.resolveAvailableSeasons(
+                List.of(2, -1), -1, 1, List.of(1), Map.of(1, 2)));
     }
 
     @Test
