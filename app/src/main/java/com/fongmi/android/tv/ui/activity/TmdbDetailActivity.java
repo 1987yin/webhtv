@@ -1151,8 +1151,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void setupInlineFocusNavigation() {
         if (Util.isMobile()) return;
-        binding.playerPanelSpacer.setFocusable(true);
-        binding.playerPanelSpacer.setFocusableInTouchMode(false);
         View timeBar = inlineSeek().findViewById(R.id.timeBar);
         if (timeBar != null) {
             timeBar.setNextFocusUpId(R.id.playerFullscreenAction);
@@ -1187,10 +1185,22 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerDisplay.setNextFocusUpId(R.id.playerDisplay);
         binding.playerRepeat.setNextFocusUpId(R.id.playerRepeat);
 
-        // playerPanelSpacer 作为焦点桥梁：获得焦点时立即转给 playerPanel
-        binding.playerPanelSpacer.setOnFocusChangeListener((v, hasFocus) -> {
-            if (hasFocus && !inlineFullscreen) binding.playerPanel.requestFocus();
-        });
+        if (isFusionMode()) {
+            // 融合模式：播放窗口浮动在按钮行上方，playerPanelSpacer 仅占位(不可获焦)。
+            // 若 spacer 可获焦会卡在 playerPanel↔spacer 焦点循环，导致方向键无法切到按钮。
+            // 显式用 nextFocusUp 把按钮行与播放窗口串起来，方向键可正常往返。
+            binding.playerPanelSpacer.setFocusable(false);
+            binding.playerPanelSpacer.setFocusableInTouchMode(false);
+            binding.playerPanelSpacer.setOnFocusChangeListener(null);
+            binding.fusionActions.setNextFocusUpId(R.id.playerPanel);
+        } else {
+            // playerPanelSpacer 作为焦点桥梁：获得焦点时立即转给 playerPanel
+            binding.playerPanelSpacer.setFocusable(true);
+            binding.playerPanelSpacer.setFocusableInTouchMode(false);
+            binding.playerPanelSpacer.setOnFocusChangeListener((v, hasFocus) -> {
+                if (hasFocus && !inlineFullscreen) binding.playerPanel.requestFocus();
+            });
+        }
     }
 
     private void setupHorizontalFocusChain() {
