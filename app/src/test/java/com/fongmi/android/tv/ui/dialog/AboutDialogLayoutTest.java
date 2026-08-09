@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -55,6 +56,24 @@ public class AboutDialogLayoutTest {
                 source.contains("Math.min(availableHeight, Math.max(chromeHeight + 1, availableHeight - ResUtil.dp2px(DIALOG_VERTICAL_MARGIN_DP)))"));
         assertFalse("A 200dp scroll minimum can exceed the remaining TV height and push all action buttons outside the window",
                 source.contains("Math.max(ResUtil.dp2px(200), availableHeight - chromeHeight"));
+    }
+
+    @Test
+    public void lightAlertDialogWidthUsesPhysicalWidthAndHeight() {
+        assertEquals(998, LightDialog.resolveAlertWidth(1920, 1080));
+        assertEquals(1120, LightDialog.resolveAlertWidth(2560, 1080));
+        assertEquals(972, LightDialog.resolveAlertWidth(1080, 1920));
+    }
+
+    @Test
+    public void lightAlertDialogListHeightTracksPhysicalScreenHeight() {
+        assertEquals(626, LightDialog.resolveAlertListMaxHeight(1080));
+        assertEquals(418, LightDialog.resolveAlertListMaxHeight(720));
+        assertEquals(886, LightDialog.resolveAlertWindowMaxHeight(1080));
+        assertEquals(590, LightDialog.resolveAlertWindowMaxHeight(720));
+        assertEquals(698, LightDialog.resolveAlertWindowHeight(496, 278, 480, 886));
+        assertEquals(506, LightDialog.resolveAlertWindowHeight(496, 278, 288, 886));
+        assertEquals(886, LightDialog.resolveAlertWindowHeight(700, 300, 700, 886));
     }
 
     @Test
