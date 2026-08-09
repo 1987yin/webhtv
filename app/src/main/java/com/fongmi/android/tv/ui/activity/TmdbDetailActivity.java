@@ -8536,10 +8536,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (binding == null || binding.playerPanelSpacer == null) return;
         ViewGroup.LayoutParams sp = binding.playerPanelSpacer.getLayoutParams();
         if (sp == null) return;
-        // 融合模式下 scroll 已整体下移到播放窗口下方，spacer 只需保留按钮与播放窗口的间距(40dp)，
-        // 不再占据播放窗口高度；非融合模式 spacer 占满播放窗口高度并随滚动跟随。
+        // 融合模式下 scroll 已整体下移到播放窗口下方，spacer 高度置 0 使按钮/选集等内容整体上移、
+        // 紧贴播放窗口底部（不再与播放窗口间隔 40dp）；非融合模式 spacer 占满播放窗口高度并随滚动跟随。
         boolean fusion = isFusionMode();
-        int target = ResUtil.dp2px(fusion ? 40 : 252);
+        int target = ResUtil.dp2px(fusion ? 0 : 252);
         int topMargin = ResUtil.dp2px(fusion ? 0 : 14);
         int bottomMargin = ResUtil.dp2px(fusion ? 0 : 16);
         boolean changed = sp.height != target;
@@ -8567,10 +8567,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         // scroll 已整体下移到播放窗口下方占位，故按钮/选集等内容永远在播放窗口之下，不会被遮挡。
         if (isFusionMode()) {
             if (binding.playerPanel.getHeight() > 0) {
-                int gap = ResUtil.dp2px(40);
+                int gap = ResUtil.dp2px(0);
+                int lift = ResUtil.dp2px(10); // 播放窗口整体上移 10dp
                 // scroll.getTop()(含下移占位) + fusionActions.getTop() = 按钮行屏幕绝对 y，不随滚动变化
                 float target = binding.scroll.getTop() + binding.fusionActions.getTop()
-                        - binding.playerPanel.getHeight() - gap;
+                        - binding.playerPanel.getHeight() - gap - lift;
                 if (Math.abs(binding.playerPanel.getTranslationY() - target) > 0.5f) {
                     binding.playerPanel.setTranslationY(target);
                 }
