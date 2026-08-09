@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import android.content.res.Configuration;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -88,6 +89,9 @@ public class EpisodeDetailDialog {
         TextView guestsLabel = view.findViewById(R.id.guestsLabel);
         androidx.leanback.widget.HorizontalGridView guestsGrid = view.findViewById(R.id.guestsGrid);
 
+        boolean light = resolveLightTheme(activity);
+        applyTheme(view, light);
+
         // 加载剧照 - 使用原图
         if (!tmdbEpisode.getStillUrl().isEmpty()) {
             Glide.with(activity)
@@ -149,7 +153,7 @@ public class EpisodeDetailDialog {
 
         // 如果已预加载数据，直接显示；否则异步加载
         if (preloadedPhotos != null || preloadedGuests != null) {
-            bindPreloadedMedia(activity, preloadedPhotos, preloadedGuests, photosLabel, photosGrid, guestsLabel, guestsGrid);
+            bindPreloadedMedia(activity, preloadedPhotos, preloadedGuests, light, photosLabel, photosGrid, guestsLabel, guestsGrid);
         } else {
             // 初始隐藏本集图片，异步加载
             photosLabel.setVisibility(View.GONE);
@@ -157,7 +161,7 @@ public class EpisodeDetailDialog {
             guestsLabel.setVisibility(View.GONE);
             guestsGrid.setVisibility(View.GONE);
             // 异步加载本集图片与客串演员
-            loadEpisodeMedia(activity, tmdbEpisode, site, photosLabel, photosGrid, guestsLabel, guestsGrid);
+            loadEpisodeMedia(activity, tmdbEpisode, site, light, photosLabel, photosGrid, guestsLabel, guestsGrid);
         }
 
         MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(activity)
@@ -176,8 +180,8 @@ public class EpisodeDetailDialog {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             );
-            // 使用纯色背景（布局中已有半透明黑色背景）
-            alertDialog.getWindow().setBackgroundDrawableResource(android.R.color.black);
+            // Window 背景与当前详情主题保持一致，避免显示/关闭动画露出反色底色
+            alertDialog.getWindow().setBackgroundDrawableResource(light ? android.R.color.white : android.R.color.black);
         }
 
         // 延迟一帧确保布局完成后滚动到顶部
@@ -206,6 +210,9 @@ public class EpisodeDetailDialog {
         androidx.leanback.widget.HorizontalGridView photosGrid = view.findViewById(R.id.photosGrid);
         TextView guestsLabel = view.findViewById(R.id.guestsLabel);
         androidx.leanback.widget.HorizontalGridView guestsGrid = view.findViewById(R.id.guestsGrid);
+
+        boolean light = resolveLightTheme(activity);
+        applyTheme(view, light);
 
         // 背景图：影片 backdrop
         String backdrop = movieItem.getBackdropUrl();
@@ -273,11 +280,48 @@ public class EpisodeDetailDialog {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             );
-            alertDialog.getWindow().setBackgroundDrawableResource(android.R.color.black);
+            alertDialog.getWindow().setBackgroundDrawableResource(light ? android.R.color.white : android.R.color.black);
         }
 
         // 延迟一帧确保布局完成后滚动到顶部
         scrollView.post(() -> scrollView.scrollTo(0, 0));
+    }
+
+    private static boolean resolveLightTheme(FragmentActivity activity) {
+        int night = activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        return Setting.resolveTmdbDetailLightTheme(Setting.getTmdbDetailTheme(), night == Configuration.UI_MODE_NIGHT_YES);
+    }
+
+    private static void applyTheme(View view, boolean light) {
+        View root = view.findViewById(R.id.root);
+        androidx.cardview.widget.CardView stillCard = view.findViewById(R.id.stillCard);
+        ImageView still = view.findViewById(R.id.still);
+        TextView title = view.findViewById(R.id.title);
+        TextView originalName = view.findViewById(R.id.originalName);
+        TextView date = view.findViewById(R.id.date);
+        TextView runtime = view.findViewById(R.id.runtime);
+        TextView overviewLabel = view.findViewById(R.id.overviewLabel);
+        TextView overview = view.findViewById(R.id.overview);
+        TextView photosLabel = view.findViewById(R.id.photosLabel);
+        TextView guestsLabel = view.findViewById(R.id.guestsLabel);
+
+        int background = light ? 0xFFFFFFFF : 0xFF101214;
+        int imageBackground = 0xFF1A1A1A;
+        int primary = light ? 0xFF1A1A1A : 0xFFFFFFFF;
+        int secondary = light ? 0xFF555555 : 0xFFAAAAAA;
+        int body = light ? 0xFF333333 : 0xFFDDDDDD;
+
+        root.setBackgroundColor(background);
+        stillCard.setCardBackgroundColor(imageBackground);
+        still.setBackgroundColor(imageBackground);
+        title.setTextColor(primary);
+        originalName.setTextColor(secondary);
+        date.setTextColor(secondary);
+        runtime.setTextColor(secondary);
+        overviewLabel.setTextColor(primary);
+        overview.setTextColor(body);
+        photosLabel.setTextColor(primary);
+        guestsLabel.setTextColor(primary);
     }
 
     private static void showSimpleDialog(FragmentActivity activity, Episode episode,
@@ -292,7 +336,7 @@ public class EpisodeDetailDialog {
         dialog.show();
     }
 
-    private static void loadEpisodeMedia(FragmentActivity activity, TmdbEpisode tmdbEpisode, Site site,
+    private static void loadEpisodeMedia(FragmentActivity activity, TmdbEpisode tmdbEpisode, Site site, boolean light,
                                          TextView photosLabel, androidx.leanback.widget.HorizontalGridView photosGrid,
                                          TextView guestsLabel, androidx.leanback.widget.HorizontalGridView guestsGrid) {
         // 只有有tmdbId才能加载图片
@@ -337,6 +381,7 @@ public class EpisodeDetailDialog {
 
                             EpisodePhotoAdapter photoAdapter = new EpisodePhotoAdapter(photos,
                                     (url, position) -> PhotoViewerDialog.show(activity, photos, position, null));
+                            photoAdapter.setLight(light);
                             photosGrid.setAdapter(photoAdapter);
                         }
 
@@ -347,6 +392,7 @@ public class EpisodeDetailDialog {
                             guestsGrid.setRowHeight(ResUtil.dp2px(154));
 
                             TmdbPersonAdapter guestAdapter = new TmdbPersonAdapter(person -> TmdbPersonDialog.show(activity, person, site));
+                            guestAdapter.setLight(light);
                             guestAdapter.setItems(guests);
                             guestsGrid.setAdapter(guestAdapter);
                         }
@@ -375,6 +421,7 @@ public class EpisodeDetailDialog {
     private static void bindPreloadedMedia(FragmentActivity activity,
                                           java.util.List<String> photos,
                                           java.util.List<TmdbPerson> guests,
+                                          boolean light,
                                           TextView photosLabel,
                                           androidx.leanback.widget.HorizontalGridView photosGrid,
                                           TextView guestsLabel,
@@ -387,6 +434,7 @@ public class EpisodeDetailDialog {
 
             EpisodePhotoAdapter photoAdapter = new EpisodePhotoAdapter(photos,
                     (url, position) -> PhotoViewerDialog.show(activity, photos, position, null));
+            photoAdapter.setLight(light);
             photosGrid.setAdapter(photoAdapter);
         } else {
             photosLabel.setVisibility(View.GONE);
@@ -400,6 +448,7 @@ public class EpisodeDetailDialog {
             guestsGrid.setRowHeight(ResUtil.dp2px(154));
 
             TmdbPersonAdapter guestAdapter = new TmdbPersonAdapter(person -> TmdbPersonDialog.show(activity, person, null));
+            guestAdapter.setLight(light);
             guestAdapter.setItems(guests);
             guestsGrid.setAdapter(guestAdapter);
         } else {
@@ -443,9 +492,17 @@ public class EpisodeDetailDialog {
             }
 
             if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) {
-                // 从网格往上：跳回大海报
-                // 焦点实际在网格的 item 上，需要检查父级关系
-                if (focus != null && (isDescendantOf(focus, photosGrid) || isDescendantOf(focus, guestsGrid))) {
+                // 客串卡片先回到剧照，剧照再回到大海报；焦点实际在网格 item 上，需要检查父级关系
+                if (focus != null && (focus == guestsGrid || isDescendantOf(focus, guestsGrid))) {
+                    if (photosGrid != null && photosGrid.getVisibility() == View.VISIBLE
+                            && photosGrid.getAdapter() != null && photosGrid.getAdapter().getItemCount() > 0) {
+                        photosGrid.requestFocus();
+                    } else {
+                        stillCard.requestFocus();
+                    }
+                    return true;
+                }
+                if (focus != null && (focus == photosGrid || isDescendantOf(focus, photosGrid))) {
                     stillCard.requestFocus();
                     return true;
                 }

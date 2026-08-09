@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.google.android.material.card.MaterialCardView;
 
 import java.util.List;
 
@@ -23,6 +24,7 @@ public class EpisodePhotoAdapter extends RecyclerView.Adapter<EpisodePhotoAdapte
     private final OnClickListener mListener;
     private final int photoWidth = 220;  // dp
     private final int photoHeight = 124; // dp (16:9)
+    private boolean light;
 
     public interface OnClickListener {
         void onItemClick(String url, int position);
@@ -37,6 +39,10 @@ public class EpisodePhotoAdapter extends RecyclerView.Adapter<EpisodePhotoAdapte
         this.mListener = listener;
     }
 
+    public void setLight(boolean light) {
+        this.light = light;
+    }
+
     @NonNull
     @Override
     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
@@ -47,6 +53,7 @@ public class EpisodePhotoAdapter extends RecyclerView.Adapter<EpisodePhotoAdapte
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         String photoUrl = mPhotos.get(position);
+        holder.bindFocus(light);
         Glide.with(holder.imageView.getContext())
                 .load(tmdbImageUrl(photoUrl, "w780"))
                 .placeholder(R.color.black)
@@ -65,11 +72,17 @@ public class EpisodePhotoAdapter extends RecyclerView.Adapter<EpisodePhotoAdapte
     }
 
     static class ViewHolder extends RecyclerView.ViewHolder {
-        ImageView imageView;
+        private final MaterialCardView card;
+        private final ImageView imageView;
 
         ViewHolder(@NonNull View itemView) {
             super(itemView);
-            this.imageView = itemView.findViewById(R.id.photo);
+            card = (MaterialCardView) itemView;
+            imageView = itemView.findViewById(R.id.photo);
+        }
+
+        private void bindFocus(boolean light) {
+            TmdbCardFocusHelper.bind(card, light ? 0xEEFFFFFF : 0xCC16202A, light ? 0x33647480 : 0x33FFFFFF);
         }
     }
 

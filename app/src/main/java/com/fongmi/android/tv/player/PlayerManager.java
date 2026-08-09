@@ -521,6 +521,21 @@ public class PlayerManager implements ParseCallback {
         return spec != null ? spec.getMetadata() : null;
     }
 
+    public Result getCurrentResult() {
+        return snapshotCurrentResult(spec);
+    }
+
+    static Result snapshotCurrentResult(PlaySpec spec) {
+        if (spec == null) return Result.empty();
+        return Result.playbackSnapshot(
+                spec.getParseResult(),
+                spec.getUrl(),
+                spec.getHeaders(),
+                spec.getFormat(),
+                spec.getDrm(),
+                spec.getSubs());
+    }
+
     public Map<String, String> getHeaders() {
         return spec == null || spec.getHeaders() == null ? new HashMap<>() : spec.getHeaders();
     }

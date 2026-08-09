@@ -25,6 +25,7 @@ import androidx.core.graphics.Insets;
 import androidx.core.widget.NestedScrollView;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.drm.FrameworkMediaDrm;
@@ -350,7 +351,7 @@ public final class AudioMiniPlayer implements ServiceConnection {
         detachPlayer();
         if (service != null) {
             service.removePlayerCallback(playerCallback);
-            service.setNavigationCallback(null, null);
+            service.clearNavigationCallback(navigationCallback);
         }
         activity.unbindService(this);
         service = null;
@@ -564,6 +565,7 @@ public final class AudioMiniPlayer implements ServiceConnection {
 
     private void openFullPlayer() {
         if (state == null) return;
+        syncCurrentPlayback();
         State copy = state.copy();
         syncHistoryProgress(true);
         AudioActivity.startFromMini(activity, copy);
@@ -579,7 +581,7 @@ public final class AudioMiniPlayer implements ServiceConnection {
         if (service != null) {
             service.clearAudioHistoryRecord();
             service.setKeepAlive(false);
-            service.setNavigationCallback(null, null);
+            service.clearNavigationCallback(navigationCallback);
             service.shutdown();
         }
         unbind();
@@ -590,6 +592,37 @@ public final class AudioMiniPlayer implements ServiceConnection {
         if (service == null || service.player() == null || service.player().isReleased()) return;
         currentPlayer = service.player().getPlayer();
         currentPlayer.addListener(playerListener);
+        syncCurrentPlayback();
+    }
+
+    private boolean syncCurrentPlayback() {
+        PlayerManager manager = service == null ? null : service.player();
+        if (manager == null || manager.isReleased() || state == null) return false;
+        MediaItem item = manager.getCurrentMediaItem();
+        String currentKey = manager.getKey();
+        if (TextUtils.isEmpty(currentKey) && item != null) currentKey = item.mediaId;
+        AudioPlaybackReconciliation.Match match = AudioPlaybackReconciliation.reconcile(currentKey, state.playbackKey, state.flag, state.index, state.episodes.size());
+        if (!match.owned()) return false;
+        boolean trackChanged = state.index != match.index();
+        state.index = match.index();
+        Result current = manager.getCurrentResult();
+        if (current != null && !current.getRealUrl().isEmpty()) {
+            state.result = cloneResult(current);
+            state.resultIndex = state.index;
+        }
+        String artwork = current != null && current.hasArtwork() ? current.getArtwork() : "";
+        MediaMetadata metadata = item == null ? manager.getMetadata() : item.mediaMetadata;
+        if (TextUtils.isEmpty(artwork) && metadata != null && metadata.artworkUri != null) artwork = metadata.artworkUri.toString();
+        if (!TextUtils.isEmpty(artwork) && !TextUtils.equals(state.pic, artwork)) {
+            state.pic = artwork;
+            loadedPic = null;
+        }
+        if (trackChanged) savedHistoryTrack = null;
+        service.setNavigationCallback(navigationCallback, currentKey);
+        service.setAudioHistoryRecord(buildHistoryRecord());
+        updateViews();
+        updateHistoryForReady();
+        return true;
     }
 
     private void detachPlayer() {
@@ -625,6 +658,16 @@ public final class AudioMiniPlayer implements ServiceConnection {
         public void onIsPlayingChanged(boolean isPlaying) {
             if (!isPlaying) syncHistoryProgress(true);
             updateViews();
+        }
+
+        @Override
+        public void onMediaItemTransition(MediaItem mediaItem, int reason) {
+            syncCurrentPlayback();
+        }
+
+        @Override
+        public void onMediaMetadataChanged(MediaMetadata mediaMetadata) {
+            syncCurrentPlayback();
         }
 
         @Override

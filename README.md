@@ -294,7 +294,7 @@ bash scripts/build_ijk_native.sh --abi armeabi-v7a --install
 bash gradlew :app:assembleLeanbackArmeabi_v7aRelease -PfastRelease=true
 ```
 
-脚本会拉取锁定的 IJK/FFmpeg 4.0 与 OpenSSL `openssl-3.2` 源码、应用补丁、检查三项输出并按 `--install` 写入对应 ABI 目录。arm64 与 armeabi-v7a 均已在 macOS 使用 NDK 28.2.13676358 重建成功，并和 MPV/JNI/DVD 共用这一版 NDK；32 位不再需要 NDK 21。只需打包 App 时不必运行该脚本，两套 ARM ABI 也不需要 `yasm`。完整命令和 API 21、`pkg-config` 隔离说明见 `webhome-devkit/docs/应用完整开发文档.md`。
+脚本会拉取锁定的 IJK/FFmpeg 4.0 与 OpenSSL `openssl-3.2` 分支的固定 commit 源码、应用补丁、检查三项输出并按 `--install` 写入对应 ABI 目录。arm64 与 armeabi-v7a 均已在 macOS 使用 NDK 28.2.13676358 重建成功，并和 MPV/JNI/DVD 共用这一版 NDK；32 位不再需要 NDK 21。只需打包 App 时不必运行该脚本，两套 ARM ABI 也不需要 `yasm`。完整命令和 API 21、`pkg-config` 隔离说明见 `webhome-devkit/docs/应用完整开发文档.md`。
 
 ### APK 输出路径
 

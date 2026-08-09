@@ -102,7 +102,9 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     protected void setRedirect(boolean redirect) {
         this.redirect = redirect;
-        if (mService != null) mService.setNavigationCallback(redirect ? null : getNavigationCallback(), getPlaybackKey());
+        if (mService == null) return;
+        if (redirect) mService.clearNavigationCallback(getNavigationCallback());
+        else mService.setNavigationCallback(getNavigationCallback(), getPlaybackKey());
     }
 
     protected boolean isPlaybackExiting() {
@@ -404,7 +406,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         try {
             mController = mControllerFuture.get();
             getSeekView().setPlayer(mController);
-getSeekView().setSeekListener(this::onSeekStarted);
+            getSeekView().setSeekListener(this::onSeekStarted);
             onControllerReady(mController);
             mController.addListener(this);
             reconcileControllerReadyState();
@@ -605,8 +607,9 @@ getSeekView().setSeekListener(this::onSeekStarted);
     }
 
     private void releaseController() {
-        if (mControllerFuture != null) MediaController.releaseFuture(mControllerFuture);
+        getSeekView().setPlayer(null);
         if (mController != null) mController.removeListener(this);
+        if (mControllerFuture != null) MediaController.releaseFuture(mControllerFuture);
         mControllerFuture = null;
         mController = null;
     }

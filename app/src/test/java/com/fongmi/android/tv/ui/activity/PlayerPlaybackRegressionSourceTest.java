@@ -200,6 +200,33 @@ public class PlayerPlaybackRegressionSourceTest {
                         && source.indexOf("if (!isFullscreen()) refreshEpisodeLayoutAfterFullscreen();", configuration) > configuration);
     }
 
+    @Test
+    public void playbackNavigationCallbackCleanupCannotClearNewOwnerOrLeakStaleOwner() throws Exception {
+        String service = readMainJava("com", "fongmi", "android", "tv", "service", "PlaybackService.java");
+        String activity = readMainJava("com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java");
+
+        int clear = service.indexOf("public void clearNavigationCallback(NavigationCallback expected)");
+        int clearEnd = service.indexOf("\n    private ", clear + 1);
+        int guard = service.indexOf("if (navigationCallback != expected) return;", clear);
+        int reset = service.indexOf("setNavigationCallback(null, null);", clear);
+        assertTrue("callback cleanup must reject stale owners before clearing the active callback",
+                clear >= 0 && clearEnd > clear && guard > clear && guard < reset && reset < clearEnd);
+
+        int dispatch = service.indexOf("private void dispatch(Consumer<NavigationCallback> action)");
+        int dispatchEnd = service.indexOf("\n    private ", dispatch + 1);
+        String dispatchBlock = service.substring(dispatch, dispatchEnd);
+        assertTrue("queued navigation actions must recheck callback ownership before invoking an old owner",
+                dispatchBlock.contains("if (navigationCallback == callback) action.accept(callback);"));
+
+        int release = activity.indexOf("private void releaseService(boolean owner)");
+        int releaseEnd = activity.indexOf("\n    private ", release + 1);
+        String releaseBlock = activity.substring(release, releaseEnd);
+        assertTrue("activity teardown must always attempt identity-safe callback cleanup",
+                releaseBlock.contains("mService.clearNavigationCallback(getNavigationCallback());"));
+        assertFalse("callback cleanup must not depend on a playback-key ownership check",
+                releaseBlock.contains("if (owner) mService.clearNavigationCallback(getNavigationCallback());"));
+    }
+
     private static void assertFocusRefreshAfter(String source, String methodSignature, String visibilityMutation) {
         int method = source.indexOf(methodSignature);
         int methodEnd = source.indexOf("\n    private ", method + 1);
