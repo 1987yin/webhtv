@@ -548,7 +548,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
             addVideo(result);
             if (pendingOpenVod && !result.getTypes().isEmpty()) {
                 pendingOpenVod = false;
-                openCategory(result.get(0));
+                openCategory(result.getTypes().get(0));
             }
         });
     }
@@ -912,7 +912,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
                 pendingOpenVod = true;
                 getVideo(true);
             } else {
-                openCategory(homeResult.get(0));
+                openCategory(homeResult.getTypes().get(0));
             }
         } else if (item.getResId() == R.string.home_live) LiveActivity.start(this);
         else if (item.getResId() == R.string.home_keep) KeepActivity.start(this);
@@ -1477,7 +1477,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
                 // 网络失败降级逻辑
                 if (!finalNetOk) {
                     if (finalUseMain) {
-                        checkNet(inputKey, isFirstInput, currentRetry, false);
+                        checkNetKey(inputKey, isFirstInput, currentRetry, false);
                         return;
                     }
                     if (currentRetry < MAX_RETRY) {
@@ -1530,7 +1530,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
                         keyDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                             EditText et = keyDialog.findViewById(R.id.et_input_key);
                             if (et == null) return;
-                            String newInput = et.getText().toString().trim();
+                            String newInput = et.getText().trim();
                             if (newInput.isEmpty()) {
                                 Toast.makeText(HomeActivity.this, "请输入新的访问密钥", Toast.LENGTH_SHORT).show();
                                 return;
@@ -1552,5 +1552,3 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
             loadingDialog.dismiss();
         }
     }
-
-}
