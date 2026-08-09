@@ -36,6 +36,10 @@ public class TmdbSeasonOffsetDialog extends AppCompatDialogFragment {
     private OffsetAdapter adapter;
 
     public static void show(FragmentActivity activity, String currentTitle) {
+        // 防止重复弹出：同 tag 的 dialog 已存在(显示中)则不重复 show
+        if (activity.getSupportFragmentManager().findFragmentByTag("TmdbSeasonOffsetDialog") != null) {
+            return;
+        }
         new TmdbSeasonOffsetDialog(currentTitle).show(activity.getSupportFragmentManager(), "TmdbSeasonOffsetDialog");
     }
 

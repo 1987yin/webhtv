@@ -1220,7 +1220,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             return true;
         });
         mBinding.tmdbRematch.setOnKeyListener((view, keyCode, event) -> {
-            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() > 0) {
+            // 仅在首次长按重复(repeatCount==1)时触发一次，避免遥控器持续 repeat 导致重复弹窗
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 1) {
                 TmdbSeasonOffsetDialog.show(VideoActivity.this, getTmdbSearchQuery());
                 return true;
             }
