@@ -734,6 +734,15 @@ public class Setting {
         Prefers.put("github_proxy", com.fongmi.android.tv.utils.GithubProxy.normalizeConfig(value));
     }
 
+
+    public static boolean isGithubProxyEnabled() {
+        return Prefers.getBoolean("github_proxy_enabled", true);
+    }
+
+    public static void putGithubProxyEnabled(boolean enabled) {
+        Prefers.put("github_proxy_enabled", enabled);
+    }
+
     public static boolean isAdblock() {
         return Prefers.getBoolean("adblock", true);
     }

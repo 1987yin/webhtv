@@ -77,6 +77,21 @@ public class AboutDialogLayoutTest {
     }
 
     @Test
+    public void githubProxyDialogExposesPersistentEnableSwitch() throws Exception {
+        String layout = read(findMainResPath().resolve(Path.of("layout", "dialog_github_proxy.xml")));
+        String dialog = read(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "AboutDialog.java")));
+        String setting = read(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "setting", "Setting.java")));
+        String proxy = read(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "utils", "GithubProxy.java")));
+
+        assertTrue(layout.contains("<com.google.android.material.switchmaterial.SwitchMaterial"));
+        assertTrue(layout.contains("android:id=\"@+id/enabled\""));
+        assertTrue(dialog.contains("binding.enabled.setChecked(Setting.isGithubProxyEnabled());"));
+        assertTrue(dialog.contains("Setting.putGithubProxyEnabled(isChecked)"));
+        assertTrue(setting.contains("Prefers.getBoolean(\"github_proxy_enabled\", true)"));
+        assertTrue(proxy.contains("Setting.isGithubProxyEnabled()"));
+    }
+
+    @Test
     public void githubProxyRemoveActionUsesIconButtonOnNarrowScreens() throws Exception {
         String layout = read(findMainResPath().resolve(Path.of("layout", "adapter_github_proxy.xml")));
         String remove = layout.substring(layout.indexOf("android:id=\"@+id/remove\""));

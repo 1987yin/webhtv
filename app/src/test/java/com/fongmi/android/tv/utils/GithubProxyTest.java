@@ -14,6 +14,15 @@ public class GithubProxyTest {
     }
 
     @Test
+    public void applyLeavesGithubDownloadsAloneWhenDisabled() {
+        String releaseUrl = "https://github.com/Silent1566/webhtv/releases/latest/download/mobile-arm64_v8a.apk";
+        String rawUrl = "https://raw.githubusercontent.com/FGBLH/GHK/refs/heads/main/a.json";
+
+        assertEquals(releaseUrl, GithubProxy.apply(releaseUrl, "https://ghfast.top/", false));
+        assertEquals(rawUrl, GithubProxy.apply(rawUrl, "https://ghfast.top/", false));
+    }
+
+    @Test
     public void applyPrefixesGithubReleaseDownloadUrl() {
         String url = "https://github.com/Silent1566/webhtv/releases/latest/download/mobile-arm64_v8a.apk";
 
