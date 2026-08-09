@@ -23,6 +23,7 @@ import androidx.media3.session.SessionCommand;
 import androidx.media3.session.SessionCommands;
 import androidx.media3.session.SessionError;
 import androidx.media3.session.SessionResult;
+import androidx.media3.session.SessionToken;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.BuildConfig;
@@ -104,6 +105,11 @@ private AudioHistory.Record audioHistoryRecord;
     public void replaceBinding(Runnable callback) {
         if (onNewBinding != null) onNewBinding.run();
         onNewBinding = callback;
+    }
+
+    @Nullable
+    public SessionToken getSessionToken() {
+        return session == null ? null : session.getToken();
     }
 
     public PlayerManager player() {

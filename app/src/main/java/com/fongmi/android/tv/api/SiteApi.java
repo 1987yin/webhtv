@@ -187,25 +187,47 @@ public class SiteApi {
         String requestId = PUSH.equals(key) ? resolvePushPlayerUrl(id) : id;
         if (PUSH.equals(key) && (site.isEmpty() || isLocalFileUrl(requestId))) return pushPlayer(flag, requestId, playerType);
         if (site.getType() == 3) {
-            String playerContent = site.recent().spider().playerContent(flag, requestId, VodConfig.get().getFlags());
-            SpiderDebug.log("player", playerContent);
-            Result result = Result.fromJson(playerContent);
-            if (result.getFlag().isEmpty()) result.setFlag(flag);
-            result.setUrl(Source.get().fetch(result, playerType));
-            result.setHeader(site.getHeader());
-            result.setKey(key);
-            return result;
+            String fallbackReason;
+            try {
+                String playerContent = site.recent().spider().playerContent(flag, requestId, VodConfig.get().getFlags());
+                SpiderDebug.log("player", playerContent);
+                Result result = Result.fromJson(playerContent);
+                if (shouldFallbackPushSiteResult(key, result)) {
+                    fallbackReason = result == null ? "" : result.getMsg();
+                } else {
+                    if (result.getFlag().isEmpty()) result.setFlag(flag);
+                    result.setUrl(Source.get().fetch(result, playerType));
+                    result.setHeader(site.getHeader());
+                    result.setKey(key);
+                    return result;
+                }
+            } catch (Exception e) {
+                if (PUSH.equals(key)) fallbackReason = e.getMessage();
+                else throw e;
+            }
+            return fallbackPushPlayer(flag, requestId, playerType, fallbackReason);
         } else if (site.getType() == 4) {
-            ArrayMap<String, String> params = new ArrayMap<>();
-            params.put("play", requestId);
-            params.put("flag", flag);
-            String playerContent = call(site, params);
-            SpiderDebug.log("player", playerContent);
-            Result result = Result.fromJson(playerContent);
-            if (result.getFlag().isEmpty()) result.setFlag(flag);
-            result.setUrl(Source.get().fetch(result, playerType));
-            result.setHeader(site.getHeader());
-            return result;
+            String fallbackReason;
+            try {
+                ArrayMap<String, String> params = new ArrayMap<>();
+                params.put("play", requestId);
+                params.put("flag", flag);
+                String playerContent = call(site, params);
+                SpiderDebug.log("player", playerContent);
+                Result result = Result.fromJson(playerContent);
+                if (shouldFallbackPushSiteResult(key, result)) {
+                    fallbackReason = result == null ? "" : result.getMsg();
+                } else {
+                    if (result.getFlag().isEmpty()) result.setFlag(flag);
+                    result.setUrl(Source.get().fetch(result, playerType));
+                    result.setHeader(site.getHeader());
+                    return result;
+                }
+            } catch (Exception e) {
+                if (PUSH.equals(key)) fallbackReason = e.getMessage();
+                else throw e;
+            }
+            return fallbackPushPlayer(flag, requestId, playerType, fallbackReason);
         } else {
             Result result = new Result();
             result.setUrl(requestId);
@@ -227,10 +249,30 @@ public class SiteApi {
         return url.regionMatches(true, 0, "file:", 0, 5);
     }
 
+    static boolean shouldSniffPushUrl(String url) {
+        if (!shouldSniffPushUrl(url, false)) return false;
+        return !Sniffer.isVideoFormat(url);
+    }
+
+    static boolean shouldSniffPushUrl(String url, boolean videoFormat) {
+        if (url == null || url.isEmpty() || isLocalFileUrl(url)) return false;
+        boolean webUrl = url.regionMatches(true, 0, "http://", 0, 7) || url.regionMatches(true, 0, "https://", 0, 8);
+        return webUrl && !videoFormat;
+    }
+
+    static boolean shouldFallbackPushSiteResult(String key, Result result) {
+        return PUSH.equals(key) && (result == null || result.hasMsg() || result.getUrl().isEmpty());
+    }
+
+    private static Result fallbackPushPlayer(String flag, String url, int playerType, String reason) throws Exception {
+        SpiderDebug.log("player", "push site fallback reason=%s", TextUtils.isEmpty(reason) ? "empty result" : reason);
+        return pushPlayer(flag, url, playerType);
+    }
+
     private static Result pushPlayer(String flag, String url, int playerType) throws Exception {
         Result result = new Result();
         result.setUrl(url);
-        result.setParse(0);
+        result.setParse(shouldSniffPushUrl(url) ? 1 : 0);
         result.setFlag(flag);
         result.setUrl(Source.get().fetch(result, playerType));
         SpiderDebug.log("player", result.toString());
