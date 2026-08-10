@@ -21,11 +21,15 @@ public final class GithubProxy {
     }
 
     public static String apply(String url) {
-        return apply(url, Setting.getGithubProxy());
+        return apply(url, Setting.getGithubProxy(), Setting.isGithubProxyEnabled());
     }
 
     static String apply(String url, String configured) {
-        if (!isGithubDownload(url) || isProxied(url)) return url;
+        return apply(url, configured, true);
+    }
+
+    static String apply(String url, String configured, boolean enabled) {
+        if (!enabled || !isGithubDownload(url) || isProxied(url)) return url;
         String proxy = first(configured);
         return isEmpty(proxy) ? url : normalize(proxy) + url;
     }

@@ -59,7 +59,17 @@ public final class EpisodeSeasonPolicy {
         if (sourceSeasonNumbers == null || sourceSeasonNumbers.isEmpty() || tmdbSeasons == null || tmdbSeasons.isEmpty()) return List.of();
         boolean hasAnyExplicitSeason = hasAnyExplicitSeason(sourceSeasonNumbers);
         if (hasAnyExplicitSeason) {
-            if (!hasCompleteExplicitSeasonMapping(sourceSeasonNumbers, tmdbSeasons)) return List.of();
+            if (!hasCompleteExplicitSeasonMapping(sourceSeasonNumbers, tmdbSeasons)) {
+                // Unclassified extras are safe only when every known episode agrees on one TMDB season.
+                int onlyMappedSeason = -1;
+                for (Integer season : sourceSeasonNumbers) {
+                    if (season == null || season < 0) continue;
+                    if (!tmdbSeasons.contains(season)) return List.of();
+                    if (onlyMappedSeason >= 0 && onlyMappedSeason != season) return List.of();
+                    onlyMappedSeason = season;
+                }
+                return onlyMappedSeason >= 0 ? List.of(onlyMappedSeason) : List.of();
+            }
             List<Integer> available = new ArrayList<>();
             for (Integer season : tmdbSeasons) {
                 if (sourceSeasonNumbers.contains(season)) available.add(season);

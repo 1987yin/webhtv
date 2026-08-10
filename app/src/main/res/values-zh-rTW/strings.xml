@@ -1,7 +1,7 @@
 <resources xmlns:xliff="http://schemas.android.com/apk/res-auto">
 
     <!-- App -->
-    <string name="app_name">影視</string>
+    <string name="app_name">默影視</string>
     <string name="app_exit_confirm">再按一次退出應用</string>
 
     <!-- Live -->
@@ -848,7 +848,8 @@
     <string name="setting_github_proxy">GitHub 加速源</string>
     <string name="setting_github_proxy_short">加速源</string>
     <string name="setting_github_proxy_hint">輸入加速源 URL</string>
-    <string name="setting_github_proxy_message">點選列表中的源作為目前加速源,可在下方新增自訂源。GitHub Raw/Release 下載使用目前加速源。</string>
+    <string name="setting_github_proxy_message">點選列表中的源作為目前加速源，可在下方新增自訂源。關閉加速後 GitHub Raw/Release 使用直連。</string>
+    <string name="setting_github_proxy_enabled">使用 GitHub 加速</string>
     <string name="setting_github_proxy_add">新增</string>
     <string name="setting_github_proxy_remove">移除</string>
     <string name="setting_github_proxy_reset">重設預設</string>

@@ -13,6 +13,8 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
+import android.widget.ListAdapter;
+import android.widget.ListView;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
@@ -37,6 +39,64 @@ public final class LightDialog {
         if (background == null) return;
         int verticalInset = (int) (dialog.getContext().getResources().getDisplayMetrics().density * 24);
         window.setBackgroundDrawable(new InsetDrawable(background, 0, verticalInset, 0, verticalInset));
+        if (Util.isLeanback()) applyAlertWindow(dialog, window);
+    }
+
+    static int resolveAlertWidth(int screenWidth, int screenHeight) {
+        boolean landscape = screenWidth >= screenHeight;
+        float widthFactor = landscape ? 0.52f : 0.9f;
+        int designWidth = landscape ? 960 : 540;
+        int designHeight = landscape ? 540 : 960;
+        float scale = Math.min(screenWidth / (float) designWidth, screenHeight / (float) designHeight);
+        return Math.min(Math.round(screenWidth * widthFactor), Math.round(560 * scale));
+    }
+
+    static int resolveAlertListMaxHeight(int screenHeight) {
+        return Math.round(screenHeight * 0.58f);
+    }
+
+    static int resolveAlertWindowMaxHeight(int screenHeight) {
+        return Math.round(screenHeight * 0.82f);
+    }
+
+    static int resolveAlertWindowHeight(int currentHeight, int currentListHeight, int desiredListHeight, int maxHeight) {
+        return Math.min(maxHeight, currentHeight - currentListHeight + desiredListHeight);
+    }
+
+    private static void applyAlertWindow(AlertDialog dialog, Window window) {
+        Context context = dialog.getContext();
+        int screenWidth = ResUtil.getScreenWidth(context);
+        int screenHeight = ResUtil.getScreenHeight(context);
+        int width = resolveAlertWidth(screenWidth, screenHeight);
+        window.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT);
+        ListView list = dialog.getListView();
+        if (list == null) return;
+        int listMaxHeight = resolveAlertListMaxHeight(screenHeight);
+        int windowMaxHeight = resolveAlertWindowMaxHeight(screenHeight);
+        list.post(() -> resizeAlertList(dialog, window, list, width, listMaxHeight, windowMaxHeight));
+    }
+
+    private static void resizeAlertList(AlertDialog dialog, Window window, ListView list, int windowWidth, int listMaxHeight, int windowMaxHeight) {
+        if (!dialog.isShowing()) return;
+        ListAdapter adapter = list.getAdapter();
+        if (adapter == null || adapter.getCount() == 0) return;
+        int widthSpec = View.MeasureSpec.makeMeasureSpec(windowWidth, View.MeasureSpec.AT_MOST);
+        int contentHeight = list.getListPaddingTop() + list.getListPaddingBottom();
+        int measuredItems = 0;
+        while (measuredItems < adapter.getCount() && contentHeight < listMaxHeight) {
+            View item = adapter.getView(measuredItems, null, list);
+            item.measure(widthSpec, View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            contentHeight += item.getMeasuredHeight();
+            measuredItems++;
+        }
+        contentHeight += Math.max(0, measuredItems - 1) * list.getDividerHeight();
+        if (measuredItems < adapter.getCount()) contentHeight = listMaxHeight;
+        int listHeight = Math.min(contentHeight, listMaxHeight);
+        int windowHeight = resolveAlertWindowHeight(window.getDecorView().getHeight(), list.getHeight(), listHeight, windowMaxHeight);
+        ViewGroup.LayoutParams params = list.getLayoutParams();
+        params.height = listHeight;
+        list.setLayoutParams(params);
+        window.setLayout(windowWidth, windowHeight);
     }
 
     public static Dialog create(Context context, CharSequence title, View content) {

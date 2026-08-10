@@ -356,7 +356,6 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "bind service start key=%s", getPlaybackKey());
         startService(new Intent(this, PlaybackService.class));
         bindService(new Intent(this, PlaybackService.class).setAction(PlaybackService.LOCAL_BIND_ACTION), this, BIND_AUTO_CREATE);
-        buildControllerAsync();
         bound = true;
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "bind service requested cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
     }
@@ -375,12 +374,26 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         });
     }
 
-    private void buildControllerAsync() {
+    private void buildControllerAsync(SessionToken token) {
+        if (mControllerFuture != null || shouldRejectPlaybackConnection()) return;
+        if (token == null) {
+            handleControllerConnectionFailure(new IllegalStateException("Playback session token is unavailable"));
+            return;
+        }
         long start = System.currentTimeMillis();
-        SessionToken token = new SessionToken(this, new ComponentName(this, PlaybackService.class));
-        mControllerFuture = new MediaController.Builder(this, token).setListener(this).buildAsync();
-        mControllerFuture.addListener(this::handleControllerConnected, ContextCompat.getMainExecutor(this));
-        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "controller build requested cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
+        try {
+            mControllerFuture = new MediaController.Builder(this, token).setListener(this).buildAsync();
+            mControllerFuture.addListener(this::handleControllerConnected, ContextCompat.getMainExecutor(this));
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "controller build requested cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
+        } catch (RuntimeException e) {
+            handleControllerConnectionFailure(e);
+        }
+    }
+
+    private void handleControllerConnectionFailure(Exception e) {
+        SpiderDebug.log("playback-flow", e);
+        releaseController();
+        if (!shouldRejectPlaybackConnection()) finishPlayback();
     }
 
     protected void onControllerConnected() {
@@ -410,7 +423,9 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             onControllerReady(mController);
             mController.addListener(this);
             reconcileControllerReadyState();
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            handleControllerConnectionFailure(e);
+            return;
         }
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "controller connected cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
         syncKeepScreenOn();
@@ -859,6 +874,8 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         PlaybackService connectedService = ((PlaybackService.LocalBinder) binder).getService();
         if (shouldRejectPlaybackConnection()) return;
         mService = connectedService;
+        buildControllerAsync(mService.getSessionToken());
+        if (shouldRejectPlaybackConnection()) return;
         mService.replaceBinding(this::closePiP);
         mService.setSessionActivity(buildSessionIntent());
         mService.setPlaybackForeground(true);
@@ -878,6 +895,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
     @Override
     public void onServiceDisconnected(ComponentName name) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service disconnected name=%s %s", name, lifecycleState());
+        releaseController();
         getSeekView().setProgressPlayer(null);
         mService = null;
         preparedPlaybackKey = null;
