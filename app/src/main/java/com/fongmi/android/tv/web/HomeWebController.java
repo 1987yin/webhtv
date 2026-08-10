@@ -1183,7 +1183,6 @@ public class HomeWebController {
             inlineEvaluationCount = 0;
         }
         webView.onResume();
-        webView.resumeTimers();
         recoverAfterResume();
         consumeExtensionReload();
     }
@@ -1200,7 +1199,6 @@ public class HomeWebController {
         dispatchLifecycle("fmpause", "{time:" + pauseAt + "}");
         pausePageMedia();
         webView.onPause();
-        webView.pauseTimers();
     }
 
     public boolean beginInlineEvaluation() {
@@ -1213,7 +1211,6 @@ public class HomeWebController {
             if (!paused) return;
             SpiderDebug.log("webhome-inline", "resume WebView for inline evaluation url=%s", safeLogUrl(webView.getUrl()));
             webView.onResume();
-            webView.resumeTimers();
         });
         return true;
     }
@@ -1231,7 +1228,6 @@ public class HomeWebController {
             SpiderDebug.log("webhome-inline", "pause WebView after inline evaluation url=%s", safeLogUrl(webView.getUrl()));
             pausePageMedia();
             webView.onPause();
-            webView.pauseTimers();
         });
     }
 

@@ -81,6 +81,18 @@ public class HomeCategoryNavigationSourceTest {
     }
 
     @Test
+    public void nativeHomePagingCollapsesTheTypeRowWithTheToolbar() throws Exception {
+        String source = homeActivity();
+        String initEvent = method(source, "protected void initEvent()", "private void updateToolbarVisibility(boolean visible)");
+        String typeVisibility = method(source, "private void updateTypeRecyclerVisibility()", "private void syncTypeItems()");
+
+        assertTrue("native home paging must derive one shared header state from the selected row", initEvent.contains("boolean headerVisible = isTopRow(position);"));
+        assertTrue("native home paging must collapse the type row below the top rows", initEvent.contains("updateTypeRecyclerVisibility(headerVisible);"));
+        assertTrue("native home paging must keep the toolbar aligned with the type row", initEvent.contains("updateToolbarVisibility(headerVisible);"));
+        assertTrue("scroll visibility must still honor whether home categories are enabled", typeVisibility.contains("enabled && headerVisible"));
+    }
+
+    @Test
     public void inlineCategoryPagesDoNotStealFocusFromTheTypeRow() throws Exception {
         String home = homeActivity();
         String type = read(source("leanback", "java", "com", "fongmi", "android", "tv", "ui", "fragment", "TypeFragment.java"));
@@ -91,8 +103,11 @@ public class HomeCategoryNavigationSourceTest {
         assertTrue("the switch must remember whether the type row owned focus", showCategory.contains("boolean keepTypeFocus = mBinding.typeRecycler.hasFocus();"));
         assertTrue("focus restoration must wait until the fragment transaction completes", showCategory.contains("transaction.runOnCommit(() -> {"));
         assertTrue("the completed transaction must restore type focus", showCategory.contains("restoreTypeFocus(keepTypeFocus, item);"));
+        assertFalse("focus restoration must not leave a frame where cached content can cover the home chrome", restoreFocus.contains("mBinding.typeRecycler.post("));
         assertTrue("a stale category switch must not reclaim focus", restoreFocus.contains("mBinding.typeRecycler.getSelectedPosition() != position"));
         assertTrue("the selected type item must regain focus after its page appears", restoreFocus.contains("mBinding.typeRecycler.requestFocus();"));
+        assertTrue("category switches must restore the type row before reclaiming focus", restoreFocus.contains("mBinding.typeRecycler.setVisibility(View.VISIBLE);"));
+        assertTrue("category switches must restore the toolbar with the focused type row", restoreFocus.contains("updateToolbarVisibility(true);"));
         assertFalse("nested folder navigation must retain its existing content-focus behavior", hiddenChanged.contains("shouldFocusContentOnShow"));
     }
 
