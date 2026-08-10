@@ -891,7 +891,8 @@
     <string name="setting_github_proxy">GitHub acceleration sources</string>
     <string name="setting_github_proxy_short">Accelerate</string>
     <string name="setting_github_proxy_hint">Enter a source URL</string>
-    <string name="setting_github_proxy_message">Tap a source to make it the active one. GitHub Raw/Release downloads use the active source.</string>
+    <string name="setting_github_proxy_message">Tap a source to make it active. Turn acceleration off to use direct GitHub Raw/Release connections.</string>
+    <string name="setting_github_proxy_enabled">Use GitHub acceleration</string>
     <string name="setting_github_proxy_add">Add</string>
     <string name="setting_github_proxy_remove">Remove</string>
     <string name="setting_github_proxy_reset">Reset to default</string>
