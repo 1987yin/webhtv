@@ -30,6 +30,7 @@ import com.fongmi.android.tv.bean.Word;
 import com.fongmi.android.tv.databinding.ActivitySearchBinding;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.setting.SiteGroupOrderStore;
 import com.fongmi.android.tv.ui.adapter.HotWordAdapter;
 import com.fongmi.android.tv.ui.adapter.RecordAdapter;
 import com.fongmi.android.tv.ui.adapter.WordAdapter;
@@ -329,7 +330,7 @@ public class SearchActivity extends BaseActivity implements WordAdapter.OnClickL
     }
 
     private void showScopeMenu(View anchor) {
-        List<String> groups = Site.getGroups(VodConfig.get().getSites());
+        List<String> groups = SiteGroupOrderStore.sort(Site.getGroups(VodConfig.get().getSites()));
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         int padding = ResUtil.dp2px(SCOPE_POPUP_PADDING_DP);
