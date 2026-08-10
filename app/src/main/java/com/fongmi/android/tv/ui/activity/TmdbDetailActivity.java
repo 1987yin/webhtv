@@ -656,12 +656,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         episodeAdapter = new TmdbEpisodeAdapter(new TmdbEpisodeAdapter.Listener() {
             @Override
             public void onItemClick(Episode episode) {
-                cancelPendingInlinePlayback();
-                playbackSelectionTouched = true;
-                selectedEpisode = episode;
-                episodeAdapter.setSelected(episode);
-                updatePlayLabel();
-                onPlay();
+                selectInlineEpisode(episode);
             }
 
             @Override
@@ -1035,6 +1030,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         setupInlinePlayerSpacerSync();
         setupInlineControlFocus();
         setupInlineFocusNavigation();
+        binding.playerPlaybackAction.setOnClickListener(guarded(this::toggleInlinePlayback));
         binding.playerAdFeedback.setOnClickListener(guarded(this::onInlineAdFeedback));
         inlinePlayerUi.bindInlineActions();
         setupMobileInlineControl();
@@ -1136,13 +1132,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerPanelSpacer.setFocusableInTouchMode(false);
         View timeBar = inlineSeek().findViewById(R.id.timeBar);
         if (timeBar != null) {
-            timeBar.setNextFocusUpId(R.id.playerFullscreenAction);
+            timeBar.setNextFocusUpId(R.id.playerPlaybackAction);
             timeBar.setNextFocusRightId(R.id.timeBar);
         }
+        binding.playerPlaybackAction.setNextFocusDownId(R.id.timeBar);
         binding.playerFullscreenAction.setNextFocusDownId(R.id.timeBar);
         // 手动构建横向焦点链（按照布局顺序）
         setupHorizontalFocusChain();
         // 为所有控制栏按钮设置 nextFocusUp 指向自己，防止向上键导致焦点丢失
+        binding.playerPlaybackAction.setNextFocusUpId(R.id.playerPlaybackAction);
         binding.playerFullscreenAction.setNextFocusUpId(R.id.playerFullscreenAction);
         binding.playerNext.setNextFocusUpId(R.id.playerNext);
         binding.playerPrev.setNextFocusUpId(R.id.playerPrev);
@@ -1175,13 +1173,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void setupHorizontalFocusChain() {
-        // 按钮顺序：Next → Prev → Episodes → Refresh → ChangeSource → Fullscreen →
+        // 按钮顺序：Playback → Next → Prev → Episodes → Refresh → ChangeSource → Fullscreen →
         // External → Decode → PlayParams → Speed → Scale → Quality → Lut → Parse →
         // TextTrack → AudioTrack → VideoTrack → Opening → Ending → Danmaku → AdFeedback →
         // Chapter → Display → Repeat
 
         View[] buttons = {
-            binding.playerNext, binding.playerPrev, binding.playerEpisodes,
+            binding.playerPlaybackAction, binding.playerNext, binding.playerPrev, binding.playerEpisodes,
             binding.playerRefresh, binding.playerChangeSource, binding.playerFullscreenAction,
             binding.playerExternal, binding.playerDecode, binding.playerPlayParams,
             binding.playerCodecCapability,
@@ -1217,6 +1215,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void setupInlineControlFocus() {
+        setupInlineControl(binding.playerPlaybackAction);
         setupInlineControl(binding.playerCast);
         setupInlineControl(binding.playerInfo);
         setupInlineControl(binding.playerFullscreenAction);
@@ -1250,6 +1249,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void setupInlineControlColors() {
         // 设置所有控制按钮的默认文字颜色为白色
         int white = 0xFFFFFFFF;
+        binding.playerPlaybackAction.setTextColor(white);
         binding.playerNext.setTextColor(white);
         binding.playerPrev.setTextColor(white);
         binding.playerEpisodes.setTextColor(white);
@@ -1293,8 +1293,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private boolean onInlineTouch(View view, MotionEvent event) {
-        if (!inlineStarted || !isInlinePlayerMode() || service() == null || player() == null || player().isEmpty()) return false;
-        if (inlineGestureDetector != null) inlineGestureDetector.onTouchEvent(event);
+        if (!isInlinePlayerMode() || inlineGestureDetector == null) return false;
+        inlineGestureDetector.onTouchEvent(event);
         return true;
     }
 
@@ -1428,34 +1428,33 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     @Override
     public void onFlingUp() {
-        if (!isInlinePlayerMode() || selectedFlag == null || selectedFlag.getEpisodes() == null) return;
+        if (!inlineStarted || !isInlinePlayerMode() || service() == null || player() == null || player().isEmpty() || selectedFlag == null || selectedFlag.getEpisodes() == null) return;
         if (selectedFlag.getEpisodes().size() == 1) refreshInlinePlayback();
         else checkInlineNext();
     }
 
     @Override
     public void onFlingDown() {
-        if (!isInlinePlayerMode() || selectedFlag == null || selectedFlag.getEpisodes() == null) return;
+        if (!inlineStarted || !isInlinePlayerMode() || service() == null || player() == null || player().isEmpty() || selectedFlag == null || selectedFlag.getEpisodes() == null) return;
         if (selectedFlag.getEpisodes().size() == 1) refreshInlinePlayback();
         else checkInlinePrev();
     }
 
     @Override
     public void onSingleTap() {
-        if (!inlineStarted) onPlay();
-        else toggleInlineControls();
+        toggleInlineControls();
     }
 
     @Override
     public void onDoubleTap() {
-        if (!inlineStarted) {
-            onPlay();
-        } else if (isLock()) {
+        if (isLock()) {
             showInlineControls(true, false);
         } else if (!inlineFullscreen) {
             enterInlineFullscreen();
-        } else {
+        } else if (inlineStarted) {
             toggleInlinePlayback();
+        } else {
+            toggleInlineControls();
         }
     }
 
@@ -1492,16 +1491,14 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void onInlinePanelConfirm() {
         if (!isInlinePlayerMode()) return;
-        if (!inlineStarted) {
-            onPlay();
-        } else if (isLock() && inlineFullscreen) {
+        if (isLock() && inlineFullscreen) {
             showInlineControls(true, false);
         } else if (isInlineControlsVisible()) {
             hideInlineControls();
-        } else if (inlineFullscreen) {
-            toggleInlinePlayback();
-        } else {
+        } else if (!inlineFullscreen) {
             enterInlineFullscreenOrShowControlsOnConfirm();
+        } else {
+            showInlineControls(true);
         }
     }
 
@@ -6082,6 +6079,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void toggleInlinePlayback() {
         if (!isInlinePlayerMode()) return;
         if (controller() == null || service() == null || player().isEmpty()) {
+            if (isSamePendingInlinePlayback(selectedEpisode)) return;
             onPlay();
             return;
         }
@@ -6091,7 +6089,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void toggleInlineControls() {
-        if (!isInlinePlayerMode() || !inlineStarted) return;
+        if (!isInlinePlayerMode()) return;
         if (inlineControlsView().getVisibility() == View.VISIBLE) hideInlineControls();
         else showInlineControls(true, false);
     }
@@ -6101,12 +6099,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void showInlineControls(boolean show, boolean focus) {
-        if (!isInlinePlayerMode() || !inlineStarted) return;
+        if (!isInlinePlayerMode()) return;
         if (!show) {
-            hideInlineControls();
-            return;
-        }
-        if (shouldBlockInlineControlsForLoading()) {
             hideInlineControls();
             return;
         }
@@ -6201,7 +6195,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         // TV模式：按顺序查找第一个可见且启用的按钮
         if (inlineControlFocus != null && isVisibleInHierarchy(inlineControlFocus) && inlineControlFocus.isEnabled()) return inlineControlFocus;
         View[] candidates = {
-            binding.playerNext, binding.playerPrev, binding.playerEpisodes,
+            binding.playerPlaybackAction, binding.playerNext, binding.playerPrev, binding.playerEpisodes,
             binding.playerRefresh, binding.playerChangeSource, binding.playerFullscreenAction
         };
         for (View candidate : candidates) {
@@ -6239,20 +6233,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return binding != null && inlineControlsView().getVisibility() == View.VISIBLE;
     }
 
-    private boolean isInlineLoadingVisible() {
-        return binding != null && (inlinePlaybackLoading || inlinePlayerSwitchLoading || binding.playerProgress.getVisibility() == View.VISIBLE);
-    }
-
-    private boolean shouldBlockInlineControlsForLoading() {
-        return isInlineLoadingVisible() && !(isLock() && inlineFullscreen);
-    }
-
     private void updateInlineButtons(boolean playing) {
         if (!isInlinePlayerMode() || inlineControlController == null) {
             setInlineDecodeText(getString(R.string.play_decode_idle));
             return;
         }
         boolean hasPlayer = service() != null && !player().isEmpty();
+        binding.playerPlaybackAction.setText(playing ? R.string.pause : R.string.play);
         setInlineSpeedText(service() == null || player().isEmpty() ? getString(R.string.play_speed) : player().getSpeedText());
         setInlineDecodeText(inlineDecodeText(hasPlayer));
         binding.playerExternal.setText(service() == null ? getString(R.string.play_exo) : player().getPlayerText());
@@ -6264,6 +6251,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         int episodeCount = selectedFlag == null || selectedFlag.getEpisodes() == null ? 0 : selectedFlag.getEpisodes().size();
         boolean hasTitle = hasPlayer && player().haveTitle();
         boolean inlineAdFeedback = hasPlayer && isInlineAdFeedbackEnabled();
+        setButtonEnabled(binding.playerPlaybackAction, true);
         // 上集/下集按钮始终可用，点击时如果没有相邻集数会显示提示（与影视原生模式保持一致）
         setButtonEnabled(binding.playerPrev, hasPlayer && episodeCount > 0);
         setButtonEnabled(binding.playerNext, hasPlayer && episodeCount > 0);
@@ -6292,7 +6280,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         setButtonEnabled(binding.playerEpisodes, episodeCount > 0);
         setButtonEnabled(binding.playerCast, hasPlayer && hasInlineCast() && PlayerButtonSetting.isVisible(PlayerButtonSetting.CAST));
         setButtonEnabled(binding.playerInfo, false); // 始终禁用信息按钮
-        setButtonEnabled(binding.playerFullscreenAction, hasPlayer);
+        setButtonEnabled(binding.playerFullscreenAction, true);
         binding.playerCast.setVisibility(hasInlineCast() && PlayerButtonSetting.isVisible(PlayerButtonSetting.CAST) ? View.VISIBLE : View.GONE);
         binding.playerInfo.setVisibility(View.GONE); // 始终隐藏信息按钮
         binding.playerActionRow.setVisibility(View.VISIBLE);
@@ -6328,6 +6316,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerDanmaku.setTextColor(danmakuShow ? yellow : white);
 
         // 其他所有按钮：白色
+        binding.playerPlaybackAction.setTextColor(white);
         binding.playerNext.setTextColor(white);
         binding.playerPrev.setTextColor(white);
         binding.playerEpisodes.setTextColor(white);
@@ -6452,7 +6441,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         // 上集/下集按钮始终可用，点击时如果没有相邻集数会显示提示（与影视原生模式保持一致）
         setButtonEnabled(detailControlView(R.id.prev, View.class), hasPlayer && episodeCount > 0);
         setButtonEnabled(detailControlView(R.id.next, View.class), hasPlayer && episodeCount > 0);
-        setButtonEnabled(detailControlView(R.id.fullscreen, View.class), hasPlayer);
+        setButtonEnabled(detailControlView(R.id.fullscreen, View.class), true);
         setButtonEnabled(detailControlView(R.id.danmaku, View.class), hasPlayer && inlineControlController.hasDanmakuControl());
         setButtonEnabled(detailControlView(R.id.lock, View.class), hasPlayer);
         setButtonEnabled(detailControlView(R.id.rotate, View.class), hasPlayer);
@@ -8236,7 +8225,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return 3;
     }
 
+    private boolean isSamePendingInlinePlayback(Episode episode) {
+        return inlinePlaybackLoading && selectedEpisode != null && selectedEpisode.equals(episode);
+    }
+
     private void selectInlineEpisode(Episode episode) {
+        if (isSamePendingInlinePlayback(episode)) return;
         cancelPendingInlinePlayback();
         playbackSelectionTouched = true;
         selectedEpisode = episode;
@@ -8250,7 +8244,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void toggleInlineFullscreen() {
-        if (service() == null || player().isEmpty()) return;
+        if (!isInlinePlayerMode()) return;
         if (inlineFullscreen) exitInlineFullscreen();
         else enterInlineFullscreen();
     }
@@ -8960,7 +8954,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private boolean handleInlineKey(KeyEvent event) {
-        if (!isInlinePlayerMode() || !inlineStarted) return false;
+        if (!isInlinePlayerMode()) return false;
         if (KeyUtil.isBackKey(event) && binding.gestureSeek.getVisibility() == View.VISIBLE) {
             if (KeyUtil.isActionUp(event)) hideInlineGestureOverlays();
             return true;
@@ -8989,15 +8983,16 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             else showInlineControls(true);
             return true;
         }
-        if (!inlineFullscreen || isInlineControlsVisible() || service() == null) return false;
+        if (!inlineFullscreen || isInlineControlsVisible()) return false;
         if (isLock()) {
             if (KeyUtil.isActionUp(event)) showInlineControls(true, false);
             return true;
         }
         if (KeyUtil.isEnterKey(event)) {
-            if (KeyUtil.isActionUp(event)) toggleInlinePlayback();
+            if (KeyUtil.isActionUp(event)) showInlineControls(true);
             return true;
         }
+        if (!inlineStarted || service() == null || player() == null || player().isEmpty()) return false;
         if (event.isLongPress() && KeyUtil.isUpKey(event)) {
             onSpeedUp();
             inlineKeySpeedChanging = true;
@@ -9024,7 +9019,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private boolean isInlineFullscreenHiddenPlaybackKey(KeyEvent event) {
-        if (event == null || !isInlinePlayerMode() || !inlineStarted || !inlineFullscreen || isInlineControlsVisible() || service() == null) return false;
+        if (event == null || !isInlinePlayerMode() || !inlineFullscreen || isInlineControlsVisible()) return false;
         return KeyUtil.isEnterKey(event) || KeyUtil.isUpKey(event) || KeyUtil.isDownKey(event) || KeyUtil.isLeftKey(event) || KeyUtil.isRightKey(event);
     }
 
