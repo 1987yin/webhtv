@@ -1321,6 +1321,13 @@
     <string name="search_keyword">关键字…</string>
     <string name="site_search_hint">搜索站点…</string>
     <string name="site_group_all">全部</string>
+    <string name="site_group_sort_desc">%1$s，长按拖动排序</string>
+    <string name="site_group_sort_tv_desc">%1$s，长按确定键排序</string>
+    <string name="site_group_sort_tv_hint">在分组上长按确定键可调整顺序</string>
+    <string name="site_group_sort_tv_active">排序中：左右移动，确定保存，返回取消</string>
+    <string name="site_group_sort_tv_active_desc">%1$s，正在排序。左右移动，确定保存，返回取消</string>
+    <string name="site_group_sort_saved">分组顺序已保存</string>
+    <string name="site_group_sort_cancelled">已取消分组排序</string>
     <string name="search_record">历史</string>
     <string name="search_suggest">建议</string>
     <string name="search_hot">热搜</string>

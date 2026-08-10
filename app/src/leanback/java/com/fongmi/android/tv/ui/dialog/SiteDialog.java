@@ -4,7 +4,9 @@ import android.app.Dialog;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.text.TextUtils;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
@@ -29,8 +31,10 @@ import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.databinding.DialogSiteBinding;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.impl.SiteListener;
+import com.fongmi.android.tv.setting.SiteGroupOrderStore;
 import com.fongmi.android.tv.ui.adapter.SiteAdapter;
 import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
+import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.github.catvod.crawler.SpiderDebug;
@@ -54,7 +58,11 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     private SiteListener listener;
     private SiteAdapter adapter;
     private List<String> groups;
+    private List<String> originalGroups;
+    private String reorderingGroup = "";
+    private long reorderStartedAt;
     private long showStart;
+    private boolean groupReordering;
     private boolean action;
     private boolean listLoaded;
     private int type;
@@ -104,6 +112,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         dialog.setContentView(getBinding().getRoot());
         initView();
         initEvent();
+        dialog.setOnKeyListener((d, keyCode, event) -> onDialogKey(keyCode, event));
         return dialog;
     }
 
@@ -120,8 +129,10 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         long initStart = System.currentTimeMillis();
         initShellView();
         initEvent();
+        directDialog.setOnKeyListener((d, keyCode, event) -> onDialogKey(keyCode, event));
         log("shell init end cost=%sms total=%sms", cost(initStart), cost());
         directDialog.setOnDismissListener(d -> {
+            resetGroupReorderState();
             directDialog = null;
             binding = null;
             this.activity = null;
@@ -362,6 +373,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
 
     @Override
     public void dismiss() {
+        resetGroupReorderState();
         if (directDialog != null) directDialog.dismiss();
         else super.dismiss();
     }
@@ -375,7 +387,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     }
 
     private List<String> getGroups() {
-        return new ArrayList<>(Site.getGroups(VodConfig.get().getSites()));
+        return SiteGroupOrderStore.sort(new ArrayList<>(Site.getGroups(VodConfig.get().getSites())));
     }
 
     private void normalizeSelectedGroup() {
@@ -390,6 +402,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         if (groups == null || groups.isEmpty()) {
             selectedGroup = "";
             binding.groupScroll.setVisibility(View.GONE);
+            binding.groupHint.setVisibility(View.GONE);
             return;
         }
         binding.groupScroll.setVisibility(View.VISIBLE);
@@ -420,7 +433,79 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             if (hasFocus) selectGroup(group, button);
         });
         button.setOnClickListener(v -> onGroupClick(group, v));
+        button.setOnKeyListener((v, keyCode, event) -> onGroupKey(group, keyCode, event));
+        if (!TextUtils.isEmpty(group)) button.setOnLongClickListener(v -> startGroupReorder(group, v));
         return button;
+    }
+
+    private boolean startGroupReorder(String group, View view) {
+        if (groups == null || groups.size() < 2 || TextUtils.isEmpty(group)) return false;
+        if (groupReordering) return true;
+        originalGroups = new ArrayList<>(groups);
+        reorderingGroup = group;
+        reorderStartedAt = SystemClock.uptimeMillis();
+        groupReordering = true;
+        selectedGroup = group;
+        updateGroupView();
+        centerGroup(view);
+        Notify.show(R.string.site_group_sort_tv_active);
+        return true;
+    }
+
+    private boolean onGroupKey(String group, int keyCode, KeyEvent event) {
+        if (!groupReordering || !TextUtils.equals(group, reorderingGroup)) return false;
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) moveGroup(group, keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1);
+            return true;
+        }
+        if (KeyUtil.isEnterKey(event)) {
+            if (event.getAction() == KeyEvent.ACTION_UP && event.getDownTime() >= reorderStartedAt) saveGroupReorder();
+            return true;
+        }
+        return keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN;
+    }
+
+    private void moveGroup(String group, int direction) {
+        if (!SiteGroupOrderStore.move(groups, group, direction)) return;
+        DialogSiteBinding current = binding;
+        if (current == null) return;
+        current.groupList.post(() -> {
+            if (binding == current) setGroupView();
+        });
+    }
+
+    private void saveGroupReorder() {
+        if (!groupReordering) return;
+        SiteGroupOrderStore.save(Site.getGroups(VodConfig.get().getSites()), groups);
+        View active = findGroupView(reorderingGroup);
+        resetGroupReorderState();
+        updateGroupView();
+        if (active != null) active.requestFocus();
+        Notify.show(R.string.site_group_sort_saved);
+    }
+
+    private void cancelGroupReorder() {
+        if (!groupReordering) return;
+        if (originalGroups != null) {
+            groups.clear();
+            groups.addAll(originalGroups);
+        }
+        resetGroupReorderState();
+        setGroupView();
+        Notify.show(R.string.site_group_sort_cancelled);
+    }
+
+    private boolean onDialogKey(int keyCode, KeyEvent event) {
+        if (!groupReordering || keyCode != KeyEvent.KEYCODE_BACK || event.getAction() != KeyEvent.ACTION_UP) return false;
+        cancelGroupReorder();
+        return true;
+    }
+
+    private void resetGroupReorderState() {
+        groupReordering = false;
+        reorderingGroup = "";
+        originalGroups = null;
+        reorderStartedAt = 0;
     }
 
     private void requestGroupFocus() {
@@ -431,6 +516,10 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     }
 
     private void onGroupClick(String group, View view) {
+        if (groupReordering) {
+            if (TextUtils.equals(group, reorderingGroup)) saveGroupReorder();
+            return;
+        }
         if (!TextUtils.isEmpty(group) && group.equals(selectedGroup)) {
             View all = findGroupView("");
             if (all != null && all.requestFocus()) return;
@@ -441,6 +530,11 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     }
 
     private void selectGroup(String group, View view) {
+        if (groupReordering && !TextUtils.equals(group, reorderingGroup)) {
+            View active = findGroupView(reorderingGroup);
+            if (active != null) active.post(active::requestFocus);
+            return;
+        }
         if (binding == null || adapter == null) return;
         if (group.equals(selectedGroup)) {
             centerGroup(view);
@@ -461,10 +555,20 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
 
     private void updateGroupView() {
         if (binding == null) return;
+        boolean reorderable = groups != null && groups.size() > 1;
+        binding.groupHint.setVisibility(reorderable ? View.VISIBLE : View.GONE);
+        binding.groupHint.setText(groupReordering ? R.string.site_group_sort_tv_active : R.string.site_group_sort_tv_hint);
         for (int i = 0; i < binding.groupList.getChildCount(); i++) {
             View view = binding.groupList.getChildAt(i);
             String group = (String) view.getTag();
             boolean selected = TextUtils.equals(group, selectedGroup);
+            boolean reordering = groupReordering && TextUtils.equals(group, reorderingGroup);
+            String text = TextUtils.isEmpty(group) ? getDialogActivity().getString(R.string.site_group_all) : group;
+            int description = reordering ? R.string.site_group_sort_tv_active_desc : R.string.site_group_sort_tv_desc;
+            androidx.appcompat.widget.AppCompatTextView button = (androidx.appcompat.widget.AppCompatTextView) view;
+            button.setText(reordering ? "↔ " + text : text);
+            button.setContentDescription(TextUtils.isEmpty(group) ? text : getDialogActivity().getString(description, text));
+            view.setAlpha(groupReordering && !reordering ? 0.55f : 1.0f);
             view.setSelected(selected);
         }
     }
