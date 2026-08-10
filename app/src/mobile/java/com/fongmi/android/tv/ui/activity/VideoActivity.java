@@ -135,6 +135,7 @@ import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
 import com.fongmi.android.tv.ui.dialog.LutPanelDialog;
+import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.QuickSearchDialog;
 import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
@@ -1312,6 +1313,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.right.lock.setOnClickListener(view -> onLock());
         mBinding.control.right.rotate.setOnClickListener(view -> onRotate());
         mBinding.control.right.pip.setOnClickListener(guarded(this::onPiP));
+        mBinding.control.playParamsQuick.setOnClickListener(guarded(this::onPlayParams));
         mBinding.control.fullscreen.setOnClickListener(guarded(this::onFullscreen));
         mBinding.control.danmaku.setOnClickListener(view -> onDanmakuShow());
         mBinding.control.action.text.setOnClickListener(guardedView(this::onTrack));
@@ -1332,6 +1334,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.action.prev.setOnClickListener(view -> checkPrev());
         mBinding.control.action.next.setOnClickListener(view -> checkNext());
         mBinding.control.action.decode.setOnClickListener(guarded(this::onDecode));
+        mBinding.control.action.playParams.setOnClickListener(guarded(this::onPlayParams));
         mBinding.control.action.ending.setOnClickListener(guarded(this::onEnding));
         mBinding.control.action.repeat.setOnClickListener(guarded(this::onRepeat));
         mBinding.control.action.opening.setOnClickListener(guarded(this::onOpening));
@@ -3858,6 +3861,36 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     @Override
+    public void onPlayParamsPanel() {
+        onPlayParams();
+    }
+
+    @Override
+    public ActivityVideoBinding getControlBinding() {
+        return mBinding;
+    }
+
+    @Override
+    public PlayerManager getControlPlayer() {
+        return service() == null ? null : player();
+    }
+
+    @Override
+    public History getControlHistory() {
+        return mHistory;
+    }
+
+    @Override
+    public boolean isControlParseEnabled() {
+        return isUseParse();
+    }
+
+    @Override
+    public boolean isControlAudioContent() {
+        return isAudioOnly() || isMusicLike();
+    }
+
+    @Override
     public boolean isDanmakuFullscreen() {
         return isFullscreen();
     }
@@ -4113,9 +4146,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onPlayerKernel() {
-        mClock.setCallback(null);
-        onChoose();
-        setR1Callback();
+        if (playerKernelSwitchRefreshing) return;
+        PlayerKernelDialog.show(this, player().getPlayerType(), this::switchPlayerKernel);
     }
 
     private boolean onPlayerKernelLong() {
@@ -4123,27 +4155,41 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return true;
     }
 
+    private void switchPlayerKernel(int type) {
+        if (refreshAndSwitchPlayerKernel(type)) return;
+        mClock.setCallback(null);
+        clearLyrics();
+        player().switchPlayer(type);
+        setPlayerKernel();
+        setDecode();
+        setR1Callback();
+    }
+
     private boolean refreshAndSwitchPlayerKernel(int type) {
+        if (playerKernelSwitchRefreshing) return true;
         int requestId = ++playerKernelSwitchRequestId;
         Flag currentFlag = getFlag();
         Episode currentEpisode = getEpisode();
         if (currentFlag == null || currentEpisode == null || TextUtils.isEmpty(currentFlag.getFlag()) || TextUtils.isEmpty(currentEpisode.getUrl())) return false;
-        long position = player().getPosition();
+        int nextType = PlayerSetting.sanitizePlayer(type);
+        long position = getPlayerSwitchPosition();
         float speed = player().getSpeed();
         boolean repeat = player().isRepeatOne();
         String key = getKey();
         String flag = currentFlag.getFlag();
         String episode = currentEpisode.getUrl();
         MediaMetadata metadata = buildMetadata();
+        playerKernelSwitchRefreshing = true;
         mClock.setCallback(null);
-        SpiderDebug.log("video-flow", "switch player refresh start type=%d key=%s flag=%s episode=%s", type, key, flag, episode);
+        SpiderDebug.log("video-flow", "switch player refresh start type=%d key=%s flag=%s episode=%s", nextType, key, flag, episode);
         Task.execute(() -> {
             try {
-                Result result = SiteApi.playerContent(key, flag, episode, type);
-                App.post(() -> switchPlayerKernelWithResult(requestId, type, result, position, speed, repeat, metadata));
+                Result result = SiteApi.playerContent(key, flag, episode, nextType);
+                App.post(() -> switchPlayerKernelWithResult(requestId, nextType, result, position, speed, repeat, metadata));
             } catch (Throwable e) {
                 App.post(() -> {
                     if (requestId != playerKernelSwitchRequestId) return;
+                    playerKernelSwitchRefreshing = false;
                     setPlayerKernel();
                     setDecode();
                     setR1Callback();
@@ -4156,6 +4202,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void switchPlayerKernelWithResult(int requestId, int type, Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
         if (requestId != playerKernelSwitchRequestId) return;
+        playerKernelSwitchRefreshing = false;
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
         } else {
@@ -4393,7 +4440,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.fullscreen.setVisibility(isLock() || shortDrama ? View.GONE : View.VISIBLE);
         mBinding.control.keep.setVisibility(mHistory == null ? View.GONE : View.VISIBLE);
         mBinding.control.nightMode.setVisibility(mHistory == null ? View.GONE : View.VISIBLE);
-        mBinding.control.osdDiagnostics.setVisibility(PlayerSetting.isOsdDiagnostics() && !player().isEmpty() ? View.VISIBLE : View.GONE);
+        boolean showPlayParams = PlayerButtonSetting.isVisible(PlayerButtonSetting.PLAY_PARAMS);
+        mBinding.control.playParamsQuick.setVisibility(!isFullscreen() && !isLock() && !player().isEmpty() && showPlayParams ? View.VISIBLE : View.GONE);
+        mBinding.control.playParamsQuick.setSelected(mOsd != null && mOsd.isDiagnosticsVisible());
+        mBinding.control.action.playParams.setVisibility(showPlayParams ? View.VISIBLE : View.GONE);
+        mBinding.control.action.playParams.setSelected(mOsd != null && mOsd.isDiagnosticsVisible());
+        mBinding.control.osdDiagnostics.setVisibility(PlayerSetting.isOsdDiagnostics() && showPlayParams && !player().isEmpty() ? View.VISIBLE : View.GONE);
         mBinding.control.osdDiagnostics.setAlpha(mOsd != null && mOsd.isDiagnosticsVisible() ? 1f : 0.72f);
         mBinding.control.parse.setVisibility(isFullscreen() && isUseParse() && PlayerButtonSetting.isVisible(PlayerButtonSetting.PARSE) ? View.VISIBLE : View.GONE);
         // 竖屏模式下隐藏底部控制栏（EXO、硬解等选项），避免界面拥挤。
@@ -4455,7 +4507,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void setPlayParamsState() {
-        mBinding.control.action.playParams.setSelected(mOsd != null && mOsd.isDiagnosticsVisible());
+        boolean selected = mOsd != null && mOsd.isDiagnosticsVisible();
+        mBinding.control.playParamsQuick.setSelected(selected);
+        mBinding.control.action.playParams.setSelected(selected);
     }
 
     private void hideWidgetOverlay() {
@@ -6368,6 +6422,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                 break;
             case Player.STATE_ENDED:
                 checkEnded(true);
+                updatePlayControl(false, syncPiPForPlaybackMode());
                 break;
         }
     }
@@ -6377,15 +6432,13 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         syncLyricsPlaybackState(isPlaying);
         syncKaraokePosition();
         boolean audioMode = syncPiPForPlaybackMode();
-        if (isPlaying) {
-            if (!audioMode) mPiP.update(this, true);
-            mBinding.control.play.setImageResource(androidx.media3.ui.R.drawable.exo_icon_pause);
-            checkAudioPlayImg(true);
-        } else if (isPaused()) {
-            if (!audioMode) mPiP.update(this, false);
-            mBinding.control.play.setImageResource(androidx.media3.ui.R.drawable.exo_icon_play);
-            checkAudioPlayImg(false);
-        }
+        if (isPlaying || isPaused()) updatePlayControl(isPlaying, audioMode);
+    }
+
+    private void updatePlayControl(boolean isPlaying, boolean audioMode) {
+        if (!audioMode) mPiP.update(this, isPlaying);
+        mBinding.control.play.setImageResource(isPlaying ? androidx.media3.ui.R.drawable.exo_icon_pause : androidx.media3.ui.R.drawable.exo_icon_play);
+        checkAudioPlayImg(isPlaying);
     }
 
     @Override
@@ -9408,31 +9461,6 @@ private LinearLayout.LayoutParams audioMoreItemParams(boolean first) {
 
 private boolean isKaraokeActionAvailable() {
         return service() != null && (isAudioOnly() || isMusicLike());
-    }
-
-@Override
-    public ActivityVideoBinding getControlBinding() {
-        return mBinding;
-    }
-
-@Override
-    public PlayerManager getControlPlayer() {
-        return service() == null ? null : player();
-    }
-
-@Override
-    public History getControlHistory() {
-        return mHistory;
-    }
-
-@Override
-    public boolean isControlParseEnabled() {
-        return isUseParse();
-    }
-
-    @Override
-    public boolean isControlAudioContent() {
-        return isAudioOnly() || isMusicLike();
     }
 
 private boolean onChooseLong() {

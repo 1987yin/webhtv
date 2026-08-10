@@ -88,6 +88,7 @@ import com.fongmi.android.tv.ui.dialog.LiveEpgDialog;
 import com.fongmi.android.tv.ui.dialog.LiveLineDialog;
 import com.fongmi.android.tv.ui.dialog.LiveProgramDialog;
 import com.fongmi.android.tv.ui.dialog.PassDialog;
+import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.utils.Biometric;
@@ -831,7 +832,13 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void onPlayerKernel() {
-        onChoose();
+        PlayerKernelDialog.show(this, player().getPlayerType(), this::switchPlayerKernel);
+    }
+
+    private void switchPlayerKernel(int type) {
+        player().switchPlayer(type);
+        setPlayerKernel();
+        setDecode();
         setR1Callback();
     }
 
@@ -1462,6 +1469,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
                 break;
             case Player.STATE_ENDED:
                 checkEnded();
+                updatePlayControl(false);
                 break;
         }
     }
@@ -1483,13 +1491,12 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     protected void onPlayingChanged(boolean isPlaying) {
-        if (isPlaying) {
-            mPiP.update(this, true);
-            mBinding.control.play.setImageResource(androidx.media3.ui.R.drawable.exo_icon_pause);
-        } else if (isPaused()) {
-            mPiP.update(this, false);
-            mBinding.control.play.setImageResource(androidx.media3.ui.R.drawable.exo_icon_play);
-        }
+        if (isPlaying || isPaused()) updatePlayControl(isPlaying);
+    }
+
+    private void updatePlayControl(boolean isPlaying) {
+        mPiP.update(this, isPlaying);
+        mBinding.control.play.setImageResource(isPlaying ? androidx.media3.ui.R.drawable.exo_icon_pause : androidx.media3.ui.R.drawable.exo_icon_play);
     }
 
     @Override
