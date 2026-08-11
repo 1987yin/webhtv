@@ -42,6 +42,7 @@ import com.fongmi.android.tv.databinding.FragmentCollectBinding;
 import com.fongmi.android.tv.model.SearchProgress;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.setting.SiteGroupOrderStore;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.ui.activity.FolderActivity;
 import com.fongmi.android.tv.ui.activity.HistoryResumeCoordinator;
@@ -248,7 +249,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         if (Setting.getSearchResultSort() != 1) SiteHealthStore.sortSites(mSites);
         mSiteOrder.clear();
         for (int i = 0; i < mSites.size(); i++) mSiteOrder.put(mSites.get(i).getKey(), i);
-        mGroups = isSiteSearch() || isGroupSearch() ? new ArrayList<>() : Site.getGroups(mSites);
+        mGroups = isSiteSearch() || isGroupSearch() ? new ArrayList<>() : SiteGroupOrderStore.sort(Site.getGroups(mSites));
     }
 
     private void setWidth() {

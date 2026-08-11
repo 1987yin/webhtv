@@ -1326,6 +1326,13 @@
     <string name="search_column">Search layout</string>
     <string name="site_search_hint">Search sites…</string>
     <string name="site_group_all">All</string>
+    <string name="site_group_sort_desc">%1$s, long press to reorder</string>
+    <string name="site_group_sort_tv_desc">%1$s, long press OK to reorder</string>
+    <string name="site_group_sort_tv_hint">Long press OK on a group to reorder</string>
+    <string name="site_group_sort_tv_active">Reordering: Left/Right move, OK save, Back cancel</string>
+    <string name="site_group_sort_tv_active_desc">%1$s, reordering. Left or right to move, OK to save, Back to cancel</string>
+    <string name="site_group_sort_saved">Group order saved</string>
+    <string name="site_group_sort_cancelled">Group reorder canceled</string>
     <string name="search_record">History</string>
     <string name="search_suggest">Suggest</string>
     <string name="search_hot">Hot</string>

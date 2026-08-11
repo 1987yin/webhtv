@@ -164,10 +164,52 @@ public class LiveActivityLayoutTest {
                 enteredPiP >= 0 && cancelPending > enteredPiP);
     }
 
+    @Test
+    public void playbackEndStaysOnCurrentChannelForMobileAndLeanback() throws Exception {
+        assertPlaybackEndStaysOnCurrentChannel(findMobileJavaPath());
+        assertPlaybackEndStaysOnCurrentChannel(findLeanbackJavaPath());
+    }
+
+    private static void assertPlaybackEndStaysOnCurrentChannel(Path javaRoot) throws Exception {
+        Path sourcePath = javaRoot.resolve(Path.of(
+                "com", "fongmi", "android", "tv", "ui", "activity", "LiveActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        String checkEndedBody = section(source, "private void checkEnded()", "private void setTrackVisible()");
+
+        assertFalse(sourcePath + " is missing checkEnded", checkEndedBody.isEmpty());
+        assertTrue("live playback end must continue within the current channel", source.contains("mEndRetry = this::checkNext;"));
+        assertFalse("live playback end must not advance to the next channel", checkEndedBody.contains("nextChannel();"));
+        assertFalse("channel navigation must not depend on player live classification", checkEndedBody.contains("player().isLive()"));
+        assertTrue("natural playback end must use a bounded retry delay",
+                source.contains("private static final long PLAYBACK_END_RETRY_DELAY = 500;")
+                        && source.contains("private Runnable mEndRetry;"));
+        assertTrue("natural playback end must debounce before reloading the current channel",
+                checkEndedBody.contains("App.removeCallbacks(mEndRetry);")
+                        && checkEndedBody.contains("App.post(mEndRetry, PLAYBACK_END_RETRY_DELAY);"));
+
+        String checkNextBody = section(source, "private void checkNext()", "\n    private void");
+        assertTrue("delayed end retry must tolerate an activity without a selected channel",
+                checkNextBody.contains("if (mChannel == null) return;"));
+
+        String fetchBody = section(source, "private void fetch()", "private void start(Result result)");
+        assertTrue("a new fetch must cancel a stale delayed end retry",
+                fetchBody.contains("App.removeCallbacks(mEndRetry);"));
+
+        int onDestroy = source.indexOf("protected void onDestroy()");
+        assertTrue("destroying the activity must cancel a delayed end retry",
+                onDestroy >= 0 && source.indexOf("App.removeCallbacks(mEndRetry);", onDestroy) >= onDestroy);
+    }
+
     private static String section(String source, String startMarker, String endMarker) {
         int start = source.indexOf(startMarker);
         int end = start < 0 ? -1 : source.indexOf(endMarker, start + startMarker.length());
         return start >= 0 && end > start ? source.substring(start, end) : "";
+    }
+
+    private static Path findLeanbackJavaPath() {
+        Path moduleRelative = Path.of("src", "leanback", "java");
+        if (Files.exists(moduleRelative)) return moduleRelative;
+        return Path.of("app", "src", "leanback", "java");
     }
 
     private static Path findMobileJavaPath() {
