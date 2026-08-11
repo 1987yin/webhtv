@@ -493,31 +493,16 @@ public class VideoActivityLayoutTest {
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         String audioBody = methodBody(source, "public void onAudio()", "};");
         String pipModeBody = methodBody(source, "public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, @NonNull Configuration newConfig)", "protected void onResume()");
-        String pipExitBody = methodBody(source, "private void finishIfPipClosed()", "public void onConfigurationChanged(@NonNull Configuration newConfig)");
 
-        int captureAudioMode = audioBody.indexOf("boolean audioOnly = isAudioOnly();");
-        int markIntentionalExit = audioBody.indexOf("mKeepPlaybackAfterPipExit = isInPictureInPictureMode();");
+        int audioOnly = audioBody.indexOf("setAudioOnly(true);");
         int syncPipMode = audioBody.indexOf("syncPiPForPlaybackMode();");
-        int moveToBackground = audioBody.indexOf("moveTaskToBack(true)");
-        assertTrue("PiP audio action must preserve and mark state before changing PiP mode",
-                captureAudioMode >= 0
-                        && markIntentionalExit > captureAudioMode
-                        && syncPipMode > markIntentionalExit
-                        && moveToBackground > syncPipMode);
-        assertTrue("a failed background transition must restore audio and PiP state",
-                audioBody.contains("mKeepPlaybackAfterPipExit = false;")
-                        && audioBody.contains("setAudioOnly(audioOnly);")
-                        && audioBody.lastIndexOf("syncPiPForPlaybackMode();") > moveToBackground);
-        int pipEntered = pipModeBody.indexOf("if (isInPictureInPictureMode) {");
-        int resetStaleIntent = pipModeBody.indexOf("mKeepPlaybackAfterPipExit = false;", pipEntered);
-        assertTrue("a new PiP session must clear any stale keep-playback marker",
-                pipEntered >= 0 && resetStaleIntent > pipEntered);
-
-        int captureIntent = pipExitBody.indexOf("boolean keepPlayback = mKeepPlaybackAfterPipExit;");
-        int consumeIntent = pipExitBody.indexOf("mKeepPlaybackAfterPipExit = false;");
-        int decideExit = pipExitBody.indexOf("PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed(), keepPlayback)");
-        assertTrue("intentional PiP exits must be consumed before close-button detection",
-                captureIntent >= 0 && consumeIntent > captureIntent && decideExit > consumeIntent);
+        int moveToBackground = audioBody.indexOf("moveTaskToBack(true);");
+        assertTrue("PiP audio action must enter audio-only mode before moving task to background",
+                audioOnly >= 0 && syncPipMode > audioOnly && moveToBackground > syncPipMode);
+        assertTrue("PiP exit must finish when playback has been marked stopped",
+                pipModeBody.contains("if (isStop()) finish();"));
+        assertFalse("PiP exit must not use a deferred lifecycle heuristic",
+                source.contains("mKeepPlaybackAfterPipExit") || source.contains("finishIfPipClosed"));
     }
 
     @Test
@@ -527,7 +512,7 @@ public class VideoActivityLayoutTest {
         String tracksBody = methodBody(source, "protected void onTracksChanged()", "protected void onTitlesChanged()");
         String audioStateBody = methodBody(source, "private void updateAudioOnlyState()", "protected void onTitlesChanged()");
         String startBody = methodBody(source, "protected void onStart()", "protected void onStop()");
-        String resumeBody = methodBody(source, "protected void onResume()", "private void finishIfPipClosed()");
+        String resumeBody = methodBody(source, "protected void onResume()", "public void onConfigurationChanged(@NonNull Configuration newConfig)");
         String configBody = methodBody(source, "public void onConfigurationChanged(@NonNull Configuration newConfig)", "public void onWindowFocusChanged(boolean hasFocus)");
 
         assertTrue("mobile track changes must refresh lyrics after reconciling the final track set",
