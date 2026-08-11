@@ -110,6 +110,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private static final int LIVE_PIP_WIDTH = 16;
     private static final int LIVE_PIP_HEIGHT = 9;
+    private static final long PLAYBACK_END_RETRY_DELAY = 500;
     private static final String ORIENTATION_TAG = "LiveOrientation";
 
     private ActivityLiveBinding mBinding;
@@ -131,6 +132,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private Runnable mR1;
     private Runnable mR2;
     private Runnable mR3;
+    private Runnable mEndRetry;
     private boolean rotate;
     private int count;
     private PiP mPiP;
@@ -256,6 +258,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         mR1 = this::hideControl;
         mR2 = this::setTraffic;
         mR3 = this::hideInfo;
+        mEndRetry = this::checkNext;
         mPiP = new PiP();
         setRecyclerView();
         mOsd = new PlayerOsdController(mBinding.osd.getRoot(), mBinding.osd.osdTopLeft, mBinding.osd.osdTopRight, mBinding.osd.osdBottomLeft, mBinding.osd.osdBottomRight, mBinding.osd.osdDiagnostics, mBinding.osd.osdMiniProgress, new PlayerOsdController.Source() {
@@ -1233,6 +1236,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void fetch(EpgData item) {
+        App.removeCallbacks(mEndRetry);
         if (mChannel == null) return;
         playbackCatchup = true;
         mViewModel.getUrl(mChannel, item);
@@ -1244,6 +1248,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void fetch() {
+        App.removeCallbacks(mEndRetry);
         if (mChannel == null) return;
         playbackCatchup = false;
         LiveConfig.get().setKeep(mChannel);
@@ -1576,11 +1581,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void checkEnded() {
-        if (player().isLive()) {
-            checkNext();
-        } else {
-            nextChannel();
-        }
+        App.removeCallbacks(mEndRetry);
+        App.post(mEndRetry, PLAYBACK_END_RETRY_DELAY);
     }
 
     private void setTrackVisible() {
@@ -2193,6 +2195,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         clearArtworkTarget();
         Source.get().exit();
         App.removeCallbacks(mR1, mR2, mR3);
+        App.removeCallbacks(mEndRetry);
         if (mOsd != null) mOsd.release();
         mViewModel.url().removeObserver(mObserveUrl);
         mViewModel.epg().removeObserver(mObserveEpg);
