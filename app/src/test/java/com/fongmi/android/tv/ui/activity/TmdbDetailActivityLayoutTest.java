@@ -572,17 +572,88 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
-    public void lockedInlineFullscreenCanStillShowControlsWhileLoading() throws Exception {
+    public void inlineControlsRemainAvailableBeforePlaybackStartsOrWhileLoading() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
-        int helper = source.indexOf("private boolean shouldBlockInlineControlsForLoading()");
-        int method = source.indexOf("private void showInlineControls(boolean show, boolean focus)");
-        int guard = source.indexOf("if (shouldBlockInlineControlsForLoading())", method);
-        int helperGuard = source.indexOf("return isInlineLoadingVisible() && !(isLock() && inlineFullscreen);", helper);
+        int toggle = source.indexOf("private void toggleInlineControls()");
+        int show = source.indexOf("private void showInlineControls(boolean show, boolean focus)");
+        int hide = source.indexOf("private void hideInlineControls()", show);
+        String toggleBody = toggle >= 0 && show > toggle ? source.substring(toggle, show) : "";
+        String showBody = show >= 0 && hide > show ? source.substring(show, hide) : "";
 
-        assertTrue(sourcePath + " is missing shouldBlockInlineControlsForLoading", helper >= 0);
-        assertTrue("inline controls should consult the loading guard helper before hiding controls", guard > method);
-        assertTrue("locked fullscreen loading must still allow the controls overlay to appear for unlock/exit", helperGuard > helper);
+        assertTrue(sourcePath + " is missing inline controls methods", toggle >= 0 && show > toggle && hide > show);
+        assertFalse("single tap controls must not require a started player", toggleBody.contains("!inlineStarted"));
+        assertFalse("controls must remain available while initial loading or an error is visible", showBody.contains("!inlineStarted"));
+        assertFalse("loading must not suppress controls needed for retry/fullscreen", showBody.contains("shouldBlockInlineControlsForLoading()"));
+    }
+
+    @Test
+    public void inlineGesturesStayInteractiveBeforePlaybackStarts() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int touch = source.indexOf("private boolean onInlineTouch(View view, MotionEvent event)");
+        int seeking = source.indexOf("public void onSeeking(long time)", touch);
+        int singleTap = source.indexOf("public void onSingleTap()");
+        int doubleTap = source.indexOf("public void onDoubleTap()", singleTap);
+        int nextGesture = source.indexOf("public void onTouchEnd()", doubleTap);
+        int flingUp = source.indexOf("public void onFlingUp()");
+        int flingDown = source.indexOf("public void onFlingDown()", flingUp);
+        String touchBody = touch >= 0 && seeking > touch ? source.substring(touch, seeking) : "";
+        String singleTapBody = singleTap >= 0 && doubleTap > singleTap ? source.substring(singleTap, doubleTap) : "";
+        String doubleTapBody = doubleTap >= 0 && nextGesture > doubleTap ? source.substring(doubleTap, nextGesture) : "";
+        String flingUpBody = flingUp >= 0 && flingDown > flingUp ? source.substring(flingUp, flingDown) : "";
+
+        assertTrue("inline touch must continue routing tap gestures before playback starts", touchBody.contains("inlineGestureDetector.onTouchEvent(event);"));
+        assertFalse("inline touch must not require a started player", touchBody.contains("!inlineStarted"));
+        assertFalse("inline touch must not require an attached player service", touchBody.contains("service() == null"));
+        assertFalse("inline touch must not require a prepared player", touchBody.contains("player().isEmpty()"));
+        assertTrue("playback-only fling gestures must remain guarded without a player",
+                flingUpBody.contains("!inlineStarted") && flingUpBody.contains("player().isEmpty()"));
+        assertTrue("single tap must toggle controls even before playback starts", singleTapBody.contains("toggleInlineControls();"));
+        assertFalse("single tap must not repeatedly restart playback", singleTapBody.contains("onPlay();"));
+        assertTrue("double tap must enter inline fullscreen before playback starts",
+                doubleTapBody.contains("if (!inlineFullscreen)") && doubleTapBody.contains("enterInlineFullscreen();"));
+        assertFalse("double tap must not restart an unstarted playback request", doubleTapBody.contains("if (!inlineStarted)"));
+    }
+
+    @Test
+    public void repeatedEpisodeTapDoesNotRestartSamePendingInlinePlayback() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int helper = source.indexOf("private boolean isSamePendingInlinePlayback(Episode episode)");
+        int select = source.indexOf("private void selectInlineEpisode(Episode episode)");
+        int guard = source.indexOf("if (isSamePendingInlinePlayback(episode)) return;", select);
+        int cancel = source.indexOf("cancelPendingInlinePlayback();", select);
+        int adapter = source.indexOf("episodeAdapter = new TmdbEpisodeAdapter");
+        int click = source.indexOf("public void onItemClick(Episode episode)", adapter);
+        int longClick = source.indexOf("public void onItemLongClick", click);
+        int toggle = source.indexOf("private void toggleInlinePlayback()");
+        int toggleEnd = source.indexOf("private void toggleInlineControls()", toggle);
+        String detailClickBody = click >= 0 && longClick > click ? source.substring(click, longClick) : "";
+        String toggleBody = toggle >= 0 && toggleEnd > toggle ? source.substring(toggle, toggleEnd) : "";
+
+        assertTrue("pending inline playback identity helper is missing", helper >= 0 && helper < select);
+        assertTrue("same pending episode must be ignored before the active request is cancelled", guard > select && cancel > guard);
+        assertTrue("detail episode cards must reuse the pending-playback dedupe path", detailClickBody.contains("selectInlineEpisode(episode);"));
+        assertFalse("detail episode cards must not cancel and restart the same pending request directly",
+                detailClickBody.contains("cancelPendingInlinePlayback();") || detailClickBody.contains("onPlay();"));
+        assertTrue("play/retry controls must ignore the same episode while its request is already pending",
+                toggleBody.contains("if (isSamePendingInlinePlayback(selectedEpisode)) return;")
+                        && toggleBody.indexOf("if (isSamePendingInlinePlayback(selectedEpisode)) return;") < toggleBody.indexOf("onPlay();"));
+    }
+
+    @Test
+    public void inlineFullscreenRemainsAvailableWithoutAPlayerInstance() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int toggle = source.indexOf("private void toggleInlineFullscreen()");
+        int enterPip = source.indexOf("private void enterInlinePiP(boolean force)", toggle);
+        String toggleBody = toggle >= 0 && enterPip > toggle ? source.substring(toggle, enterPip) : "";
+
+        assertTrue("inline fullscreen toggle is missing", toggle >= 0 && enterPip > toggle);
+        assertFalse("fullscreen layout must not depend on an attached player service", toggleBody.contains("service() == null"));
+        assertFalse("fullscreen layout must not depend on a prepared player", toggleBody.contains("player().isEmpty()"));
+        assertTrue("desktop fullscreen action must stay enabled before playback starts",
+                source.contains("setButtonEnabled(binding.playerFullscreenAction, true);"));
+        assertTrue("mobile fullscreen action must stay enabled before playback starts",
+                source.contains("setButtonEnabled(detailControlView(R.id.fullscreen, View.class), true);"));
     }
 
     @Test
@@ -2116,24 +2187,51 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
-    public void leanbackInlinePlayerConfirmEntersFullscreenBeforeShowingControls() throws Exception {
+    public void leanbackInlinePlayerConfirmEntersFullscreenThenShowsControls() throws Exception {
         Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
 
         int confirm = activity.indexOf("private void onInlinePanelConfirm()");
         int helper = activity.indexOf("private void enterInlineFullscreenOrShowControlsOnConfirm()", confirm);
         int nextMethod = activity.indexOf("private void toggleInlinePlayback()", helper);
+        int handle = activity.indexOf("private boolean handleInlineKey(KeyEvent event)");
+        int handleEnd = activity.indexOf("private boolean handleInlineFullscreenHiddenKey(KeyEvent event)", handle);
+        int hiddenPredicate = activity.indexOf("private boolean isInlineFullscreenHiddenPlaybackKey(KeyEvent event)", handleEnd);
+        int hiddenPredicateEnd = activity.indexOf("private boolean handleInlineControlFocusKey(KeyEvent event)", hiddenPredicate);
 
         assertTrue(activityPath + " is missing onInlinePanelConfirm", confirm >= 0);
         assertTrue(activityPath + " is missing enterInlineFullscreenOrShowControlsOnConfirm", helper > confirm && nextMethod > helper);
+        assertTrue(activityPath + " is missing handleInlineKey", handle >= 0 && handleEnd > handle);
+        assertTrue(activityPath + " is missing fullscreen hidden-key predicate", hiddenPredicate > handleEnd && hiddenPredicateEnd > hiddenPredicate);
 
         String confirmBody = activity.substring(confirm, helper);
         String helperBody = activity.substring(helper, nextMethod);
+        String handleBody = activity.substring(handle, handleEnd);
+        String hiddenPredicateBody = activity.substring(hiddenPredicate, hiddenPredicateEnd);
+        int enter = handleBody.indexOf("if (KeyUtil.isEnterKey(event))");
+        int playbackGuard = handleBody.indexOf("if (!inlineStarted || service() == null || player() == null || player().isEmpty())");
+        int enterEnd = playbackGuard > enter ? playbackGuard : handleBody.indexOf("if (event.isLongPress()", enter);
+        String enterBody = enter >= 0 && enterEnd > enter ? handleBody.substring(enter, enterEnd) : "";
 
-        assertTrue("embedded inline confirm should delegate the non-fullscreen/no-controls case",
-                confirmBody.contains("enterInlineFullscreenOrShowControlsOnConfirm();")
-                        && confirmBody.indexOf("enterInlineFullscreenOrShowControlsOnConfirm();") > confirmBody.indexOf("toggleInlinePlayback();")
-                        && !confirmBody.contains("else {\n            showInlineControls(true);"));
+        assertFalse("TV confirm must not restart playback while the player is loading or stopped", confirmBody.contains("onPlay();"));
+        assertFalse("TV confirm behavior must not depend on the stale inlineStarted flag", confirmBody.contains("inlineStarted"));
+        assertFalse("global TV inline key routing must remain available before playback starts",
+                handleBody.contains("if (!isInlinePlayerMode() || !inlineStarted) return false;"));
+        assertTrue("fullscreen DPAD center must be handled before playback-only key guards", enter >= 0 && playbackGuard > enter);
+        assertFalse("hidden fullscreen key routing must not require a started player or attached service",
+                hiddenPredicateBody.contains("!inlineStarted") || hiddenPredicateBody.contains("service() == null"));
+        assertTrue("embedded TV confirm should enter fullscreen before exposing controls",
+                confirmBody.contains("enterInlineFullscreenOrShowControlsOnConfirm();"));
+        assertTrue("fullscreen TV confirm should expose the controls overlay without changing playback",
+                confirmBody.contains("showInlineControls(true);")
+                        && !confirmBody.contains("toggleInlinePlayback();"));
+        assertTrue("fullscreen DPAD center must expose controls before the view-level key listener runs",
+                enterBody.contains("showInlineControls(true);")
+                        && !enterBody.contains("toggleInlinePlayback();"));
+        assertTrue("TV inline controls must expose an explicit play/retry action before playback starts",
+                activity.contains("private void toggleInlinePlayback()")
+                        && activity.contains("binding.playerPlaybackAction")
+                        && activity.contains("setButtonEnabled(binding.playerPlaybackAction, true)"));
         assertTrue("TV inline confirm should enter fullscreen before falling back to the controls overlay",
                 helperBody.contains("if (Util.isLeanback() && canEnterInlineFullscreenOnConfirm())")
                         && helperBody.contains("enterInlineFullscreen();")

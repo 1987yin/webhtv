@@ -18,6 +18,7 @@ import android.widget.ScrollView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
+import androidx.leanback.widget.BaseGridView;
 import androidx.leanback.widget.OnChildViewHolderSelectedListener;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.GridLayoutManager;
@@ -38,6 +39,7 @@ import com.fongmi.android.tv.databinding.ActivityCollectBinding;
 import com.fongmi.android.tv.model.SearchProgress;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.setting.SiteGroupOrderStore;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.ui.adapter.CollectAdapter;
 import com.fongmi.android.tv.ui.adapter.SearchAdapter;
@@ -180,6 +182,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         setSites();
         updateFilterControls();
         search();
+        focusInitialSource();
     }
 
     @Override
@@ -192,6 +195,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         setSearchColumn();
         updateFilterControls();
         search();
+        focusInitialSource();
     }
 
     @Override
@@ -321,7 +325,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
             mSites.add(site);
         }
         if (Setting.getSearchResultSort() != 1) SiteHealthStore.sortSites(mSites);
-        mGroups = TextUtils.isEmpty(siteKey) && TextUtils.isEmpty(group) ? Site.getGroups(mSites) : new ArrayList<>();
+        mGroups = TextUtils.isEmpty(siteKey) && TextUtils.isEmpty(group) ? SiteGroupOrderStore.sort(Site.getGroups(mSites)) : new ArrayList<>();
     }
 
     private boolean focusBelowTop() {
@@ -352,6 +356,15 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         mBinding.similarityFilter.setText(value);
         mBinding.similarityFilter.setSelected(mSimilarity > 0);
         mBinding.similarityFilter.setContentDescription(getString(R.string.search_filter_similarity_description, value, getString(R.string.search_filter_similarity_hint)));
+    }
+
+    private void focusInitialSource() {
+        if (mCollectAdapter.getItemCount() == 0) {
+            mBinding.searchColumn.requestFocus();
+            return;
+        }
+        BaseGridView collect = isSearchLandscape() ? mBinding.collectHorizontal : mBinding.collect;
+        collect.setSelectedPosition(0, holder -> holder.itemView.requestFocus());
     }
 
     private void onSimilarityFilter() {
