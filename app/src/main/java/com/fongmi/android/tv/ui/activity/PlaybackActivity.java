@@ -312,10 +312,14 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         return PlayerSetting.isBackgroundOff();
     }
 
-    protected void seekTo(long time) {
+    protected boolean seekTo(long deltaMs) {
         onSeekStarted();
-        mController.seekTo(player().getPosition() + time);
-        mController.play();
+        long targetMs = Math.max(0, player().getPosition() + deltaMs);
+        long durationMs = player().getDuration();
+        boolean seekToEnd = durationMs > 0 && targetMs >= durationMs;
+        mController.seekTo(seekToEnd ? durationMs : targetMs);
+        if (!seekToEnd) mController.play();
+        return seekToEnd;
     }
 
     protected void startPlayer(String key, Result result, boolean useParse, long timeout, MediaMetadata metadata) {

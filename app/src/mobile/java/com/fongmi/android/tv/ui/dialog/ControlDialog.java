@@ -73,6 +73,7 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
                 parent.control.fullscreen,
                 parent.control.action.player,
                 parent.control.action.decode,
+                parent.control.action.playParams,
                 parent.control.action.speed,
                 parent.control.action.scale,
                 parent.control.action.lut,
@@ -97,6 +98,7 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
                 activity.inlineControlDialogControl(R.id.fullscreen),
                 activity.inlineControlDialogAction(R.id.player),
                 activity.inlineControlDialogAction(R.id.decode),
+                null,
                 activity.inlineControlDialogAction(R.id.speed),
                 activity.inlineControlDialogAction(R.id.scale),
                 activity.inlineControlDialogLutView(),
@@ -202,6 +204,10 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
             }
 
             @Override
+            public void onPlayParamsPanel() {
+            }
+
+            @Override
             public void onImmersiveAudioModeChanged() {
             }
 
@@ -280,6 +286,7 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         setControlPadding();
         setSheetBackground();
         binding.decode.setText(controls.decode.getText());
+        binding.playParams.setSelected(controls.playParams != null && controls.playParams.isSelected());
         setLut();
 binding.ending.setText(controls.ending.getText());
         binding.opening.setText(controls.opening.getText());
@@ -327,6 +334,10 @@ binding.ending.setText(controls.ending.getText());
         binding.danmaku.setOnClickListener(v -> listener().onDanmakuPanel());
         binding.repeat.setOnClickListener(v -> active(binding.repeat, controls.repeat));
         binding.decode.setOnClickListener(v -> click(binding.decode, controls.decode));
+        binding.playParams.setOnClickListener(v -> {
+            dismissAllowingStateLoss();
+            listener().onPlayParamsPanel();
+        });
         binding.codecCapability.setOnClickListener(v -> listener().onCodecCapabilityPanel());
         binding.panDiagnostic.setOnClickListener(v -> onPanDiagnostic());
         binding.lut.setOnClickListener(v -> onLut());
@@ -615,6 +626,7 @@ if (binding == null || controls == null || player == null) return;
         private final View fullscreen;
         private final TextView player;
         private final TextView decode;
+        private final TextView playParams;
         private final TextView speed;
         private final TextView scale;
         private final TextView lut;
@@ -629,12 +641,13 @@ if (binding == null || controls == null || player == null) return;
         private final TextView title;
         private final TextView episodes;
 
-        private Controls(View root, View video, View fullscreen, TextView player, TextView decode, TextView speed, TextView scale, TextView lut, TextView reset, TextView repeat, TextView text, TextView audio, TextView videoTrack, TextView opening, TextView ending, TextView danmaku, TextView title, TextView episodes) {
+        private Controls(View root, View video, View fullscreen, TextView player, TextView decode, TextView playParams, TextView speed, TextView scale, TextView lut, TextView reset, TextView repeat, TextView text, TextView audio, TextView videoTrack, TextView opening, TextView ending, TextView danmaku, TextView title, TextView episodes) {
             this.root = root;
             this.video = video;
             this.fullscreen = fullscreen;
             this.player = player;
             this.decode = decode;
+            this.playParams = playParams;
             this.speed = speed;
             this.scale = scale;
             this.lut = lut;
@@ -697,5 +710,7 @@ if (binding == null || controls == null || player == null) return;
         void onKaraokeTrackPanel();
 
         void onCodecCapabilityPanel();
+
+        void onPlayParamsPanel();
     }
 }
