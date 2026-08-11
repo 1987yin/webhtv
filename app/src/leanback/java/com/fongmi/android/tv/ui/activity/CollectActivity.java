@@ -38,6 +38,7 @@ import com.fongmi.android.tv.databinding.ActivityCollectBinding;
 import com.fongmi.android.tv.model.SearchProgress;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.setting.SiteGroupOrderStore;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.ui.adapter.CollectAdapter;
 import com.fongmi.android.tv.ui.adapter.SearchAdapter;
@@ -321,7 +322,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
             mSites.add(site);
         }
         if (Setting.getSearchResultSort() != 1) SiteHealthStore.sortSites(mSites);
-        mGroups = TextUtils.isEmpty(siteKey) && TextUtils.isEmpty(group) ? Site.getGroups(mSites) : new ArrayList<>();
+        mGroups = TextUtils.isEmpty(siteKey) && TextUtils.isEmpty(group) ? SiteGroupOrderStore.sort(Site.getGroups(mSites)) : new ArrayList<>();
     }
 
     private boolean focusBelowTop() {

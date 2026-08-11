@@ -48,7 +48,7 @@
         android:id="@+id/groupScroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
+        android:layout_marginBottom="6dp"
         android:clipToPadding="false"
         android:overScrollMode="never"
         android:scrollbars="none"
@@ -61,6 +61,18 @@
             android:orientation="horizontal" />
 
     </HorizontalScrollView>
+
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/groupHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        android:accessibilityLiveRegion="polite"
+        android:importantForAccessibility="yes"
+        android:text="@string/site_group_sort_tv_hint"
+        android:textColor="@color/text"
+        android:textSize="14sp"
+        android:visibility="gone" />
 
     <androidx.appcompat.widget.LinearLayoutCompat
         android:layout_width="match_parent"
