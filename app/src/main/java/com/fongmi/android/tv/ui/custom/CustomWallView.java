@@ -244,8 +244,8 @@ public class CustomWallView extends FrameLayout implements DefaultLifecycleObser
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inSampleSize = getWallSampleSize(bounds);
-            options.inPreferredConfig = Bitmap.Config.RGB_565;
-            options.inDither = true;
+            // Blurred wallpapers are gradient-heavy; RGB_565 quantization creates visible bands and halos.
+            options.inPreferredConfig = Bitmap.Config.ARGB_8888;
             return BitmapFactory.decodeFile(file.getAbsolutePath(), options);
         } catch (OutOfMemoryError | RuntimeException e) {
             SpiderDebug.log("startup", "wall bitmap decode fallback file=%s error=%s", file.getName(), e.getClass().getSimpleName());
