@@ -18,6 +18,7 @@ import android.widget.ScrollView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
+import androidx.leanback.widget.BaseGridView;
 import androidx.leanback.widget.OnChildViewHolderSelectedListener;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.GridLayoutManager;
@@ -181,6 +182,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         setSites();
         updateFilterControls();
         search();
+        focusInitialSource();
     }
 
     @Override
@@ -193,6 +195,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         setSearchColumn();
         updateFilterControls();
         search();
+        focusInitialSource();
     }
 
     @Override
@@ -353,6 +356,15 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         mBinding.similarityFilter.setText(value);
         mBinding.similarityFilter.setSelected(mSimilarity > 0);
         mBinding.similarityFilter.setContentDescription(getString(R.string.search_filter_similarity_description, value, getString(R.string.search_filter_similarity_hint)));
+    }
+
+    private void focusInitialSource() {
+        if (mCollectAdapter.getItemCount() == 0) {
+            mBinding.searchColumn.requestFocus();
+            return;
+        }
+        BaseGridView collect = isSearchLandscape() ? mBinding.collectHorizontal : mBinding.collect;
+        collect.setSelectedPosition(0, holder -> holder.itemView.requestFocus());
     }
 
     private void onSimilarityFilter() {
