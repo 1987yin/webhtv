@@ -41,7 +41,6 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
-import androidx.lifecycle.Lifecycle;
 import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.media3.common.C;
@@ -135,7 +134,6 @@ import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
 import com.fongmi.android.tv.ui.dialog.LutPanelDialog;
-import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.QuickSearchDialog;
 import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
@@ -149,7 +147,6 @@ import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
 import com.fongmi.android.tv.ui.helper.EpisodeSeasonPolicy;
 import com.fongmi.android.tv.ui.helper.SourceEpisodeSeasonCache;
 import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
-import com.fongmi.android.tv.ui.helper.PipExitDecision;
 import com.fongmi.android.tv.ui.helper.PlayerControlFocusHelper;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
 import com.fongmi.android.tv.ui.helper.VodEventGuard;
@@ -302,7 +299,6 @@ private final Map<String, String> mAudioQueueTitles = new HashMap<>();
 private final Map<String, String> mAudioQueueArtists = new HashMap<>();
 private final Map<String, String> mAudioQueuePics = new HashMap<>();
 private final Map<String, String> mAudioQueueLyrics = new HashMap<>();
-private boolean playerKernelSwitchRefreshing;
 private int mStatusBarInset;
 private int mNavigationRightInset;
 private int mLyricsSearchSeq;
@@ -400,7 +396,6 @@ private int mAudioBackgroundRandomNonce;
     private Runnable mTmdbDetailTimeout;
     private Clock mClock;
     private PiP mPiP;
-    private boolean mKeepPlaybackAfterPipExit;
     private String mContextWallUrl;
     private String mContextWallLockedUrl;
     private String playHealthKey;
@@ -4146,8 +4141,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onPlayerKernel() {
-        if (playerKernelSwitchRefreshing) return;
-        PlayerKernelDialog.show(this, player().getPlayerType(), this::switchPlayerKernel);
+        mClock.setCallback(null);
+        onChoose();
+        setR1Callback();
     }
 
     private boolean onPlayerKernelLong() {
@@ -4155,18 +4151,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return true;
     }
 
-    private void switchPlayerKernel(int type) {
-        if (refreshAndSwitchPlayerKernel(type)) return;
-        mClock.setCallback(null);
-        clearLyrics();
-        player().switchPlayer(type);
-        setPlayerKernel();
-        setDecode();
-        setR1Callback();
-    }
-
     private boolean refreshAndSwitchPlayerKernel(int type) {
-        if (playerKernelSwitchRefreshing) return true;
         int requestId = ++playerKernelSwitchRequestId;
         Flag currentFlag = getFlag();
         Episode currentEpisode = getEpisode();
@@ -4179,7 +4164,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         String flag = currentFlag.getFlag();
         String episode = currentEpisode.getUrl();
         MediaMetadata metadata = buildMetadata();
-        playerKernelSwitchRefreshing = true;
         mClock.setCallback(null);
         SpiderDebug.log("video-flow", "switch player refresh start type=%d key=%s flag=%s episode=%s", nextType, key, flag, episode);
         Task.execute(() -> {
@@ -4189,7 +4173,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             } catch (Throwable e) {
                 App.post(() -> {
                     if (requestId != playerKernelSwitchRequestId) return;
-                    playerKernelSwitchRefreshing = false;
                     setPlayerKernel();
                     setDecode();
                     setR1Callback();
@@ -4202,7 +4185,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void switchPlayerKernelWithResult(int requestId, int type, Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
         if (requestId != playerKernelSwitchRequestId) return;
-        playerKernelSwitchRefreshing = false;
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
         } else {
@@ -5192,15 +5174,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
         @Override
         public void onAudio() {
-            boolean audioOnly = isAudioOnly();
-            mKeepPlaybackAfterPipExit = isInPictureInPictureMode();
             setAudioOnly(true);
             syncPiPForPlaybackMode();
-            if (!moveTaskToBack(true)) {
-                mKeepPlaybackAfterPipExit = false;
-                setAudioOnly(audioOnly);
-                syncPiPForPlaybackMode();
-            }
+            moveTaskToBack(true);
         }
     };
 
@@ -7986,16 +7962,13 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         updateFusionThemeButtonVisibility();
         if (!isFullscreen()) setVideoView(isInPictureInPictureMode);
         if (isInPictureInPictureMode) {
-            mKeepPlaybackAfterPipExit = false;
             hideControl();
             hideDanmaku();
             hideSheet();
         } else {
             showDanmaku();
             restoreContextWall();
-            // PiP 窗口点 × 关闭时，主动停止播放，避免声音继续（与正常退出保持一致）。
-            // 不能依赖 isStop() 时序，改为等生命周期 settle 后按最终状态判定。
-            App.post(this::finishIfPipClosed, 0);
+            if (isStop()) finish();
         }
     }
 
@@ -8009,16 +7982,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         syncKaraokePosition();
     }
 
-    private void finishIfPipClosed() {
-        boolean atLeastStarted = getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED);
-        boolean keepPlayback = mKeepPlaybackAfterPipExit;
-        mKeepPlaybackAfterPipExit = false;
-        if (PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed(), keepPlayback)) {
-            markPlaybackExiting();
-            saveHistory(true);
-            finishPlayback();
-        }
-    }
 
     @Override
     public void onConfigurationChanged(@NonNull Configuration newConfig) {

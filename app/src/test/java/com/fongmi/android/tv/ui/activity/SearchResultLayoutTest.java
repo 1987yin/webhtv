@@ -42,6 +42,35 @@ public class SearchResultLayoutTest {
     }
 
     @Test
+    public void tvSearchDefaultsFocusToAllSourceAfterStartingSearch() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "CollectActivity.java"));
+        String source = read(sourcePath);
+        int newIntentStart = source.indexOf("protected void onNewIntent(Intent intent)");
+        int initViewStart = source.indexOf("protected void initView(Bundle savedInstanceState)");
+        int initEventStart = source.indexOf("protected void initEvent()");
+        int focusStart = source.indexOf("private void focusInitialSource()");
+        int similarityStart = source.indexOf("private void onSimilarityFilter()", focusStart);
+        assertTrue("TV search must define an initial source-focus policy", focusStart >= 0 && similarityStart > focusStart);
+        String newIntent = source.substring(newIntentStart, initViewStart);
+        String initView = source.substring(initViewStart, initEventStart);
+        String initialFocus = source.substring(focusStart, similarityStart);
+
+        assertTrue("A reused search result activity must focus sources after starting the new search",
+                newIntent.indexOf("focusInitialSource();") > newIntent.indexOf("search();"));
+        assertTrue("A newly opened search result activity must focus sources after starting the search",
+                initView.indexOf("focusInitialSource();") > initView.indexOf("search();"));
+        assertTrue("TV search must target the visible source selector for the active layout",
+                initialFocus.contains("BaseGridView collect = isSearchLandscape() ? mBinding.collectHorizontal : mBinding.collect;"));
+        assertTrue("The first All source must receive focus even before its view holder is laid out",
+                initialFocus.contains("collect.setSelectedPosition(0, holder -> holder.itemView.requestFocus());"));
+        assertTrue("Searches without sources must retain the former layout-button fallback",
+                initialFocus.contains("if (mCollectAdapter.getItemCount() == 0) {")
+                        && initialFocus.contains("mBinding.searchColumn.requestFocus();"));
+        assertFalse("Similarity must not remain the default TV search focus",
+                initView.contains("mBinding.similarityFilter.requestFocus();"));
+    }
+
+    @Test
     public void gridModeUsesGlobalImageSizeForColumnCount() throws Exception {
         Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "CollectActivity.java"));
         String source = read(sourcePath);
