@@ -1760,6 +1760,13 @@
     <string name="detail_tmdb_empty">No TMDB data</string>
     <string name="detail_tmdb_match_title">Match TMDB title</string>
     <string name="detail_tmdb_rematch">TMDB match</string>
+    <string name="tmdb_season_match_title">Match TMDB season</string>
+    <string name="tmdb_season_match_current">Choose TMDB season. %1$s</string>
+    <string name="tmdb_season_auto">Automatic (clear manual binding)</string>
+    <string name="tmdb_season_keep_original">Keep original episode list</string>
+    <string name="tmdb_season_special">Specials · %1$d episodes</string>
+    <string name="tmdb_season_option">Season %1$d · %2$d episodes</string>
+    <string name="tmdb_season_match_saved">TMDB season match saved</string>
     <string name="detail_tmdb_match_saved">TMDB match saved</string>
     <string name="detail_tmdb_current_match">Current match</string>
     <string name="detail_tmdb_searching">Searching TMDB...</string>

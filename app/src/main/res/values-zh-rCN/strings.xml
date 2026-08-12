@@ -1742,6 +1742,13 @@
     <string name="detail_tmdb_empty">暂无 TMDB 数据</string>
     <string name="detail_tmdb_match_title">匹配 TMDB 条目</string>
     <string name="detail_tmdb_rematch">TMDB</string>
+    <string name="tmdb_season_match_title">匹配 TMDB 季度</string>
+    <string name="tmdb_season_match_current">选择 TMDB 季度，%1$s</string>
+    <string name="tmdb_season_auto">自动判断（清除手动绑定）</string>
+    <string name="tmdb_season_keep_original">保持原始集列表</string>
+    <string name="tmdb_season_special">特别篇 · %1$d 集</string>
+    <string name="tmdb_season_option">第 %1$d 季 · %2$d 集</string>
+    <string name="tmdb_season_match_saved">已保存 TMDB 季度匹配</string>
     <string name="detail_tmdb_match_saved">已记录 TMDB 匹配</string>
     <string name="detail_tmdb_current_match">当前匹配</string>
     <string name="detail_tmdb_searching">正在搜索 TMDB...</string>

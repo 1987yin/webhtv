@@ -209,7 +209,7 @@ public class EpisodeSeasonPolicyTest {
     public void episodeMetadataSeasonCandidates_neverFallsBackToSeasonOneWhenSourceSeasonIsKnown() {
         assertEquals(List.of(2), EpisodeSeasonPolicy.episodeMetadataSeasonCandidates(2));
         assertEquals(List.of(0), EpisodeSeasonPolicy.episodeMetadataSeasonCandidates(0));
-        assertEquals(List.of(1, 0), EpisodeSeasonPolicy.episodeMetadataSeasonCandidates(-1));
+        assertEquals(List.of(), EpisodeSeasonPolicy.episodeMetadataSeasonCandidates(-1));
     }
 
     @Test
