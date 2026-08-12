@@ -331,7 +331,7 @@ public class TmdbDetailActivityLayoutTest {
         String nativeLayout = readLeanbackLayout("view_control_vod_action.xml");
         String fusionLayout = readLayout("activity_tmdb_detail.xml");
         List<String> nativeOrder = List.of("next", "prev", "episodes", "reset", "search", "change2", "fullscreen", "player", "decode", "playParams", "panDiagnostic", "codecCapability", "speed", "scale", "actionQuality", "lut", "karaoke", "immersiveAudio", "text", "audio", "video", "opening", "ending", "danmaku", "adFeedback", "title", "cast", "timer", "repeat");
-        List<String> fusionOrder = List.of("playerNext", "playerPrev", "playerEpisodes", "playerRefresh", "playerChangeSource", "playerFullscreenAction", "playerExternal", "playerDecode", "playerPlayParams", "playerCodecCapability", "playerSpeed", "playerScale", "playerQuality", "playerLut", "playerParse", "playerDisplay", "playerTextTrack", "playerAudioTrack", "playerVideoTrack", "playerOpening", "playerEnding", "playerDanmaku", "playerAdFeedback", "playerChapter", "playerRepeat");
+        List<String> fusionOrder = List.of("playerNext", "playerPrev", "playerEpisodes", "playerRefresh", "playerChangeSource", "playerFullscreenAction", "playerExternal", "playerDecode", "playerPlayParams", "playerMultiThreadProxy", "playerCodecCapability", "playerSpeed", "playerScale", "playerQuality", "playerLut", "playerParse", "playerDisplay", "playerTextTrack", "playerAudioTrack", "playerVideoTrack", "playerOpening", "playerEnding", "playerDanmaku", "playerAdFeedback", "playerChapter", "playerRepeat");
 
         assertAndroidIdOrder("native leanback player control order", nativeLayout, nativeOrder);
         assertAndroidIdOrder("fusion inline player control order", fusionLayout, fusionOrder);
