@@ -35,7 +35,7 @@ third_party/mpv-native-lock.json
 
 构建包装脚本还会对当前选择的完整 lock 文件计算 SHA-256，并用它覆盖上游构建框架的 prefix cache 标识，避免升级 FFmpeg、字体栈、curl 或 nghttp2 后误复用旧缓存；使用 `--lock-file` 测试其他组合时也会生成独立缓存身份。
 
-本次同步后的锁定组合如下。两套 ARM ABI 已完成从源码实编、ELF/能力校验和 APK 资产哈希核对；设备解锁后仍需补齐真机播放回归，之后才能把它标记为完整发布基线：
+本次同步后的锁定组合如下。两套 ARM ABI 已完成从源码实编、ELF/能力校验和 APK 资产哈希核对；arm64 Debug 已在 Android 15 真机安装启动，单一路径的 HDR GPU 负载已完成同机对比。发布前仍应按下文设备矩阵回归两种 ABI 的完整播放场景：
 
 | 组件 | 固定版本 |
 | --- | --- |
@@ -160,9 +160,9 @@ scripts/build_mpv_native.sh --abi arm64-v8a --jobs 8 --work-dir /tmp/webhtv-mpv-
 7. 按依赖顺序构建字符集/压缩库、MbedTLS、dav1d、libxml2、FreeType、libaribcaption、FFmpeg、字体栈、shaderc、libplacebo、curl+nghttp2、libbluray、libarchive、DVD 库、rubberband 和 MPV。
 8. 把 FFmpeg 的文件名、ELF `SONAME` 和 `DT_NEEDED` 从 `libav*`/`libsw*` 等长修改为 `libmv*`/`libmw*`。
 9. 使用 NDK `llvm-strip --strip-unneeded` 处理最终库。
-10. 使用 NDK `llvm-readelf` 检查每个 SONAME、MPV 的完整依赖和 Vulkan 依赖，并检查 MPV/libplacebo/curl 版本、HTTP/2、双 Surface、Vulkan AImageReader/sync-fd、Dolby Vision增强层Surface隔离、AV3A、ARIB/TTML、MMT/TLV、代理 Range 及 Matroska Segment 标记；同时拒绝动态 fontconfig/libxml2 依赖。
+10. 先用轻量脚本检查 v5.5.6 shader 的 GLSL、C dispatch 和预生成 SPIR-V workgroup/binding 契约，再使用 NDK `llvm-readelf` 检查每个 SONAME、MPV 的完整依赖和 Vulkan 依赖，并检查 MPV/libplacebo/curl 版本、HTTP/2、双 Surface、唯一低负载 Vulkan AImageReader 路径、sync-fd、GPU timing、Dolby Vision增强层Surface隔离、AV3A、ARIB/TTML、MMT/TLV、代理 Range 及 Matroska Segment 标记；同时拒绝已删除后端字符串和动态 fontconfig/libxml2 依赖。
 
-`scripts/verify_mpv_native_assets.sh` 对已提交 assets 执行同类校验，Android Release Action 会在 Gradle 打包四个 APK 前以 `--require-elf` 模式调用它，防止 lock、补丁、arm64/armv7 assets 或静态能力不一致的二进制进入 Release。
+`scripts/verify_mpv_native_assets.sh` 对已提交 assets 执行同类校验，Android Release Action 会在 Gradle 打包四个 APK 前以 `--require-elf` 模式调用它，防止 shader 契约、lock、补丁、arm64/armv7 assets 或静态能力不一致的二进制进入 Release。`aimagereader-v556` 的 shader/source 基线来自 `FongMi/mpv@fd679c812149fe1f3e246897b1015ae109da7c74`；预生成 SPIR-V 只用于避免日常校验依赖 `glslc`。若修改 `hwdec_aimagereader.comp`，必须使用 lock 对应 NDK r29 的 shader tools 重新生成 `hwdec_aimagereader_comp.h` 并重建两套 native assets。
 
 未指定 `--install` 时，输出位于：
 
