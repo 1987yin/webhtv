@@ -78,6 +78,7 @@ import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.UrlUtil;
+import com.fongmi.android.tv.utils.Util;
 import com.fongmi.android.tv.web.HomeWebController;
 import com.fongmi.android.tv.web.WebHomeTarget;
 
@@ -127,6 +128,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     private String webDefaultChromeMode = TV_FULL;
     private boolean webToolbarVisible = true;
     private boolean loadingHomeCategory;
+    private boolean skipNextVodConfigRefresh;
     private boolean pendingOpenVod; // 手动点击"点播"后等待数据加载完成再进分类页
     private boolean webConfirmKeyDown;
     private boolean webConfirmLongPress;
@@ -210,7 +212,11 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
         mBinding.recycler.addOnChildViewHolderSelectedListener(new OnChildViewHolderSelectedListener() {
             @Override
             public void onChildViewHolderSelected(@NonNull RecyclerView parent, @Nullable RecyclerView.ViewHolder child, int position, int subposition) {
-                updateToolbarVisibility(isTopRow(position));
+                if (!isCategoryVisible()) {
+                    boolean headerVisible = isTopRow(position);
+                    updateTypeRecyclerVisibility(headerVisible);
+                    updateToolbarVisibility(headerVisible);
+                }
                 if (mPresenter.isDelete()) setHistoryDelete(false);
             }
         });
@@ -308,11 +314,11 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
 
     private void restoreTypeFocus(boolean keepTypeFocus, Class item) {
         if (!keepTypeFocus) return;
-        mBinding.typeRecycler.post(() -> {
-            int position = mTypeAdapter.indexOf(item);
-            if (!isCategoryVisible() || position < 0 || mBinding.typeRecycler.getSelectedPosition() != position) return;
-            mBinding.typeRecycler.requestFocus();
-        });
+        int position = mTypeAdapter.indexOf(item);
+        if (!isCategoryVisible() || position < 0 || mBinding.typeRecycler.getSelectedPosition() != position) return;
+        mBinding.typeRecycler.setVisibility(View.VISIBLE);
+        updateToolbarVisibility(true);
+        mBinding.typeRecycler.requestFocus();
     }
 
     private void syncCategorySite() {
@@ -503,6 +509,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
             @Override
             public void success() {
                 SpiderDebug.log("startup", "config load success cost=%sms", System.currentTimeMillis() - App.time());
+                skipNextVodConfigRefresh = true;
                 showContent();
             }
 
@@ -510,6 +517,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
             public void error(String msg) {
                 SpiderDebug.log("startup", "config load error cost=%sms msg=%s", System.currentTimeMillis() - App.time(), msg);
                 Notify.show(msg);
+                skipNextVodConfigRefresh = true;
                 showContent();
             }
         };
@@ -622,9 +630,13 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     }
 
     private void updateTypeRecyclerVisibility() {
-        boolean visible = mTypeAdapter.getItemCount() > 0 && Setting.isHomeVodAutoLoad();
-        mBinding.typeRecycler.setVisibility(visible ? View.VISIBLE : View.GONE);
-        if (!visible) showHomeContent();
+        updateTypeRecyclerVisibility(isCategoryVisible() || isTopRow(mBinding.recycler.getSelectedPosition()));
+    }
+
+    private void updateTypeRecyclerVisibility(boolean headerVisible) {
+        boolean enabled = mTypeAdapter.getItemCount() > 0 && Setting.isHomeVodAutoLoad();
+        mBinding.typeRecycler.setVisibility(enabled && headerVisible ? View.VISIBLE : View.GONE);
+        if (!enabled) showHomeContent();
     }
 
     private void syncTypeItems() {
@@ -749,8 +761,13 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     public void onConfigEvent(ConfigEvent event) {
         switch (event.type()) {
             case VOD:
-                RefreshEvent.history();
-                RefreshEvent.home();
+                if (skipNextVodConfigRefresh) {
+                    skipNextVodConfigRefresh = false;
+                    SpiderDebug.log("startup", "skip duplicate vod config refresh");
+                } else {
+                    RefreshEvent.history();
+                    RefreshEvent.home();
+                }
                 setLogo();
                 break;
             case COMMON:

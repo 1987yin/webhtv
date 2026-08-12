@@ -32,7 +32,7 @@ public class Startup implements Initializer<Void> {
         CaocConfig.Builder.create().trackActivities(true).backgroundMode(CaocConfig.BACKGROUND_MODE_SILENT).errorActivity(CrashActivity.class).apply();
         Logger.addLogAdapter(new AndroidLogAdapter(PrettyFormatStrategy.newBuilder().methodCount(0).showThreadInfo(false).tag("TV").build()));
         installEventBus();
-        OkHttp.dns().setDoh(Doh.objectFrom(Setting.getDoh()));
+        OkHttp.dns().setDoh(() -> Doh.objectFrom(Setting.getDoh()));
         return null;
     }
 

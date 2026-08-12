@@ -1232,6 +1232,12 @@
                         android:orientation="horizontal">
 
                         <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/playerPlaybackAction"
+                            style="@style/Control"
+                            android:layout_marginEnd="8dp"
+                            android:text="@string/play" />
+
+                        <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/playerNext"
                             style="@style/Control"
                             android:layout_marginEnd="8dp"
@@ -1284,6 +1290,12 @@
                             style="@style/Control"
                             android:layout_marginEnd="8dp"
                             android:text="@string/play_params" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/playerMultiThreadProxy"
+                            style="@style/Control"
+                            android:layout_marginEnd="8dp"
+                            android:text="@string/multi_thread_proxy_button" />
 
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/playerCodecCapability"

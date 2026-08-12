@@ -1,7 +1,7 @@
 <resources xmlns:xliff="http://schemas.android.com/apk/res-auto">
 
     <!-- App -->
-    <string name="app_name">TV</string>
+    <string name="app_name">MO TV</string>
     <string name="app_exit_confirm">Press back again to exit</string>
 
     <!-- Live -->
@@ -1009,6 +1009,26 @@
     <string name="player">Player</string>
     <string name="player_default">Default player</string>
     <string name="player_render">Render</string>
+    <string name="multi_thread_proxy_button">Multi-thread</string>
+    <string name="multi_thread_proxy_title">Multi-thread playback acceleration</string>
+    <string name="multi_thread_proxy_enable">Enable multi-thread playback (experimental)</string>
+    <string name="multi_thread_proxy_enable_hint">Only direct HTTP(S) progressive media is routed through the local proxy.</string>
+    <string name="multi_thread_proxy_threads">Global parallel threads</string>
+    <string name="multi_thread_proxy_shards">Global shard count</string>
+    <string name="multi_thread_proxy_domain_rules">Per-domain overrides</string>
+    <string name="multi_thread_proxy_domain_rules_hint">One rule per line: example.com,cdn.example.com=6,12</string>
+    <string name="multi_thread_proxy_domain_rules_help">A rule can contain multiple domains. The same thread/shard values apply to all listed domains. Matching also includes subdomains. Unmatched domains use the global values.</string>
+    <string name="multi_thread_proxy_saved">Multi-thread settings saved.</string>
+    <string name="multi_thread_proxy_save_failed">Could not apply the multi-thread setting</string>
+    <string name="multi_thread_proxy_extract_domain">Use current domain</string>
+    <string name="multi_thread_proxy_domain_added">Added current domain: %1$s</string>
+    <string name="multi_thread_proxy_domain_unavailable">No valid domain is available from the current playback URL</string>
+    <string name="multi_thread_proxy_domain_exists">The current domain is already present in the override rules</string>
+    <string name="multi_thread_proxy_apply_title">Apply multi-thread settings</string>
+    <string name="multi_thread_proxy_apply_message">Reload the current video now to apply the new settings? The current playback position will be preserved when possible.</string>
+    <string name="multi_thread_proxy_apply_now">Apply now</string>
+    <string name="multi_thread_proxy_apply_later">Next playback</string>
+    <string name="multi_thread_proxy_applied">Reloaded the current video with the multi-thread settings.</string>
     <string name="player_button_config">Player buttons</string>
     <string name="player_button_config_summary">Globally enabled %1$d/%2$d; availability varies by player mode</string>
     <string name="player_pad_live">Tablet live</string>
@@ -1325,6 +1345,13 @@
     <string name="search_column">Search layout</string>
     <string name="site_search_hint">Search sites…</string>
     <string name="site_group_all">All</string>
+    <string name="site_group_sort_desc">%1$s, long press to reorder</string>
+    <string name="site_group_sort_tv_desc">%1$s, long press OK to reorder</string>
+    <string name="site_group_sort_tv_hint">Long press OK on a group to reorder</string>
+    <string name="site_group_sort_tv_active">Reordering: Left/Right move, OK save, Back cancel</string>
+    <string name="site_group_sort_tv_active_desc">%1$s, reordering. Left or right to move, OK to save, Back to cancel</string>
+    <string name="site_group_sort_saved">Group order saved</string>
+    <string name="site_group_sort_cancelled">Group reorder canceled</string>
     <string name="search_record">History</string>
     <string name="search_suggest">Suggest</string>
     <string name="search_hot">Hot</string>
@@ -1339,6 +1366,10 @@
     <string name="dialog_edit">Edit</string>
     <string name="dialog_positive">OK</string>
     <string name="dialog_negative">Cancel</string>
+    <string name="setting_reset_app">Reset app</string>
+    <string name="dialog_reset_app">Reset app?</string>
+    <string name="dialog_reset_app_data">All app data will be reset, and app will be shutdown.</string>
+
     <string name="dialog_audio_site_rules">Audio source rules: enabled sources or keywords, separated by ;. Default: [音];[听]</string>
     <string name="dialog_audio_site_manage">Select audio sources</string>
     <string name="dialog_audio_site_default">Default [音]/[听]</string>

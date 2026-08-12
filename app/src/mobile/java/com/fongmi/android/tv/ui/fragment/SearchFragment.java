@@ -39,6 +39,7 @@ import com.fongmi.android.tv.bean.Word;
 import com.fongmi.android.tv.databinding.FragmentSearchBinding;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.setting.SiteGroupOrderStore;
 import com.fongmi.android.tv.ui.adapter.HotWordAdapter;
 import com.fongmi.android.tv.ui.adapter.RecordAdapter;
 import com.fongmi.android.tv.ui.adapter.WordAdapter;
@@ -323,7 +324,7 @@ public class SearchFragment extends BaseFragment implements MenuProvider, WordAd
     private void onScope() {
         View anchor = mBinding.toolbar.findViewById(R.id.action_scope);
         if (anchor == null) return;
-        List<String> groups = Site.getGroups(VodConfig.get().getSites());
+        List<String> groups = SiteGroupOrderStore.sort(Site.getGroups(VodConfig.get().getSites()));
         int width = getScopePopupWidth(groups);
         int height = getScopePopupHeight(groups.size() + 2);
         ScrollView scroll = new ScrollView(requireContext());

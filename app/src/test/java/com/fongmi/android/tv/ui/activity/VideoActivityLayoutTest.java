@@ -493,31 +493,16 @@ public class VideoActivityLayoutTest {
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         String audioBody = methodBody(source, "public void onAudio()", "};");
         String pipModeBody = methodBody(source, "public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, @NonNull Configuration newConfig)", "protected void onResume()");
-        String pipExitBody = methodBody(source, "private void finishIfPipClosed()", "public void onConfigurationChanged(@NonNull Configuration newConfig)");
 
-        int captureAudioMode = audioBody.indexOf("boolean audioOnly = isAudioOnly();");
-        int markIntentionalExit = audioBody.indexOf("mKeepPlaybackAfterPipExit = isInPictureInPictureMode();");
+        int audioOnly = audioBody.indexOf("setAudioOnly(true);");
         int syncPipMode = audioBody.indexOf("syncPiPForPlaybackMode();");
-        int moveToBackground = audioBody.indexOf("moveTaskToBack(true)");
-        assertTrue("PiP audio action must preserve and mark state before changing PiP mode",
-                captureAudioMode >= 0
-                        && markIntentionalExit > captureAudioMode
-                        && syncPipMode > markIntentionalExit
-                        && moveToBackground > syncPipMode);
-        assertTrue("a failed background transition must restore audio and PiP state",
-                audioBody.contains("mKeepPlaybackAfterPipExit = false;")
-                        && audioBody.contains("setAudioOnly(audioOnly);")
-                        && audioBody.lastIndexOf("syncPiPForPlaybackMode();") > moveToBackground);
-        int pipEntered = pipModeBody.indexOf("if (isInPictureInPictureMode) {");
-        int resetStaleIntent = pipModeBody.indexOf("mKeepPlaybackAfterPipExit = false;", pipEntered);
-        assertTrue("a new PiP session must clear any stale keep-playback marker",
-                pipEntered >= 0 && resetStaleIntent > pipEntered);
-
-        int captureIntent = pipExitBody.indexOf("boolean keepPlayback = mKeepPlaybackAfterPipExit;");
-        int consumeIntent = pipExitBody.indexOf("mKeepPlaybackAfterPipExit = false;");
-        int decideExit = pipExitBody.indexOf("PipExitDecision.shouldFinishAfterPipExit(atLeastStarted, isFinishing(), isDestroyed(), keepPlayback)");
-        assertTrue("intentional PiP exits must be consumed before close-button detection",
-                captureIntent >= 0 && consumeIntent > captureIntent && decideExit > consumeIntent);
+        int moveToBackground = audioBody.indexOf("moveTaskToBack(true);");
+        assertTrue("PiP audio action must enter audio-only mode before moving task to background",
+                audioOnly >= 0 && syncPipMode > audioOnly && moveToBackground > syncPipMode);
+        assertTrue("PiP exit must finish when playback has been marked stopped",
+                pipModeBody.contains("if (isStop()) finish();"));
+        assertFalse("PiP exit must not use a deferred lifecycle heuristic",
+                source.contains("mKeepPlaybackAfterPipExit") || source.contains("finishIfPipClosed"));
     }
 
     @Test
@@ -527,7 +512,7 @@ public class VideoActivityLayoutTest {
         String tracksBody = methodBody(source, "protected void onTracksChanged()", "protected void onTitlesChanged()");
         String audioStateBody = methodBody(source, "private void updateAudioOnlyState()", "protected void onTitlesChanged()");
         String startBody = methodBody(source, "protected void onStart()", "protected void onStop()");
-        String resumeBody = methodBody(source, "protected void onResume()", "private void finishIfPipClosed()");
+        String resumeBody = methodBody(source, "protected void onResume()", "public void onConfigurationChanged(@NonNull Configuration newConfig)");
         String configBody = methodBody(source, "public void onConfigurationChanged(@NonNull Configuration newConfig)", "public void onWindowFocusChanged(boolean hasFocus)");
 
         assertTrue("mobile track changes must refresh lyrics after reconciling the final track set",
@@ -1356,6 +1341,54 @@ public class VideoActivityLayoutTest {
                 body.contains("slash > 0 ? id.substring(0, slash) : id"));
         assertFalse("only real page suffixes after the first character should be stripped",
                 body.contains("slash >= 0 ? id.substring(0, slash) : id"));
+    }
+
+    @Test
+    public void playbackControllerUsesBoundSessionTokenAndSurvivesControllerSetupFailure() throws Exception {
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java"));
+        Path servicePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "service", "PlaybackService.java"));
+        String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
+        String service = new String(Files.readAllBytes(servicePath), StandardCharsets.UTF_8);
+        String bind = methodBody(activity, "private void bindPlaybackService()", "private void bindPlaybackServiceAfterFirstFrame()");
+        String build = methodBody(activity, "private void buildControllerAsync(SessionToken token)", "private void handleControllerConnectionFailure(Exception e)");
+        String failure = methodBody(activity, "private void handleControllerConnectionFailure(Exception e)", "protected void onControllerConnected()");
+        String handle = methodBody(activity, "private void handleControllerConnected()", "private boolean shouldRejectPlaybackConnection()");
+        String connected = methodBody(activity, "public void onServiceConnected(ComponentName name, IBinder binder)", "public void onServiceDisconnected(ComponentName name)");
+        String disconnected = methodBody(activity, "public void onServiceDisconnected(ComponentName name)", "protected void onResume()");
+        String token = methodBody(service, "public SessionToken getSessionToken()", "public PlayerManager player()");
+        int controllerBuild = connected.indexOf("buildControllerAsync(mService.getSessionToken());");
+        int rejectAfterBuild = connected.indexOf("if (shouldRejectPlaybackConnection()) return;", controllerBuild);
+
+        assertFalse("binding must not resolve a component SessionToken before the local service is connected",
+                bind.contains("buildControllerAsync()"));
+        assertTrue("the connected service must supply the already-created MediaLibrarySession token",
+                controllerBuild >= 0);
+        assertTrue("controller setup must accept the bound service token",
+                activity.contains("private void buildControllerAsync(SessionToken token)"));
+        assertFalse("controller setup must not query PackageManager through a ComponentName token",
+                build.contains("new SessionToken(") || build.contains("new ComponentName("));
+        assertTrue("missing session tokens must fail gracefully instead of leaving a partial controller state",
+                build.contains("if (token == null)")
+                        && build.contains("handleControllerConnectionFailure(new IllegalStateException(\"Playback session token is unavailable\"));"));
+        assertTrue("controller setup must reject duplicate or late connections",
+                build.contains("if (mControllerFuture != null || shouldRejectPlaybackConnection()) return;"));
+        assertTrue("synchronous and asynchronous controller failures must share the same cleanup path",
+                build.contains("catch (RuntimeException e)")
+                        && build.contains("handleControllerConnectionFailure(e);")
+                        && handle.contains("catch (Exception e)")
+                        && handle.contains("handleControllerConnectionFailure(e);")
+                        && !handle.contains("catch (Exception ignored)"));
+        assertTrue("controller failure must release partial state and exit playback without crashing the app",
+                failure.contains("SpiderDebug.log(\"playback-flow\", e);")
+                        && failure.indexOf("releaseController();") >= 0
+                        && failure.indexOf("releaseController();") < failure.indexOf("finishPlayback();"));
+        assertTrue("service setup must stop after a synchronous controller failure starts activity shutdown",
+                controllerBuild >= 0 && rejectAfterBuild > controllerBuild);
+        assertTrue("the playback service must expose its live session token without another manifest lookup",
+                token.contains("return session == null ? null : session.getToken();"));
+        assertTrue("a disconnected service must release the old session controller before reconnecting",
+                disconnected.indexOf("releaseController();") >= 0
+                        && disconnected.indexOf("releaseController();") < disconnected.indexOf("mService = null;"));
     }
 
     @Test
