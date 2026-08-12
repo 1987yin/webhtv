@@ -9,14 +9,11 @@
 
 #include "config.h"
 
-#include <errno.h>
 #include <inttypes.h>
-#include <poll.h>
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 
-#include <android/data_space.h>
 #include <libplacebo/vulkan.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_android.h>
@@ -28,25 +25,12 @@
 #include "video/out/placebo/ra_pl.h"
 #include "video/out/vulkan/context.h"
 
-#include "hwdec_aimagereader_vk_private.h"
+#include "hwdec_aimagereader_comp.h"
+#include "hwdec_aimagereader_vk.h"
 
-#define STABLE_WORKGROUP_X 16
-#define STABLE_WORKGROUP_Y 8
-#define OUTPUT_COUNT 4
+#define OUTPUT_COUNT 3
 #define INPUT_CACHE_SIZE 8
 #define EXTERNAL_FORMAT_DESCRIPTOR_COUNT 4
-#define CONVERSION_FENCE_TIMEOUT_NS UINT64_C(250000000)
-#define POOL_LOG_INTERVAL 120
-
-static const uint32_t aimagereader_stable_comp_spv[] =
-#include "hwdec_aimagereader_vk_stable_comp.inc"
-;
-
-struct conversion_push_constants {
-    float uv_offset[2];
-    float uv_scale[2];
-    int32_t output_size[2];
-};
 
 struct vk_input {
     AHardwareBuffer *buffer;
@@ -56,7 +40,6 @@ struct vk_input {
     uint64_t last_used;
     int users;
     bool initialized;
-    bool removed;
 };
 
 struct vk_output {
@@ -71,17 +54,17 @@ struct vk_output {
     VkSemaphore acquire;
     VkSemaphore ready;
     VkFence fence;
+    VkQueryPool query_pool;
     AImage *source_image;
     struct mp_image *source_frame;
-    struct mp_image **source_aliases;
-    int num_source_aliases;
     struct vk_input *input;
     bool pending;
     bool written;
     bool released;
+    bool timing_pending;
 };
 
-struct aimagereader_vk_stable {
+struct aimagereader_vk {
     struct mp_log *log;
     struct ra_hwdec_mapper *mapper;
     struct aimagereader_vk_api api;
@@ -94,11 +77,10 @@ struct aimagereader_vk_stable {
     PFN_vkGetAndroidHardwareBufferPropertiesANDROID GetAHBProperties;
     PFN_vkGetPhysicalDeviceImageFormatProperties2 GetImageFormatProperties2;
     PFN_vkImportSemaphoreFdKHR ImportSemaphoreFdKHR;
+    float timestamp_period;
 
     VkCommandPool command_pool;
     VkFormat output_format;
-    int buffer_width;
-    int buffer_height;
     int width;
     int height;
     int output_index;
@@ -108,7 +90,6 @@ struct aimagereader_vk_stable {
     VkFormat source_format;
     uint64_t external_format;
     VkAndroidHardwareBufferFormatPropertiesANDROID source_props;
-    bool raw_dovi;
     VkSamplerYcbcrConversion conversion;
     VkSampler sampler;
     VkDescriptorSetLayout descriptor_layout;
@@ -120,14 +101,9 @@ struct aimagereader_vk_stable {
     int num_inputs;
     uint64_t input_serial;
     struct vk_output outputs[OUTPUT_COUNT];
-    uint64_t submitted_outputs;
-    uint64_t completed_outputs;
-    uint64_t reclaimed_outputs;
-    uint64_t fence_timeouts;
-    uint64_t pool_retries;
 };
 
-static bool vk_success(struct aimagereader_vk_stable *p, VkResult result,
+static bool vk_success(struct aimagereader_vk *p, VkResult result,
                        const char *operation)
 {
     if (result == VK_SUCCESS)
@@ -213,7 +189,7 @@ get_image_format_properties2(pl_vulkan vk)
     return get_properties;
 }
 
-bool aimagereader_vk_stable_available(struct ra_ctx *ra_ctx, struct mp_log *log)
+bool aimagereader_vk_available(struct ra_ctx *ra_ctx, struct mp_log *log)
 {
     struct mpvk_ctx *ctx = ra_vk_ctx_get(ra_ctx);
     pl_gpu gpu = ra_pl_get(ra_ctx->ra);
@@ -243,7 +219,7 @@ bool aimagereader_vk_stable_available(struct ra_ctx *ra_ctx, struct mp_log *log)
            get_image_format_properties2(vk);
 }
 
-static uint32_t find_memory_type(struct aimagereader_vk_stable *p,
+static uint32_t find_memory_type(struct aimagereader_vk *p,
                                  uint32_t type_bits,
                                  VkMemoryPropertyFlags preferred)
 {
@@ -262,7 +238,7 @@ static uint32_t find_memory_type(struct aimagereader_vk_stable *p,
     return UINT32_MAX;
 }
 
-static void destroy_input(struct aimagereader_vk_stable *p, struct vk_input *input)
+static void destroy_input(struct aimagereader_vk *p, struct vk_input *input)
 {
     if (input->view)
         vkDestroyImageView(p->device, input->view, NULL);
@@ -273,37 +249,17 @@ static void destroy_input(struct aimagereader_vk_stable *p, struct vk_input *inp
     *input = (struct vk_input){0};
 }
 
-static void clear_output_frames(struct vk_output *output)
-{
-    mp_image_unrefp(&output->source_frame);
-    for (int n = 0; n < output->num_source_aliases; n++)
-        mp_image_unrefp(&output->source_aliases[n]);
-    output->num_source_aliases = 0;
-}
-
-static bool finish_output(struct aimagereader_vk_stable *p,
-                          struct vk_output *output, uint64_t timeout_ns)
+static bool finish_output(struct aimagereader_vk *p, struct vk_output *output,
+                          bool wait)
 {
     if (!output->pending)
         return true;
 
-    VkResult result = timeout_ns
-        ? vkWaitForFences(p->device, 1, &output->fence, VK_TRUE, timeout_ns)
+    VkResult result = wait
+        ? vkWaitForFences(p->device, 1, &output->fence, VK_TRUE, UINT64_MAX)
         : vkGetFenceStatus(p->device, output->fence);
     if (result == VK_NOT_READY)
         return false;
-    if (result == VK_TIMEOUT) {
-        p->fence_timeouts++;
-        if (p->fence_timeouts % POOL_LOG_INTERVAL == 1) {
-            mp_warn(p->log, "Vulkan conversion fence timed out output=%td "
-                            "submitted=%" PRIu64 " completed=%" PRIu64
-                            " reclaimed=%" PRIu64 " timeouts=%" PRIu64 "\n",
-                    output - p->outputs, p->submitted_outputs,
-                    p->completed_outputs, p->reclaimed_outputs,
-                    p->fence_timeouts);
-        }
-        return false;
-    }
     if (!vk_success(p, result, "waiting for AHardwareBuffer conversion"))
         return false;
 
@@ -311,27 +267,35 @@ static bool finish_output(struct aimagereader_vk_stable *p,
         p->api.AImage_delete(output->source_image);
         output->source_image = NULL;
     }
+    if (output->timing_pending) {
+        uint64_t timestamps[2] = {0};
+        VkResult timing = vkGetQueryPoolResults(
+            p->device, output->query_pool, 0, 2, sizeof(timestamps), timestamps,
+            sizeof(timestamps[0]), VK_QUERY_RESULT_64_BIT);
+        if (timing == VK_SUCCESS && timestamps[1] >= timestamps[0]) {
+            double elapsed = (timestamps[1] - timestamps[0])
+                * (double)p->timestamp_period;
+            p->mapper->external_gpu_time_ns = elapsed >= (double)INT64_MAX
+                ? INT64_MAX : (uint64_t)(elapsed + 0.5);
+            p->mapper->external_gpu_time_serial++;
+        }
+        output->timing_pending = false;
+    }
     if (output->input) {
         if (output->input->users > 0)
             output->input->users--;
-        if (!output->input->users && output->input->removed)
-            destroy_input(p, output->input);
         output->input = NULL;
     }
     output->pending = false;
-    if (!vk_success(p, vkResetFences(p->device, 1, &output->fence),
-                    "resetting conversion fence"))
-        return false;
-    p->completed_outputs++;
-    return true;
+    return vk_success(p, vkResetFences(p->device, 1, &output->fence),
+                      "resetting conversion fence");
 }
 
-static void destroy_output(struct aimagereader_vk_stable *p,
+static void destroy_output(struct aimagereader_vk *p,
                            struct vk_output *output)
 {
-    finish_output(p, output, UINT64_MAX);
-    clear_output_frames(output);
-    talloc_free(output->source_aliases);
+    finish_output(p, output, true);
+    mp_image_unrefp(&output->source_frame);
 
     if (output->ratex)
         ra_tex_free(p->mapper->ra, &output->ratex);
@@ -349,13 +313,15 @@ static void destroy_output(struct aimagereader_vk_stable *p,
         vkDestroySemaphore(p->device, output->ready, NULL);
     if (output->fence)
         vkDestroyFence(p->device, output->fence, NULL);
+    if (output->query_pool)
+        vkDestroyQueryPool(p->device, output->query_pool, NULL);
     *output = (struct vk_output){0};
 }
 
-static void destroy_conversion_resources(struct aimagereader_vk_stable *p)
+static void destroy_conversion_resources(struct aimagereader_vk *p)
 {
     for (int n = 0; n < OUTPUT_COUNT; n++)
-        finish_output(p, &p->outputs[n], UINT64_MAX);
+        finish_output(p, &p->outputs[n], true);
 
     if (p->descriptor_pool)
         vkDestroyDescriptorPool(p->device, p->descriptor_pool, NULL);
@@ -400,8 +366,6 @@ static void destroy_conversion_resources(struct aimagereader_vk_stable *p)
     p->sampler = VK_NULL_HANDLE;
     p->conversion = VK_NULL_HANDLE;
     p->output_format = VK_FORMAT_UNDEFINED;
-    p->buffer_width = 0;
-    p->buffer_height = 0;
     p->width = 0;
     p->height = 0;
     p->output_index = -1;
@@ -410,7 +374,6 @@ static void destroy_conversion_resources(struct aimagereader_vk_stable *p)
     p->external_format = 0;
     p->source_props =
         (VkAndroidHardwareBufferFormatPropertiesANDROID){0};
-    p->raw_dovi = false;
     p->resources_ready = false;
 }
 
@@ -455,28 +418,20 @@ static int ycbcr_format_depth(VkFormat format)
 }
 
 static bool source_is_high_depth(
-    struct aimagereader_vk_stable *p, const AHardwareBuffer_Desc *desc,
-    const VkAndroidHardwareBufferFormatPropertiesANDROID *props,
-    int32_t data_space)
+    struct aimagereader_vk *p, const AHardwareBuffer_Desc *desc,
+    const VkAndroidHardwareBufferFormatPropertiesANDROID *props)
 {
     const struct pl_bit_encoding *bits =
         &p->mapper->src_params.repr.bits;
     if (bits->color_depth > 8 || bits->sample_depth > 8 ||
-        ycbcr_format_depth(props->format) > 8 ||
-        p->mapper->src_params.repr.sys == PL_COLOR_SYSTEM_DOLBYVISION) {
+        ycbcr_format_depth(props->format) > 8) {
         return true;
     }
-
-    int32_t transfer = data_space & ADATASPACE_TRANSFER_MASK;
-    if (transfer == ADATASPACE_TRANSFER_ST2084 ||
-        transfer == ADATASPACE_TRANSFER_HLG)
-        return true;
 
     switch (desc->format) {
     case AHARDWAREBUFFER_FORMAT_R16G16B16A16_FLOAT:
     case AHARDWAREBUFFER_FORMAT_R10G10B10A2_UNORM:
     case AHARDWAREBUFFER_FORMAT_YCbCr_P010:
-    case AHARDWAREBUFFER_FORMAT_YCbCr_P210:
         return true;
     default:
         return false;
@@ -484,21 +439,18 @@ static bool source_is_high_depth(
 }
 
 static VkFormat choose_output_format(
-    struct aimagereader_vk_stable *p, const AHardwareBuffer_Desc *desc,
-    const VkAndroidHardwareBufferFormatPropertiesANDROID *props,
-    int32_t data_space)
+    struct aimagereader_vk *p, const AHardwareBuffer_Desc *desc,
+    const VkAndroidHardwareBufferFormatPropertiesANDROID *props)
 {
-    bool high_depth = source_is_high_depth(p, desc, props, data_space);
+    bool high_depth = source_is_high_depth(p, desc, props);
     const VkFormat high_depth_candidates[] = {
         VK_FORMAT_A2B10G10R10_UNORM_PACK32,
-        VK_FORMAT_A2R10G10B10_UNORM_PACK32,
         VK_FORMAT_R16G16B16A16_SFLOAT,
         VK_FORMAT_R8G8B8A8_UNORM,
     };
     const VkFormat low_depth_candidates[] = {
         VK_FORMAT_R8G8B8A8_UNORM,
         VK_FORMAT_A2B10G10R10_UNORM_PACK32,
-        VK_FORMAT_A2R10G10B10_UNORM_PACK32,
         VK_FORMAT_R16G16B16A16_SFLOAT,
     };
     const VkFormat *candidates =
@@ -509,16 +461,16 @@ static VkFormat choose_output_format(
         VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
 
     for (int n = 0; n < num_candidates; n++) {
-        VkFormatProperties props;
+        VkFormatProperties format_props;
         vkGetPhysicalDeviceFormatProperties(p->vk->phys_device,
-                                            candidates[n], &props);
-        if ((props.optimalTilingFeatures & needed) == needed)
+                                            candidates[n], &format_props);
+        if ((format_props.optimalTilingFeatures & needed) == needed)
             return candidates[n];
     }
     return VK_FORMAT_UNDEFINED;
 }
 
-static int collect_queue_families(struct aimagereader_vk_stable *p,
+static int collect_queue_families(struct aimagereader_vk *p,
                                   uint32_t families[3])
 {
     const struct pl_vulkan_queue queues[] = {
@@ -539,7 +491,7 @@ static int collect_queue_families(struct aimagereader_vk_stable *p,
     return count;
 }
 
-static bool create_output_image(struct aimagereader_vk_stable *p,
+static bool create_output_image(struct aimagereader_vk *p,
                                 struct vk_output *output,
                                 const uint32_t *queue_families,
                                 int num_queue_families)
@@ -648,20 +600,27 @@ static bool create_output_image(struct aimagereader_vk_stable *p,
                     "creating conversion fence"))
         return false;
 
+    VkQueryPoolCreateInfo query_info = {
+        .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+        .queryType = VK_QUERY_TYPE_TIMESTAMP,
+        .queryCount = 2,
+    };
+    if (!vk_success(p, vkCreateQueryPool(p->device, &query_info, NULL,
+                                         &output->query_pool),
+                    "creating conversion timestamp pool"))
+        return false;
+
     return true;
 }
 
 static bool create_outputs(
-    struct aimagereader_vk_stable *p, const AHardwareBuffer_Desc *desc,
-    const VkAndroidHardwareBufferFormatPropertiesANDROID *props,
-    int32_t data_space)
+    struct aimagereader_vk *p, const AHardwareBuffer_Desc *desc,
+    const VkAndroidHardwareBufferFormatPropertiesANDROID *props)
 {
-    p->buffer_width = desc->width;
-    p->buffer_height = desc->height;
-    p->width = p->mapper->src_params.w;
-    p->height = p->mapper->src_params.h;
+    p->width = desc->width;
+    p->height = desc->height;
     p->source_ahb_format = desc->format;
-    p->output_format = choose_output_format(p, desc, props, data_space);
+    p->output_format = choose_output_format(p, desc, props);
     if (p->output_format == VK_FORMAT_UNDEFINED) {
         mp_err(p->log, "No sampleable storage image format for AHardwareBuffer "
                        "conversion\n");
@@ -694,7 +653,7 @@ static bool create_outputs(
 }
 
 static bool same_source_format(
-    struct aimagereader_vk_stable *p, const AHardwareBuffer_Desc *desc,
+    struct aimagereader_vk *p, const AHardwareBuffer_Desc *desc,
     const VkAndroidHardwareBufferFormatPropertiesANDROID *props)
 {
     return p->source_ahb_format == desc->format &&
@@ -715,7 +674,7 @@ static bool same_source_format(
 }
 
 static uint32_t sampler_descriptor_count(
-    struct aimagereader_vk_stable *p,
+    struct aimagereader_vk *p,
     const VkAndroidHardwareBufferFormatPropertiesANDROID *props,
     bool needs_conversion)
 {
@@ -752,7 +711,7 @@ static uint32_t sampler_descriptor_count(
 }
 
 static bool create_pipeline(
-    struct aimagereader_vk_stable *p,
+    struct aimagereader_vk *p,
     const VkAndroidHardwareBufferFormatPropertiesANDROID *props)
 {
     p->source_format = props->format;
@@ -856,17 +815,10 @@ static bool create_pipeline(
                     "creating conversion descriptor layout"))
         return false;
 
-    VkPushConstantRange push_constant = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset = 0,
-        .size = sizeof(struct conversion_push_constants),
-    };
     VkPipelineLayoutCreateInfo pipeline_layout_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 1,
         .pSetLayouts = &p->descriptor_layout,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &push_constant,
     };
     if (!vk_success(p, vkCreatePipelineLayout(
                         p->device, &pipeline_layout_info, NULL,
@@ -876,8 +828,8 @@ static bool create_pipeline(
 
     VkShaderModuleCreateInfo shader_info = {
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = sizeof(aimagereader_stable_comp_spv),
-        .pCode = aimagereader_stable_comp_spv,
+        .codeSize = sizeof(aimagereader_comp_spv),
+        .pCode = aimagereader_comp_spv,
     };
     VkShaderModule shader = VK_NULL_HANDLE;
     if (!vk_success(p, vkCreateShaderModule(p->device, &shader_info, NULL,
@@ -954,64 +906,17 @@ static bool create_pipeline(
         vkUpdateDescriptorSets(p->device, 1, &write, 0, NULL);
     }
 
-    mp_info(p->log, "Using Vulkan AHardwareBuffer stable GPU conversion "
+    mp_info(p->log, "Using Vulkan AHardwareBuffer GPU conversion "
                     "(source format %d, external format 0x%" PRIx64
                     ", output format %d, sampler descriptors %u, "
-                    "chroma filter %s, workgroup %dx%d, "
-                    "CPU-precomputed UV transform)\n",
+                    "chroma filter %s)\n",
             p->source_format, p->external_format, p->output_format,
             sampler_descriptors,
-            chroma_filter == VK_FILTER_LINEAR ? "linear" : "nearest",
-            STABLE_WORKGROUP_X, STABLE_WORKGROUP_Y);
+            chroma_filter == VK_FILTER_LINEAR ? "linear" : "nearest");
     return true;
 }
 
-static int output_sample_depth(VkFormat format)
-{
-    switch (format) {
-    case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
-    case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
-        return 10;
-    case VK_FORMAT_R16G16B16A16_SFLOAT:
-        return 16;
-    default:
-        return 8;
-    }
-}
-
-static void configure_dst_params(struct aimagereader_vk_stable *p)
-{
-    int sample_depth = output_sample_depth(p->output_format);
-    struct mp_image_params params = p->mapper->src_params;
-    params.imgfmt = IMGFMT_RGB0;
-    params.hw_subfmt = 0;
-    params.w = p->width;
-    params.h = p->height;
-    params.crop = (struct mp_rect){0, 0, params.w, params.h};
-    params.repr.bits = (struct pl_bit_encoding) {
-        .sample_depth = sample_depth,
-        .color_depth = sample_depth,
-    };
-    p->mapper->dst_params = params;
-    p->mapper->dst_params_preserve_repr = p->raw_dovi;
-    p->mapper->dst_params_map_coordinates = false;
-    p->mapper->dst_num_components = p->raw_dovi ? 3 : 0;
-    memset(p->mapper->dst_component_mapping, 0,
-           sizeof(p->mapper->dst_component_mapping));
-    if (p->raw_dovi) {
-        const int mapping[4] = {
-            PL_CHANNEL_CR,
-            PL_CHANNEL_Y,
-            PL_CHANNEL_CB,
-            PL_CHANNEL_NONE,
-        };
-        memcpy(p->mapper->dst_component_mapping, mapping, sizeof(mapping));
-        mp_info(p->log, "Stable Vulkan conversion preserves Dolby Vision "
-                        "raw YUV component mapping\n");
-    }
-}
-
-static struct vk_input *find_input(struct aimagereader_vk_stable *p,
+static struct vk_input *find_input(struct aimagereader_vk *p,
                                    AHardwareBuffer *buffer)
 {
     for (int n = 0; n < p->num_inputs; n++) {
@@ -1021,16 +926,7 @@ static struct vk_input *find_input(struct aimagereader_vk_stable *p,
     return NULL;
 }
 
-static void purge_removed_inputs(struct aimagereader_vk_stable *p)
-{
-    for (int n = 0; n < p->num_inputs; n++) {
-        struct vk_input *input = &p->inputs[n];
-        if (input->removed && !input->users)
-            destroy_input(p, input);
-    }
-}
-
-static struct vk_input *select_input_slot(struct aimagereader_vk_stable *p)
+static struct vk_input *select_input_slot(struct aimagereader_vk *p)
 {
     for (int n = 0; n < p->num_inputs; n++) {
         if (!p->inputs[n].buffer)
@@ -1055,10 +951,9 @@ static struct vk_input *select_input_slot(struct aimagereader_vk_stable *p)
     return oldest;
 }
 
-static struct vk_input *create_input(struct aimagereader_vk_stable *p,
+static struct vk_input *create_input(struct aimagereader_vk *p,
                                      AHardwareBuffer *buffer,
-                                     const AHardwareBuffer_Desc *desc,
-                                     int32_t data_space)
+                                     const AHardwareBuffer_Desc *desc)
 {
     if (!desc->width || !desc->height || desc->layers != 1 ||
         !(desc->usage & AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE)) {
@@ -1085,32 +980,15 @@ static struct vk_input *create_input(struct aimagereader_vk_stable *p,
         return NULL;
     }
 
-    p->raw_dovi =
-        p->mapper->src_params.repr.sys == PL_COLOR_SYSTEM_DOLBYVISION;
-    if (p->raw_dovi) {
-        format_props.suggestedYcbcrModel =
-            VK_SAMPLER_YCBCR_MODEL_CONVERSION_RGB_IDENTITY;
-        format_props.suggestedYcbcrRange =
-            VK_SAMPLER_YCBCR_RANGE_ITU_FULL;
-    }
-
-    VkFormat desired_output =
-        choose_output_format(p, desc, &format_props, data_space);
-    int output_width = p->mapper->src_params.w;
-    int output_height = p->mapper->src_params.h;
-
     if (!p->resources_ready) {
-        if (!create_outputs(p, desc, &format_props, data_space) ||
+        if (!create_outputs(p, desc, &format_props) ||
             !create_pipeline(p, &format_props)) {
             destroy_conversion_resources(p);
             return NULL;
         }
-        configure_dst_params(p);
         p->resources_ready = true;
-    } else if (p->buffer_width != (int)desc->width ||
-               p->buffer_height != (int)desc->height ||
-               p->width != output_width || p->height != output_height ||
-               p->output_format != desired_output ||
+    } else if (p->width != (int)desc->width ||
+               p->height != (int)desc->height ||
                !same_source_format(p, desc, &format_props)) {
         mp_err(p->log, "Android hardware-buffer format changed without "
                        "reconfiguring the mapper\n");
@@ -1222,7 +1100,7 @@ error:
     return NULL;
 }
 
-static void release_output_after_error(struct aimagereader_vk_stable *p,
+static void release_output_after_error(struct aimagereader_vk *p,
                                        struct vk_output *output,
                                        bool waited)
 {
@@ -1238,7 +1116,7 @@ static void release_output_after_error(struct aimagereader_vk_stable *p,
     ));
 }
 
-static bool reset_acquire_semaphore(struct aimagereader_vk_stable *p,
+static bool reset_acquire_semaphore(struct aimagereader_vk *p,
                                     struct vk_output *output)
 {
     if (output->acquire)
@@ -1253,33 +1131,13 @@ static bool reset_acquire_semaphore(struct aimagereader_vk_stable *p,
                       "resetting AImage acquire semaphore");
 }
 
-static bool wait_acquire_fence(struct aimagereader_vk_stable *p, int fd)
-{
-    struct pollfd fence = {
-        .fd = fd,
-        .events = POLLIN,
-    };
-    int result;
-    do {
-        result = poll(&fence, 1, 100);
-    } while (result < 0 && (errno == EINTR || errno == EAGAIN));
-    close(fd);
-    if (result > 0 && !(fence.revents & (POLLERR | POLLNVAL)))
-        return true;
-
-    mp_err(p->log, "Waiting for AImage acquire fence failed: "
-                   "%d (revents 0x%x)\n",
-           result, (unsigned)fence.revents);
-    return false;
-}
-
-static int import_acquire_fence(struct aimagereader_vk_stable *p,
-                                struct vk_output *output, int fd)
+static bool import_acquire_fence(struct aimagereader_vk *p,
+                                 struct vk_output *output, int fd)
 {
     if (fd < 0)
-        return 0;
-    if (!p->ImportSemaphoreFdKHR || !output->acquire)
-        return wait_acquire_fence(p, fd) ? 0 : -1;
+        return true;
+    if (!output->acquire && !reset_acquire_semaphore(p, output))
+        return false;
 
     VkImportSemaphoreFdInfoKHR import_info = {
         .sType = VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_FD_INFO_KHR,
@@ -1288,21 +1146,15 @@ static int import_acquire_fence(struct aimagereader_vk_stable *p,
         .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT,
         .fd = fd,
     };
-    VkResult result = p->ImportSemaphoreFdKHR(p->device, &import_info);
-    if (result == VK_SUCCESS)
-        return 1;
-
-    mp_verbose(p->log, "Importing AImage acquire fence failed: %d; "
-                       "using a bounded CPU wait\n", result);
-    p->ImportSemaphoreFdKHR = NULL;
-    return wait_acquire_fence(p, fd) ? 0 : -1;
+    VkResult result = p->ImportSemaphoreFdKHR
+        ? p->ImportSemaphoreFdKHR(p->device, &import_info)
+        : VK_ERROR_EXTENSION_NOT_PRESENT;
+    return vk_success(p, result, "importing AImage acquire fence");
 }
 
-static bool record_conversion(struct aimagereader_vk_stable *p,
+static bool record_conversion(struct aimagereader_vk *p,
                               struct vk_output *output,
-                              struct vk_input *input,
-                              const AHardwareBuffer_Desc *desc,
-                              const AImageCropRect *crop)
+                              struct vk_input *input)
 {
     VkCommandBufferBeginInfo begin_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -1313,6 +1165,10 @@ static bool record_conversion(struct aimagereader_vk_stable *p,
         !vk_success(p, vkBeginCommandBuffer(output->command, &begin_info),
                     "beginning conversion command buffer"))
         return false;
+
+    vkCmdResetQueryPool(output->command, output->query_pool, 0, 2);
+    vkCmdWriteTimestamp(output->command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        output->query_pool, 0);
 
     VkImageMemoryBarrier acquire[] = {
         {
@@ -1359,29 +1215,8 @@ static bool record_conversion(struct aimagereader_vk_stable *p,
     vkCmdBindDescriptorSets(output->command, VK_PIPELINE_BIND_POINT_COMPUTE,
                             p->pipeline_layout, 0, 1, &output->descriptor,
                             0, NULL);
-    const double source_width = desc->width;
-    const double source_height = desc->height;
-    const struct conversion_push_constants push = {
-        .uv_offset = {
-            (float)(crop->left / source_width),
-            (float)(crop->top / source_height),
-        },
-        .uv_scale = {
-            (float)((crop->right - crop->left) /
-                    ((double)p->width * source_width)),
-            (float)((crop->bottom - crop->top) /
-                    ((double)p->height * source_height)),
-        },
-        .output_size = {p->width, p->height},
-    };
-    vkCmdPushConstants(output->command, p->pipeline_layout,
-                       VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
-    vkCmdDispatch(output->command,
-                  MP_ALIGN_UP(p->width, STABLE_WORKGROUP_X) /
-                      STABLE_WORKGROUP_X,
-                  MP_ALIGN_UP(p->height, STABLE_WORKGROUP_Y) /
-                      STABLE_WORKGROUP_Y,
-                  1);
+    vkCmdDispatch(output->command, MP_ALIGN_UP(p->width, 16) / 16,
+                  MP_ALIGN_UP(p->height, 16) / 16, 1);
 
     VkImageMemoryBarrier release[] = {
         {
@@ -1418,12 +1253,14 @@ static bool record_conversion(struct aimagereader_vk_stable *p,
                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0,
                          0, NULL, 0, NULL, MP_ARRAY_SIZE(release), release);
+    vkCmdWriteTimestamp(output->command, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                        output->query_pool, 1);
 
     return vk_success(p, vkEndCommandBuffer(output->command),
                       "ending conversion command buffer");
 }
 
-static bool submit_conversion(struct aimagereader_vk_stable *p,
+static bool submit_conversion(struct aimagereader_vk *p,
                               struct vk_output *output,
                               bool wait_for_output,
                               bool wait_for_acquire)
@@ -1454,18 +1291,13 @@ static bool submit_conversion(struct aimagereader_vk_stable *p,
     p->vk->lock_queue(p->vk, p->queue_family, 0);
     VkResult result = vkQueueSubmit(p->queue, 1, &submit_info, output->fence);
     p->vk->unlock_queue(p->vk, p->queue_family, 0);
-    bool success =
-        vk_success(p, result, "submitting AHardwareBuffer conversion");
-    if (success)
-        p->submitted_outputs++;
-    return success;
+    return vk_success(p, result, "submitting AHardwareBuffer conversion");
 }
 
-struct aimagereader_vk_stable *aimagereader_vk_stable_create(
+struct aimagereader_vk *aimagereader_vk_create(
     struct ra_hwdec_mapper *mapper, const struct aimagereader_vk_api *api)
 {
-    struct aimagereader_vk_stable *p =
-        talloc_zero(NULL, struct aimagereader_vk_stable);
+    struct aimagereader_vk *p = talloc_zero(NULL, struct aimagereader_vk);
     p->log = mapper->log;
     p->mapper = mapper;
     p->api = *api;
@@ -1489,6 +1321,9 @@ struct aimagereader_vk_stable *aimagereader_vk_stable_create(
     vkGetDeviceQueue(p->device, p->queue_family, 0, &p->queue);
 
     p->GetImageFormatProperties2 = get_image_format_properties2(p->vk);
+    VkPhysicalDeviceProperties device_properties;
+    vkGetPhysicalDeviceProperties(p->vk->phys_device, &device_properties);
+    p->timestamp_period = device_properties.limits.timestampPeriod;
 
     PFN_vkGetDeviceProcAddr get_device_proc =
         (PFN_vkGetDeviceProcAddr)p->vk->get_proc_addr(
@@ -1523,8 +1358,12 @@ struct aimagereader_vk_stable *aimagereader_vk_stable_create(
     mapper->dst_params.imgfmt = IMGFMT_RGB0;
     mapper->dst_params.hw_subfmt = 0;
     mapper->dst_params_ready = false;
-    mp_info(p->log, "WebHTV Vulkan auto uses a queue-safe four-output "
-                    "bounded-fence pool\n");
+    mapper->dst_params_preserve_repr = false;
+    mapper->dst_params_map_coordinates = false;
+    mapper->dst_num_components = 0;
+    memset(mapper->dst_component_mapping, 0,
+           sizeof(mapper->dst_component_mapping));
+    MP_INFO(mapper, "Using WebHTV low-power Vulkan AHardwareBuffer GPU conversion\n");
     if (p->ImportSemaphoreFdKHR) {
         MP_VERBOSE(mapper, "Using Vulkan sync_fd for AImage acquire fences\n");
     } else {
@@ -1534,22 +1373,16 @@ struct aimagereader_vk_stable *aimagereader_vk_stable_create(
     return p;
 
 error:
-    aimagereader_vk_stable_destroy(&p);
+    aimagereader_vk_destroy(&p);
     return NULL;
 }
 
-void aimagereader_vk_stable_destroy(struct aimagereader_vk_stable **state)
+void aimagereader_vk_destroy(struct aimagereader_vk **state)
 {
-    struct aimagereader_vk_stable *p = *state;
+    struct aimagereader_vk *p = *state;
     if (!p)
         return;
 
-    mp_verbose(p->log, "Vulkan conversion pool stats: submitted=%" PRIu64
-                       " completed=%" PRIu64 " reclaimed=%" PRIu64
-                       " fence-timeouts=%" PRIu64 " pool-retries=%" PRIu64
-                       "\n",
-               p->submitted_outputs, p->completed_outputs,
-               p->reclaimed_outputs, p->fence_timeouts, p->pool_retries);
     if (p->gpu)
         pl_gpu_finish(p->gpu);
     destroy_conversion_resources(p);
@@ -1560,19 +1393,22 @@ void aimagereader_vk_stable_destroy(struct aimagereader_vk_stable **state)
     *state = NULL;
 }
 
-void aimagereader_vk_stable_buffer_removed(struct aimagereader_vk_stable *p,
-                                           AHardwareBuffer *buffer)
+bool aimagereader_vk_can_import_acquire_fence(struct aimagereader_vk *p)
 {
-    struct vk_input *input = find_input(p, buffer);
-    if (!input)
-        return;
-    input->removed = true;
-    if (!input->users)
-        destroy_input(p, input);
+    return p && p->ImportSemaphoreFdKHR;
 }
 
-bool aimagereader_vk_stable_reuse(struct aimagereader_vk_stable *p,
-                                  struct mp_image *frame)
+void aimagereader_vk_buffer_removed(
+    struct aimagereader_vk *p, AHardwareBuffer *buffer)
+{
+    struct vk_input *input = find_input(p, buffer);
+    if (!input || input->users)
+        return;
+    destroy_input(p, input);
+}
+
+bool aimagereader_vk_reuse(struct aimagereader_vk *p,
+                           struct mp_image *frame)
 {
     for (int n = 0; n < OUTPUT_COUNT; n++) {
         struct vk_output *output = &p->outputs[n];
@@ -1581,95 +1417,40 @@ bool aimagereader_vk_stable_reuse(struct aimagereader_vk_stable *p,
             p->mapper->tex[0] = output->ratex;
             return true;
         }
-        for (int i = 0; i < output->num_source_aliases; i++) {
-            if (output->source_aliases[i]->planes[3] == frame->planes[3]) {
-                p->mapper->tex[0] = output->ratex;
-                return true;
-            }
-        }
     }
     return false;
 }
 
-bool aimagereader_vk_stable_retain_last(struct aimagereader_vk_stable *p,
-                                        struct mp_image *frame)
+bool aimagereader_vk_retain_last(struct aimagereader_vk *p,
+                                 struct mp_image *frame)
 {
-    if (p->output_index < 0)
-        return false;
-
-    struct vk_output *output = &p->outputs[p->output_index];
-    if (!output->ratex)
-        return false;
-    struct mp_image *frame_ref = mp_image_new_ref(frame);
-    if (!frame_ref)
-        return false;
-    MP_TARRAY_APPEND(p, output->source_aliases,
-                     output->num_source_aliases, frame_ref);
-    p->mapper->tex[0] = output->ratex;
-    return true;
+    return aimagereader_vk_reuse(p, frame);
 }
 
-int aimagereader_vk_stable_map(
-    struct aimagereader_vk_stable *p, AImage *image,
-    AHardwareBuffer *buffer, const AImageCropRect *crop, int32_t data_space,
-    struct mp_image *frame, int *acquire_fence)
+static int map_internal(struct aimagereader_vk *p, AImage *image,
+                        AHardwareBuffer *buffer, int acquire_fence_fd,
+                        struct mp_image *frame)
 {
     struct vk_output *output = NULL;
     struct mp_image *frame_ref = NULL;
     bool wait_for_output = false;
     bool acquire_imported = false;
 
-    if (!crop || !p->mapper->src_params.w || !p->mapper->src_params.h)
-        return -1;
-
     for (int n = 0; n < OUTPUT_COUNT; n++)
-        finish_output(p, &p->outputs[n], 0);
-    purge_removed_inputs(p);
+        finish_output(p, &p->outputs[n], false);
 
     AHardwareBuffer_Desc desc;
     p->api.AHardwareBuffer_describe(buffer, &desc);
-    if (!desc.width || !desc.height ||
-        desc.width > INT32_MAX || desc.height > INT32_MAX ||
-        crop->left < 0 || crop->top < 0 ||
-        crop->right <= crop->left || crop->bottom <= crop->top ||
-        (uint32_t)crop->right > desc.width ||
-        (uint32_t)crop->bottom > desc.height) {
-        mp_err(p->log, "Unsupported stable AHardwareBuffer geometry "
-                       "(buffer %ux%u, crop %d,%d-%d,%d)\n",
-               desc.width, desc.height, crop->left, crop->top,
-               crop->right, crop->bottom);
-        return -1;
-    }
     struct vk_input *input = find_input(p, buffer);
     if (!input)
-        input = create_input(p, buffer, &desc, data_space);
+        input = create_input(p, buffer, &desc);
     if (!input)
         goto error;
 
-    int next_output = (p->output_index + 1) % OUTPUT_COUNT;
-    int selected_output = -1;
-    for (int n = 0; n < OUTPUT_COUNT; n++) {
-        int candidate = (next_output + n) % OUTPUT_COUNT;
-        if (!p->outputs[candidate].pending) {
-            selected_output = candidate;
-            break;
-        }
-    }
-    if (selected_output < 0) {
-        selected_output = next_output;
-        if (!finish_output(p, &p->outputs[selected_output],
-                           CONVERSION_FENCE_TIMEOUT_NS)) {
-            p->pool_retries++;
-            if (p->pool_retries % POOL_LOG_INTERVAL == 1) {
-                mp_warn(p->log, "Vulkan conversion pool busy; retrying frame "
-                                "output=%d retries=%" PRIu64 "\n",
-                        selected_output, p->pool_retries);
-            }
-            return RA_HWDEC_MAP_RETRY;
-        }
-    }
-    p->output_index = selected_output;
-    output = &p->outputs[selected_output];
+    p->output_index = (p->output_index + 1) % OUTPUT_COUNT;
+    output = &p->outputs[p->output_index];
+    if (!finish_output(p, output, true))
+        goto error;
 
     wait_for_output = output->released;
     if (wait_for_output) {
@@ -1682,9 +1463,8 @@ int aimagereader_vk_stable_map(
             mp_err(p->log, "Failed reclaiming conversion output texture\n");
             goto error;
         }
-        p->reclaimed_outputs++;
     }
-    clear_output_frames(output);
+    mp_image_unrefp(&output->source_frame);
 
     VkDescriptorImageInfo source = {
         .imageView = input->view,
@@ -1701,16 +1481,14 @@ int aimagereader_vk_stable_map(
     vkUpdateDescriptorSets(p->device, 1, &write, 0, NULL);
 
     frame_ref = mp_image_new_ref(frame);
-    if (!frame_ref || !record_conversion(p, output, input, &desc, crop))
+    if (!frame_ref || !record_conversion(p, output, input))
         goto error;
 
-    if (*acquire_fence >= 0) {
-        int import_result =
-            import_acquire_fence(p, output, *acquire_fence);
-        *acquire_fence = -1;
-        if (import_result < 0)
+    acquire_imported = acquire_fence_fd >= 0;
+    if (acquire_imported) {
+        if (!import_acquire_fence(p, output, acquire_fence_fd))
             goto error;
-        acquire_imported = import_result > 0;
+        acquire_fence_fd = -1;
     }
     if (!submit_conversion(p, output, wait_for_output, acquire_imported)) {
         if (acquire_imported)
@@ -1722,6 +1500,7 @@ int aimagereader_vk_stable_map(
     output->source_frame = frame_ref;
     output->input = input;
     output->pending = true;
+    output->timing_pending = true;
     output->written = true;
     output->released = true;
     input->users++;
@@ -1738,8 +1517,22 @@ int aimagereader_vk_stable_map(
     return 0;
 
 error:
+    if (acquire_fence_fd >= 0)
+        close(acquire_fence_fd);
     mp_image_unrefp(&frame_ref);
     if (output)
         release_output_after_error(p, output, wait_for_output);
     return -1;
+}
+
+int aimagereader_vk_map(
+    struct aimagereader_vk *p, AImage *image,
+    AHardwareBuffer *buffer, const AImageCropRect *crop, int32_t data_space,
+    struct mp_image *frame, int *acquire_fence)
+{
+    (void)crop;
+    (void)data_space;
+    int fence = *acquire_fence;
+    *acquire_fence = -1;
+    return map_internal(p, image, buffer, fence, frame);
 }

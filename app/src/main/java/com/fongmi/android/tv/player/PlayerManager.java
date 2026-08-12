@@ -90,7 +90,6 @@ import com.fongmi.android.tv.player.mpv.MpvHlsVariantPolicy;
 import com.fongmi.android.tv.player.mpv.MpvPreloadController;
 import com.fongmi.android.tv.player.mpv.MpvPreloadPolicy;
 import com.fongmi.android.tv.player.mpv.MpvResourcePressureController;
-import com.fongmi.android.tv.player.mpv.MpvVulkanBackendPolicy;
 import com.fongmi.android.tv.player.mpv.MpvResourcePressurePolicy;
 import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.fongmi.android.tv.setting.ExoPerformanceSetting;
@@ -233,7 +232,6 @@ public class PlayerManager implements ParseCallback {
     private boolean mpvAutoOutputEvaluationScheduled;
     private boolean mpvExplicitSubtitlePreference;
     private boolean mpvSurfaceFallbackTried;
-    private boolean mpvVulkanFallbackTried;
     private boolean mpvHlsManagedReload;
     private boolean ijkBufferManagedReload;
     private boolean ijkRuntimeTemporaryFallback;
@@ -393,7 +391,6 @@ public class PlayerManager implements ParseCallback {
         completeIjkBufferManagedReload(
                 false, "timeout", SystemClock.elapsedRealtime(), true);
         if (retryLutWarmupByRefresh("timeout")) return;
-        if (retryMpvVulkanBackendTimeout()) return;
         callback.onError(ResUtil.getString(R.string.error_play_timeout));
     }
 
@@ -4369,7 +4366,6 @@ public class PlayerManager implements ParseCallback {
         mpvAutoOutputEvaluationScheduled = false;
         mpvAutoOutputProbeAttempts = 0;
         mpvSurfaceFallbackTried = false;
-        mpvVulkanFallbackTried = false;
         mpvOutputEvaluationSeq++;
     }
 
@@ -4508,38 +4504,6 @@ public class PlayerManager implements ParseCallback {
         mpvOutputEvaluationSeq++;
         PlaybackTrace.log("mpv-output", playbackTrace.current(), "surface direct failed; fallback gpu once code=%d message=%s", error.errorCode, message);
         return rebuildAndRestartMpv(false, "surface-direct-failure");
-    }
-
-    private boolean retryMpvVulkanBackendFailure(PlaybackException error) {
-        if (mpvVulkanFallbackTried || error == null
-                || !(engine instanceof MpvPlayerEngine mpv)
-                || !mpv.shouldFallbackVulkanToStable()) return false;
-        String message = error.getMessage();
-        boolean outputFailure = error.errorCode
-                == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
-                || message != null
-                && message.startsWith(MpvPlayer.ERROR_VIDEO_OUTPUT_FAILED);
-        if (!outputFailure) return false;
-        return retryMpvVulkanBackendToStable(mpv, "direct-output-failure");
-    }
-
-    private boolean retryMpvVulkanBackendTimeout() {
-        if (mpvVulkanFallbackTried || !(engine instanceof MpvPlayerEngine mpv)
-                || !mpv.shouldFallbackVulkanToStable()) return false;
-        VideoSize size = mpv.getVideoSizeSnapshot();
-        if ((size == null || size.width <= 0 || size.height <= 0)
-                && getVideoWidth() <= 0 && getVideoHeight() <= 0) return false;
-        return retryMpvVulkanBackendToStable(mpv, "direct-first-frame-timeout");
-    }
-
-    private boolean retryMpvVulkanBackendToStable(MpvPlayerEngine mpv,
-                                                   String reason) {
-        mpvVulkanFallbackTried = true;
-        MpvVulkanBackendPolicy.rememberDirectFailure();
-        mpv.setVulkanBackendOverride(MpvVulkanBackendPolicy.STABLE);
-        PlaybackTrace.log("mpv-vulkan", playbackTrace.current(),
-                "backend direct failed; fallback stable once reason=%s", reason);
-        return rebuildAndRestartMpv(false, reason);
     }
 
     private boolean isDv7NativeAttemptRequested() {
@@ -6946,7 +6910,6 @@ public class PlayerManager implements ParseCallback {
                     PlaybackAutoContext.PlaybackPhase.ERROR, false);
             if (recoverMpvHlsVariantError()) return;
             if (retryMpvSurfaceDirectFailure(e)) return;
-            if (retryMpvVulkanBackendFailure(e)) return;
             PlaybackErrorClassifier.Failure failure = PlaybackErrorClassifier.classify(e, getEffectivePlaybackRoute());
             PlayerEngine.ErrorAction action = engine.handleError(e);
             PlaybackTrace.log("playback-error", playbackTrace.current(), "%s action=%s player=%d decode=%d", failure.logSummary(), action, playerType, engine.getDecode());

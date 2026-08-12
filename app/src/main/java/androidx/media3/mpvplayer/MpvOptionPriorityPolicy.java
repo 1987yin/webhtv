@@ -13,7 +13,6 @@ final class MpvOptionPriorityPolicy {
             "gpu-context",
             "gpu-api",
             "opengl-es",
-            "android-vulkan-aimagereader-backend",
             "hwdec",
             "hwdec-codecs",
             "ao",

@@ -965,9 +965,9 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
                 passes, cachedContentFrameRate, displayFps);
         if (!snapshot.available()) return cachedGpuLoadDiagnostics = "";
         return cachedGpuLoadDiagnostics = Double.isFinite(snapshot.loadPercent())
-                ? String.format(Locale.US, "当前 %.0f%% / 10秒 %.0f%%（渲染估算）",
-                snapshot.loadPercent(), snapshot.averagePercent())
-                : "等待帧率数据（渲染估算）";
+                ? String.format(Locale.US, "%.0f%%",
+                Math.max(0, Math.min(100, snapshot.loadPercent())))
+                : "";
     }
 
     /** Cached values from mpv runtime property observers; never falls back to requested config. */

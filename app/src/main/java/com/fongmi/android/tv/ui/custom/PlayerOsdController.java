@@ -27,7 +27,6 @@ import androidx.media3.common.Tracks;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.player.DolbyVisionFormatLabel;
-import com.fongmi.android.tv.player.GpuLoadMonitor;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.PlaybackDiagnosticsSourcePolicy;
 import com.fongmi.android.tv.player.PlaybackRoute;
@@ -162,7 +161,7 @@ public class PlayerOsdController {
         if (controlsVisible) return true;
         setTextSize(miniSp);
         PlayerManager player = source.getPlayer();
-        updateSpeed();
+        updateSpeed(player);
         setTopLeft(player);
         setTopRight();
         setBottomLeft(player);
@@ -285,7 +284,11 @@ public class PlayerOsdController {
         diagnosticsExtra.setTextSize(TypedValue.COMPLEX_UNIT_SP, getDiagnosticsSp());
     }
 
-    private void updateSpeed() {
+    private void updateSpeed(PlayerManager player) {
+        if (player == null || PlaybackDiagnosticsSourcePolicy.isLocal(player.getUrl())) {
+            resetSpeed();
+            return;
+        }
         long total = TrafficStats.getUidRxBytes(UID);
         if (total == TrafficStats.UNSUPPORTED) {
             lastSpeedKBps = 0;
@@ -302,7 +305,6 @@ public class PlayerOsdController {
     }
 
     private DiagnosticsText getDiagnostics(PlayerManager player) {
-        GpuLoadMonitor.process().requestSample();
         PlaybackAnalyticsListener.Snapshot snapshot = player.isExo() ? PlaybackAnalyticsListener.getSnapshot() : PlaybackAnalyticsListener.Snapshot.empty();
         Format video = snapshot.videoFormat() != null ? snapshot.videoFormat() : snapshot.errorFormat() != null ? snapshot.errorFormat() : player.getVideoFormat();
         Format audio = snapshot.audioFormat();
@@ -388,16 +390,9 @@ public class PlayerOsdController {
     }
 
     private String getGpuLoadText(PlayerManager player) {
-        GpuLoadMonitor.Snapshot system = GpuLoadMonitor.process().snapshot();
-        if (system.available()) {
-            return String.format(Locale.US, "当前 %.0f%% / 10秒 %.0f%%（系统）",
-                    system.percent(), system.averagePercent());
-        }
         String renderer = player.getGpuLoadDiagnostics();
         if (!TextUtils.isEmpty(renderer)) return renderer;
-        return system.status() == GpuLoadMonitor.Status.PENDING
-                ? "正在检测"
-                : "当前设备不支持读取";
+        return "-";
     }
 
     private String getErrorText(PlayerManager player, PlaybackAnalyticsListener.Snapshot snapshot) {
