@@ -72,6 +72,8 @@ public final class AboutDialog {
         });
         binding.list.setAdapter(adapter);
         binding.list.setHasFixedSize(true);
+        binding.enabled.setChecked(Setting.isGithubProxyEnabled());
+        binding.enabled.setOnCheckedChangeListener((buttonView, isChecked) -> Setting.putGithubProxyEnabled(isChecked));
         refreshGithubProxy(binding);
 
         binding.add.setOnClickListener(v -> {
@@ -91,17 +93,24 @@ public final class AboutDialog {
 
         View.OnKeyListener dpadNav = (v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && v == binding.enabled) {
+                return binding.input.requestFocus();
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP && v == binding.enabled) {
+                return binding.list.requestFocus();
+            }
             if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && v == binding.input) {
                 return binding.reset.requestFocus();
             }
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP && v == binding.input) {
-                return binding.list.requestFocus();
+                return binding.enabled.requestFocus();
             }
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP && v == binding.reset) {
                 return binding.input.requestFocus();
             }
             return false;
         };
+        binding.enabled.setOnKeyListener(dpadNav);
         binding.input.setOnKeyListener(dpadNav);
         binding.reset.setOnKeyListener(dpadNav);
 

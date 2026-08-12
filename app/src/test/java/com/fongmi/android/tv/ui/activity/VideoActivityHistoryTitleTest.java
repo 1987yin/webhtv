@@ -180,9 +180,9 @@ public class VideoActivityHistoryTitleTest {
                 "private void loadDetailSync(Vod vod, TmdbItem item, JsonObject cachedDetail, List<TmdbPerson> cachedCast, int generation)");
         String captureSeason = methodBody(source, "private void captureSourceSeason(Vod sourceVod, String sourceTitle)");
         assertTrue("TMDB source-season capture must preserve explicit season zero for specials",
-                captureSeason.contains("if (season < 0) season =")
-                        && !captureSeason.contains("if (season <= 0 && sourceVod")
-                        && !captureSeason.contains("if (flagSeason <= 0)"));
+                captureSeason.contains("titleSeasonNumber = EpisodeSeasonPolicy.resolveSourceSeason(")
+                        && captureSeason.contains("addExplicitSeason(explicit, EpisodeSeasonPolicy.resolveExplicitSourceSeason(")
+                        && source.contains("if (season >= 0 && !seasons.contains(season))"));
         assertTrue("TMDB source-season capture must not treat source-line ordinals as seasons",
                 captureSeason.contains("EpisodeSeasonPolicy.resolveExplicitSourceSeason(flag == null ? \"\" : flag.getShow())"));
         assertTrue("TMDB source-season capture must prefer source episode names over bound metadata",
@@ -200,10 +200,11 @@ public class VideoActivityHistoryTitleTest {
         assertTrue("standalone detail must not treat the selected source-line ordinal as a season",
                 detailTitleSeason.contains("EpisodeSeasonPolicy.resolveExplicitSourceSeason(selectedFlag.getShow())"));
         assertTrue("TMDB detail loading must preserve a previously captured source season",
-                detailSync.contains("if (sourceSeasonNumber < 0 && vod != null)"));
+                detailSync.contains("resolveSeason(vod, item, detail);"));
         assertTrue("TMDB detail loading must not overwrite the captured season from only the VOD name",
                 !detailSync.contains("sourceSeasonNumber = vod == null ? -1 : new MediaTitleParser().seasonNumber(vod.getName());"));
-        assertTrue("TMDB adapter must use the season candidate policy", source.contains("episodeMetadataSeasonCandidates(sourceSeasonNumber)"));
+        assertTrue("TMDB adapter must use structured season resolution", source.contains("TmdbSeasonResolver.resolve(")
+                && source.contains("seasonResolution.getSelectedSeason()"));
         assertTrue("TMDB adapter must not hard-code season 1 for every source", !source.contains("tmdbService.season(item, 1,"));
     }
     private static Path videoActivity(String sourceSet) {

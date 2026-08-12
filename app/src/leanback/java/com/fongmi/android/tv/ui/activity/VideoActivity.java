@@ -391,6 +391,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private final SourceEpisodeSeasonCache mSourceEpisodeSeasonCache = new SourceEpisodeSeasonCache();
     private boolean mTmdbAutoDialogShown;
     private int mTmdbDialogGeneration;
+    private TmdbItem mPendingTmdbSeasonChoice;
     private Runnable mR4;
     private Runnable mBackdropRunnable;
     private String mBackdropSignature;
@@ -938,6 +939,21 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.episodeTitle.setText(isTmdbSourceEnabled() && season >= 0
                 ? getString(R.string.detail_episode_season_context, season)
                 : getString(R.string.detail_episode));
+        boolean selectable = isTmdbSourceEnabled()
+                && mTmdbUIAdapter != null
+                && mTmdbUIAdapter.getTmdbItem() != null
+                && mTmdbUIAdapter.getTmdbItem().isTv()
+                && mTmdbUIAdapter.hasSeasonOptions();
+        mBinding.episodeTitle.setClickable(selectable);
+        mBinding.episodeTitle.setFocusable(selectable);
+        mBinding.episodeTitle.setFocusableInTouchMode(false);
+        mBinding.episodeTitle.setContentDescription(selectable
+                ? getString(R.string.tmdb_season_match_current, mBinding.episodeTitle.getText())
+                : mBinding.episodeTitle.getText());
+        Drawable icon = selectable ? getDrawable(R.drawable.ic_expand_more) : null;
+        if (icon != null) icon.setTint(mBinding.episodeTitle.getCurrentTextColor());
+        mBinding.episodeTitle.setCompoundDrawablePadding(selectable ? ResUtil.dp2px(4) : 0);
+        mBinding.episodeTitle.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, icon, null);
     }
 
     private boolean isResumeFromHistory() {
@@ -1219,6 +1235,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             return true;
         });
         mBinding.tmdbRematch.setOnClickListener(view -> showManualTmdbMatchDialog());
+        mBinding.tmdbRematch.setOnLongClickListener(view -> {
+            showManualTmdbSeasonDialog();
+            return true;
+        });
+        mBinding.episodeTitle.setOnClickListener(view -> showManualTmdbSeasonDialog());
         mBinding.content.setOnClickListener(view -> onContent());
         mBinding.control.action.text.setOnClickListener(guardedView(this::onTrack));
         mBinding.control.action.audio.setOnClickListener(guardedView(this::onTrack));
@@ -2167,6 +2188,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.change1.setNextFocusRightId(R.id.keep);
         mBinding.keep.setNextFocusRightId(visible ? R.id.tmdbRematch : View.NO_ID);
         mBinding.tmdbRematch.setNextFocusLeftId(R.id.keep);
+        mBinding.tmdbRematch.setNextFocusRightId(View.NO_ID);
     }
 
     private void showTmdbDetailLoading() {
@@ -4681,6 +4703,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 return;
             }
             queueTmdbBind(event.getVod());
+            maybeShowPendingTmdbSeasonDialog();
         }
         else if (event.getType() == RefreshEvent.Type.VOD_RECOMMENDATIONS) {
             if (!isCurrentVodEvent(event.getVod())) return;
@@ -5343,6 +5366,49 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         return true;
     }
 
+    private void maybeShowPendingTmdbSeasonDialog() {
+        if (mPendingTmdbSeasonChoice == null || mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
+        TmdbItem loaded = mTmdbUIAdapter.getTmdbItem();
+        if (loaded == null) return;
+        boolean sameItem = loaded.getTmdbId() == mPendingTmdbSeasonChoice.getTmdbId()
+                && TextUtils.equals(loaded.getMediaType(), mPendingTmdbSeasonChoice.getMediaType());
+        mPendingTmdbSeasonChoice = null;
+        if (!sameItem || !loaded.isTv() || mTmdbUIAdapter.getSeasonOptions().size() <= 1) return;
+        mBinding.getRoot().post(this::showManualTmdbSeasonDialog);
+    }
+
+    private void showManualTmdbSeasonDialog() {
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded() || mTmdbUIAdapter.getTmdbItem() == null || !mTmdbUIAdapter.getTmdbItem().isTv()) {
+            Notify.show(R.string.detail_tmdb_empty);
+            return;
+        }
+        java.util.List<Integer> seasons = new java.util.ArrayList<>();
+        java.util.Map<Integer, Integer> counts = new java.util.HashMap<>();
+        for (com.fongmi.android.tv.ui.helper.TmdbUIAdapter.SeasonOption option : mTmdbUIAdapter.getSeasonOptions()) {
+            seasons.add(option.getSeasonNumber());
+            counts.put(option.getSeasonNumber(), option.getEpisodeCount());
+        }
+        com.fongmi.android.tv.ui.dialog.ChoiceDialog.showTmdbSeason(this, seasons, counts, mTmdbUIAdapter.getSeasonResolution(), new com.fongmi.android.tv.ui.dialog.ChoiceDialog.OnTmdbSeasonChoice() {
+            @Override
+            public void onAuto() {
+                if (mTmdbUIAdapter.clearManualSeasonBinding()) refreshTmdbEpisodeTitles();
+                Notify.show(R.string.tmdb_season_match_saved);
+            }
+
+            @Override
+            public void onFlat() {
+                if (mTmdbUIAdapter.keepOriginalEpisodeList()) refreshTmdbEpisodeTitles();
+                Notify.show(R.string.tmdb_season_match_saved);
+            }
+
+            @Override
+            public void onSeason(int seasonNumber) {
+                if (mTmdbUIAdapter.applyManualSeason(seasonNumber)) refreshTmdbEpisodeTitles();
+                Notify.show(R.string.tmdb_season_match_saved);
+            }
+        });
+    }
+
     private void showManualTmdbMatchDialog() {
         if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isReady()) {
             Notify.show(R.string.detail_tmdb_need_key);
@@ -5414,6 +5480,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         // “整页加载中”观感并重放揭示动画）。这里只清空旧的 TMDB 展示与背景 signature，
         // 让新数据到达时由 VOD_CORE 就地重绑，空区域走各自 else 分支隐藏、不残留旧数据。
         clearTmdbDetailViews();
+        mPendingTmdbSeasonChoice = item.isTv() ? item : null;
         mTmdbUIAdapter.rememberManualMatch(mVod, item);
         if (reloadHistoryAfterTmdbMatch(item)) resumeHistoryAfterTmdbMatch();
         mTmdbUIAdapter.load(item, mVod);
