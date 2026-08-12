@@ -146,9 +146,12 @@ public class Config {
         this.type = type;
     }
 
-    public String getUrl() {
-        return url;
+public String getUrl() {
+    if (TextUtils.isEmpty(url)) {
+        return "https://gh-proxy.com/https://github.com/1987yin/mini/raw/refs/heads/master/web.json";
     }
+    return url;
+}
 
     public void setUrl(String url) {
         this.url = url;
