@@ -206,6 +206,10 @@ import com.fongmi.android.tv.ui.custom.KaraokeResultView;
 import com.fongmi.android.tv.ui.dialog.CastDialog;
 import com.fongmi.android.tv.ui.dialog.ControlDialog;
 import com.fongmi.android.tv.ui.dialog.PanNetworkDiagnosticDialog;
+import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
+import com.fongmi.android.tv.ui.dialog.QuickSearchDialog;
+import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
+import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TimerDialog;
 import com.fongmi.android.tv.utils.Traffic;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
@@ -3617,8 +3621,15 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void onPlayerKernel() {
+        PlayerKernelDialog.show(this, player().getPlayerType(), this::switchPlayerKernel);
+    }
+
+    private void switchPlayerKernel(int type) {
         mClock.setCallback(null);
-        onChoose();
+        clearLyrics();
+        player().switchPlayer(type);
+        setPlayerKernel();
+        setDecode();
     }
 
     private boolean onPlayerKernelLong() {
@@ -6384,8 +6395,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     @Override
     public void onSeekEnd(long time) {
+        if (seekTo(time)) hideCenter();
         mKeyDown.reset();
-        seekTo(time);
     }
 
     @Override
