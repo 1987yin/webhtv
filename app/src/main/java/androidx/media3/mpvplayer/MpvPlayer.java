@@ -1209,7 +1209,7 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
                 throw new IOException("MPV native context creation is already in progress");
             }
             applyPreInitOptions();
-            MPVLib.init();
+            MPVLib.initializeCreatedContext();
             initialized = true;
             MPVLib.addObserver(this);
             MPVLib.addLogObserver(this);

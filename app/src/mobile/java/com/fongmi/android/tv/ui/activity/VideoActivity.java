@@ -135,7 +135,6 @@ import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
 import com.fongmi.android.tv.ui.dialog.LutPanelDialog;
-import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.QuickSearchDialog;
 import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
@@ -302,7 +301,6 @@ private final Map<String, String> mAudioQueueTitles = new HashMap<>();
 private final Map<String, String> mAudioQueueArtists = new HashMap<>();
 private final Map<String, String> mAudioQueuePics = new HashMap<>();
 private final Map<String, String> mAudioQueueLyrics = new HashMap<>();
-private boolean playerKernelSwitchRefreshing;
 private int mStatusBarInset;
 private int mNavigationRightInset;
 private int mLyricsSearchSeq;
@@ -4146,8 +4144,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onPlayerKernel() {
-        if (playerKernelSwitchRefreshing) return;
-        PlayerKernelDialog.show(this, player().getPlayerType(), this::switchPlayerKernel);
+        mClock.setCallback(null);
+        onChoose();
+        setR1Callback();
     }
 
     private boolean onPlayerKernelLong() {
@@ -4155,18 +4154,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return true;
     }
 
-    private void switchPlayerKernel(int type) {
-        if (refreshAndSwitchPlayerKernel(type)) return;
-        mClock.setCallback(null);
-        clearLyrics();
-        player().switchPlayer(type);
-        setPlayerKernel();
-        setDecode();
-        setR1Callback();
-    }
-
     private boolean refreshAndSwitchPlayerKernel(int type) {
-        if (playerKernelSwitchRefreshing) return true;
         int requestId = ++playerKernelSwitchRequestId;
         Flag currentFlag = getFlag();
         Episode currentEpisode = getEpisode();
@@ -4179,7 +4167,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         String flag = currentFlag.getFlag();
         String episode = currentEpisode.getUrl();
         MediaMetadata metadata = buildMetadata();
-        playerKernelSwitchRefreshing = true;
         mClock.setCallback(null);
         SpiderDebug.log("video-flow", "switch player refresh start type=%d key=%s flag=%s episode=%s", nextType, key, flag, episode);
         Task.execute(() -> {
@@ -4189,7 +4176,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             } catch (Throwable e) {
                 App.post(() -> {
                     if (requestId != playerKernelSwitchRequestId) return;
-                    playerKernelSwitchRefreshing = false;
                     setPlayerKernel();
                     setDecode();
                     setR1Callback();
@@ -4202,7 +4188,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void switchPlayerKernelWithResult(int requestId, int type, Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
         if (requestId != playerKernelSwitchRequestId) return;
-        playerKernelSwitchRefreshing = false;
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
         } else {
