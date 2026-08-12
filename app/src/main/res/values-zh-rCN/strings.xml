@@ -1343,6 +1343,10 @@
     <string name="dialog_edit">修改</string>
     <string name="dialog_positive">确定</string>
     <string name="dialog_negative">取消</string>
+    <string name="setting_reset_app">重置APP</string>
+    <string name="dialog_reset_app">重置App?</string>
+    <string name="dialog_reset_app_data">所有数据将会被重置，App即将被关闭.</string>
+
     <string name="dialog_audio_site_rules">音频源规则:关联站源或关键词,用 ; 分隔。默认:[音];[听]</string>
     <string name="dialog_audio_site_manage">选择音频源</string>
     <string name="dialog_audio_site_default">默认 [音]/[听]</string>
