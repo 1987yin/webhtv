@@ -3157,6 +3157,7 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
     }
 
     private boolean isNetworkFailureLog(String lower) {
+        if (MpvRenderLogPolicy.isRenderPipelineTimeout(lower)) return false;
         return lower.contains("http error")
                 || lower.contains("server returned")
                 || lower.contains("connection timed out")
@@ -3185,6 +3186,7 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
     }
 
     private boolean isVideoOutputFailureLog(String lower) {
+        if (MpvRenderLogPolicy.isRecoveredRenderFallback(lower)) return false;
         return lower.contains("video output failed")
                 || lower.contains("failed to create android surface")
                 || lower.contains("could not create egl")
@@ -3211,7 +3213,14 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
                 || lower.contains("lavf")
                 || lower.contains("demux")
                 || lower.contains("codec")
-                || lower.contains("track");
+                || lower.contains("track")
+                || lower.contains("aimagereader")
+                || lower.contains("vulkan")
+                || lower.contains("fence")
+                || lower.contains("bufferqueue")
+                || lower.contains("surface pool")
+                || lower.contains("conversion pool")
+                || lower.contains("mediacodec output");
     }
 
     private void resetFailureSignals() {
