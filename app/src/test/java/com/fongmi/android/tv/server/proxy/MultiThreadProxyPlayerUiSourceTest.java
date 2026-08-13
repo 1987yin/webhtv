@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class MultiThreadProxyPlayerUiSourceTest {
@@ -66,9 +67,22 @@ public class MultiThreadProxyPlayerUiSourceTest {
         assertTrue(player.contains("ProxyStreamRegistration"));
         assertTrue(player.contains("closeMultiThreadProxyRegistration"));
         assertTrue(player.contains("public void reloadCurrentMediaItem()"));
-        assertTrue(player.contains("prepareProxyPlayback()"));
         assertTrue(server.contains("domainRules.resolve(target, config)"));
         assertTrue(server.contains("sessionConfig"));
+    }
+
+    @Test
+    public void internalPlayerRestartsReuseProxyPreparation() throws Exception {
+        String player = read("main", "java", "com", "fongmi", "android", "tv", "player", "PlayerManager.java");
+
+        assertTrue(player.contains("private void startWithProxy("));
+        assertTrue(player.contains("private void restartWithProxy("));
+        assertTrue(player.contains("prepareProxyPlayback(PlaySpec source)"));
+        assertFalse(player.contains("engine.start(target.checkUa()"));
+        assertFalse(player.contains("engine.start(spec.checkUa()"));
+        assertFalse(player.contains("engine.restart(spec.checkUa()"));
+        assertFalse(player.contains("ijk.restart(spec.checkUa()"));
+        assertFalse(player.contains("recovery.target().checkUa()"));
     }
 
     private static String read(String... parts) throws Exception {

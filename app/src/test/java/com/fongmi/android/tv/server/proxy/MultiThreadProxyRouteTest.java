@@ -31,6 +31,7 @@ import okhttp3.OkHttpClient;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class MultiThreadProxyRouteTest {
@@ -42,6 +43,7 @@ public class MultiThreadProxyRouteTest {
     private AtomicBoolean ignoreRanges;
     private AtomicBoolean unsatisfiable;
     private AtomicBoolean slowProbe;
+    private AtomicBoolean failBootstrap;
     private AtomicInteger activeCalls;
     private AtomicReference<String> lastMethod;
     private AtomicReference<String> lastCookie;
@@ -54,6 +56,7 @@ public class MultiThreadProxyRouteTest {
         ignoreRanges = new AtomicBoolean();
         unsatisfiable = new AtomicBoolean();
         slowProbe = new AtomicBoolean();
+        failBootstrap = new AtomicBoolean();
         activeCalls = new AtomicInteger();
         lastMethod = new AtomicReference<>();
         lastCookie = new AtomicReference<>();
@@ -96,6 +99,9 @@ public class MultiThreadProxyRouteTest {
                             .build();
                 }
                 String range = request.getHeaders().get("Range");
+                if (failBootstrap.get() && "bytes=0-3".equals(range)) {
+                    return new MockResponse.Builder().code(500).body("bootstrap failed").build();
+                }
                 long[] bounds = parseRange(range);
                 int start = Math.toIntExact(bounds[0]);
                 int end = Math.toIntExact(bounds[1]);
@@ -160,6 +166,16 @@ public class MultiThreadProxyRouteTest {
         assertArrayEquals(PAYLOAD.getBytes(StandardCharsets.UTF_8), result.body());
         assertEquals(4, upstreamRequests.get());
         assertTrue(proxy.sessions().activeCount() == 0);
+    }
+
+    @Test
+    public void bootstrapFailureReturnsBadGatewayBeforePartialHeadersArePublished() throws Exception {
+        failBootstrap.set(true);
+
+        HttpResult result = request(true, "bytes=0-11");
+
+        assertEquals(502, result.code());
+        assertNull(result.contentRange());
     }
 
     @Test
