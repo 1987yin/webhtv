@@ -6,8 +6,13 @@ LOCK_FILE="$ROOT/third_party/mpv-native-lock.json"
 OVERRIDE_DIR="$ROOT/third_party/mpv-native-overrides"
 MPV_DISC_PATCH="$ROOT/third_party/patches/mpv-stream-cb-disc-controls.patch"
 MPV_DOVI_SURFACE_PATCH="$ROOT/third_party/patches/mpv-android-dovi-el-surface.patch"
+MPV_AUDIO_PASSTHROUGH_PATCH="$ROOT/third_party/patches/mpv-audiotrack-native-passthrough-rate.patch"
+MPV_VULKAN_CONVERSION_PATCH="$ROOT/third_party/patches/mpv-android-vulkan-conversion-default.patch"
+MPV_AIMAGEREADER_STABLE_PATCH="$ROOT/third_party/patches/mpv-aimagereader-stable-flow.patch"
+MPV_AIMAGEREADER_STABLE_SOURCE="$OVERRIDE_DIR/aimagereader-stable/video/out/hwdec/hwdec_aimagereader_vk_stable.c"
 MPV_MATROSKA_PATCH="$ROOT/third_party/patches/mpv-matroska-segment-end.patch"
 FFMPEG_PROXY_RANGE_PATCH="$ROOT/third_party/patches/ffmpeg-webhtv-proxy-range.patch"
+FFMPEG_MEDIACODEC_STARVATION_PATCH="$ROOT/third_party/patches/ffmpeg-mediacodec-port-starvation.patch"
 WORK_DIR="${MPV_NATIVE_WORK_DIR:-$ROOT/build/mpv-native}"
 ABI="arm64-v8a"
 JOBS="${MPV_NATIVE_JOBS:-}"
@@ -110,15 +115,23 @@ esac
 [ "$PREPARE_ONLY" -eq 0 ] || [ "$STAGE_ONLY" -eq 0 ] || \
   die "--prepare-only and --stage-only cannot be used together"
 
-need_cmd git
-need_cmd curl
-need_cmd tar
-need_cmd make
 need_cmd python3
-need_cmd pkg-config
-need_cmd perl
-need_cmd cmake
-need_cmd gperf
+python3 "$ROOT/scripts/verify_mpv_v556_shader_contract.py"
+if [ "$PREPARE_ONLY" -eq 0 ]; then
+  need_cmd strings
+fi
+if [ "$STAGE_ONLY" -eq 0 ]; then
+  need_cmd git
+  need_cmd curl
+  need_cmd tar
+fi
+if [ "$STAGE_ONLY" -eq 0 ] && [ "$PREPARE_ONLY" -eq 0 ]; then
+  need_cmd make
+  need_cmd pkg-config
+  need_cmd perl
+  need_cmd cmake
+  need_cmd gperf
+fi
 
 eval "$(python3 - "$LOCK_FILE" <<'PY'
 import json
@@ -200,8 +213,10 @@ TOOLCHAIN="$NDK_ROOT/toolchains/llvm/prebuilt/$HOST_TAG"
 OBJCOPY="$TOOLCHAIN/bin/llvm-objcopy"
 STRIP="$TOOLCHAIN/bin/llvm-strip"
 READELF="$TOOLCHAIN/bin/llvm-readelf"
-[ -x "$OBJCOPY" ] && [ -x "$STRIP" ] && [ -x "$READELF" ] || die "NDK LLVM tools are incomplete"
-
+if [ "$PREPARE_ONLY" -eq 0 ]; then
+  [ -x "$OBJCOPY" ] && [ -x "$STRIP" ] && [ -x "$READELF" ] || \
+    die "NDK LLVM tools are incomplete"
+fi
 if [ -z "$JOBS" ]; then
   if command -v nproc >/dev/null 2>&1; then
     JOBS="$(nproc)"
@@ -388,6 +403,9 @@ prepare_sources() {
   [ -f "$FFMPEG_PROXY_RANGE_PATCH" ] || die "missing FFmpeg proxy range patch: $FFMPEG_PROXY_RANGE_PATCH"
   git -C "$deps/ffmpeg" apply --check "$FFMPEG_PROXY_RANGE_PATCH"
   git -C "$deps/ffmpeg" apply "$FFMPEG_PROXY_RANGE_PATCH"
+  [ -f "$FFMPEG_MEDIACODEC_STARVATION_PATCH" ] || die "missing FFmpeg MediaCodec starvation patch: $FFMPEG_MEDIACODEC_STARVATION_PATCH"
+  git -C "$deps/ffmpeg" apply --check "$FFMPEG_MEDIACODEC_STARVATION_PATCH"
+  git -C "$deps/ffmpeg" apply "$FFMPEG_MEDIACODEC_STARVATION_PATCH"
   checkout_repo FreeType "$FREETYPE2_REPO" "$FREETYPE2_COMMIT" "$deps/freetype2" "$FREETYPE2_SUBMODULES"
   extract_archive libxml2 "$LIBXML2_URL" "$LIBXML2_SHA256" "$deps/libxml2"
   extract_archive libaribcaption "$LIBARIBCAPTION_URL" "$LIBARIBCAPTION_SHA256" "$deps/libaribcaption"
@@ -438,12 +456,25 @@ prepare_sources() {
     die "pinned FongMi MPV is missing its Vulkan AImageReader backend"
   [ -f "$deps/mpv/video/out/hwdec/hwdec_aimagereader_vk_direct.c" ] || \
     die "pinned FongMi MPV is missing direct Vulkan AHardwareBuffer sampling"
+  [ -f "$MPV_AIMAGEREADER_STABLE_SOURCE" ] || \
+    die "missing stable Vulkan AImageReader conversion source: $MPV_AIMAGEREADER_STABLE_SOURCE"
+  cp "$MPV_AIMAGEREADER_STABLE_SOURCE" \
+    "$deps/mpv/video/out/hwdec/hwdec_aimagereader_vk_stable.c"
   [ -f "$MPV_DISC_PATCH" ] || die "missing MPV disc controls patch: $MPV_DISC_PATCH"
   git -C "$deps/mpv" apply --check "$MPV_DISC_PATCH"
   git -C "$deps/mpv" apply "$MPV_DISC_PATCH"
   [ -f "$MPV_DOVI_SURFACE_PATCH" ] || die "missing MPV Android Dolby Vision Surface patch: $MPV_DOVI_SURFACE_PATCH"
   git -C "$deps/mpv" apply --check "$MPV_DOVI_SURFACE_PATCH"
   git -C "$deps/mpv" apply "$MPV_DOVI_SURFACE_PATCH"
+  [ -f "$MPV_AUDIO_PASSTHROUGH_PATCH" ] || die "missing MPV AudioTrack passthrough patch: $MPV_AUDIO_PASSTHROUGH_PATCH"
+  git -C "$deps/mpv" apply --check "$MPV_AUDIO_PASSTHROUGH_PATCH"
+  git -C "$deps/mpv" apply "$MPV_AUDIO_PASSTHROUGH_PATCH"
+  [ -f "$MPV_VULKAN_CONVERSION_PATCH" ] || die "missing MPV Android Vulkan conversion-default patch: $MPV_VULKAN_CONVERSION_PATCH"
+  git -C "$deps/mpv" apply --check "$MPV_VULKAN_CONVERSION_PATCH"
+  git -C "$deps/mpv" apply "$MPV_VULKAN_CONVERSION_PATCH"
+  [ -f "$MPV_AIMAGEREADER_STABLE_PATCH" ] || die "missing MPV stable AImageReader flow patch: $MPV_AIMAGEREADER_STABLE_PATCH"
+  git -C "$deps/mpv" apply --check "$MPV_AIMAGEREADER_STABLE_PATCH"
+  git -C "$deps/mpv" apply "$MPV_AIMAGEREADER_STABLE_PATCH"
   [ -f "$MPV_MATROSKA_PATCH" ] || die "missing MPV Matroska segment patch: $MPV_MATROSKA_PATCH"
   git -C "$deps/mpv" apply --check "$MPV_MATROSKA_PATCH"
   git -C "$deps/mpv" apply "$MPV_MATROSKA_PATCH"
@@ -518,12 +549,31 @@ verify_directory() {
   grep -Fq "mpv v$MPV_VERSION" <<<"$version_strings" || die "unexpected MPV version in $directory/libmpv.so"
   grep -Fq "v$LIBPLACEBO_VERSION" <<<"$version_strings" || die "unexpected libplacebo version in $directory/libmpv.so"
   grep -Fq "WebHTV stream_cb controls enabled" <<<"$version_strings" || die "MPV stream_cb disc controls patch missing from $directory/libmpv.so"
-  grep -Fq "Vulkan AImageReader backend:" <<<"$version_strings" || die "MPV Vulkan AImageReader backend missing from $directory/libmpv.so"
-  grep -Fq "Using Vulkan YCbCr AHardwareBuffer sampling" <<<"$version_strings" || die "MPV direct Vulkan AHardwareBuffer sampling missing from $directory/libmpv.so"
-  grep -Fq "Vulkan AImageReader sync-fd:" <<<"$version_strings" || die "MPV AImageReader sync-fd support missing from $directory/libmpv.so"
+  grep -Fq "Using WebHTV low-power Vulkan AHardwareBuffer GPU conversion" <<<"$version_strings" || die "MPV low-power Vulkan AImageReader path missing from $directory/libmpv.so"
+  local forbidden
+  for forbidden in \
+    "android-vulkan-aimagereader-backend" \
+    "android-vulkan-conversion-backend" \
+    "Vulkan AImageReader backend:" \
+    "Using Vulkan YCbCr AHardwareBuffer sampling" \
+    "Using Vulkan AHardwareBuffer stable GPU conversion" \
+    "WebHTV Vulkan auto backend prefers direct" \
+    "Direct Vulkan sampling" \
+    "Stable Vulkan conversion"; do
+    if grep -Fq "$forbidden" <<<"$version_strings"; then
+      die "removed Vulkan AImageReader backend remains in $directory/libmpv.so: $forbidden"
+    fi
+  done
+  grep -Fq "Using Vulkan sync_fd for AImage acquire fences" <<<"$version_strings" || die "MPV AImageReader sync-fd support missing from $directory/libmpv.so"
   grep -Fq "android-osd-wid" <<<"$version_strings" || die "MPV dual-Surface OSD option missing from $directory/libmpv.so"
   grep -Fq "Direct Dolby Vision initialization failed" <<<"$version_strings" || die "MPV direct Dolby Vision fallback missing from $directory/libmpv.so"
-  grep -Fq "isolated decoder without the primary AImageReader Surface" <<<"$version_strings" || die "MPV Android Dolby Vision Surface isolation patch missing from $directory/libmpv.so"
+  grep -Fq "video output has no queue-safe EL decoder" <<<"$version_strings" || die "MPV Android Dolby Vision EL capability guard missing from $directory/libmpv.so"
+  grep -Fq "Using device native output sample rate for passthrough compatibility" <<<"$version_strings" || die "MPV AudioTrack passthrough native-rate patch missing from $directory/libmpv.so"
+  grep -Fq "WebHTV Vulkan auto backend prefers stable GPU conversion" <<<"$version_strings" || die "MPV Android Vulkan stable conversion-default patch missing from $directory/libmpv.so"
+  grep -Fq "WebHTV Vulkan auto uses a queue-safe four-output bounded-fence pool" <<<"$version_strings" || die "MPV Android Vulkan queue-safe conversion pool missing from $directory/libmpv.so"
+  grep -Fq "Stable Vulkan conversion preserves Dolby Vision raw YUV component mapping" <<<"$version_strings" || die "MPV Android Vulkan stable Dolby Vision mapping missing from $directory/libmpv.so"
+  grep -Fq "WebHTV Vulkan keeps AImage until the conversion fence completes" <<<"$version_strings" || die "MPV Android Vulkan stable AImage lifetime patch missing from $directory/libmpv.so"
+  grep -Fq "WebHTV AImageReader uses stable release/acquire flow" <<<"$version_strings" || die "MPV Android stable AImageReader release/acquire patch missing from $directory/libmpv.so"
   grep -Fq "Using declared Matroska segment end for seek metadata." <<<"$version_strings" || die "MPV Matroska segment seek patch missing from $directory/libmpv.so"
   grep -Fq "libarcdav3a AV3A" <<<"$codec_strings" || die "FFmpeg AV3A decoder missing from $directory/libmvcodec.so"
   grep -Fq "libaribcaption" <<<"$codec_strings" || die "FFmpeg ARIB caption decoder missing from $directory/libmvcodec.so"

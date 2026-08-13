@@ -694,6 +694,10 @@ public class PlayerManager implements ParseCallback {
         return engine == null ? "" : engine.getRuntimeDiagnostics();
     }
 
+    public String getGpuLoadDiagnostics() {
+        return engine == null ? "" : engine.getGpuLoadDiagnostics();
+    }
+
     public PlayerEngine.VideoPlaybackDetails getVideoPlaybackDetails() {
         return engine == null
                 ? PlayerEngine.VideoPlaybackDetails.empty()
@@ -4611,6 +4615,10 @@ public void resetTrack(int type) {
         if (isExo()) {
             resetNetworkProtectionSession("performance-settings-changed");
             scheduleNetworkProtection(0);
+            if (engine instanceof ExoPlayerEngine exo
+                    && exo.requiresDv7Hdr10FallbackRebuild()) {
+                rebuildAndRestartExo("dv7-fallback-setting-changed");
+            }
             return;
         }
         if (!isMpv() || spec == null || TextUtils.isEmpty(spec.getUrl()) || !(engine instanceof MpvPlayerEngine mpv)) return;
@@ -4618,6 +4626,32 @@ public void resetTrack(int type) {
         mpv.setSurfaceDirectOverride(null);
         mpv.clearHwdecOverride();
         rebuildAndRestartMpv(null, "performance-settings-changed");
+    }
+
+    private boolean rebuildAndRestartExo(String reason) {
+        if (!isExo() || spec == null || TextUtils.isEmpty(spec.getUrl())) {
+            return false;
+        }
+        long position = Math.max(0, player.getCurrentPosition());
+        float speed = getSpeed();
+        boolean repeat = isRepeatOne();
+        boolean wasPlayWhenReady = player.getPlayWhenReady();
+        prepareSeq++;
+        App.removeCallbacks(runnable);
+        videoSize = null;
+        initTrack = false;
+        rebuildPlayer();
+        playWhenReady = wasPlayWhenReady;
+        applySubtitleStyle();
+        playbackTrace.mark(PlaybackTrace.Stage.PREPARE,
+                "player=" + playerType + " decode=" + engine.getDecode()
+                        + " exo=" + reason);
+        engine.start(spec.checkUa(), position, wasPlayWhenReady);
+        startNativeAudioSession(wasPlayWhenReady);
+        if (speed != 1f) setSpeed(speed);
+        setRepeatOne(repeat);
+        App.post(runnable, Constant.TIMEOUT_PLAY);
+        return true;
     }
 
     private boolean rebuildAndRestartMpv(Boolean surfaceDirectOverride, String reason) {
@@ -4719,11 +4753,18 @@ public void resetTrack(int type) {
         if (width <= 0 || height <= 0) return false;
         boolean externalSubtitleActive = spec != null && spec.getSubs() != null && !spec.getSubs().isEmpty();
         boolean earlyEvaluation = !tracksReady;
+        if (earlyEvaluation
+                && !PlaybackPerformanceSetting
+                .isDv7Hdr10FallbackEnabled()) return false;
         if (earlyEvaluation && !MpvAutoOutputPolicy.canEvaluateWithoutTracks(width, height, externalSubtitleActive)) return false;
         boolean subtitleActive = MpvAutoOutputPolicy.requiresGpuSubtitle(externalSubtitleActive, mpvExplicitSubtitlePreference);
         boolean lutOrFilterActive = videoEffectsActive || videoEffectsDirty || lutAllowed && LutSetting.isEnabled() || MpvPerformanceSetting.isInterpolation();
         boolean customGpuProcessing = MpvConfigStore.hasGpuVideoProcessing();
-        MpvAutoOutputPolicy.Decision decision = MpvAutoOutputPolicy.evaluate(width, height, engine.isHard(), Util.isLeanback(), subtitleActive, lutOrFilterActive, customGpuProcessing);
+        boolean forceNativeDv7 = isDv7NativeAttemptRequested();
+        MpvAutoOutputPolicy.Decision decision = forceNativeDv7
+                ? new MpvAutoOutputPolicy.Decision(true,
+                "dv7-native-attempt")
+                : MpvAutoOutputPolicy.evaluate(width, height, engine.isHard(), Util.isLeanback(), subtitleActive, lutOrFilterActive, customGpuProcessing);
         mpvAutoOutputEvaluated = true;
         boolean currentlyDirect = isMpvSurfaceDirect();
         boolean effectiveEligible = MpvPerformanceSetting.isAutoSurfaceDirectEnabled() && decision.eligible();
@@ -4770,14 +4811,8 @@ public void resetTrack(int type) {
     }
 
     private boolean shouldLeaveAutoSurfaceDirectForSubtitle(List<Track> tracks) {
-        if (!isMpvSurfaceDirect() || MpvPerformanceSetting.getOutputMode() != MpvPerformanceSetting.OUTPUT_AUTO || tracks == null) return false;
-        for (Track track : tracks) {
-            if (track.getType() == C.TRACK_TYPE_TEXT && track.isSelected() && !track.isDisabled()) {
-                mpvAutoOutputEvaluated = true;
-                mpvOutputEvaluationSeq++;
-                return true;
-            }
-        }
+        // mediacodec_embed uses a separate transparent OSD Surface, so subtitle
+        // selection no longer requires rebuilding the video through gpu-next.
         return false;
     }
 
@@ -4807,6 +4842,7 @@ public void resetTrack(int type) {
 
     private boolean retryMpvSurfaceDirectFailure(PlaybackException error) {
         if (!isMpvSurfaceDirect() || mpvSurfaceFallbackTried || error == null) return false;
+        if (isDv7NativeAttemptRequested()) return false;
         String message = error.getMessage();
         boolean outputFailure = error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
                 || error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED
