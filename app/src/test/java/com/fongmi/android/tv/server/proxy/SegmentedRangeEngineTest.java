@@ -167,6 +167,54 @@ public class SegmentedRangeEngineTest {
     }
 
     @Test
+    public void configuredReorderWindowCapsScheduledShardLookahead() throws Exception {
+        String payload = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
+        CountDownLatch secondBlockRequested = new CountDownLatch(1);
+        CountDownLatch thirdBlockRequested = new CountDownLatch(1);
+        CountDownLatch releaseSecondBlock = new CountDownLatch(1);
+        server.setDispatcher(new Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) throws InterruptedException {
+                requests.incrementAndGet();
+                String range = request.getHeaders().get("Range");
+                long[] bounds = parseRange(range);
+                int start = Math.toIntExact(bounds[0]);
+                int end = Math.toIntExact(bounds[1]);
+                if ("bytes=4-7".equals(range)) {
+                    secondBlockRequested.countDown();
+                    releaseSecondBlock.await(2, TimeUnit.SECONDS);
+                } else if ("bytes=8-11".equals(range)) {
+                    thirdBlockRequested.countDown();
+                }
+                return new MockResponse.Builder()
+                        .code(206)
+                        .setHeader("Content-Range", "bytes " + start + "-" + end + "/" + payload.length())
+                        .setHeader("ETag", "\"asset-v1\"")
+                        .body(payload.substring(start, end + 1))
+                        .build();
+            }
+        });
+        ProxyRuntimeConfig config = config(0, 1);
+        ProxySessionRegistry sessions = new ProxySessionRegistry(config.maxSessions());
+        UpstreamRangeClient upstream = new UpstreamRangeClient(new OkHttpClient.Builder().build(), config);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        try (SegmentedRangeEngine engine = new SegmentedRangeEngine(config, upstream, sessions)) {
+            Future<SegmentedRangeEngine.TransferResult> transfer = executor.submit(() -> engine.transfer(
+                    server.url("/asset.bin").toString(), Map.of(), "bytes=0-31", new ByteArrayOutputStream()));
+
+            assertTrue(secondBlockRequested.await(2, TimeUnit.SECONDS));
+            assertFalse(thirdBlockRequested.await(200, TimeUnit.MILLISECONDS));
+            releaseSecondBlock.countDown();
+            assertTrue(thirdBlockRequested.await(2, TimeUnit.SECONDS));
+            assertEquals(SegmentedRangeEngine.Decision.PARALLEL, transfer.get(5, TimeUnit.SECONDS).decision());
+        } finally {
+            releaseSecondBlock.countDown();
+            executor.shutdownNow();
+            sessions.close();
+        }
+    }
+    @Test
     public void refusesNewTransferWhenGlobalSessionBudgetIsExhausted() throws Exception {
         ProxyRuntimeConfig config = config();
         ProxySessionRegistry sessions = new ProxySessionRegistry(1);
@@ -223,11 +271,15 @@ public class SegmentedRangeEngineTest {
     }
 
     private static ProxyRuntimeConfig config(int retryCount) {
+        return config(retryCount, 3);
+    }
+
+    private static ProxyRuntimeConfig config(int retryCount, int reorderWindowBlocks) {
         ProxyRuntimeConfig defaults = ProxyRuntimeConfig.defaults();
         return new ProxyRuntimeConfig(
                 defaults.schemaVersion(), true, ProxyRuntimeConfig.PortMode.AUTO, ProxyRuntimeConfig.AUTO_PORT,
                 defaults.serverWorkers(), defaults.connectionQueueCapacity(), 3, 3,
-                ProxyRuntimeConfig.ShardMode.SIZE, ProxyRuntimeConfig.AUTO_SHARD_COUNT, 4, 1, 3, 12, retryCount,
+                ProxyRuntimeConfig.ShardMode.SIZE, ProxyRuntimeConfig.AUTO_SHARD_COUNT, 4, 1, reorderWindowBlocks, 12, retryCount,
                 defaults.connectTimeoutMillis(), defaults.readTimeoutMillis(), 0);
     }
 }

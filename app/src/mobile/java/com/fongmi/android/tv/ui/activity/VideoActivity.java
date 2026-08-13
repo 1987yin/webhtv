@@ -1334,7 +1334,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.right.lock.setOnClickListener(view -> onLock());
         mBinding.control.right.rotate.setOnClickListener(view -> onRotate());
         mBinding.control.right.pip.setOnClickListener(guarded(this::onPiP));
-        mBinding.control.playParamsQuick.setOnClickListener(guarded(this::onPlayParams));
         mBinding.control.fullscreen.setOnClickListener(guarded(this::onFullscreen));
         mBinding.control.danmaku.setOnClickListener(view -> onDanmakuShow());
         mBinding.control.action.text.setOnClickListener(guardedView(this::onTrack));
@@ -4482,8 +4481,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.keep.setVisibility(mHistory == null ? View.GONE : View.VISIBLE);
         mBinding.control.nightMode.setVisibility(mHistory == null ? View.GONE : View.VISIBLE);
         boolean showPlayParams = PlayerButtonSetting.isVisible(PlayerButtonSetting.PLAY_PARAMS);
-        mBinding.control.playParamsQuick.setVisibility(!isFullscreen() && !isLock() && !player().isEmpty() && showPlayParams ? View.VISIBLE : View.GONE);
-        mBinding.control.playParamsQuick.setSelected(mOsd != null && mOsd.isDiagnosticsVisible());
         mBinding.control.action.playParams.setVisibility(showPlayParams ? View.VISIBLE : View.GONE);
         mBinding.control.action.playParams.setSelected(mOsd != null && mOsd.isDiagnosticsVisible());
         mBinding.control.osdDiagnostics.setVisibility(PlayerSetting.isOsdDiagnostics() && showPlayParams && !player().isEmpty() ? View.VISIBLE : View.GONE);
@@ -4558,7 +4555,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void setPlayParamsState() {
         boolean selected = mOsd != null && mOsd.isDiagnosticsVisible();
-        mBinding.control.playParamsQuick.setSelected(selected);
         mBinding.control.action.playParams.setSelected(selected);
         mBinding.control.action.multiThreadProxy.setSelected(MultiThreadProxySetting.get().enabled());
     }

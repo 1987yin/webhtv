@@ -42,6 +42,23 @@ public class MultiThreadProxyCapabilitiesTest {
         }
     }
 
+    @Test
+    public void capabilitiesPublishValidationWarnings() throws Exception {
+        ProxyCapabilityToken token = ProxyCapabilityToken.generate();
+        MultiThreadProxyServer server = new MultiThreadProxyServer(autoConfig(1), token, 8);
+        try {
+            server.startServer();
+
+            HttpResult authorized = request(server.actualPort(), token.value());
+
+            assertEquals(200, authorized.code());
+            assertTrue(authorized.body().contains("\"warnings\""));
+            assertTrue(authorized.body().contains("\"SERVER_WORKERS_OUTSIDE_RECOMMENDED\""));
+        } finally {
+            server.close();
+        }
+    }
+
     private static HttpResult request(int port, String token) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(
                 "http://127.0.0.1:" + port + MultiThreadProxyServer.CAPABILITIES_PATH).openConnection();
@@ -62,13 +79,17 @@ public class MultiThreadProxyCapabilitiesTest {
     }
 
     private static ProxyRuntimeConfig autoConfig() {
+        return autoConfig(ProxyRuntimeConfig.defaults().serverWorkers());
+    }
+
+    private static ProxyRuntimeConfig autoConfig(int serverWorkers) {
         ProxyRuntimeConfig defaults = ProxyRuntimeConfig.defaults();
         return new ProxyRuntimeConfig(
                 defaults.schemaVersion(),
                 true,
                 ProxyRuntimeConfig.PortMode.AUTO,
                 ProxyRuntimeConfig.AUTO_PORT,
-                defaults.serverWorkers(),
+                serverWorkers,
                 defaults.connectionQueueCapacity(),
                 defaults.rangeWorkers(),
                 defaults.rangeConcurrency(),
