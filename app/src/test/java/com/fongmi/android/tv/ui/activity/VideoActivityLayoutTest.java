@@ -1392,6 +1392,19 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void playbackServiceRegistersDirectSessionForMediaNotificationLifecycle() throws Exception {
+        Path servicePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "service", "PlaybackService.java"));
+        String service = new String(Files.readAllBytes(servicePath), StandardCharsets.UTF_8);
+        String onCreate = methodBody(service, "public void onCreate()", "private PendingIntent buildDefaultIntent()");
+        int setupNotification = onCreate.indexOf("setupNotification();");
+        int addSession = onCreate.indexOf("addSession(session);");
+
+        assertTrue("the media notification provider must be configured before session registration", setupNotification >= 0);
+        assertTrue("direct SessionToken controllers bypass MediaSessionService binding, so the session must be registered explicitly",
+                addSession > setupNotification);
+    }
+
+    @Test
     public void playbackControllerConnectionDoesNotReplayStaleState() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
