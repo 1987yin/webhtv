@@ -1303,6 +1303,12 @@
                             android:text="@string/play_params" />
 
                         <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/playerMultiThreadProxy"
+                            style="@style/Control"
+                            android:layout_marginEnd="8dp"
+                            android:text="@string/multi_thread_proxy_button" />
+
+                        <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/playerCodecCapability"
                             style="@style/Control"
                             android:layout_marginEnd="8dp"
