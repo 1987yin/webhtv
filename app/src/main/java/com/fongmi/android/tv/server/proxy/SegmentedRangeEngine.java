@@ -119,32 +119,38 @@ public final class SegmentedRangeEngine implements AutoCloseable {
 
         long budgetConcurrency = perSessionBudget / largestShard;
         long concurrency = Math.min(plan.shardCount(), sessionConfig.rangeConcurrency());
+        concurrency = Math.min(concurrency, sessionConfig.nominalReorderWindowBlocks());
         concurrency = Math.min(concurrency, workers.getMaximumPoolSize());
         concurrency = Math.min(concurrency, budgetConcurrency);
         if (concurrency <= 0) {
             return prepared(listener, TransferResult.of(Decision.RESOURCE_LIMIT, probe, requested, 0));
         }
 
-        listener.onPrepared(TransferResult.of(Decision.PARALLEL, probe, requested, 0));
         OrderedChunkBuffer buffer = new OrderedChunkBuffer(perSessionBudget);
         state.attach(buffer);
-        long nextToSchedule = 1;
         schedule(state, buffer, probe, plan.shard(0), sessionConfig);
 
         long written = 0;
         try {
-            for (long expected = 0; expected < plan.shardCount(); expected++) {
+            byte[] first = buffer.takeNext();
+            if (first == null) throw new IOException("segmented transfer cancelled");
+            listener.onPrepared(TransferResult.of(Decision.PARALLEL, probe, requested, 0));
+            output.write(first);
+            written = Math.addExact(written, first.length);
+            state.remove(0);
+
+            long nextToSchedule = 1;
+            long bootstrapEnd = Math.min(plan.shardCount(), concurrency + 1);
+            while (nextToSchedule < bootstrapEnd) {
+                schedule(state, buffer, probe, plan.shard(nextToSchedule++), sessionConfig);
+            }
+            for (long expected = 1; expected < plan.shardCount(); expected++) {
                 byte[] bytes = buffer.takeNext();
                 if (bytes == null) throw new IOException("segmented transfer cancelled");
                 output.write(bytes);
                 written = Math.addExact(written, bytes.length);
                 state.remove(expected);
-                if (expected == 0) {
-                    long bootstrapEnd = Math.min(plan.shardCount(), concurrency + 1);
-                    while (nextToSchedule < bootstrapEnd) {
-                        schedule(state, buffer, probe, plan.shard(nextToSchedule++), sessionConfig);
-                    }
-                } else if (nextToSchedule < plan.shardCount()) {
+                if (nextToSchedule < plan.shardCount()) {
                     schedule(state, buffer, probe, plan.shard(nextToSchedule++), sessionConfig);
                 }
             }

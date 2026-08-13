@@ -385,7 +385,17 @@ public final class MultiThreadProxyServer extends NanoHTTPD implements AutoClose
                 + ",\"connectTimeoutMillis\":" + config.connectTimeoutMillis()
                 + ",\"readTimeoutMillis\":" + config.readTimeoutMillis()
                 + ",\"fileThresholdBytes\":" + config.fileThresholdBytes()
-                + "},\"warnings\":[]}";
+                + "},\"warnings\":" + warningsJson() + "}";
+    }
+
+    private String warningsJson() {
+        StringBuilder json = new StringBuilder("[");
+        for (ProxyRuntimeConfigValidator.Issue warning
+                : ProxyRuntimeConfigValidator.validate(config).warnings()) {
+            if (json.length() > 1) json.append(',');
+            json.append('"').append(warning.name()).append('"');
+        }
+        return json.append(']').toString();
     }
 
     private static boolean supportsReadMethod(IHTTPSession session) {
