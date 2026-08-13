@@ -115,15 +115,23 @@ esac
 [ "$PREPARE_ONLY" -eq 0 ] || [ "$STAGE_ONLY" -eq 0 ] || \
   die "--prepare-only and --stage-only cannot be used together"
 
-need_cmd git
-need_cmd curl
-need_cmd tar
-need_cmd make
 need_cmd python3
-need_cmd pkg-config
-need_cmd perl
-need_cmd cmake
-need_cmd gperf
+python3 "$ROOT/scripts/verify_mpv_v556_shader_contract.py"
+if [ "$PREPARE_ONLY" -eq 0 ]; then
+  need_cmd strings
+fi
+if [ "$STAGE_ONLY" -eq 0 ]; then
+  need_cmd git
+  need_cmd curl
+  need_cmd tar
+fi
+if [ "$STAGE_ONLY" -eq 0 ] && [ "$PREPARE_ONLY" -eq 0 ]; then
+  need_cmd make
+  need_cmd pkg-config
+  need_cmd perl
+  need_cmd cmake
+  need_cmd gperf
+fi
 
 eval "$(python3 - "$LOCK_FILE" <<'PY'
 import json
@@ -205,8 +213,10 @@ TOOLCHAIN="$NDK_ROOT/toolchains/llvm/prebuilt/$HOST_TAG"
 OBJCOPY="$TOOLCHAIN/bin/llvm-objcopy"
 STRIP="$TOOLCHAIN/bin/llvm-strip"
 READELF="$TOOLCHAIN/bin/llvm-readelf"
-[ -x "$OBJCOPY" ] && [ -x "$STRIP" ] && [ -x "$READELF" ] || die "NDK LLVM tools are incomplete"
-
+if [ "$PREPARE_ONLY" -eq 0 ]; then
+  [ -x "$OBJCOPY" ] && [ -x "$STRIP" ] && [ -x "$READELF" ] || \
+    die "NDK LLVM tools are incomplete"
+fi
 if [ -z "$JOBS" ]; then
   if command -v nproc >/dev/null 2>&1; then
     JOBS="$(nproc)"
@@ -539,9 +549,22 @@ verify_directory() {
   grep -Fq "mpv v$MPV_VERSION" <<<"$version_strings" || die "unexpected MPV version in $directory/libmpv.so"
   grep -Fq "v$LIBPLACEBO_VERSION" <<<"$version_strings" || die "unexpected libplacebo version in $directory/libmpv.so"
   grep -Fq "WebHTV stream_cb controls enabled" <<<"$version_strings" || die "MPV stream_cb disc controls patch missing from $directory/libmpv.so"
-  grep -Fq "Vulkan AImageReader backend:" <<<"$version_strings" || die "MPV Vulkan AImageReader backend missing from $directory/libmpv.so"
-  grep -Fq "Using Vulkan YCbCr AHardwareBuffer sampling" <<<"$version_strings" || die "MPV direct Vulkan AHardwareBuffer sampling missing from $directory/libmpv.so"
-  grep -Fq "Vulkan AImageReader sync-fd:" <<<"$version_strings" || die "MPV AImageReader sync-fd support missing from $directory/libmpv.so"
+  grep -Fq "Using WebHTV low-power Vulkan AHardwareBuffer GPU conversion" <<<"$version_strings" || die "MPV low-power Vulkan AImageReader path missing from $directory/libmpv.so"
+  local forbidden
+  for forbidden in \
+    "android-vulkan-aimagereader-backend" \
+    "android-vulkan-conversion-backend" \
+    "Vulkan AImageReader backend:" \
+    "Using Vulkan YCbCr AHardwareBuffer sampling" \
+    "Using Vulkan AHardwareBuffer stable GPU conversion" \
+    "WebHTV Vulkan auto backend prefers direct" \
+    "Direct Vulkan sampling" \
+    "Stable Vulkan conversion"; do
+    if grep -Fq "$forbidden" <<<"$version_strings"; then
+      die "removed Vulkan AImageReader backend remains in $directory/libmpv.so: $forbidden"
+    fi
+  done
+  grep -Fq "Using Vulkan sync_fd for AImage acquire fences" <<<"$version_strings" || die "MPV AImageReader sync-fd support missing from $directory/libmpv.so"
   grep -Fq "android-osd-wid" <<<"$version_strings" || die "MPV dual-Surface OSD option missing from $directory/libmpv.so"
   grep -Fq "Direct Dolby Vision initialization failed" <<<"$version_strings" || die "MPV direct Dolby Vision fallback missing from $directory/libmpv.so"
   grep -Fq "video output has no queue-safe EL decoder" <<<"$version_strings" || die "MPV Android Dolby Vision EL capability guard missing from $directory/libmpv.so"
