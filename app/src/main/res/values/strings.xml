@@ -1369,6 +1369,7 @@
     <string name="setting_reset_app">Reset app</string>
     <string name="dialog_reset_app">Reset app?</string>
     <string name="dialog_reset_app_data">All app data will be reset, and app will be shutdown.</string>
+    <string name="reset_app_failed">Unable to reset app data. Please try again.</string>
 
     <string name="dialog_audio_site_rules">Audio source rules: enabled sources or keywords, separated by ;. Default: [音];[听]</string>
     <string name="dialog_audio_site_manage">Select audio sources</string>

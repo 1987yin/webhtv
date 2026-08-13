@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.utils;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -52,8 +53,14 @@ public class Util {
         }
     }
 
-    public static void resetApp() {
-        Shell.exec("pm clear " + App.get().getPackageName());
+    public static boolean resetApp() {
+        try {
+            ActivityManager manager = App.get().getSystemService(ActivityManager.class);
+            return manager != null && manager.clearApplicationUserData();
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+            return false;
+        }
     }
 
     public static void hideSystemUI(Activity activity) {
