@@ -52,6 +52,10 @@ public class Util {
         }
     }
 
+    public static void resetApp() {
+        Shell.exec("pm clear " + App.get().getPackageName());
+    }
+
     public static void hideSystemUI(Activity activity) {
         hideSystemUI(activity.getWindow());
     }

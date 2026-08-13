@@ -60,6 +60,34 @@ public class SettingPlaybackDefaultsTest {
         assertPersonalOwnsEpisodeHistory("mobile", "fragment", "Fragment");
     }
 
+    @Test
+    public void resetApp_isUnderPersonalSettings() throws Exception {
+        Path root = moduleRoot();
+        String mobileLayout = read(root.resolve(Path.of("src", "mobile", "res", "layout", "fragment_setting_personal.xml")));
+        String leanbackLayout = read(root.resolve(Path.of("src", "leanback", "res", "layout", "activity_setting_personal.xml")));
+        String mobileSource = read(root.resolve(Path.of("src", "mobile", "java", "com", "fongmi", "android", "tv", "ui", "fragment", "SettingPersonalFragment.java")));
+        String leanbackSource = read(root.resolve(Path.of("src", "leanback", "java", "com", "fongmi", "android", "tv", "ui", "activity", "SettingPersonalActivity.java")));
+        String utilSource = read(root.resolve(Path.of("src", "main", "java", "com", "fongmi", "android", "tv", "utils", "Util.java")));
+
+        assertTrue(mobileLayout.contains("@+id/resetApp"));
+        assertTrue(leanbackLayout.contains("@+id/resetApp"));
+        assertTrue(mobileLayout.contains("@string/setting_reset_app"));
+        assertTrue(leanbackLayout.contains("@string/setting_reset_app"));
+        assertTrue(mobileSource.contains("mBinding.resetApp.setOnClickListener(this::resetApp)"));
+        assertTrue(leanbackSource.contains("mBinding.resetApp.setOnClickListener(this::resetApp)"));
+        String confirmedReset = ".setPositiveButton(R.string.dialog_positive, (dialog, which) -> Task.execute(() -> Util.resetApp()))";
+        assertTrue(mobileSource.contains(confirmedReset));
+        assertTrue(leanbackSource.contains(confirmedReset));
+        assertTrue(utilSource.contains("Shell.exec(\"pm clear \" + App.get().getPackageName())"));
+
+        for (String values : new String[]{"values", "values-zh-rCN", "values-zh-rTW"}) {
+            String strings = read(root.resolve(Path.of("src", "main", "res", values, "strings.xml")));
+            assertTrue(strings.contains("<string name=\"setting_reset_app\">"));
+            assertTrue(strings.contains("<string name=\"dialog_reset_app\">"));
+            assertTrue(strings.contains("<string name=\"dialog_reset_app_data\">"));
+        }
+    }
+
     private static void assertPlayerOwnsAutoSkip(String flavor, String layoutPrefix, String classSuffix) throws Exception {
         Path root = moduleRoot();
         assertTrue(read(root.resolve(Path.of("src", flavor, "res", "layout", layoutPrefix + "_setting_player.xml"))).contains("@+id/autoSkipIntroOutro"));
