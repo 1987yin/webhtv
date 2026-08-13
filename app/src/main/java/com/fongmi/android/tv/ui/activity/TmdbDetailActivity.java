@@ -142,6 +142,7 @@ import com.fongmi.android.tv.ui.dialog.SubtitleManualSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.ChoiceDialog;
 import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
+import com.fongmi.android.tv.ui.dialog.TmdbSeasonOffsetDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.helper.DetailThemeVisibility;
 import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
@@ -1141,8 +1142,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void setupInlineFocusNavigation() {
         if (Util.isMobile()) return;
-        binding.playerPanelSpacer.setFocusable(true);
-        binding.playerPanelSpacer.setFocusableInTouchMode(false);
         View timeBar = inlineSeek().findViewById(R.id.timeBar);
         if (timeBar != null) {
             timeBar.setNextFocusUpId(R.id.playerPlaybackAction);
@@ -1180,10 +1179,22 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerDisplay.setNextFocusUpId(R.id.playerDisplay);
         binding.playerRepeat.setNextFocusUpId(R.id.playerRepeat);
 
-        // playerPanelSpacer 作为焦点桥梁：获得焦点时立即转给 playerPanel
-        binding.playerPanelSpacer.setOnFocusChangeListener((v, hasFocus) -> {
-            if (hasFocus && !inlineFullscreen) binding.playerPanel.requestFocus();
-        });
+        if (isFusionMode()) {
+            // 融合模式：播放窗口浮动在按钮行上方，playerPanelSpacer 仅占位(不可获焦)。
+            // 若 spacer 可获焦会卡在 playerPanel↔spacer 焦点循环，导致方向键无法切到按钮。
+            // 显式用 nextFocusUp 把按钮行与播放窗口串起来，方向键可正常往返。
+            binding.playerPanelSpacer.setFocusable(false);
+            binding.playerPanelSpacer.setFocusableInTouchMode(false);
+            binding.playerPanelSpacer.setOnFocusChangeListener(null);
+            binding.fusionActions.setNextFocusUpId(R.id.playerPanel);
+        } else {
+            // playerPanelSpacer 作为焦点桥梁：获得焦点时立即转给 playerPanel
+            binding.playerPanelSpacer.setFocusable(true);
+            binding.playerPanelSpacer.setFocusableInTouchMode(false);
+            binding.playerPanelSpacer.setOnFocusChangeListener((v, hasFocus) -> {
+                if (hasFocus && !inlineFullscreen) binding.playerPanel.requestFocus();
+            });
+        }
     }
 
     private void setupHorizontalFocusChain() {
@@ -2088,13 +2099,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (bundle == null || loadedVod == null || bundle.item() == null || !"tv".equalsIgnoreCase(bundle.item().getMediaType()) || !canMatchTmdb()) return result;
         int seasonNumber = initialStandaloneSeasonNumber(loadedVod, bundle);
         if (seasonNumber < 0 || bundle.seasonEpisodes().containsKey(seasonNumber)) return result;
+        // 源站季号可能因 TMDB 更名与 season_number 存在偏移，仅向 TMDB 请求时校正，本地仍以源季号为 key
+        int tmdbSeason = EpisodeSeasonPolicy.correctTmdbSeason(seasonNumber, bundle.item().getTitle());
         try {
-            JsonObject season = tmdbService.season(bundle.item(), seasonNumber, tmdbConfig, bundle.detail(), false);
+            JsonObject season = tmdbService.season(bundle.item(), tmdbSeason, tmdbConfig, bundle.detail(), false);
             Map<Integer, Integer> seasonCounts = new HashMap<>(bundle.seasonCounts());
             Map<Integer, List<TmdbEpisode>> seasonEpisodes = new HashMap<>(bundle.seasonEpisodes());
             Map<Integer, List<TmdbPerson>> seasonCast = new HashMap<>(bundle.seasonCast());
             Map<Integer, List<String>> seasonPhotos = new HashMap<>(bundle.seasonPhotos());
-            List<TmdbEpisode> episodes = tmdbService.episodes(season, tmdbConfig, bundle.item().getTmdbId(), seasonNumber);
+            List<TmdbEpisode> episodes = tmdbService.episodes(season, tmdbConfig, bundle.item().getTmdbId(), tmdbSeason);
             seasonCounts.put(seasonNumber, episodes.size());
             seasonEpisodes.put(seasonNumber, episodes);
             seasonCast.put(seasonNumber, tmdbService.seasonCast(season, tmdbConfig));
@@ -4706,12 +4719,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         TmdbItem item = matchedTmdbItem;
         JsonObject detail = matchedTmdbDetail;
         TmdbConfig config = tmdbConfig;
+        // 源站季号可能因 TMDB 更名与 season_number 存在偏移，仅向 TMDB 请求时使用校正后的季号，
+        // 本地缓存仍以源站季号(seasonNumber)为 key，保证 UI 层无感。
+        int tmdbSeason = EpisodeSeasonPolicy.correctTmdbSeason(seasonNumber, item.getTitle());
         loadingSeasons.add(seasonNumber);
         updateEpisodeSkeleton();
         detailTasks.submit(Task.largeExecutor(), () -> {
             try {
-                JsonObject season = tmdbService.season(item, seasonNumber, config, detail, refresh);
-                List<TmdbEpisode> episodes = tmdbService.episodes(season, config, item.getTmdbId(), seasonNumber);
+                JsonObject season = tmdbService.season(item, tmdbSeason, config, detail, refresh);
+                List<TmdbEpisode> episodes = tmdbService.episodes(season, config, item.getTmdbId(), tmdbSeason);
                 List<TmdbPerson> cast = tmdbService.seasonCast(season, config);
                 List<String> photos = tmdbService.seasonPhotos(season, config);
                 runOnAliveUi(() -> {
@@ -8628,14 +8644,30 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         params.width = ViewGroup.LayoutParams.MATCH_PARENT;
         params.height = ResUtil.dp2px(252);
         params.gravity = Gravity.TOP | Gravity.START;
-        params.setMargins(ResUtil.dp2px(horizontalMarginDp), ResUtil.dp2px(topMarginDp), ResUtil.dp2px(horizontalMarginDp), ResUtil.dp2px(bottomMarginDp));
+        // 融合模式播放窗口由 translationY 浮动在按钮行上方（中上部），故 LayoutParams 顶部边距置 0，
+        // 避免与 translationY 叠加；非融合模式由 XML/spacer 跟随，保留 topMarginDp。
+        int playerTopDp = isFusionMode() ? 0 : topMarginDp;
+        params.setMargins(ResUtil.dp2px(horizontalMarginDp), ResUtil.dp2px(playerTopDp), ResUtil.dp2px(horizontalMarginDp), ResUtil.dp2px(bottomMarginDp));
         // XML 里的 layout_marginStart/End=16dp 在 RTL 解析时会覆盖 left/right，需显式清零
         params.setMarginStart(ResUtil.dp2px(horizontalMarginDp));
         params.setMarginEnd(ResUtil.dp2px(horizontalMarginDp));
         binding.playerPanel.setLayoutParams(params);
+        // 融合模式：把 scroll 区域整体下移到播放窗口下方，scroll 内容(按钮/选集)永不进入播放窗口区；
+        // 非融合模式：scroll 铺满，由 scroll 内的 spacer 占位把内容顶到播放窗口下方并随滚动跟随。
+        if (binding.scroll != null) {
+            ViewGroup.MarginLayoutParams scrollParams = (ViewGroup.MarginLayoutParams) binding.scroll.getLayoutParams();
+            if (isFusionMode()) {
+                int playerOccupied = ResUtil.dp2px(topMarginDp) + ResUtil.dp2px(252) + ResUtil.dp2px(bottomMarginDp);
+                scrollParams.topMargin = playerOccupied;
+            } else {
+                scrollParams.topMargin = 0;
+            }
+            binding.scroll.setLayoutParams(scrollParams);
+        }
         // 内嵌 spacer 顶部对齐时，translationY 由 syncInlinePlayerToSpacer() 依据 spacer 位置更新
         alignInlinePlayerSpacerHeight();
-        syncInlinePlayerToSpacer();
+        // post 确保在布局完成后（playerPanel 高度已知）再同步融合模式的固定位置
+        binding.playerPanel.post(this::syncInlinePlayerToSpacer);
     }
 
     private void applyInlinePlayerFullscreenLayout() {
@@ -8659,9 +8691,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (binding == null || binding.playerPanelSpacer == null) return;
         ViewGroup.LayoutParams sp = binding.playerPanelSpacer.getLayoutParams();
         if (sp == null) return;
-        int target = ResUtil.dp2px(252);
-        int topMargin = ResUtil.dp2px(isFusionMode() ? 22 : 14);
-        int bottomMargin = ResUtil.dp2px(isFusionMode() ? 20 : 16);
+        // 融合模式下 scroll 已整体下移到播放窗口下方，spacer 高度置 0 使按钮/选集等内容整体上移、
+        // 紧贴播放窗口底部（不再与播放窗口间隔 40dp）；非融合模式 spacer 占满播放窗口高度并随滚动跟随。
+        boolean fusion = isFusionMode();
+        int target = ResUtil.dp2px(fusion ? 0 : 252);
+        int topMargin = ResUtil.dp2px(fusion ? 0 : 14);
+        int bottomMargin = ResUtil.dp2px(fusion ? 0 : 16);
         boolean changed = sp.height != target;
         if (sp instanceof ViewGroup.MarginLayoutParams marginParams) {
             if (marginParams.topMargin != topMargin || marginParams.bottomMargin != bottomMargin) {
@@ -8678,10 +8713,26 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     /**
      * 计算 spacer 顶端相对 root 的 y，把 playerPanel 的 translationY 对齐过去。全屏/PiP 时不同步。
+     * 融合/沉浸模式下，播放窗口常驻置顶，不随详情滚动（translationY 固定为 0）。
      */
     private void syncInlinePlayerToSpacer() {
         if (binding == null || inlineFullscreen || inlinePiPLayout) return;
         if (binding.playerPanel.getVisibility() != View.VISIBLE) return;
+        // 融合模式：播放窗口浮动在"换源/收藏/TMDB/深色"按钮行上方(mid-upper)，不随滚动移动；
+        // scroll 已整体下移到播放窗口下方占位，故按钮/选集等内容永远在播放窗口之下，不会被遮挡。
+        if (isFusionMode()) {
+            if (binding.playerPanel.getHeight() > 0) {
+                int gap = ResUtil.dp2px(0);
+                int lift = ResUtil.dp2px(10); // 播放窗口整体上移 10dp
+                // scroll.getTop()(含下移占位) + fusionActions.getTop() = 按钮行屏幕绝对 y，不随滚动变化
+                float target = binding.scroll.getTop() + binding.fusionActions.getTop()
+                        - binding.playerPanel.getHeight() - gap - lift;
+                if (Math.abs(binding.playerPanel.getTranslationY() - target) > 0.5f) {
+                    binding.playerPanel.setTranslationY(target);
+                }
+            }
+            return;
+        }
         View spacer = binding.playerPanelSpacer;
         if (spacer == null || spacer.getWidth() <= 0) return;
         int[] rootLoc = new int[2];

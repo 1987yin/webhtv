@@ -5,6 +5,7 @@ import android.content.res.Configuration;
 import android.content.res.ColorStateList;
 import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 
