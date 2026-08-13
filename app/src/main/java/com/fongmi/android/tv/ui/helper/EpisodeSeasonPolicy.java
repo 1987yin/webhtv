@@ -143,7 +143,7 @@ public final class EpisodeSeasonPolicy {
     }
 
     public static List<Integer> episodeMetadataSeasonCandidates(int sourceSeason) {
-        return sourceSeason >= 0 ? List.of(sourceSeason) : List.of(1, 0);
+        return sourceSeason >= 0 ? List.of(sourceSeason) : List.of();
     }
 
     /**

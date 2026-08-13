@@ -83,6 +83,7 @@ import com.fongmi.android.tv.service.OmdbService;
 import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.fongmi.android.tv.setting.PlayerButtonSetting;
+import com.fongmi.android.tv.setting.MultiThreadProxySetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
@@ -110,6 +111,7 @@ import com.fongmi.android.tv.ui.dialog.ContentDialog;
 import com.fongmi.android.tv.ui.dialog.AdRuleEditDialog;
 import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
+import com.fongmi.android.tv.ui.dialog.MultiThreadProxyDialog;
 import com.fongmi.android.tv.ui.dialog.QuickSearchDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleManualSearchDialog;
@@ -390,6 +392,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private final SourceEpisodeSeasonCache mSourceEpisodeSeasonCache = new SourceEpisodeSeasonCache();
     private boolean mTmdbAutoDialogShown;
     private int mTmdbDialogGeneration;
+    private TmdbItem mPendingTmdbSeasonChoice;
     private Runnable mR4;
     private Runnable mBackdropRunnable;
     private String mBackdropSignature;
@@ -937,6 +940,21 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.episodeTitle.setText(isTmdbSourceEnabled() && season >= 0
                 ? getString(R.string.detail_episode_season_context, season)
                 : getString(R.string.detail_episode));
+        boolean selectable = isTmdbSourceEnabled()
+                && mTmdbUIAdapter != null
+                && mTmdbUIAdapter.getTmdbItem() != null
+                && mTmdbUIAdapter.getTmdbItem().isTv()
+                && mTmdbUIAdapter.hasSeasonOptions();
+        mBinding.episodeTitle.setClickable(selectable);
+        mBinding.episodeTitle.setFocusable(selectable);
+        mBinding.episodeTitle.setFocusableInTouchMode(false);
+        mBinding.episodeTitle.setContentDescription(selectable
+                ? getString(R.string.tmdb_season_match_current, mBinding.episodeTitle.getText())
+                : mBinding.episodeTitle.getText());
+        Drawable icon = selectable ? getDrawable(R.drawable.ic_expand_more) : null;
+        if (icon != null) icon.setTint(mBinding.episodeTitle.getCurrentTextColor());
+        mBinding.episodeTitle.setCompoundDrawablePadding(selectable ? ResUtil.dp2px(4) : 0);
+        mBinding.episodeTitle.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, icon, null);
     }
 
     private boolean isResumeFromHistory() {
@@ -1218,19 +1236,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             return true;
         });
         mBinding.tmdbRematch.setOnClickListener(view -> showManualTmdbMatchDialog());
-        // 长按：触屏用 OnLongClickListener，TV 遥控器用 OnKeyListener（OK 键长按 repeatCount>0）
         mBinding.tmdbRematch.setOnLongClickListener(view -> {
-            TmdbSeasonOffsetDialog.show(VideoActivity.this, getTmdbSearchQuery());
+            showManualTmdbSeasonDialog();
             return true;
         });
-        mBinding.tmdbRematch.setOnKeyListener((view, keyCode, event) -> {
-            // 仅在首次长按重复(repeatCount==1)时触发一次，避免遥控器持续 repeat 导致重复弹窗
-            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 1) {
-                TmdbSeasonOffsetDialog.show(VideoActivity.this, getTmdbSearchQuery());
-                return true;
-            }
-            return false;
-        });
+        mBinding.episodeTitle.setOnClickListener(view -> showManualTmdbSeasonDialog());
         mBinding.content.setOnClickListener(view -> onContent());
         mBinding.control.action.text.setOnClickListener(guardedView(this::onTrack));
         mBinding.control.action.audio.setOnClickListener(guardedView(this::onTrack));
@@ -1262,6 +1272,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.control.action.player.setOnLongClickListener(view -> onChooseLong());
         mBinding.control.action.decode.setOnClickListener(guarded(this::onDecode));
         mBinding.control.action.playParams.setOnClickListener(guarded(this::onPlayParams));
+        mBinding.control.action.multiThreadProxy.setOnClickListener(guarded(this::onMultiThreadProxy));
         mBinding.control.action.panDiagnostic.setOnClickListener(guarded(this::onPanDiagnostic));
         mBinding.control.action.codecCapability.setOnClickListener(guarded(this::onCodecCapability));
         mBinding.control.action.ending.setOnClickListener(guarded(this::onEnding));
@@ -1433,6 +1444,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         addActionButton(PlayerButtonSetting.PLAYER, mBinding.control.action.player);
         addActionButton(PlayerButtonSetting.DECODE, mBinding.control.action.decode);
         addActionButton(PlayerButtonSetting.PLAY_PARAMS, mBinding.control.action.playParams);
+        addActionButton(PlayerButtonSetting.MULTI_THREAD_PROXY, mBinding.control.action.multiThreadProxy);
         addActionButton(PlayerButtonSetting.PAN_DIAGNOSTIC, mBinding.control.action.panDiagnostic);
         addActionButton(PlayerButtonSetting.CODEC_CAPABILITY, mBinding.control.action.codecCapability);
         addActionButton(PlayerButtonSetting.SPEED, mBinding.control.action.speed);
@@ -2177,6 +2189,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.change1.setNextFocusRightId(R.id.keep);
         mBinding.keep.setNextFocusRightId(visible ? R.id.tmdbRematch : View.NO_ID);
         mBinding.tmdbRematch.setNextFocusLeftId(R.id.keep);
+        mBinding.tmdbRematch.setNextFocusRightId(View.NO_ID);
     }
 
     private void showTmdbDetailLoading() {
@@ -3311,6 +3324,15 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.control.action.repeat.setSelected(player().isRepeatOne());
     }
 
+    private void onMultiThreadProxy() {
+        MultiThreadProxyDialog.show(this, player().getUrl(), this::onMultiThreadProxySaved);
+    }
+
+    private void onMultiThreadProxySaved(boolean applyNow) {
+        setPlayParamsState();
+        if (applyNow && player() != null && !player().isEmpty()) player().reloadCurrentMediaItem();
+    }
+
     private void onPlayParams() {
         if (mOsd == null) return;
         boolean visible = !mOsd.isDiagnosticsVisible();
@@ -3329,6 +3351,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private void setPlayParamsState() {
         mBinding.control.action.playParams.setSelected(mOsd != null && mOsd.isDiagnosticsVisible());
+        mBinding.control.action.multiThreadProxy.setSelected(MultiThreadProxySetting.get().enabled());
     }
 
     @Override
@@ -4681,6 +4704,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 return;
             }
             queueTmdbBind(event.getVod());
+            maybeShowPendingTmdbSeasonDialog();
         }
         else if (event.getType() == RefreshEvent.Type.VOD_RECOMMENDATIONS) {
             if (!isCurrentVodEvent(event.getVod())) return;
@@ -5343,6 +5367,49 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         return true;
     }
 
+    private void maybeShowPendingTmdbSeasonDialog() {
+        if (mPendingTmdbSeasonChoice == null || mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
+        TmdbItem loaded = mTmdbUIAdapter.getTmdbItem();
+        if (loaded == null) return;
+        boolean sameItem = loaded.getTmdbId() == mPendingTmdbSeasonChoice.getTmdbId()
+                && TextUtils.equals(loaded.getMediaType(), mPendingTmdbSeasonChoice.getMediaType());
+        mPendingTmdbSeasonChoice = null;
+        if (!sameItem || !loaded.isTv() || mTmdbUIAdapter.getSeasonOptions().size() <= 1) return;
+        mBinding.getRoot().post(this::showManualTmdbSeasonDialog);
+    }
+
+    private void showManualTmdbSeasonDialog() {
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded() || mTmdbUIAdapter.getTmdbItem() == null || !mTmdbUIAdapter.getTmdbItem().isTv()) {
+            Notify.show(R.string.detail_tmdb_empty);
+            return;
+        }
+        java.util.List<Integer> seasons = new java.util.ArrayList<>();
+        java.util.Map<Integer, Integer> counts = new java.util.HashMap<>();
+        for (com.fongmi.android.tv.ui.helper.TmdbUIAdapter.SeasonOption option : mTmdbUIAdapter.getSeasonOptions()) {
+            seasons.add(option.getSeasonNumber());
+            counts.put(option.getSeasonNumber(), option.getEpisodeCount());
+        }
+        com.fongmi.android.tv.ui.dialog.ChoiceDialog.showTmdbSeason(this, seasons, counts, mTmdbUIAdapter.getSeasonResolution(), new com.fongmi.android.tv.ui.dialog.ChoiceDialog.OnTmdbSeasonChoice() {
+            @Override
+            public void onAuto() {
+                if (mTmdbUIAdapter.clearManualSeasonBinding()) refreshTmdbEpisodeTitles();
+                Notify.show(R.string.tmdb_season_match_saved);
+            }
+
+            @Override
+            public void onFlat() {
+                if (mTmdbUIAdapter.keepOriginalEpisodeList()) refreshTmdbEpisodeTitles();
+                Notify.show(R.string.tmdb_season_match_saved);
+            }
+
+            @Override
+            public void onSeason(int seasonNumber) {
+                if (mTmdbUIAdapter.applyManualSeason(seasonNumber)) refreshTmdbEpisodeTitles();
+                Notify.show(R.string.tmdb_season_match_saved);
+            }
+        });
+    }
+
     private void showManualTmdbMatchDialog() {
         if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isReady()) {
             Notify.show(R.string.detail_tmdb_need_key);
@@ -5414,6 +5481,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         // “整页加载中”观感并重放揭示动画）。这里只清空旧的 TMDB 展示与背景 signature，
         // 让新数据到达时由 VOD_CORE 就地重绑，空区域走各自 else 分支隐藏、不残留旧数据。
         clearTmdbDetailViews();
+        mPendingTmdbSeasonChoice = item.isTv() ? item : null;
         mTmdbUIAdapter.rememberManualMatch(mVod, item);
         if (reloadHistoryAfterTmdbMatch(item)) resumeHistoryAfterTmdbMatch();
         mTmdbUIAdapter.load(item, mVod);

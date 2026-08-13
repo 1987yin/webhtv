@@ -105,7 +105,7 @@ public class TmdbHeaderView {
 
         void onRematch();
 
-        void onRematchLongClick();
+        default void onRematchLongClick() { onRematch(); }
 
         void onKeep();
 
@@ -596,21 +596,14 @@ public class TmdbHeaderView {
             if (actionListener != null) actionListener.onChangeSourceLongClick();
             return true;
         });
-        View rematchView = headerRoot.findViewById(R.id.tmdbRematch);
-        rematchView.setOnClickListener(view -> {
+        View rematch = headerRoot.findViewById(R.id.tmdbRematch);
+        rematch.setOnClickListener(view -> {
             if (actionListener != null) actionListener.onRematch();
         });
-        rematchView.setOnLongClickListener(view -> {
-            if (actionListener != null) actionListener.onRematchLongClick();
+        rematch.setOnLongClickListener(view -> {
+            if (actionListener == null) return false;
+            actionListener.onRematchLongClick();
             return true;
-        });
-        // TV 遥控器：OK 键长按时系统发送重复 KeyEvent，用 repeatCount>0 识别
-        rematchView.setOnKeyListener((view, keyCode, event) -> {
-            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() > 0) {
-                if (actionListener != null) actionListener.onRematchLongClick();
-                return true;
-            }
-            return false;
         });
         headerRoot.findViewById(R.id.tmdbKeep).setOnClickListener(view -> {
             if (actionListener != null) actionListener.onKeep();

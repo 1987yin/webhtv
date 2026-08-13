@@ -105,6 +105,7 @@ import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.service.IntroSkipService;
 import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.fongmi.android.tv.setting.PlayerButtonSetting;
+import com.fongmi.android.tv.setting.MultiThreadProxySetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
@@ -136,6 +137,7 @@ import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
 import com.fongmi.android.tv.ui.dialog.LutPanelDialog;
+import com.fongmi.android.tv.ui.dialog.MultiThreadProxyDialog;
 import com.fongmi.android.tv.ui.dialog.QuickSearchDialog;
 import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
@@ -428,6 +430,7 @@ private int mAudioBackgroundRandomNonce;
     private MaterialButton mFusionThemeButton;
     private View mFusionPlayerBottomSpacer;
     private int mTmdbDialogGeneration;
+    private TmdbItem mPendingTmdbSeasonChoice;
     private int mPersonalRecommendationGeneration;
 private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.recommendationExecutor());
     private int mAdFeedbackGeneration;
@@ -919,6 +922,21 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.episodeTitle.setText(isTmdbSourceEnabled() && season >= 0
                 ? getString(R.string.detail_episode_season_context, season)
                 : getString(R.string.detail_episode));
+        boolean selectable = isTmdbSourceEnabled()
+                && mTmdbUIAdapter != null
+                && mTmdbUIAdapter.getTmdbItem() != null
+                && mTmdbUIAdapter.getTmdbItem().isTv()
+                && mTmdbUIAdapter.hasSeasonOptions();
+        mBinding.episodeTitle.setClickable(selectable);
+        mBinding.episodeTitle.setFocusable(selectable);
+        mBinding.episodeTitle.setFocusableInTouchMode(false);
+        mBinding.episodeTitle.setContentDescription(selectable
+                ? getString(R.string.tmdb_season_match_current, mBinding.episodeTitle.getText())
+                : mBinding.episodeTitle.getText());
+        Drawable icon = selectable ? getDrawable(R.drawable.ic_expand_more) : null;
+        if (icon != null) icon.setTint(mBinding.episodeTitle.getCurrentTextColor());
+        mBinding.episodeTitle.setCompoundDrawablePadding(selectable ? ResUtil.dp2px(4) : 0);
+        mBinding.episodeTitle.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, icon, null);
     }
 
     private boolean isResumeFromHistory() {
@@ -1295,6 +1313,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.download.setOnClickListener(view -> onDownload());
         mBinding.actor.setOnClickListener(view -> onActor());
         mBinding.content.setOnClickListener(view -> onContent());
+        mBinding.episodeTitle.setOnClickListener(view -> showManualTmdbSeasonDialog());
         mBinding.reverse.setOnClickListener(view -> onReverse());
         if (mBinding.episodeFileName != null) mBinding.episodeFileName.setOnClickListener(view -> toggleEpisodeFileName());
         if (mBinding.episodeViewMode != null) mBinding.episodeViewMode.setOnClickListener(view -> toggleEpisodeViewMode());
@@ -1332,6 +1351,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.action.change2.setOnClickListener(view -> onChange());
         mBinding.control.action.fullscreen.setOnClickListener(guarded(this::onFullscreen));
         mBinding.control.action.playParams.setOnClickListener(guarded(this::onPlayParams));
+        mBinding.control.action.multiThreadProxy.setOnClickListener(guarded(this::onMultiThreadProxy));
         mBinding.control.action.codecCapability.setOnClickListener(guarded(this::onCodecCapabilityPanel));
         mBinding.control.action.prev.setOnClickListener(view -> checkPrev());
         mBinding.control.action.next.setOnClickListener(view -> checkNext());
@@ -1577,6 +1597,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         addActionButton(PlayerButtonSetting.PLAYER, mBinding.control.action.player);
         addActionButton(PlayerButtonSetting.DECODE, mBinding.control.action.decode);
         addActionButton(PlayerButtonSetting.PLAY_PARAMS, mBinding.control.action.playParams);
+        addActionButton(PlayerButtonSetting.MULTI_THREAD_PROXY, mBinding.control.action.multiThreadProxy);
         addActionButton(PlayerButtonSetting.CODEC_CAPABILITY, mBinding.control.action.codecCapability);
         addActionButton(PlayerButtonSetting.SPEED, mBinding.control.action.speed);
         addActionButton(PlayerButtonSetting.SCALE, mBinding.control.action.scale);
@@ -4517,6 +4538,15 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         hideControl();
     }
 
+    private void onMultiThreadProxy() {
+        MultiThreadProxyDialog.show(this, player().getUrl(), this::onMultiThreadProxySaved);
+    }
+
+    private void onMultiThreadProxySaved(boolean applyNow) {
+        setPlayParamsState();
+        if (applyNow && player() != null && !player().isEmpty()) player().reloadCurrentMediaItem();
+    }
+
     private void onPlayParams() {
         if (mOsd == null) return;
         boolean visible = !mOsd.isDiagnosticsVisible();
@@ -4530,6 +4560,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         boolean selected = mOsd != null && mOsd.isDiagnosticsVisible();
         mBinding.control.playParamsQuick.setSelected(selected);
         mBinding.control.action.playParams.setSelected(selected);
+        mBinding.control.action.multiThreadProxy.setSelected(MultiThreadProxySetting.get().enabled());
     }
 
     private void hideWidgetOverlay() {
@@ -6544,6 +6575,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                 return;
             }
             updateVod(event.getVod());
+            maybeShowPendingTmdbSeasonDialog();
         }
         else if (event.getType() == RefreshEvent.Type.VOD_RECOMMENDATIONS) {
             if (!isCurrentVodEvent(event.getVod())) return;
@@ -6911,7 +6943,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
             @Override
             public void onRematchLongClick() {
-                TmdbSeasonOffsetDialog.show(VideoActivity.this, getTmdbSearchQuery());
+                showManualTmdbSeasonDialog();
             }
 
             @Override
@@ -7454,6 +7486,49 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return true;
     }
 
+    private void maybeShowPendingTmdbSeasonDialog() {
+        if (mPendingTmdbSeasonChoice == null || mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
+        TmdbItem loaded = mTmdbUIAdapter.getTmdbItem();
+        if (loaded == null) return;
+        boolean sameItem = loaded.getTmdbId() == mPendingTmdbSeasonChoice.getTmdbId()
+                && TextUtils.equals(loaded.getMediaType(), mPendingTmdbSeasonChoice.getMediaType());
+        mPendingTmdbSeasonChoice = null;
+        if (!sameItem || !loaded.isTv() || mTmdbUIAdapter.getSeasonOptions().size() <= 1) return;
+        mBinding.getRoot().post(this::showManualTmdbSeasonDialog);
+    }
+
+    private void showManualTmdbSeasonDialog() {
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded() || mTmdbUIAdapter.getTmdbItem() == null || !mTmdbUIAdapter.getTmdbItem().isTv()) {
+            Notify.show(R.string.detail_tmdb_empty);
+            return;
+        }
+        java.util.List<Integer> seasons = new java.util.ArrayList<>();
+        java.util.Map<Integer, Integer> counts = new java.util.HashMap<>();
+        for (com.fongmi.android.tv.ui.helper.TmdbUIAdapter.SeasonOption option : mTmdbUIAdapter.getSeasonOptions()) {
+            seasons.add(option.getSeasonNumber());
+            counts.put(option.getSeasonNumber(), option.getEpisodeCount());
+        }
+        com.fongmi.android.tv.ui.dialog.ChoiceDialog.showTmdbSeason(this, seasons, counts, mTmdbUIAdapter.getSeasonResolution(), new com.fongmi.android.tv.ui.dialog.ChoiceDialog.OnTmdbSeasonChoice() {
+            @Override
+            public void onAuto() {
+                if (mTmdbUIAdapter.clearManualSeasonBinding()) refreshTmdbEpisodeTitles();
+                Notify.show(R.string.tmdb_season_match_saved);
+            }
+
+            @Override
+            public void onFlat() {
+                if (mTmdbUIAdapter.keepOriginalEpisodeList()) refreshTmdbEpisodeTitles();
+                Notify.show(R.string.tmdb_season_match_saved);
+            }
+
+            @Override
+            public void onSeason(int seasonNumber) {
+                if (mTmdbUIAdapter.applyManualSeason(seasonNumber)) refreshTmdbEpisodeTitles();
+                Notify.show(R.string.tmdb_season_match_saved);
+            }
+        });
+    }
+
     private void showManualTmdbMatchDialog() {
         if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isReady()) {
             Notify.show(R.string.detail_tmdb_need_key);
@@ -7526,6 +7601,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (mBinding.videoShadow != null) mBinding.videoShadow.setVisibility(View.GONE);
         mBinding.progressLayout.showProgress();
         scheduleTmdbDetailFallback();
+        mPendingTmdbSeasonChoice = item.isTv() ? item : null;
         mTmdbUIAdapter.rememberManualMatch(mVod, item);
         if (reloadHistoryAfterTmdbMatch(item)) resumeHistoryAfterTmdbMatch();
         mTmdbUIAdapter.load(item, mVod);
