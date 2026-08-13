@@ -4909,6 +4909,15 @@ public void resetTrack(int type) {
         };
     }
 
+    private boolean isDv7NativeAttemptRequested() {
+        if (!isMpv() || engine == null || !engine.isHard()
+                || PlaybackPerformanceSetting
+                .isDv7Hdr10FallbackEnabled()) return false;
+        PlayerEngine.VideoPlaybackDetails details =
+                engine.getVideoPlaybackDetails();
+        return details != null && details.dolbyVisionProfile() == 7;
+    }
+
     private PlayerEngine buildEngine(int type, int decode) {
         if (type != PlayerSetting.EXO) exoSpeedRestoreState.clear();
         PlayerEngine next = switch (type) {
