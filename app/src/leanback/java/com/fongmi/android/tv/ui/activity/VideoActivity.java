@@ -638,17 +638,17 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     public static void startFromHistory(Activity activity, History item) {
         if (shouldOpenLegacyTmdbDetail(item.getSiteKey(), item.getVodId(), false)) {
-            start(activity, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), item.getVodRemarks());
+            TmdbDetailActivity.startFromHistory(activity, item);
             return;
         }
         startDirect(activity, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), item.getVodRemarks(),
-                item.getVodFlag(), item.getVodRemarks(), item.getEpisodeUrl(), true);
+                item.getVodFlag(), item.getVodRemarks(), item.getEpisodeUrl(), item);
     }
 
     public static void startFromResolvedHistory(Activity activity, History source, Vod target, Flag flag, Episode episode) {
         if (source == null || target == null || flag == null || episode == null) return;
         if (shouldOpenLegacyTmdbDetail(target.getSiteKey(), target.getId(), false)) {
-            start(activity, target.getSiteKey(), target.getId(), target.getName(), target.getPic(), episode.getName());
+            TmdbDetailActivity.startFromResolvedHistory(activity, source, target, flag, episode);
             return;
         }
         Intent intent = new Intent(activity, VideoActivity.class);
@@ -683,6 +683,16 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     public static void startDirect(Activity activity, String key, String id, String name, String pic, String mark,
                                     String playFlag, String playEpisodeName, String playEpisodeUrl, boolean resumeFromHistory) {
+        startDirect(activity, key, id, name, pic, mark, playFlag, playEpisodeName, playEpisodeUrl, resumeFromHistory, null);
+    }
+
+    public static void startDirect(Activity activity, String key, String id, String name, String pic, String mark,
+                                    String playFlag, String playEpisodeName, String playEpisodeUrl, History resumeHistory) {
+        startDirect(activity, key, id, name, pic, mark, playFlag, playEpisodeName, playEpisodeUrl, true, resumeHistory);
+    }
+
+    private static void startDirect(Activity activity, String key, String id, String name, String pic, String mark,
+                                    String playFlag, String playEpisodeName, String playEpisodeUrl, boolean resumeFromHistory, History resumeHistory) {
         if (AudioActivity.startSite(activity, key, id, name, pic, mark)) return;
         Intent intent = new Intent(activity, VideoActivity.class);
         intent.putExtra("collect", false);
@@ -693,6 +703,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         intent.putExtra("key", key);
         intent.putExtra("id", id);
         intent.putExtra(EXTRA_RESUME_FROM_HISTORY, resumeFromHistory);
+        if (resumeHistory != null) {
+            intent.putExtra(EXTRA_RESUME_HISTORY_CID, resumeHistory.getCid());
+            intent.putExtra(EXTRA_RESUME_HISTORY_KEY, resumeHistory.getKey());
+        }
         putIntentPlaybackSelection(intent, playFlag, playEpisodeName, playEpisodeUrl);
         activity.startActivity(intent);
     }
@@ -751,6 +765,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     public static void startDirectTmdb(Activity activity, String key, String id, String name, String pic, String mark, ArrayList<String> episodeTitles, TmdbItem item, Vod tmdbVod, Vod detailVod, String tmdbDetailCacheKey, String playFlag, String playEpisodeName, String playEpisodeUrl, int playSeasonNumber, int playEpisodeNumber) {
+        startDirectTmdb(activity, key, id, name, pic, mark, episodeTitles, item, tmdbVod, detailVod, tmdbDetailCacheKey, playFlag, playEpisodeName, playEpisodeUrl, playSeasonNumber, playEpisodeNumber, null);
+    }
+
+    public static void startDirectTmdb(Activity activity, String key, String id, String name, String pic, String mark, ArrayList<String> episodeTitles, TmdbItem item, Vod tmdbVod, Vod detailVod, String tmdbDetailCacheKey, String playFlag, String playEpisodeName, String playEpisodeUrl, int playSeasonNumber, int playEpisodeNumber, History resumeHistory) {
         if (AudioActivity.startSite(activity, key, id, name, pic, mark)) return;
         Intent intent = new Intent(activity, VideoActivity.class);
         intent.putExtra("tmdbMode", item != null);
@@ -765,6 +783,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (Setting.isPlaybackArtworkWall() && !TextUtils.isEmpty(wallPic)) ImgUtil.preload(activity, wallPic);
         intent.putExtra("key", key);
         intent.putExtra("id", id);
+        intent.putExtra(EXTRA_RESUME_FROM_HISTORY, resumeHistory != null);
+        if (resumeHistory != null) {
+            intent.putExtra(EXTRA_RESUME_HISTORY_CID, resumeHistory.getCid());
+            intent.putExtra(EXTRA_RESUME_HISTORY_KEY, resumeHistory.getKey());
+        }
         intent.putStringArrayListExtra("tmdb_episode_titles", episodeTitles);
         putIntentPlaybackSelection(intent, playFlag, playEpisodeName, playEpisodeUrl);
         if (playEpisodeNumber > 0) {

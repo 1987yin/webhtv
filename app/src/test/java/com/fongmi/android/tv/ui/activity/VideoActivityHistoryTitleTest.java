@@ -16,7 +16,7 @@ public class VideoActivityHistoryTitleTest {
         for (Path sourcePath : List.of(videoActivity("mobile"), videoActivity("leanback"))) {
             String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
             String intentSelection = methodBody(source, "private void applyIntentPlaybackSelection(Vod item)");
-            String directTmdbLaunch = methodBody(source, "public static void startDirectTmdb(Activity activity, String key, String id, String name, String pic, String mark, ArrayList<String> episodeTitles, TmdbItem item, Vod tmdbVod, Vod detailVod, String tmdbDetailCacheKey, String playFlag, String playEpisodeName, String playEpisodeUrl, int playSeasonNumber");
+            String directTmdbLaunch = methodBody(source, "public static void startDirectTmdb(Activity activity, String key, String id, String name, String pic, String mark, ArrayList<String> episodeTitles, TmdbItem item, Vod tmdbVod, Vod detailVod, String tmdbDetailCacheKey, String playFlag, String playEpisodeName, String playEpisodeUrl, int playSeasonNumber, int playEpisodeNumber, History resumeHistory)");
             String saveHistory = methodBody(source, "private void saveHistory(boolean exit)");
             String updateHistory = methodBody(source, "private void updateHistory(Episode item)");
             String updateVod = methodBody(source, "private void updateVod(Vod item)");
