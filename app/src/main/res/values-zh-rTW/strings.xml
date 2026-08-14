@@ -2252,7 +2252,8 @@
     <string name="setting_history_aggregation">歷史記錄跨源聚合</string>
     <string name="setting_history_aggregation_hint">基於 TMDB 匹配統一不同源的歷史記錄</string>
     <string name="setting_global_history">全域歷史續播</string>
-    <string name="history_other_config">其他介面</string>
+    <string name="history_other_config">其他配置</string>
+    <string name="history_source_unavailable">介面已失效</string>
     <string name="history_source_searching">正在配對可續播播放源…</string>
     <string name="history_source_not_found">未找到可可靠續播的播放源</string>
     <string name="history_source_open_search">開啟全域搜尋</string>
