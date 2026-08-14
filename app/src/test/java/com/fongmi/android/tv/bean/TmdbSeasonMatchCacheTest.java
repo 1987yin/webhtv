@@ -88,6 +88,17 @@ public class TmdbSeasonMatchCacheTest {
     }
 
     @Test
+    public void manualMultiSliceRoundTripsWithoutSeasonNumber() {
+        TmdbSeasonMatchCache cache = new TmdbSeasonMatchCache();
+
+        cache.put("site", "vod", "full series", 100, "tv", null,
+                TmdbSeasonMatchCache.Mode.MANUAL_MULTI_SLICE, "fingerprint", 24, 0);
+
+        TmdbSeasonMatchCache.Entry entry = cache.find("site", "vod", "full series", 100);
+        assertNull(entry.getSeasonNumber());
+        assertEquals(TmdbSeasonMatchCache.Mode.MANUAL_MULTI_SLICE, entry.getMode());
+    }
+    @Test
     public void removeOnlyClearsMatchingSourceBinding() {
         TmdbSeasonMatchCache cache = new TmdbSeasonMatchCache();
         cache.put("site", "shared", "示例剧 第一季", 100, "tv", 1,

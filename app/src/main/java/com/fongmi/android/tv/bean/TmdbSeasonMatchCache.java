@@ -18,7 +18,8 @@ public class TmdbSeasonMatchCache {
 
     public enum Mode {
         MANUAL_SEASON,
-        MANUAL_FLAT
+        MANUAL_FLAT,
+        MANUAL_MULTI_SLICE
     }
 
     public TmdbSeasonMatchCache() {
@@ -53,7 +54,7 @@ public class TmdbSeasonMatchCache {
             int tmdbSeasonEpisodeCount) {
         if (!hasScope(siteKey, vodId, sourceTitle) || tmdbId <= 0 || !"tv".equalsIgnoreCase(mediaType)) return;
         if (mode == Mode.MANUAL_SEASON && (seasonNumber == null || seasonNumber < 0)) return;
-        if (mode == Mode.MANUAL_FLAT && seasonNumber != null) return;
+        if ((mode == Mode.MANUAL_FLAT || mode == Mode.MANUAL_MULTI_SLICE) && seasonNumber != null) return;
         if (mode == null) return;
         Entry entry = Entry.create(tmdbId, mediaType, seasonNumber, mode, sourceFingerprint, sourceEpisodeCount, tmdbSeasonEpisodeCount);
         getItems().put(key(siteKey, vodId, sourceTitle), entry);
@@ -133,7 +134,7 @@ public class TmdbSeasonMatchCache {
                     && "tv".equalsIgnoreCase(mediaType)
                     && mode != null
                     && (mode != Mode.MANUAL_SEASON || seasonNumber != null && seasonNumber >= 0)
-                    && (mode != Mode.MANUAL_FLAT || seasonNumber == null);
+                    && ((mode != Mode.MANUAL_FLAT && mode != Mode.MANUAL_MULTI_SLICE) || seasonNumber == null);
         }
 
         public int getVersion() {

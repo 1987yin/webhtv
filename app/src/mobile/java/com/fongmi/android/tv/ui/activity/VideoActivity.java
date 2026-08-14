@@ -71,6 +71,7 @@ import com.fongmi.android.tv.bean.DownloadItem;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.EpisodePositionCache;
 import com.fongmi.android.tv.bean.Flag;
+import com.fongmi.android.tv.ui.helper.EpisodeSeasonSnapshot;
 import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.bean.Keep;
 import com.fongmi.android.tv.bean.Parse;
@@ -430,6 +431,8 @@ private int mAudioBackgroundRandomNonce;
     private MaterialButton mFusionThemeButton;
     private View mFusionPlayerBottomSpacer;
     private int mTmdbDialogGeneration;
+    private com.fongmi.android.tv.service.AiEpisodeSeasonService mAiSeasonService;
+    private AlertDialog mAiSeasonLoadingDialog;
     private TmdbItem mPendingTmdbSeasonChoice;
     private int mPersonalRecommendationGeneration;
 private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.recommendationExecutor());
@@ -7535,9 +7538,24 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             }
 
             @Override
+            public void onTmdbCounts() {
+                if (mTmdbUIAdapter.applyValidatedFlatSeasonMapping()) {
+                    refreshTmdbEpisodeTitles();
+                    Notify.show(R.string.tmdb_season_match_saved);
+                } else {
+                    Notify.show(R.string.tmdb_season_auto_by_counts_failed);
+                }
+            }
+
+            @Override
             public void onFlat() {
                 if (mTmdbUIAdapter.keepOriginalEpisodeList()) refreshTmdbEpisodeTitles();
                 Notify.show(R.string.tmdb_season_match_saved);
+            }
+
+            @Override
+            public void onAi() {
+                analyzeTmdbSeasonWithAi();
             }
 
             @Override
@@ -7548,6 +7566,114 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         });
     }
 
+    private void analyzeTmdbSeasonWithAi() {
+        Flag flag = getFlag();
+        if (!Setting.isAiConfigReady()) {
+            Notify.show(R.string.tmdb_season_ai_config_required);
+            return;
+        }
+        if (mTmdbUIAdapter == null || flag == null || flag.getEpisodes() == null || flag.getEpisodes().isEmpty()) {
+            Notify.show(R.string.tmdb_season_ai_failed);
+            return;
+        }
+        cancelAiSeasonAnalysis(false);
+        com.fongmi.android.tv.bean.AiConfig config = com.fongmi.android.tv.bean.AiConfig.objectFrom(Setting.getAiConfig());
+        String title = mTmdbUIAdapter.getSourceTitleForAiAnalysis();
+        java.util.Map<Integer, Integer> counts = mTmdbUIAdapter.getSeasonEpisodeCounts();
+        List<Episode> requestEpisodes = new ArrayList<>(flag.getEpisodes());
+        String requestSnapshot = EpisodeSeasonSnapshot.fingerprint(requestEpisodes, counts);
+        Flag requestFlag = flag;
+        int generation = ++mTmdbDialogGeneration;
+        com.fongmi.android.tv.service.AiEpisodeSeasonService service =
+                new com.fongmi.android.tv.service.AiEpisodeSeasonService(config);
+        mAiSeasonService = service;
+        mAiSeasonLoadingDialog = com.fongmi.android.tv.ui.dialog.AiAnalysisDialog.show(
+                this, () -> cancelAiSeasonAnalysis(true));
+        Task.execute(() -> {
+            com.fongmi.android.tv.service.AiEpisodeSeasonService.AnalysisResult result =
+                    service.analyze(title, requestFlag.getShow(), requestEpisodes, counts);
+            runOnUiThread(() -> {
+                if (mAiSeasonService != service) return;
+                finishAiSeasonAnalysis(service);
+                if (isFinishing() || isDestroyed() || generation != mTmdbDialogGeneration
+                        || !isAiSeasonSnapshotCurrent(requestFlag, requestSnapshot)) return;
+                showAiSeasonAnalysisResult(result, requestFlag, requestSnapshot);
+            });
+        });
+    }
+
+    private void finishAiSeasonAnalysis(com.fongmi.android.tv.service.AiEpisodeSeasonService service) {
+        if (mAiSeasonService != service) return;
+        mAiSeasonService = null;
+        AlertDialog dialog = mAiSeasonLoadingDialog;
+        mAiSeasonLoadingDialog = null;
+        if (dialog != null) dialog.dismiss();
+    }
+
+    private void cancelAiSeasonAnalysis(boolean notify) {
+        com.fongmi.android.tv.service.AiEpisodeSeasonService service = mAiSeasonService;
+        mAiSeasonService = null;
+        if (service != null) service.cancel();
+        AlertDialog dialog = mAiSeasonLoadingDialog;
+        mAiSeasonLoadingDialog = null;
+        if (dialog != null) dialog.dismiss();
+        if (notify && service != null) {
+            mTmdbDialogGeneration++;
+            Notify.show(R.string.tmdb_season_ai_cancelled);
+        }
+    }
+
+    private boolean isAiSeasonSnapshotCurrent(Flag requestFlag, String requestSnapshot) {
+        Flag currentFlag = getFlag();
+        if (requestFlag != currentFlag || mTmdbUIAdapter == null) return false;
+        return requestSnapshot.equals(EpisodeSeasonSnapshot.fingerprint(
+                currentFlag.getEpisodes(), mTmdbUIAdapter.getSeasonEpisodeCounts()));
+    }
+
+    private void showAiSeasonAnalysisResult(
+            com.fongmi.android.tv.service.AiEpisodeSeasonService.AnalysisResult result,
+            Flag requestFlag,
+            String requestSnapshot) {
+        if (result == null || !result.isSuccess()) {
+            Notify.show(R.string.tmdb_season_ai_failed);
+            return;
+        }
+        StringBuilder message = new StringBuilder();
+        message.append(result.getMode()).append(" · ").append(Math.round(result.getConfidence() * 100)).append('%');
+        if (result.getSeasonNumber() >= 0) message.append("\nSeason ").append(result.getSeasonNumber());
+        if (!TextUtils.isEmpty(result.getSummary())) message.append("\n\n").append(result.getSummary());
+        for (String warning : result.getWarnings()) message.append("\n• ").append(warning);
+        if (result.getMode() == com.fongmi.android.tv.service.AiEpisodeSeasonService.Mode.EXPLICIT_MAPPING) {
+            message.append("\n\n").append(getString(R.string.tmdb_season_ai_explicit_preview_only));
+            com.fongmi.android.tv.ui.dialog.ChoiceDialog.showConfirm(this, R.string.tmdb_season_ai_preview_title, message, () -> {
+            });
+            return;
+        }
+        com.fongmi.android.tv.ui.dialog.ChoiceDialog.showConfirm(this, R.string.tmdb_season_ai_preview_title, message,
+                R.string.tmdb_season_ai_apply, () -> {
+                    if (!isAiSeasonSnapshotCurrent(requestFlag, requestSnapshot)) {
+                        Notify.show(R.string.tmdb_season_ai_failed);
+                        return;
+                    }
+                    applyAiSeasonAnalysis(result);
+                });
+    }
+
+    private void applyAiSeasonAnalysis(com.fongmi.android.tv.service.AiEpisodeSeasonService.AnalysisResult result) {
+        boolean changed = switch (result.getMode()) {
+            case SINGLE_SEASON -> mTmdbUIAdapter.applyManualSeason(result.getSeasonNumber());
+            case KEEP_ORIGINAL -> mTmdbUIAdapter.keepOriginalEpisodeList();
+            case FLAT_BY_COUNTS -> mTmdbUIAdapter.applyValidatedFlatSeasonMapping();
+            case EXPLICIT_MAPPING -> false;
+        };
+        if (changed) {
+            refreshTmdbEpisodeTitles();
+            Notify.show(R.string.tmdb_season_match_saved);
+        } else {
+            Notify.show(result.getMode() == com.fongmi.android.tv.service.AiEpisodeSeasonService.Mode.EXPLICIT_MAPPING
+                    ? R.string.tmdb_season_ai_explicit_preview_only : R.string.tmdb_season_ai_failed);
+        }
+    }
     private void showManualTmdbMatchDialog() {
         if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isReady()) {
             Notify.show(R.string.detail_tmdb_need_key);
@@ -8229,6 +8355,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     protected void markPlaybackExiting() {
         if (isPlaybackExiting()) return;
         super.markPlaybackExiting();
+        cancelAiSeasonAnalysis(false);
         mPersonalRecommendationGeneration++;
         mPersonalRecommendationTasks.close();
         if (mTmdbHeaderView != null) mTmdbHeaderView.onDestroy();
@@ -8236,6 +8363,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
     @Override
     protected void onDestroy() {
+        cancelAiSeasonAnalysis(false);
         dismissKaraokeResultDialogForRecreation();
         mLyricsSearchSeq++;
         cancelKaraokePitchGeneration(false);

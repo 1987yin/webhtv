@@ -76,7 +76,12 @@ public final class ChoiceDialog extends DialogFragment {
     public interface OnTmdbSeasonChoice {
         void onAuto();
 
+        void onTmdbCounts();
+
         void onFlat();
+
+        default void onAi() {
+        }
 
         void onSeason(int seasonNumber);
     }
@@ -94,30 +99,35 @@ public final class ChoiceDialog extends DialogFragment {
                 if (season != null && season >= 0 && !seasons.contains(season)) seasons.add(season);
             }
         }
-        CharSequence[] items = new CharSequence[seasons.size() + 2];
+        CharSequence[] items = new CharSequence[seasons.size() + 4];
         items[0] = activity.getString(R.string.tmdb_season_auto);
-        items[1] = activity.getString(R.string.tmdb_season_keep_original);
+        items[1] = activity.getString(R.string.tmdb_season_auto_by_counts);
+        items[2] = activity.getString(R.string.tmdb_season_keep_original);
+        items[3] = activity.getString(R.string.tmdb_season_ai_analyze);
         for (int index = 0; index < seasons.size(); index++) {
             int season = seasons.get(index);
             int count = episodeCounts == null ? 0 : Math.max(0, episodeCounts.getOrDefault(season, 0));
-            items[index + 2] = season == 0
+            items[index + 4] = season == 0
                     ? activity.getString(R.string.tmdb_season_special, count)
                     : activity.getString(R.string.tmdb_season_option, season, count);
         }
         int selected = selectedTmdbSeasonIndex(seasons, resolution);
         showSingle(activity.getSupportFragmentManager(), activity.getString(R.string.tmdb_season_match_title), items, selected, which -> {
             if (which == 0) listener.onAuto();
-            else if (which == 1) listener.onFlat();
-            else if (which - 2 < seasons.size()) listener.onSeason(seasons.get(which - 2));
+            else if (which == 1) listener.onTmdbCounts();
+            else if (which == 2) listener.onFlat();
+            else if (which == 3) listener.onAi();
+            else if (which - 4 < seasons.size()) listener.onSeason(seasons.get(which - 4));
         });
     }
 
     private static int selectedTmdbSeasonIndex(List<Integer> seasons, TmdbSeasonResolver.Resolution resolution) {
         if (resolution == null) return 0;
-        if (resolution.getSource() == TmdbSeasonResolver.Source.MANUAL_FLAT) return 1;
+        if (resolution.getSource() == TmdbSeasonResolver.Source.MANUAL_MULTI_SLICE) return 1;
+        if (resolution.getSource() == TmdbSeasonResolver.Source.MANUAL_FLAT) return 2;
         if (resolution.getSource() != TmdbSeasonResolver.Source.MANUAL || resolution.getSelectedSeason() == null) return 0;
         int index = seasons.indexOf(resolution.getSelectedSeason());
-        return index < 0 ? 0 : index + 2;
+        return index < 0 ? 0 : index + 4;
     }
 
 

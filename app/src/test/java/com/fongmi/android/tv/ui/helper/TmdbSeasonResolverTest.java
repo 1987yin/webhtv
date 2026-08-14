@@ -116,6 +116,33 @@ public class TmdbSeasonResolverTest {
     }
 
     @Test
+    public void exactAllOrdinarySeasonCountsIgnoreSpecialSeasonZero() {
+        TmdbSeasonResolver.Resolution result = resolve(-1, null, List.of(), -1,
+                List.of(0, 1, 2), Map.of(0, 3, 1, 10, 2, 8), 18);
+
+        assertEquals(TmdbSeasonResolver.Status.MULTI_SLICE, result.getStatus());
+        assertEquals(List.of(1, 2), result.getAvailableSeasons());
+        assertEquals(TmdbSeasonResolver.Source.ALL_SEASON_COUNTS, result.getSource());
+    }
+
+    @Test
+    public void manualMultiSliceIgnoresSpecialSeasonZero() {
+        TmdbSeasonResolver.Resolution result = resolve(-1, multiSliceBinding(), List.of(), 6,
+                List.of(0, 1, 2), Map.of(0, 3, 1, 10, 2, 8), 18);
+
+        assertEquals(TmdbSeasonResolver.Status.MULTI_SLICE, result.getStatus());
+        assertEquals(List.of(1, 2), result.getAvailableSeasons());
+        assertEquals(TmdbSeasonResolver.Source.MANUAL_MULTI_SLICE, result.getSource());
+    }
+    @Test
+    public void specialEpisodeCountDoesNotAutoSelectSeasonZeroWhenOrdinarySeasonsExist() {
+        TmdbSeasonResolver.Resolution result = resolve(-1, null, List.of(), -1,
+                List.of(0, 1, 2), Map.of(0, 3, 1, 10, 2, 8), 3);
+
+        assertEquals(TmdbSeasonResolver.Status.AMBIGUOUS, result.getStatus());
+        assertEquals(TmdbSeasonResolver.Source.NONE, result.getSource());
+    }
+    @Test
     public void uniqueExactEpisodeCountResolvesSeason() {
         TmdbSeasonResolver.Resolution result = resolve(-1, null, List.of(), -1,
                 List.of(1, 2, 3), Map.of(1, 10, 2, 8, 3, 12), 8);
@@ -143,6 +170,29 @@ public class TmdbSeasonResolverTest {
     }
 
     @Test
+    public void automaticKeyMappingFallsBackWhenCountsAreIncomplete() {
+        TmdbSeasonResolver.Resolution result = TmdbSeasonResolver.resolve(
+                -1, null, List.of(), -1,
+                List.of(1, 2), Map.of(1, 2, 2, 2), 7,
+                List.of(4, 1, 2, 2, 0, -1, 5));
+
+        assertEquals(TmdbSeasonResolver.Status.MULTI_SLICE, result.getStatus());
+        assertEquals(TmdbSeasonResolver.Source.FLAT_EPISODE_KEYS, result.getSource());
+        assertEquals(List.of(1, 2), result.getAvailableSeasons());
+    }
+
+    @Test
+    public void automaticKeyMappingDoesNotGuessWhenOnlyOneSeasonIsTouched() {
+        TmdbSeasonResolver.Resolution result = TmdbSeasonResolver.resolve(
+                -1, null, List.of(), -1,
+                List.of(1, 2), Map.of(1, 2, 2, 2), 5,
+                List.of(1, 2, 0, -1, 5));
+
+        assertEquals(TmdbSeasonResolver.Status.AMBIGUOUS, result.getStatus());
+        assertEquals(TmdbSeasonResolver.Source.NONE, result.getSource());
+    }
+
+    @Test
     public void staleManualSeasonFallsBackToExplicitSignal() {
         TmdbSeasonResolver.Resolution result = resolve(-1, binding(3), List.of(2), -1,
                 List.of(1, 2), Map.of(1, 10, 2, 8), 8);
@@ -150,6 +200,46 @@ public class TmdbSeasonResolverTest {
         assertResolved(result, 2, TmdbSeasonResolver.Source.EXPLICIT);
     }
 
+    @Test
+    public void manualMultiSliceOverridesTitleSeasonWhenCountsStillMatch() {
+        TmdbSeasonResolver.Resolution result = resolve(-1, multiSliceBinding(), List.of(), 6,
+                List.of(1, 2), Map.of(1, 10, 2, 8), 18);
+
+        assertEquals(TmdbSeasonResolver.Status.MULTI_SLICE, result.getStatus());
+        assertEquals(TmdbSeasonResolver.Source.MANUAL_MULTI_SLICE, result.getSource());
+        assertEquals(List.of(1, 2), result.getAvailableSeasons());
+    }
+
+    @Test
+    public void manualMultiSliceAllowsPartialLatestSeason() {
+        TmdbSeasonResolver.Resolution result = resolve(-1, multiSliceBinding(), List.of(), 6,
+                List.of(1, 2), Map.of(1, 10, 2, 8), 17);
+
+        assertEquals(TmdbSeasonResolver.Status.MULTI_SLICE, result.getStatus());
+        assertEquals(TmdbSeasonResolver.Source.MANUAL_MULTI_SLICE, result.getSource());
+        assertEquals(List.of(1, 2), result.getAvailableSeasons());
+    }
+
+    @Test
+    public void manualMultiSliceUsesExtractedEpisodeNumbersAsKeys() {
+        TmdbSeasonResolver.Resolution result = TmdbSeasonResolver.resolve(
+                -1, multiSliceBinding(), List.of(), 6,
+                List.of(1, 2), Map.of(1, 2, 2, 2), 6,
+                List.of(4, 1, 2, 2, -1, 5));
+
+        assertEquals(TmdbSeasonResolver.Status.MULTI_SLICE, result.getStatus());
+        assertEquals(TmdbSeasonResolver.Source.MANUAL_MULTI_SLICE, result.getSource());
+        assertEquals(List.of(1, 2), result.getAvailableSeasons());
+    }
+
+    @Test
+    public void staleManualMultiSliceDoesNotApplyWhenSourceExceedsTmdbCounts() {
+        TmdbSeasonResolver.Resolution result = resolve(-1, multiSliceBinding(), List.of(), 6,
+                List.of(1, 2), Map.of(1, 10, 2, 8), 19);
+
+        assertEquals(TmdbSeasonResolver.Status.AMBIGUOUS, result.getStatus());
+        assertEquals(TmdbSeasonResolver.Source.MANUAL_MULTI_SLICE, result.getSource());
+    }
     private static TmdbSeasonResolver.Resolution resolve(
             int requestSeason,
             TmdbSeasonMatchCache.Entry manual,
@@ -172,6 +262,10 @@ public class TmdbSeasonResolverTest {
                 TmdbSeasonMatchCache.Mode.MANUAL_FLAT, "fingerprint", 18, 0);
     }
 
+    private static TmdbSeasonMatchCache.Entry multiSliceBinding() {
+        return TmdbSeasonMatchCache.Entry.create(100, "tv", null,
+                TmdbSeasonMatchCache.Mode.MANUAL_MULTI_SLICE, "fingerprint", 18, 0);
+    }
     private static void assertResolved(TmdbSeasonResolver.Resolution result, int season, TmdbSeasonResolver.Source source) {
         assertEquals(TmdbSeasonResolver.Status.RESOLVED, result.getStatus());
         assertEquals(Integer.valueOf(season), result.getSelectedSeason());
