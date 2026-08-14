@@ -967,6 +967,26 @@
     <string name="player">播放核心</string>
     <string name="player_default">預設播放核心</string>
     <string name="player_render">渲染方式</string>
+    <string name="multi_thread_proxy_button">多線程</string>
+    <string name="multi_thread_proxy_title">多線程播放加速</string>
+    <string name="multi_thread_proxy_enable">啟用多線程播放（實驗功能）</string>
+    <string name="multi_thread_proxy_enable_hint">僅對直連 HTTP(S) 漸進式媒體使用本機代理。</string>
+    <string name="multi_thread_proxy_threads">全域並行線程數</string>
+    <string name="multi_thread_proxy_shards">全域分片數</string>
+    <string name="multi_thread_proxy_domain_rules">按網域覆蓋</string>
+    <string name="multi_thread_proxy_domain_rules_hint">每行一條：example.com,cdn.example.com=6,12</string>
+    <string name="multi_thread_proxy_domain_rules_help">一條規則可填寫多個網域，所有網域共用同一組線程數和分片數；同時匹配其子網域。未匹配的網域使用全域設定。</string>
+    <string name="multi_thread_proxy_saved">多線程設定已儲存。</string>
+    <string name="multi_thread_proxy_save_failed">多線程設定套用失敗</string>
+    <string name="multi_thread_proxy_extract_domain">擷取目前網域</string>
+    <string name="multi_thread_proxy_domain_added">已加入目前網域：%1$s</string>
+    <string name="multi_thread_proxy_domain_unavailable">目前播放位址無法擷取有效網域</string>
+    <string name="multi_thread_proxy_domain_exists">目前網域已存在於覆蓋規則中</string>
+    <string name="multi_thread_proxy_apply_title">套用多線程設定</string>
+    <string name="multi_thread_proxy_apply_message">是否立即重新載入目前影片以套用新設定？將儘量保留目前播放位置。</string>
+    <string name="multi_thread_proxy_apply_now">立即生效</string>
+    <string name="multi_thread_proxy_apply_later">下次播放</string>
+    <string name="multi_thread_proxy_applied">已重新載入目前影片並套用多線程設定。</string>
     <string name="player_button_config">播放器按鈕</string>
     <string name="player_button_config_summary">全域啟用 %1$d/%2$d，各模式依支援與可用狀態顯示</string>
     <string name="player_pad_live">平板直播</string>
@@ -1306,6 +1326,7 @@
     <string name="setting_reset_app">重置APP</string>
     <string name="dialog_reset_app">重置App?</string>
     <string name="dialog_reset_app_data">所有數據將會被重置，App即將被關閉.</string>
+    <string name="reset_app_failed">重置失敗，請重試。</string>
 
     <string name="dialog_audio_site_rules">音訊源規則:關聯站源或關鍵詞,用 ; 分隔。預設:[音];[听]</string>
     <string name="dialog_audio_site_manage">選擇音訊源</string>

@@ -104,6 +104,7 @@ import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.service.IntroSkipService;
 import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.fongmi.android.tv.setting.PlayerButtonSetting;
+import com.fongmi.android.tv.setting.MultiThreadProxySetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
@@ -134,6 +135,7 @@ import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
 import com.fongmi.android.tv.ui.dialog.InfoDialog;
 import com.fongmi.android.tv.ui.dialog.LutPanelDialog;
+import com.fongmi.android.tv.ui.dialog.MultiThreadProxyDialog;
 import com.fongmi.android.tv.ui.dialog.QuickSearchDialog;
 import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
@@ -1325,7 +1327,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.right.lock.setOnClickListener(view -> onLock());
         mBinding.control.right.rotate.setOnClickListener(view -> onRotate());
         mBinding.control.right.pip.setOnClickListener(guarded(this::onPiP));
-        mBinding.control.playParamsQuick.setOnClickListener(guarded(this::onPlayParams));
         mBinding.control.fullscreen.setOnClickListener(guarded(this::onFullscreen));
         mBinding.control.danmaku.setOnClickListener(view -> onDanmakuShow());
         mBinding.control.action.text.setOnClickListener(guardedView(this::onTrack));
@@ -1342,6 +1343,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.action.change2.setOnClickListener(view -> onChange());
         mBinding.control.action.fullscreen.setOnClickListener(guarded(this::onFullscreen));
         mBinding.control.action.playParams.setOnClickListener(guarded(this::onPlayParams));
+        mBinding.control.action.multiThreadProxy.setOnClickListener(guarded(this::onMultiThreadProxy));
         mBinding.control.action.codecCapability.setOnClickListener(guarded(this::onCodecCapabilityPanel));
         mBinding.control.action.prev.setOnClickListener(view -> checkPrev());
         mBinding.control.action.next.setOnClickListener(view -> checkNext());
@@ -1587,6 +1589,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         addActionButton(PlayerButtonSetting.PLAYER, mBinding.control.action.player);
         addActionButton(PlayerButtonSetting.DECODE, mBinding.control.action.decode);
         addActionButton(PlayerButtonSetting.PLAY_PARAMS, mBinding.control.action.playParams);
+        addActionButton(PlayerButtonSetting.MULTI_THREAD_PROXY, mBinding.control.action.multiThreadProxy);
         addActionButton(PlayerButtonSetting.CODEC_CAPABILITY, mBinding.control.action.codecCapability);
         addActionButton(PlayerButtonSetting.SPEED, mBinding.control.action.speed);
         addActionButton(PlayerButtonSetting.SCALE, mBinding.control.action.scale);
@@ -4440,8 +4443,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.keep.setVisibility(mHistory == null ? View.GONE : View.VISIBLE);
         mBinding.control.nightMode.setVisibility(mHistory == null ? View.GONE : View.VISIBLE);
         boolean showPlayParams = PlayerButtonSetting.isVisible(PlayerButtonSetting.PLAY_PARAMS);
-        mBinding.control.playParamsQuick.setVisibility(!isFullscreen() && !isLock() && !player().isEmpty() && showPlayParams ? View.VISIBLE : View.GONE);
-        mBinding.control.playParamsQuick.setSelected(mOsd != null && mOsd.isDiagnosticsVisible());
         mBinding.control.action.playParams.setVisibility(showPlayParams ? View.VISIBLE : View.GONE);
         mBinding.control.action.playParams.setSelected(mOsd != null && mOsd.isDiagnosticsVisible());
         mBinding.control.osdDiagnostics.setVisibility(PlayerSetting.isOsdDiagnostics() && showPlayParams && !player().isEmpty() ? View.VISIBLE : View.GONE);
@@ -4496,6 +4497,15 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         hideControl();
     }
 
+    private void onMultiThreadProxy() {
+        MultiThreadProxyDialog.show(this, player().getUrl(), this::onMultiThreadProxySaved);
+    }
+
+    private void onMultiThreadProxySaved(boolean applyNow) {
+        setPlayParamsState();
+        if (applyNow && player() != null && !player().isEmpty()) player().reloadCurrentMediaItem();
+    }
+
     private void onPlayParams() {
         if (mOsd == null) return;
         boolean visible = !mOsd.isDiagnosticsVisible();
@@ -4507,8 +4517,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void setPlayParamsState() {
         boolean selected = mOsd != null && mOsd.isDiagnosticsVisible();
-        mBinding.control.playParamsQuick.setSelected(selected);
         mBinding.control.action.playParams.setSelected(selected);
+        mBinding.control.action.multiThreadProxy.setSelected(MultiThreadProxySetting.get().enabled());
     }
 
     private void hideWidgetOverlay() {
