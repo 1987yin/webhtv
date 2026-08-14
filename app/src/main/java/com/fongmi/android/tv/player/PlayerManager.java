@@ -95,10 +95,15 @@ import com.fongmi.android.tv.player.mpv.MpvPreloadController;
 import com.fongmi.android.tv.player.mpv.MpvPreloadPolicy;
 import com.fongmi.android.tv.player.mpv.MpvResourcePressureController;
 import com.fongmi.android.tv.player.mpv.MpvResourcePressurePolicy;
+import com.fongmi.android.tv.server.proxy.MultiThreadProxy;
+import com.fongmi.android.tv.server.proxy.ProxyPlaybackPolicy;
+import com.fongmi.android.tv.server.proxy.ProxyRuntimeConfig;
+import com.fongmi.android.tv.server.proxy.ProxyStreamRegistration;
 import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.setting.ExoPerformanceSetting;
 import com.fongmi.android.tv.setting.MpvPerformanceSetting;
+import com.fongmi.android.tv.setting.MultiThreadProxySetting;
 import com.fongmi.android.tv.setting.PlaybackExperimentSetting;
 import com.fongmi.android.tv.setting.PlaybackLightweightAssessmentSetting;
 import com.fongmi.android.tv.setting.PlaybackPerformanceSetting;
@@ -203,6 +208,7 @@ public class PlayerManager implements ParseCallback {
     private VideoSize videoSize;
     private ParseJob parseJob;
     private PlaySpec spec;
+    private ProxyStreamRegistration multiThreadProxyRegistration;
     private Player player;
     private TrackSelectionParameters realtimeSubtitleTrackSelection;
     private String currentDanmakuUrl;
@@ -375,6 +381,7 @@ public class PlayerManager implements ParseCallback {
         ijkRuntimeTemporaryFallback = false;
         ijkRuntimeManualOverride = false;
         pendingIjkRuntimeFallbackReparse = false;
+        closeMultiThreadProxyRegistration();
         if (engine == null) return;
         engine.release();
         engine = null;
@@ -1434,6 +1441,7 @@ public class PlayerManager implements ParseCallback {
         clearExoDecoderResourceRecovery(true);
         resetNetworkProtectionSession("clear");
         resetMpvOutputRuntime();
+        closeMultiThreadProxyRegistration();
         spec = null;
         clearPendingSwitchRestore();
         clearDanmaku("clear");
@@ -4909,6 +4917,15 @@ public void resetTrack(int type) {
         };
     }
 
+    private boolean isDv7NativeAttemptRequested() {
+        if (!isMpv() || engine == null || !engine.isHard()
+                || PlaybackPerformanceSetting
+                .isDv7Hdr10FallbackEnabled()) return false;
+        PlayerEngine.VideoPlaybackDetails details =
+                engine.getVideoPlaybackDetails();
+        return details != null && details.dolbyVisionProfile() == 7;
+    }
+
     private PlayerEngine buildEngine(int type, int decode) {
         if (type != PlayerSetting.EXO) exoSpeedRestoreState.clear();
         PlayerEngine next = switch (type) {
@@ -5093,6 +5110,10 @@ public void resetTrack(int type) {
         setMediaItemNow(timeout, true);
     }
 
+    public void reloadCurrentMediaItem() {
+        restartCurrentItemWithState();
+    }
+
     private void restartCurrentItemWithState() {
         if (spec == null || spec.getUrl() == null || engine == null || player == null) return;
         if (player.getCurrentMediaItem() == null || player.getPlaybackState() == Player.STATE_IDLE) {
@@ -5102,13 +5123,21 @@ public void resetTrack(int type) {
         if (!ensurePlayerAvailableForPlayback()) return;
         long position = Math.max(0, player.getCurrentPosition());
         boolean playWhenReady = player.getPlayWhenReady();
-        if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "restart media item for subtitle position=%d play=%s spec=%s", position, playWhenReady, debugSpec());
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "restart media item position=%d play=%s spec=%s", position, playWhenReady, debugSpec());
         App.removeCallbacks(runnable);
         currentDanmakuUrl = null;
         setDanmakus(spec.getDanmakus());
         initTrack = false;
         waitingLutBeforePlay = false;
-        engine.restart(spec.checkUa(), position, playWhenReady);
+        ProxyStreamRegistration previousProxyRegistration = multiThreadProxyRegistration;
+        PreparedProxyPlayback prepared = prepareProxyPlayback();
+        try {
+            engine.restart(prepared.spec(), position, playWhenReady);
+            commitProxyPlayback(previousProxyRegistration, prepared.registration());
+        } catch (RuntimeException | Error failure) {
+            if (prepared.registration() != null) prepared.registration().close();
+            throw failure;
+        }
         App.post(runnable, Constant.TIMEOUT_PLAY);
     }
 
@@ -5177,13 +5206,55 @@ public void resetTrack(int type) {
         waitingLutBeforePlay = false;
         applySubtitleStyle();
         playbackTrace.mark(PlaybackTrace.Stage.PREPARE, "player=" + playerType + " decode=" + engine.getDecode());
-        engine.start(spec.checkUa(), playWhenReady);
+        ProxyStreamRegistration previousProxyRegistration = multiThreadProxyRegistration;
+        PreparedProxyPlayback prepared = prepareProxyPlayback();
+        try {
+            engine.start(prepared.spec(), playWhenReady);
+            commitProxyPlayback(previousProxyRegistration, prepared.registration());
+        } catch (RuntimeException | Error failure) {
+            if (prepared.registration() != null) prepared.registration().close();
+            throw failure;
+        }
         publishPlaybackTelemetry();
         schedulePlaybackTelemetry();
         scheduleMpvAutoOutputEvaluation();
         startNativeAudioSession(playWhenReady);
         App.post(runnable, timeout);
         if (notifyPrepare) callback.onPrepare();
+    }
+
+    private PreparedProxyPlayback prepareProxyPlayback() {
+        PlaySpec playbackSpec = spec.checkUa();
+        ProxyStreamRegistration nextProxyRegistration = null;
+        ProxyRuntimeConfig proxyConfig = MultiThreadProxySetting.get();
+        try {
+            MultiThreadProxy.apply(proxyConfig, MultiThreadProxySetting.getDomainRules());
+            if (ProxyPlaybackPolicy.shouldProxy(proxyConfig.enabled(), spec.getUrl(), spec.getFormat())) {
+                nextProxyRegistration = MultiThreadProxy.register(spec.getUrl(), spec.getHeaders());
+                playbackSpec = spec.copyForPlayback(nextProxyRegistration.url(), Map.of());
+            }
+        } catch (IOException | RuntimeException e) {
+            if (nextProxyRegistration != null) nextProxyRegistration.close();
+            nextProxyRegistration = null;
+            if (SpiderDebug.isEnabled()) {
+                SpiderDebug.log("player", "multi-thread proxy bypass cause=%s", e.getClass().getSimpleName());
+            }
+        }
+        return new PreparedProxyPlayback(playbackSpec, nextProxyRegistration);
+    }
+
+    private void commitProxyPlayback(ProxyStreamRegistration previous, ProxyStreamRegistration next) {
+        multiThreadProxyRegistration = next;
+        if (previous != null) previous.close();
+    }
+
+    private record PreparedProxyPlayback(PlaySpec spec, ProxyStreamRegistration registration) {
+    }
+
+    private void closeMultiThreadProxyRegistration() {
+        ProxyStreamRegistration registration = multiThreadProxyRegistration;
+        multiThreadProxyRegistration = null;
+        if (registration != null) registration.close();
     }
 
     private void prepareExoFrameSchedulingForNewPlayback() {

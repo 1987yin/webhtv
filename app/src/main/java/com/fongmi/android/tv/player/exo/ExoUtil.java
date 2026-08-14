@@ -644,7 +644,8 @@ public class ExoUtil {
                     softVideoTune,
                     decoderRuntimeSession,
                     decoderOutput,
-                    frameSchedulingDecision) {
+                    frameSchedulingDecision,
+                    dolbyVisionPlaybackState) {
                 @Override
                 protected AudioSink buildAudioSink(@NonNull Context context, boolean enableFloatOutput, boolean enableAudioOutputPlaybackParams) {
                     return ExoUtil.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParams, realtimePipeline);
