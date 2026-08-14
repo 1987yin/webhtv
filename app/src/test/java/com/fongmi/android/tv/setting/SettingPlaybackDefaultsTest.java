@@ -73,18 +73,23 @@ public class SettingPlaybackDefaultsTest {
         assertTrue(leanbackLayout.contains("@+id/resetApp"));
         assertTrue(mobileLayout.contains("@string/setting_reset_app"));
         assertTrue(leanbackLayout.contains("@string/setting_reset_app"));
-        assertTrue(mobileSource.contains("mBinding.resetApp.setOnClickListener(this::resetApp)"));
-        assertTrue(leanbackSource.contains("mBinding.resetApp.setOnClickListener(this::resetApp)"));
-        String confirmedReset = ".setPositiveButton(R.string.dialog_positive, (dialog, which) -> Task.execute(() -> Util.resetApp()))";
+        assertTrue(mobileSource.contains("mBinding.resetApp.setOnClickListener(this::showResetAppDialog)"));
+        assertTrue(leanbackSource.contains("mBinding.resetApp.setOnClickListener(this::showResetAppDialog)"));
+        String confirmedReset = ".setPositiveButton(R.string.dialog_positive, (dialog, which) -> resetApp())";
         assertTrue(mobileSource.contains(confirmedReset));
         assertTrue(leanbackSource.contains(confirmedReset));
-        assertTrue(utilSource.contains("Shell.exec(\"pm clear \" + App.get().getPackageName())"));
-
+        assertTrue(mobileSource.contains("if (!Util.resetApp()) Notify.show(R.string.reset_app_failed)"));
+        assertTrue(leanbackSource.contains("if (!Util.resetApp()) Notify.show(R.string.reset_app_failed)"));
+        assertTrue(utilSource.contains("ActivityManager manager = App.get().getSystemService(ActivityManager.class)"));
+        assertTrue(utilSource.contains("manager.clearApplicationUserData()"));
+        assertTrue(utilSource.contains("catch (RuntimeException e)"));
+        assertFalse(utilSource.contains("pm clear"));
         for (String values : new String[]{"values", "values-zh-rCN", "values-zh-rTW"}) {
             String strings = read(root.resolve(Path.of("src", "main", "res", values, "strings.xml")));
             assertTrue(strings.contains("<string name=\"setting_reset_app\">"));
             assertTrue(strings.contains("<string name=\"dialog_reset_app\">"));
             assertTrue(strings.contains("<string name=\"dialog_reset_app_data\">"));
+            assertTrue(strings.contains("<string name=\"reset_app_failed\">"));
         }
     }
 

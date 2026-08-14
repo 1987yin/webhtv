@@ -190,7 +190,7 @@ public class PlayerOsdController {
         }
         setTextSize(miniSp);
         PlayerManager player = source.getPlayer();
-        updateSpeed();
+        updateSpeed(player);
 
         // 控制栏显示时的处理：
         // - leanback: suppressed=false，强制显示 OSD 的标题/分辨率/时间（因为控制栏没有自己的 title/size）
@@ -375,7 +375,11 @@ public class PlayerOsdController {
         miniProgress.setVisibility(View.GONE);
     }
 
-    private void updateSpeed() {
+    private void updateSpeed(PlayerManager player) {
+        if (player == null || PlaybackDiagnosticsSourcePolicy.isLocal(player.getUrl())) {
+            resetSpeed();
+            return;
+        }
         long total = TrafficStats.getUidRxBytes(UID);
         if (total == TrafficStats.UNSUPPORTED) {
             lastSpeedKBps = 0;

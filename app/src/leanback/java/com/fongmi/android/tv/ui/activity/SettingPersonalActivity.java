@@ -25,7 +25,6 @@ import com.fongmi.android.tv.ui.dialog.SpeedSettingDialog;
 import com.fongmi.android.tv.ui.dialog.SliderNumberDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
-import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.Util;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
@@ -85,7 +84,7 @@ public class SettingPersonalActivity extends BaseActivity {
         mBinding.searchUi.setOnClickListener(this::setSearchUi);
         mBinding.searchResultSort.setOnClickListener(this::setSearchResultSort);
         // mBinding.searchColumn.setOnClickListener(this::setSearchColumn); // 在搜索页面切换更方便
-        mBinding.resetApp.setOnClickListener(this::resetApp);
+        mBinding.resetApp.setOnClickListener(this::showResetAppDialog);
     }
 
     @Override
@@ -269,13 +268,17 @@ public class SettingPersonalActivity extends BaseActivity {
         setText();
     }
 
-    private void resetApp(View view) {
+    private void showResetAppDialog(View view) {
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.dialog_reset_app)
                 .setMessage(R.string.dialog_reset_app_data)
                 .setNegativeButton(R.string.dialog_negative, null)
-                .setPositiveButton(R.string.dialog_positive, (dialog, which) -> Task.execute(() -> Util.resetApp()))
+                .setPositiveButton(R.string.dialog_positive, (dialog, which) -> resetApp())
                 .show();
+    }
+
+    private void resetApp() {
+        if (!Util.resetApp()) Notify.show(R.string.reset_app_failed);
     }
 
     // 在搜索页面切换更方便，此处不再提供设置入口
