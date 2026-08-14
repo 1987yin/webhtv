@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.res.ColorStateList;
@@ -325,6 +326,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private boolean inlineShortDramaMode;
     private boolean inlinePauseInfo;
     private boolean inlinePlaybackLoading;
+    private boolean inlinePlaybackReconnectPending;
     private boolean inlinePlayerSwitchLoading;
     private boolean savingTmdbPhoto;
     private boolean pendingInlineLutImport;
@@ -6143,6 +6145,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void toggleInlinePlayback() {
         if (!isInlinePlayerMode()) return;
+        if (inlinePlaybackReconnectPending) return;
         if (controller() == null || service() == null || player().isEmpty()) {
             if (isSamePendingInlinePlayback(selectedEpisode)) return;
             onPlay();
@@ -9184,19 +9187,38 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     @Override
+    public void onServiceDisconnected(ComponentName name) {
+        if (inlineStarted && currentInlineResult != null) {
+            saveInlineHistory();
+            inlinePlaybackReconnectPending = true;
+        }
+        super.onServiceDisconnected(name);
+    }
+
+    @Override
     protected void onServiceConnected() {
         ensureInlineDanmakuController();
+        restoreInlinePlaybackIfNeeded();
         startPendingInlinePlayer();
     }
 
     @Override
     protected void onControllerConnected() {
+        restoreInlinePlaybackIfNeeded();
         startPendingInlinePlayer();
     }
 
     private void startPendingInlinePlayer() {
         if (pendingInlineResult == null || service() == null || controller() == null) return;
         startInlinePlayer(pendingInlineResult);
+    }
+
+    private void restoreInlinePlaybackIfNeeded() {
+        if (!inlinePlaybackReconnectPending || service() == null || controller() == null || player() == null) return;
+        inlinePlaybackReconnectPending = false;
+        if (currentInlineResult != null && player().isEmpty()) {
+            startInlinePlayer(currentInlineResult, getInlineResumePosition());
+        }
     }
 
     private void ensureInlineDanmakuController() {
