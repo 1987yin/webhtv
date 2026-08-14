@@ -189,12 +189,19 @@ public class VideoActivityHistoryTitleTest {
                 captureSeason.indexOf("EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode == null ? \"\" : episode.getName())") >= 0
                         && captureSeason.indexOf("EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode == null ? \"\" : episode.getName())")
                         < captureSeason.indexOf("TmdbEpisode tmdbEpisode ="));
+        assertTrue("bound TMDB metadata must remain a history fallback instead of becoming explicit source-season evidence",
+                captureSeason.contains("List<Integer> metadata = new ArrayList<>();")
+                        && captureSeason.contains("addExplicitSeason(metadata, tmdbEpisode.getSeasonNumber());")
+                        && captureSeason.contains("explicitSourceSeasons = List.copyOf(explicit);")
+                        && captureSeason.contains("metadata.size() == 1 ? metadata.get(0) : -1"));
         Path detailPath = mainJava().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String detailSource = Files.readString(detailPath, StandardCharsets.UTF_8);
+        String detailExplicitSeason = methodBody(detailSource, "private int explicitSourceSeasonNumber(Episode episode)");
         String detailEpisodeSeason = methodBody(detailSource, "private int sourceSeasonNumber(Episode episode)");
         assertTrue("standalone detail must prefer source episode names over bound TMDB metadata",
-                detailEpisodeSeason.indexOf("EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode.getName())") >= 0
-                        && detailEpisodeSeason.indexOf("EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode.getName())")
+                detailExplicitSeason.contains("EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode.getName())")
+                        && detailEpisodeSeason.indexOf("explicitSourceSeasonNumber(episode)") >= 0
+                        && detailEpisodeSeason.indexOf("explicitSourceSeasonNumber(episode)")
                         < detailEpisodeSeason.indexOf("episode.getTmdbEpisode()"));
         String detailTitleSeason = methodBody(detailSource, "private int sourceTitleSeasonNumber()");
         assertTrue("standalone detail must not treat the selected source-line ordinal as a season",
