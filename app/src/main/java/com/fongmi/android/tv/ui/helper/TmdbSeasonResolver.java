@@ -22,11 +22,13 @@ public final class TmdbSeasonResolver {
         REQUEST,
         MANUAL,
         MANUAL_FLAT,
+        MANUAL_MULTI_SLICE,
         EXPLICIT,
         EXPLICIT_CONFLICT,
         TITLE,
         SINGLE_SEASON,
         EPISODE_COUNT,
+        FLAT_EPISODE_KEYS,
         ALL_SEASON_COUNTS,
         NONE
     }
@@ -42,7 +44,21 @@ public final class TmdbSeasonResolver {
             List<Integer> tmdbSeasons,
             Map<Integer, Integer> seasonCounts,
             int sourceEpisodeCount) {
+        return resolve(requestSeason, manualBinding, explicitSourceSeasons, titleSeason,
+                tmdbSeasons, seasonCounts, sourceEpisodeCount, null);
+    }
+
+    public static Resolution resolve(
+            int requestSeason,
+            TmdbSeasonMatchCache.Entry manualBinding,
+            List<Integer> explicitSourceSeasons,
+            int titleSeason,
+            List<Integer> tmdbSeasons,
+            Map<Integer, Integer> seasonCounts,
+            int sourceEpisodeCount,
+            List<Integer> sourceEpisodeNumbers) {
         List<Integer> seasons = distinctNonNegative(tmdbSeasons);
+        List<Integer> sliceableSeasons = EpisodeSeasonPolicy.sliceableSeasons(seasons);
         if (requestSeason >= 0) {
             if (contains(seasons, requestSeason)) return Resolution.resolved(requestSeason, Source.REQUEST, "request_season");
             return Resolution.ambiguous(Source.REQUEST, "requested_season_missing_from_tmdb");
@@ -52,6 +68,14 @@ public final class TmdbSeasonResolver {
             return Resolution.flat(Source.MANUAL_FLAT, "manual_flat");
         }
         if (seasons.isEmpty()) return Resolution.ambiguous(Source.NONE, "tmdb_seasons_empty");
+        if (manualBinding != null && manualBinding.getMode() == TmdbSeasonMatchCache.Mode.MANUAL_MULTI_SLICE) {
+            List<Integer> coveredSeasons = sourceEpisodeNumbers == null
+                    ? EpisodeSeasonPolicy.coveredSeasonsByEpisodeCount(sourceEpisodeCount, sliceableSeasons, seasonCounts)
+                    : EpisodeSeasonPolicy.mappedSeasonsByEpisodeNumbers(sourceEpisodeNumbers, sliceableSeasons, seasonCounts);
+            return !coveredSeasons.isEmpty()
+                    ? Resolution.multiSlice(coveredSeasons, Source.MANUAL_MULTI_SLICE, "manual_multi_slice")
+                    : Resolution.ambiguous(Source.MANUAL_MULTI_SLICE, "manual_multi_slice_stale");
+        }
 
         Resolution manual = resolveManual(manualBinding, seasons);
         if (manual != null) return manual;
@@ -81,16 +105,22 @@ public final class TmdbSeasonResolver {
             return Resolution.resolved(0, Source.SINGLE_SEASON, "specials_only");
         }
 
-        List<Integer> exactCountMatches = exactCountMatches(seasons, seasonCounts, sourceEpisodeCount);
+        List<Integer> exactCountMatches = exactCountMatches(sliceableSeasons.isEmpty() ? seasons : sliceableSeasons, seasonCounts, sourceEpisodeCount);
         if (exactCountMatches.size() == 1) {
             return Resolution.resolved(exactCountMatches.get(0), Source.EPISODE_COUNT, "unique_episode_count");
         }
-        if (exactCountMatches.size() > 1) {
-            return Resolution.ambiguous(Source.EPISODE_COUNT, "duplicate_episode_counts");
+        if (EpisodeSeasonPolicy.canSliceBySeasonCounts(sourceEpisodeCount, sliceableSeasons, seasonCounts)) {
+            return Resolution.multiSlice(sliceableSeasons, Source.ALL_SEASON_COUNTS, "all_season_counts");
         }
 
-        if (EpisodeSeasonPolicy.canSliceBySeasonCounts(sourceEpisodeCount, seasons, seasonCounts)) {
-            return Resolution.multiSlice(seasons, Source.ALL_SEASON_COUNTS, "all_season_counts");
+        List<Integer> keyedSeasons = EpisodeSeasonPolicy.mappedSeasonsByEpisodeNumbers(
+                sourceEpisodeNumbers, sliceableSeasons, seasonCounts);
+        if (keyedSeasons.size() > 1) {
+            return Resolution.multiSlice(keyedSeasons, Source.FLAT_EPISODE_KEYS, "flat_episode_keys");
+        }
+
+        if (exactCountMatches.size() > 1) {
+            return Resolution.ambiguous(Source.EPISODE_COUNT, "duplicate_episode_counts");
         }
 
         return Resolution.ambiguous(Source.NONE, "insufficient_season_evidence");
