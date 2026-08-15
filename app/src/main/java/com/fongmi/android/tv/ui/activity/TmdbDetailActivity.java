@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.res.ColorStateList;
@@ -328,6 +329,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private boolean inlineShortDramaMode;
     private boolean inlinePauseInfo;
     private boolean inlinePlaybackLoading;
+    private boolean inlinePlaybackReconnectPending;
     private boolean inlinePlayerSwitchLoading;
     private boolean savingTmdbPhoto;
     private boolean pendingInlineLutImport;
@@ -400,6 +402,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private ImageView backdropSlideVisibleView;
     private ImageView backdropSlideLoadingView;
 
+    private static final String EXTRA_RESUME_FROM_HISTORY = "resume_from_history";
+    private static final String EXTRA_RESUME_HISTORY_CID = "resume_history_cid";
+    private static final String EXTRA_RESUME_HISTORY_KEY = "resume_history_key";
+    private static final String EXTRA_PLAY_FLAG = "tmdb_play_flag";
+    private static final String EXTRA_PLAY_EPISODE_NAME = "tmdb_play_episode_name";
+    private static final String EXTRA_PLAY_EPISODE_URL = "tmdb_play_episode_url";
+
     @Override
     public TmdbItem getMatchedTmdbItem() {
         return matchedTmdbItem;
@@ -446,17 +455,31 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         start(activity, key, id, name, pic, mark, null, detailMode, true);
     }
 
+    public static void startFromHistory(Activity activity, History item) {
+        if (item == null) return;
+        start(activity, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), item.getVodRemarks(), null, Setting.getDetailOpenMode(), false, item, item.getVodFlag(), item.getVodRemarks(), item.getEpisodeUrl());
+    }
+
+    public static void startFromResolvedHistory(Activity activity, History source, Vod target, Flag flag, Episode episode) {
+        if (source == null || target == null || flag == null || episode == null) return;
+        start(activity, target.getSiteKey(), target.getId(), target.getName(), target.getPic(), episode.getName(), null, Setting.getDetailOpenMode(), false, source, flag.getFlag(), episode.getName(), episode.getUrl());
+    }
+
     private static void start(Activity activity, String key, String id, String name, String pic, String mark, @Nullable TmdbItem tmdbItem, int detailMode, boolean autoPlay) {
+        start(activity, key, id, name, pic, mark, tmdbItem, detailMode, autoPlay, null, null, null, null);
+    }
+
+    private static void start(Activity activity, String key, String id, String name, String pic, String mark, @Nullable TmdbItem tmdbItem, int detailMode, boolean autoPlay, @Nullable History resumeHistory, String playFlag, String playEpisodeName, String playEpisodeUrl) {
         if (!TextUtils.isEmpty(key) && !SiteApi.PUSH.equals(key) && AudioUtil.isAudioSiteEnabled(key)) {
-            VideoActivity.startDirect(activity, key, id, name, pic, mark);
+            startDirectFromHistory(activity, key, id, name, pic, mark, playFlag, playEpisodeName, playEpisodeUrl, resumeHistory);
             return;
         }
         if (!TextUtils.isEmpty(key) && !SiteApi.PUSH.equals(key) && isShortDramaSiteEnabled(key)) {
-            VideoActivity.startDirect(activity, key, id, name, pic, mark);
+            startDirectFromHistory(activity, key, id, name, pic, mark, playFlag, playEpisodeName, playEpisodeUrl, resumeHistory);
             return;
         }
         if (!TextUtils.isEmpty(key) && !SiteApi.PUSH.equals(key) && !TmdbSitePolicy.isEnabled(key, id)) {
-            VideoActivity.startDirect(activity, key, id, name, pic, mark);
+            startDirectFromHistory(activity, key, id, name, pic, mark, playFlag, playEpisodeName, playEpisodeUrl, resumeHistory);
             return;
         }
         Intent intent = new Intent(activity, TmdbDetailActivity.class);
@@ -471,7 +494,27 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         intent.putExtra("pic", pic);
         intent.putExtra("mark", mark);
         putTmdbItem(intent, tmdbItem);
+        if (resumeHistory != null) {
+            intent.putExtra(EXTRA_RESUME_FROM_HISTORY, true);
+            intent.putExtra(EXTRA_RESUME_HISTORY_CID, resumeHistory.getCid());
+            intent.putExtra(EXTRA_RESUME_HISTORY_KEY, resumeHistory.getKey());
+        }
+        putIntentPlaybackSelection(intent, playFlag, playEpisodeName, playEpisodeUrl);
         activity.startActivity(intent);
+    }
+
+    private static void startDirectFromHistory(Activity activity, String key, String id, String name, String pic, String mark, String playFlag, String playEpisodeName, String playEpisodeUrl, @Nullable History resumeHistory) {
+        if (resumeHistory == null) {
+            VideoActivity.startDirect(activity, key, id, name, pic, mark);
+            return;
+        }
+        VideoActivity.startDirect(activity, key, id, name, pic, mark, playFlag, playEpisodeName, playEpisodeUrl, resumeHistory);
+    }
+
+    private static void putIntentPlaybackSelection(Intent intent, String playFlag, String playEpisodeName, String playEpisodeUrl) {
+        if (!TextUtils.isEmpty(playFlag)) intent.putExtra(EXTRA_PLAY_FLAG, playFlag);
+        if (!TextUtils.isEmpty(playEpisodeName)) intent.putExtra(EXTRA_PLAY_EPISODE_NAME, playEpisodeName);
+        if (!TextUtils.isEmpty(playEpisodeUrl)) intent.putExtra(EXTRA_PLAY_EPISODE_URL, playEpisodeUrl);
     }
 
     private static int normalizeDetailMode(int detailMode) {
@@ -2142,9 +2185,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (loadedVod == null) return null;
         List<Flag> flags = loadedVod.getFlags();
         if (flags == null || flags.isEmpty()) return null;
+        String requestedFlag = getIntentPlaybackFlag();
+        for (Flag flag : flags) if (!TextUtils.isEmpty(requestedFlag) && TextUtils.equals(requestedFlag, flag.getFlag())) return flag;
         String historyFlag = "";
         try {
-            History saved = History.findPlayback(getHistoryKey(), List.of(loadedVod.getName(), getNameText()), flags, null, sourceTitleSeasonNumber());
+            History saved = isResumeFromHistory() ? getIntentResumeHistory() : null;
+            if (saved == null && !isResumeFromHistory()) saved = History.findPlayback(getHistoryKey(), List.of(loadedVod.getName(), getNameText()), flags, null, sourceTitleSeasonNumber());
             historyFlag = saved == null ? "" : saved.getVodFlag();
         } catch (Throwable ignored) {
         }
@@ -2160,8 +2206,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private Episode initialStandaloneEpisode(Vod loadedVod, List<Episode> episodes) {
         if (episodes == null || episodes.isEmpty()) return null;
+        Episode requested = findEpisodeByUrl(getIntentPlaybackEpisodeUrl(), episodes);
+        if (requested != null) return requested;
+        String requestedName = getIntentPlaybackEpisodeName();
+        for (Episode item : episodes) if (!TextUtils.isEmpty(requestedName) && (TextUtils.equals(requestedName, item.getName()) || TextUtils.equals(requestedName, item.getDisplayName()))) return item;
         try {
-            History saved = History.findPlayback(getHistoryKey(), List.of(loadedVod.getName(), getNameText()), loadedVod.getFlags(), null, sourceTitleSeasonNumber());
+            History saved = isResumeFromHistory() ? getIntentResumeHistory() : null;
+            if (saved == null && !isResumeFromHistory()) saved = History.findPlayback(getHistoryKey(), List.of(loadedVod.getName(), getNameText()), loadedVod.getFlags(), null, sourceTitleSeasonNumber());
             Episode episode = findEpisodeByUrl(saved == null ? "" : saved.getEpisodeUrl(), episodes);
             if (episode != null) return episode;
             if (saved != null) {
@@ -2235,6 +2286,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         enrichVod();
         clearEpisodeRenderCaches();
         initHistory();
+        if (history == null) return;
         bindPage();
         focusInlinePlayerPanel();
         maybeAutoPlayInline();
@@ -5109,7 +5161,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void initHistory() {
-        history = History.findPlayback(getHistoryKey(), List.of(vod.getName(), getNameText()), vod.getFlags(), matchedTmdbItem, sourceTitleSeasonNumber());
+        History resumeHistory = getIntentResumeHistory();
+        if (isResumeFromHistory() && resumeHistory == null) {
+            Notify.show(R.string.history_record_missing);
+            finish();
+            return;
+        }
+        history = resumeHistory == null
+                ? History.findPlayback(getHistoryKey(), List.of(vod.getName(), getNameText()), vod.getFlags(), matchedTmdbItem, sourceTitleSeasonNumber())
+                : resumeHistory.forPlaybackKey(getHistoryKey(), VodConfig.getCid());
         if (history == null) {
             history = new History();
             history.setKey(getHistoryKey());
@@ -5123,7 +5183,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void reloadHistoryAfterTmdbMatch() {
-        if (vod == null || matchedTmdbItem == null) return;
+        if (vod == null || matchedTmdbItem == null || isResumeFromHistory()) return;
         initHistory();
     }
 
@@ -5172,7 +5232,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             EpisodePosition position = historyEpisodePosition(selectedEpisode);
             String tmdbDetailCacheKey = TmdbDetailCache.put(item, matchedTmdbDetail, detailCastItems);
             SpiderDebug.log("tmdb-tv", "play launch prep cost=%dms title=%s", System.currentTimeMillis() - start, playbackHistoryName());
-            VideoActivity.startDirectTmdb(this, getKeyText(), getIdText(), playbackHistoryName(), playbackHistoryPic(), playbackMark(), fastPlaybackEpisodeTitles(), item, playbackTmdbVod(), vod, tmdbDetailCacheKey, playbackFlag(), playbackEpisodeName(), playbackEpisodeUrl(), position.season(), position.number());
+            VideoActivity.startDirectTmdb(this, getKeyText(), getIdText(), playbackHistoryName(), playbackHistoryPic(), playbackMark(), fastPlaybackEpisodeTitles(), item, playbackTmdbVod(), vod, tmdbDetailCacheKey, playbackFlag(), playbackEpisodeName(), playbackEpisodeUrl(), position.season(), position.number(), isResumeFromHistory() ? getIntentResumeHistory() : null);
         });
     }
 
@@ -6244,6 +6304,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void toggleInlinePlayback() {
         if (!isInlinePlayerMode()) return;
+        if (inlinePlaybackReconnectPending) return;
         if (controller() == null || service() == null || player().isEmpty()) {
             if (isSamePendingInlinePlayback(selectedEpisode)) return;
             onPlay();
@@ -9285,19 +9346,38 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     @Override
+    public void onServiceDisconnected(ComponentName name) {
+        if (inlineStarted && currentInlineResult != null) {
+            saveInlineHistory();
+            inlinePlaybackReconnectPending = true;
+        }
+        super.onServiceDisconnected(name);
+    }
+
+    @Override
     protected void onServiceConnected() {
         ensureInlineDanmakuController();
+        restoreInlinePlaybackIfNeeded();
         startPendingInlinePlayer();
     }
 
     @Override
     protected void onControllerConnected() {
+        restoreInlinePlaybackIfNeeded();
         startPendingInlinePlayer();
     }
 
     private void startPendingInlinePlayer() {
         if (pendingInlineResult == null || service() == null || controller() == null) return;
         startInlinePlayer(pendingInlineResult);
+    }
+
+    private void restoreInlinePlaybackIfNeeded() {
+        if (!inlinePlaybackReconnectPending || service() == null || controller() == null || player() == null) return;
+        inlinePlaybackReconnectPending = false;
+        if (currentInlineResult != null && player().isEmpty()) {
+            startInlinePlayer(currentInlineResult, getInlineResumePosition());
+        }
     }
 
     private void ensureInlineDanmakuController() {
@@ -10614,6 +10694,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private Flag findInitialFlag(List<Flag> flags) {
+        String requestedFlag = getIntentPlaybackFlag();
+        for (Flag flag : flags) if (!TextUtils.isEmpty(requestedFlag) && requestedFlag.equals(flag.getFlag())) return flag;
         String historyFlag = history != null ? history.getVodFlag() : "";
         for (Flag flag : flags) {
             if (!TextUtils.isEmpty(historyFlag) && historyFlag.equals(flag.getFlag())) return flag;
@@ -11010,6 +11092,28 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     @androidx.annotation.Keep
     private History getHistory() {
         return mHistory == null ? history : mHistory;
+    }
+
+    private boolean isResumeFromHistory() {
+        return getIntent().getBooleanExtra(EXTRA_RESUME_FROM_HISTORY, false);
+    }
+
+    private History getIntentResumeHistory() {
+        String key = Objects.toString(getIntent().getStringExtra(EXTRA_RESUME_HISTORY_KEY), "");
+        if (key.isEmpty()) return null;
+        return History.find(getIntent().getIntExtra(EXTRA_RESUME_HISTORY_CID, VodConfig.getCid()), key);
+    }
+
+    private String getIntentPlaybackFlag() {
+        return Objects.toString(getIntent().getStringExtra(EXTRA_PLAY_FLAG), "");
+    }
+
+    private String getIntentPlaybackEpisodeName() {
+        return Objects.toString(getIntent().getStringExtra(EXTRA_PLAY_EPISODE_NAME), "");
+    }
+
+    private String getIntentPlaybackEpisodeUrl() {
+        return Objects.toString(getIntent().getStringExtra(EXTRA_PLAY_EPISODE_URL), "");
     }
 
     private String getKeyText() {
