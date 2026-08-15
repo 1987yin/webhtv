@@ -1783,6 +1783,31 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void mobileLegacyDetailPhotoCardsOpenOnFirstTapAcrossDetailFlows() throws Exception {
+        Path adapterPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "TmdbPhotoAdapter.java"));
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String adapter = new String(Files.readAllBytes(adapterPath), StandardCharsets.UTF_8);
+        String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
+        int holderConstructor = adapter.indexOf("public ViewHolder(@NonNull android.view.View itemView)");
+        int bind = adapter.indexOf("void bind(", holderConstructor);
+
+        assertTrue(adapterPath + " is missing the shared photo holder", holderConstructor >= 0 && bind > holderConstructor);
+        String holderBody = adapter.substring(holderConstructor, bind);
+        assertTrue("mobile legacy photo cards must bypass first-tap focus while TV keeps layout focus",
+                holderBody.contains("if (!Util.isLeanback()) {")
+                        && holderBody.contains("itemView.setFocusable(false);")
+                        && holderBody.contains("itemView.setFocusableInTouchMode(false);")
+                        && !holderBody.contains("!legacyMode && !Util.isLeanback()"));
+        assertTrue("main photos plus movie and episode detail dialogs must share the corrected photo adapter",
+                activity.contains("episodePhotoAdapter = new TmdbPhotoAdapter(this::showPhotoDialog);")
+                        && activity.contains("new TmdbPhotoAdapter((position, url) -> showPhotoDialog(position, url, new ArrayList<>()))")
+                        && activity.contains("new TmdbPhotoAdapter((position, url) -> showPhotoDialog(position, url, photos))"));
+        assertTrue("detail photo clicks must still open the full-screen original image dialog",
+                activity.contains("private void showPhotoDialog(int position, String url, List<String> sourcePhotos)")
+                        && activity.contains("Dialog dialog = new Dialog(this);"));
+    }
+
+    @Test
     public void detailPhotoCardsUseUnifiedMaterialFocusStrokeAndAlignedCorners() throws Exception {
         Path layoutPath = findMainResPath().resolve(Path.of("layout", "adapter_tmdb_photo.xml"));
         Path adapterPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "TmdbPhotoAdapter.java"));
