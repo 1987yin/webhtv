@@ -237,6 +237,33 @@ public class EpisodeAdapterTest {
     }
 
 
+    @Test
+    public void mobileEpisodeDetailPhotosOpenOnFirstTapAcrossEpisodeModes() throws Exception {
+        String photoLayout = read(findMainResPath().resolve(Path.of("layout", "adapter_tmdb_photo.xml")));
+        String stillAdapter = read(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "EpisodeStillAdapter.java")));
+        String detailDialog = read(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "EpisodeDetailDialog.java")));
+        String gridHolder = read(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "holder", "EpisodeGridHolder.java")));
+        String horiHolder = read(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "holder", "EpisodeHoriHolder.java")));
+        String tvAdapter = read(findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "EpisodePhotoAdapter.java")));
+
+        assertTrue("shared photo cards may remain touch-focusable for TV navigation",
+                photoLayout.contains("android:focusable=\"true\"")
+                        && photoLayout.contains("android:focusableInTouchMode=\"true\""));
+        assertTrue("mobile episode stills must bypass first-tap focus and open the original immediately",
+                stillAdapter.contains("itemView.setFocusable(false);")
+                        && stillAdapter.contains("itemView.setFocusableInTouchMode(false);")
+                        && stillAdapter.contains("itemView.setOnClickListener"));
+        assertTrue("both mobile grid and horizontal episode modes must open the same detail dialog",
+                gridHolder.contains("EpisodeDetailDialog.show(activity, item);")
+                        && horiHolder.contains("EpisodeDetailDialog.show(activity, item);"));
+        assertTrue("the shared mobile episode dialog must route every theme through the immediate-touch adapter",
+                detailDialog.contains("new EpisodeStillAdapter(photos")
+                        && detailDialog.contains("PhotoViewerDialog.show(activity, photos, position, null)"));
+        assertFalse("TV episode photos must keep their focus-first navigation behavior",
+                tvAdapter.contains("itemView.setFocusable(false);")
+                        || tvAdapter.contains("itemView.setFocusableInTouchMode(false);"));
+    }
+
     private static void assertMarquee(String owner, String layout, String id) throws Exception {
         Element element = findById(parseLayout(layout), id);
         assertTrue(owner + " must marquee only when its text overflows",

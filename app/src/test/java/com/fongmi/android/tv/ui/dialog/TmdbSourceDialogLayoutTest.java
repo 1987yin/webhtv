@@ -47,6 +47,9 @@ public class TmdbSourceDialogLayoutTest {
 
         assertTrue("season selection must be implemented once in the shared choice dialog",
                 choiceDialog.contains("showTmdbSeason("));
+        assertTrue("season selection must expose deterministic TMDB count slicing before AI",
+                choiceDialog.contains("R.string.tmdb_season_auto_by_counts")
+                        && choiceDialog.contains("listener.onTmdbCounts()"));
         assertTrue("mobile playback should merge season matching into the episode heading",
                 !sharedHeader.contains("@+id/tmdbSeasonMatch")
                         && mobileActivity.contains("mBinding.episodeTitle.setOnClickListener"));
@@ -77,6 +80,26 @@ public class TmdbSourceDialogLayoutTest {
                         && leanbackActivity.contains("maybeShowPendingTmdbSeasonDialog();"));
         assertTrue("detail rematch must invalidate a stale season binding before loading it",
                 detailActivity.contains("cache.removeIfMediaChanged(getKeyText(), getIdText(), sourceTitle,"));
+    }
+
+    @Test
+    public void aiSeasonAnalysisUsesCancellableLoadingOnAllSurfaces() throws Exception {
+        String loadingDialog = read(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "AiAnalysisDialog.java")));
+        String service = read(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "service", "AiEpisodeSeasonService.java")));
+        String detailActivity = read(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java")));
+        String mobileActivity = read(findFlavorJavaPath("mobile").resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")));
+        String leanbackActivity = read(findFlavorJavaPath("leanback").resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")));
+
+        assertTrue("AI analysis must show indeterminate progress and allow back-button cancellation",
+                loadingDialog.contains("progress.setIndeterminate(true)")
+                        && loadingDialog.contains("dialog.setOnCancelListener")
+                        && loadingDialog.contains("dialog.setCanceledOnTouchOutside(false)"));
+        assertTrue("canceling AI analysis must cancel the active HTTP call",
+                service.contains("public void cancel()") && service.contains("call.cancel()"));
+        assertTrue("all detail surfaces must use the cancellable AI loading dialog",
+                detailActivity.contains("AiAnalysisDialog.show(")
+                        && mobileActivity.contains("AiAnalysisDialog.show(")
+                        && leanbackActivity.contains("AiAnalysisDialog.show("));
     }
 
 
