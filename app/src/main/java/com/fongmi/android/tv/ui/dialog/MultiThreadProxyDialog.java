@@ -3,10 +3,13 @@ package com.fongmi.android.tv.ui.dialog;
 import android.app.Dialog;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
+import android.text.Layout;
 import android.text.TextUtils;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.widget.EditText;
 
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
@@ -110,6 +113,62 @@ public class MultiThreadProxyDialog extends BaseAlertDialog {
         binding.cancel.setOnClickListener(view -> dismiss());
         binding.extractCurrentDomain.setOnClickListener(view -> extractCurrentDomain());
         binding.save.setOnClickListener(view -> save());
+        wireRemoteFocus();
+    }
+
+    private void wireRemoteFocus() {
+        wireDpadFocus(binding.enabled, null, binding.rangeConcurrency, null, null);
+        wireDpadFocus(binding.rangeConcurrency, binding.enabled, binding.shardCount, null, null);
+        wireDpadFocus(binding.shardCount, binding.rangeConcurrency, binding.extractCurrentDomain, null, null);
+        wireDpadFocus(binding.extractCurrentDomain, binding.shardCount, binding.domainRules, null, null);
+        wireMultilineDpadFocus(binding.domainRules, binding.extractCurrentDomain, binding.save);
+        wireDpadFocus(binding.cancel, binding.domainRules, null, null, binding.save);
+        wireDpadFocus(binding.save, binding.domainRules, null, binding.cancel, null);
+    }
+
+    private static void wireMultilineDpadFocus(EditText input, View upTarget, View downTarget) {
+        input.setOnKeyListener((view, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP && upTarget != null && isCursorAtFirstLine(input)) {
+                return requestFocus(upTarget);
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && downTarget != null && isCursorAtLastLine(input)) {
+                return requestFocus(downTarget);
+            }
+            return false;
+        });
+    }
+
+    private static void wireDpadFocus(View view, View up, View down, View left, View right) {
+        view.setOnKeyListener((target, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP && up != null) return requestFocus(up);
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && down != null) return requestFocus(down);
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && left != null) return requestFocus(left);
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && right != null) return requestFocus(right);
+            return false;
+        });
+    }
+
+    private static boolean requestFocus(View view) {
+        view.requestFocus();
+        return true;
+    }
+
+    private static boolean isCursorAtFirstLine(EditText input) {
+        Layout layout = input.getLayout();
+        if (layout == null) return false;
+        return layout.getLineForOffset(selection(input)) <= 0;
+    }
+
+    private static boolean isCursorAtLastLine(EditText input) {
+        Layout layout = input.getLayout();
+        if (layout == null) return false;
+        return layout.getLineForOffset(selection(input)) >= layout.getLineCount() - 1;
+    }
+
+    private static int selection(EditText input) {
+        return Math.max(0, input.getSelectionStart());
     }
 
     private void extractCurrentDomain() {
