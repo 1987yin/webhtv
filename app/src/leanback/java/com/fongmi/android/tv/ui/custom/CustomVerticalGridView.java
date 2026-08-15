@@ -91,9 +91,17 @@ public class CustomVerticalGridView extends VerticalGridView {
     public boolean dispatchKeyEvent(@NonNull KeyEvent event) {
         if (!KeyUtil.isActionDown(event)) return super.dispatchKeyEvent(event);
         if (KeyUtil.isBackKey(event)) return moveTop && moveToTop();
+        if (KeyUtil.isUpKey(event) && focusHeader()) return true;
         pressUp = KeyUtil.isUpKey(event);
         pressDown = KeyUtil.isDownKey(event);
         return super.dispatchKeyEvent(event);
+    }
+
+    private boolean focusHeader() {
+        if (views == null || getSelectedPosition() != 0) return false;
+        showHeader();
+        for (View view : views) if (view.requestFocus()) return true;
+        return false;
     }
 
     public boolean moveToTop() {

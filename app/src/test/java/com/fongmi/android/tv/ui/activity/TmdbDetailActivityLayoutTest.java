@@ -462,6 +462,50 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void inlinePlaybackReconnectRestoresExistingResultBeforeRetryingSourceResolution() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int disconnect = source.indexOf("public void onServiceDisconnected(ComponentName name)");
+        int disconnectEnd = source.indexOf("@Override", disconnect + 1);
+        int restore = source.indexOf("private void restoreInlinePlaybackIfNeeded()");
+        int restoreEnd = source.indexOf("private ", restore + 1);
+        int service = source.indexOf("protected void onServiceConnected()");
+        int controller = source.indexOf("protected void onControllerConnected()");
+
+        assertTrue("detail playback must observe service disconnects", disconnect >= 0 && disconnectEnd > disconnect);
+        String disconnectBody = source.substring(disconnect, disconnectEnd);
+        assertTrue("disconnecting inline playback must persist the last known position before detaching",
+                disconnectBody.contains("saveInlineHistory();")
+                        && disconnectBody.indexOf("saveInlineHistory();") < disconnectBody.indexOf("super.onServiceDisconnected(name);"));
+        assertTrue("disconnecting inline playback must mark the session for reconnect before detaching",
+                disconnectBody.contains("inlinePlaybackReconnectPending = true;")
+                        && disconnectBody.indexOf("inlinePlaybackReconnectPending = true;") < disconnectBody.indexOf("super.onServiceDisconnected(name);"));
+        assertTrue("inline playback must have a dedicated reconnect restore path", restore >= 0 && restoreEnd > restore);
+        String restoreBody = source.substring(restore, restoreEnd);
+        assertTrue("reconnect restore must require the previous inline result and an empty player",
+                restoreBody.contains("inlinePlaybackReconnectPending")
+                        && restoreBody.contains("currentInlineResult != null")
+                        && restoreBody.contains("player().isEmpty()"));
+        assertTrue("reconnect restore must resume from the position saved before detaching",
+                restoreBody.contains("startInlinePlayer(currentInlineResult, getInlineResumePosition());"));
+        assertTrue("service reconnect must attempt to restore an interrupted inline session",
+                service >= 0 && source.indexOf("restoreInlinePlaybackIfNeeded();", service) > service);
+        assertTrue("controller reconnect must attempt to restore an interrupted inline session",
+                controller >= 0 && source.indexOf("restoreInlinePlaybackIfNeeded();", controller) > controller);
+    }
+
+    @Test
+    public void inlinePlaybackDoesNotResolveSourceAgainWhileServiceReconnects() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int toggle = source.indexOf("private void toggleInlinePlayback()");
+        int toggleEnd = source.indexOf("private void toggleInlineControls()", toggle);
+        String body = toggle >= 0 && toggleEnd > toggle ? source.substring(toggle, toggleEnd) : "";
+
+        assertTrue("playback toggle must wait for service reconnect instead of resolving the source again",
+                body.contains("inlinePlaybackReconnectPending")
+                        && body.indexOf("inlinePlaybackReconnectPending") < body.indexOf("onPlay();"));
+    }
+
+    @Test
     public void playbackPageHidesThemeActionsWhileEnhancedDetailKeepsThem() throws Exception {
         String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
         int method = source.indexOf("private void updateDetailThemeButtonVisibility()");
@@ -1736,6 +1780,31 @@ public class TmdbDetailActivityLayoutTest {
                 updateStatesBody.contains("setChipState(button, i == episodeRangeIndex);")
                         && updateStatesBody.contains("setEpisodeRangeFocusChange(button, i);")
                         && updateStatesBody.indexOf("setChipState(button, i == episodeRangeIndex);") < updateStatesBody.indexOf("setEpisodeRangeFocusChange(button, i);"));
+    }
+
+    @Test
+    public void mobileLegacyDetailPhotoCardsOpenOnFirstTapAcrossDetailFlows() throws Exception {
+        Path adapterPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "TmdbPhotoAdapter.java"));
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String adapter = new String(Files.readAllBytes(adapterPath), StandardCharsets.UTF_8);
+        String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
+        int holderConstructor = adapter.indexOf("public ViewHolder(@NonNull android.view.View itemView)");
+        int bind = adapter.indexOf("void bind(", holderConstructor);
+
+        assertTrue(adapterPath + " is missing the shared photo holder", holderConstructor >= 0 && bind > holderConstructor);
+        String holderBody = adapter.substring(holderConstructor, bind);
+        assertTrue("mobile legacy photo cards must bypass first-tap focus while TV keeps layout focus",
+                holderBody.contains("if (!Util.isLeanback()) {")
+                        && holderBody.contains("itemView.setFocusable(false);")
+                        && holderBody.contains("itemView.setFocusableInTouchMode(false);")
+                        && !holderBody.contains("!legacyMode && !Util.isLeanback()"));
+        assertTrue("main photos plus movie and episode detail dialogs must share the corrected photo adapter",
+                activity.contains("episodePhotoAdapter = new TmdbPhotoAdapter(this::showPhotoDialog);")
+                        && activity.contains("new TmdbPhotoAdapter((position, url) -> showPhotoDialog(position, url, new ArrayList<>()))")
+                        && activity.contains("new TmdbPhotoAdapter((position, url) -> showPhotoDialog(position, url, photos))"));
+        assertTrue("detail photo clicks must still open the full-screen original image dialog",
+                activity.contains("private void showPhotoDialog(int position, String url, List<String> sourcePhotos)")
+                        && activity.contains("Dialog dialog = new Dialog(this);"));
     }
 
     @Test

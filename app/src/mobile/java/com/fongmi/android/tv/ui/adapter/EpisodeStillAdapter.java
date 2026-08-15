@@ -66,6 +66,8 @@ public class EpisodeStillAdapter extends RecyclerView.Adapter<EpisodeStillAdapte
 
         ViewHolder(@NonNull View itemView) {
             super(itemView);
+            itemView.setFocusable(false);
+            itemView.setFocusableInTouchMode(false);
             this.photo = itemView.findViewById(R.id.photo);
         }
     }
