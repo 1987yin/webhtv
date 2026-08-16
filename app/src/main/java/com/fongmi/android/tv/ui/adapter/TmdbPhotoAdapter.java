@@ -85,7 +85,7 @@ public class TmdbPhotoAdapter extends RecyclerView.Adapter<TmdbPhotoAdapter.View
     @NonNull
     @Override
     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.adapter_tmdb_photo, parent, false), legacyMode);
+        return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.adapter_tmdb_photo, parent, false));
     }
 
     @Override
@@ -106,16 +106,6 @@ public class TmdbPhotoAdapter extends RecyclerView.Adapter<TmdbPhotoAdapter.View
         public ViewHolder(@NonNull android.view.View itemView) {
             super(itemView);
             if (!Util.isLeanback()) {
-                itemView.setFocusable(false);
-                itemView.setFocusableInTouchMode(false);
-            }
-            card = (MaterialCardView) itemView;
-            photo = itemView.findViewById(R.id.photo);
-        }
-
-        public ViewHolder(@NonNull android.view.View itemView, boolean legacyMode) {
-            super(itemView);
-            if (!legacyMode && !Util.isLeanback()) {
                 itemView.setFocusable(false);
                 itemView.setFocusableInTouchMode(false);
             }
