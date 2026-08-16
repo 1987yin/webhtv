@@ -180,7 +180,9 @@ public class VideoActivityHistoryTitleTest {
                 "private void loadDetailSync(Vod vod, TmdbItem item, JsonObject cachedDetail, List<TmdbPerson> cachedCast, int generation)");
         String captureSeason = methodBody(source, "private void captureSourceSeason(Vod sourceVod, String sourceTitle)");
         assertTrue("TMDB source-season capture must preserve explicit season zero for specials",
-                captureSeason.contains("titleSeasonNumber = EpisodeSeasonPolicy.resolveSourceSeason(")
+                captureSeason.contains("boolean pushSource = SiteApi.PUSH.equals(cacheSiteKey(sourceVod));")
+                        && captureSeason.contains("? EpisodeSeasonPolicy.resolveExplicitSourceSeason(")
+                        && captureSeason.contains(": EpisodeSeasonPolicy.resolveSourceSeason(")
                         && captureSeason.contains("addExplicitSeason(explicit, EpisodeSeasonPolicy.resolveExplicitSourceSeason(")
                         && source.contains("if (season >= 0 && !seasons.contains(season))"));
         assertTrue("TMDB source-season capture must not treat source-line ordinals as seasons",

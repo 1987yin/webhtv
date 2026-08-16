@@ -1247,18 +1247,18 @@ public class TmdbDetailActivityLayoutTest {
                         && metaBody.contains("addMetaChip(episodeInfo.detailText(this));")
                         && metaBody.contains("if (!episodeInfo.isSeasonScoped())")
                         && metaBody.contains("addMetaChip(currentSeasonContextLabel());"));
-        assertTrue("the episode heading must render a localized current-season label",
+        assertTrue("the standalone season action must render a localized current-season label",
                 contextBody.contains("availableSeasonNumbers(episodes)")
-                        && contextBody.contains("R.string.detail_episode_season_context")
-                        && contextBody.contains("binding.episodeTitle.setText")
+                        && contextBody.contains("R.string.detail_season_format")
+                        && source.contains("binding.episodeTitle.setText(detailSeasonButtonLabel())")
                         && contextBody.contains("bindMeta();"));
 
         String defaults = new String(Files.readAllBytes(findMainResPath().resolve(Path.of("values", "strings.xml"))), StandardCharsets.UTF_8);
         String simplified = new String(Files.readAllBytes(findMainResPath().resolve(Path.of("values-zh-rCN", "strings.xml"))), StandardCharsets.UTF_8);
         String traditional = new String(Files.readAllBytes(findMainResPath().resolve(Path.of("values-zh-rTW", "strings.xml"))), StandardCharsets.UTF_8);
-        assertTrue(defaults.contains("<string name=\"detail_episode_season_context\">Episode · Season %1$d</string>"));
-        assertTrue(simplified.contains("<string name=\"detail_episode_season_context\">选集 · 第 %1$d 季</string>"));
-        assertTrue(traditional.contains("<string name=\"detail_episode_season_context\">選集 · 第 %1$d 季</string>"));
+        assertTrue(defaults.contains("<string name=\"tmdb_season_button\">Season</string>"));
+        assertTrue(simplified.contains("<string name=\"tmdb_season_button\">季度</string>"));
+        assertTrue(traditional.contains("<string name=\"tmdb_season_button\">季度</string>"));
     }
 
     @Test
@@ -1484,6 +1484,60 @@ public class TmdbDetailActivityLayoutTest {
                         && alignBody.contains("if (rect.bottom > bottom) targetY += rect.bottom - bottom;")
                         && alignBody.contains("else if (rect.top < top) targetY += rect.top - top;")
                         && !alignBody.contains("isDetailEpisodeRowFullyVisible"));
+    }
+
+    @Test
+    public void detailEpisodeTitleSharesToolFocusChromeAndNavigation() throws Exception {
+        String layout = readLayout("activity_tmdb_detail.xml");
+        String activity = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int label = layout.indexOf("android:id=\"@+id/episodeLabel\"");
+        int title = layout.indexOf("android:id=\"@+id/episodeTitle\"");
+        int titleTag = layout.lastIndexOf("<com.google.android.material.button.MaterialButton", title);
+        int previousTagEnd = layout.lastIndexOf('>', title);
+
+        assertTrue("episode section title and season action must be separate controls",
+                label >= 0 && label < title);
+        assertTrue("episode title must use the same Material button surface as its neighboring tools",
+                title >= 0 && titleTag > previousTagEnd);
+        assertFalse("episode title must not retain the circular borderless focus ripple",
+                containsViewAttribute(layout, title, "android:background=\"?attr/selectableItemBackgroundBorderless\""));
+        assertTrue("season action must keep its label on one fully visible line inside the compact header",
+                containsViewAttribute(layout, title, "android:singleLine=\"true\"")
+                        && containsViewAttribute(layout, title, "android:insetTop=\"0dp\"")
+                        && containsViewAttribute(layout, title, "android:insetBottom=\"0dp\""));
+        assertTrue("episode title must use the shared episode-tool focus chrome when it is actionable",
+                activity.contains("setEpisodeTitleButton(binding.episodeTitle, colors);")
+                        && activity.contains("private void applyEpisodeTitleButtonFocus(MaterialButton button, ThemeColors colors)"));
+        assertTrue("unfocused season action must blend into the episode heading without a persistent chip surface",
+                activity.contains("button.setBackgroundTintList(ColorStateList.valueOf(focused ? colors.control : Color.TRANSPARENT));")
+                        && activity.contains("button.setStrokeWidth(focused ? ResUtil.dp2px(FOCUS_STROKE_DP) : 0);"));
+        assertTrue("season action must show only a short season label instead of combining it with the episode heading",
+                activity.contains("binding.episodeTitle.setText(detailSeasonButtonLabel());")
+                        && activity.contains("private String detailSeasonButtonLabel()")
+                        && activity.contains("R.string.detail_season_format")
+                        && activity.contains("R.string.tmdb_season_button"));
+        assertFalse("combined episode and season text must not be assigned to the season action",
+                activity.contains("binding.episodeTitle.setText(season < 0 ? getString(R.string.detail_episode) : getString(R.string.detail_episode_season_context, season));"));
+
+        int init = activity.indexOf("private void initPage()");
+        int initEnd = activity.indexOf("private void initFusionPlayer()", init);
+        String initBody = init >= 0 && initEnd > init ? activity.substring(init, initEnd) : "";
+        assertTrue("episode title must handle the same DPAD navigation as the neighboring tools",
+                initBody.contains("binding.episodeTitle.setOnKeyListener((view, keyCode, event) -> onDetailEpisodeToolKey(view, keyCode, event));")
+                        && initBody.contains("binding.episodeTitle.setNextFocusRightId(R.id.episodeReverse);")
+                        && initBody.contains("binding.episodeReverse.setNextFocusLeftId(R.id.episodeTitle);"));
+
+        int focusTools = activity.indexOf("private boolean focusDetailEpisodeToolButton(int direction)");
+        int focusButton = activity.indexOf("private boolean focusDetailButton(View button, int direction)", focusTools);
+        String focusToolsBody = focusTools >= 0 && focusButton > focusTools ? activity.substring(focusTools, focusButton) : "";
+        assertTrue("episode cards moving up must target the leftmost actionable episode-header button first",
+                focusToolsBody.indexOf("focusDetailButton(binding.episodeTitle, direction)") >= 0
+                        && focusToolsBody.indexOf("focusDetailButton(binding.episodeTitle, direction)")
+                        < focusToolsBody.indexOf("focusDetailButton(binding.episodeReverse, direction)"));
+        assertTrue("disabled episode titles must be skipped instead of swallowing directional focus",
+                activity.contains("!button.isFocusable()"));
+        assertTrue("global detail navigation must recognize episode title as part of the tool group",
+                activity.contains("view == binding.episodeTitle || view == binding.episodeReverse"));
     }
 
     @Test
@@ -2184,12 +2238,14 @@ public class TmdbDetailActivityLayoutTest {
                         && episodeKeyBody.indexOf("focusDetailEpisodeRangeButton()") < episodeKeyBody.indexOf("focusDetailEpisodeToolButton(View.FOCUS_UP)")
                         && episodeKeyBody.indexOf("focusDetailEpisodeToolButton(View.FOCUS_UP)") < episodeKeyBody.indexOf("focusDetailFlagButton()"));
         assertTrue("episode header tool focusing should include every visible header tool",
-                helperBody.contains("return focusDetailButton(binding.episodeReverse, direction)")
+                helperBody.contains("return focusDetailButton(binding.episodeTitle, direction)")
+                        && helperBody.contains("|| focusDetailButton(binding.episodeReverse, direction)")
                         && helperBody.contains("|| focusDetailButton(binding.episodeFileName, direction)")
                         && helperBody.contains("|| focusDetailButton(binding.episodeViewMode, direction);")
                         && helperBody.contains("button.requestFocus(direction);"));
         assertTrue("episode header tools should move down to seasons or episode ranges without returning to lines",
-                activity.contains("binding.episodeReverse.setOnKeyListener((view, keyCode, event) -> onDetailEpisodeToolKey(view, keyCode, event));")
+                activity.contains("binding.episodeTitle.setOnKeyListener((view, keyCode, event) -> onDetailEpisodeToolKey(view, keyCode, event));")
+                        && activity.contains("binding.episodeReverse.setOnKeyListener((view, keyCode, event) -> onDetailEpisodeToolKey(view, keyCode, event));")
                         && activity.contains("binding.episodeFileName.setOnKeyListener((view, keyCode, event) -> onDetailEpisodeToolKey(view, keyCode, event));")
                         && activity.contains("binding.episodeViewMode.setOnKeyListener((view, keyCode, event) -> onDetailEpisodeToolKey(view, keyCode, event));")
                         && activity.contains("if (KeyUtil.isLeftKey(event) || KeyUtil.isRightKey(event)) return onDetailHorizontalButtonGroupKey(binding.episodeHeader, null, view, event);")

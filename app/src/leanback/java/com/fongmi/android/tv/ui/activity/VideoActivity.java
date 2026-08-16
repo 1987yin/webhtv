@@ -931,7 +931,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (season >= 0) return season;
         season = resolveSourceEpisodeSeason(sourceFlag);
         if (season >= 0) return season;
-        season = EpisodeSeasonPolicy.resolveSourceSeason(getName(), mSourceVodName,
+        season = SiteApi.PUSH.equals(getKey())
+                ? EpisodeSeasonPolicy.resolveExplicitSourceSeason(getName(), mSourceVodName,
+                item == null ? "" : item.getName(), item == null ? "" : item.getRemarks())
+                : EpisodeSeasonPolicy.resolveSourceSeason(getName(), mSourceVodName,
                 item == null ? "" : item.getName(), item == null ? "" : item.getRemarks());
         if (season >= 0) return season;
         season = resolveSourceEpisodeSeason(item);
@@ -3001,13 +3004,13 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private int findFocusDown(int index) {
         List<Integer> orders = getEpisodeFocusOrders();
-        for (int i = 0; i < orders.size(); i++) if (i > index) if (isVisible(findViewById(orders.get(i)))) return orders.get(i);
+        for (int i = 0; i < orders.size(); i++) if (i > index) if (isEpisodeFocusTarget(findViewById(orders.get(i)))) return orders.get(i);
         return 0;
     }
 
     private int findFocusUp(int index) {
         List<Integer> orders = getEpisodeFocusOrders();
-        for (int i = orders.size() - 1; i >= 0; i--) if (i < index) if (isVisible(findViewById(orders.get(i)))) return orders.get(i);
+        for (int i = orders.size() - 1; i >= 0; i--) if (i < index) if (isEpisodeFocusTarget(findViewById(orders.get(i)))) return orders.get(i);
         return 0;
     }
 
@@ -3015,11 +3018,16 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         return getEpisodeFocusOrders().indexOf(id);
     }
 
+    private boolean isEpisodeFocusTarget(View view) {
+        return view != null && isVisible(view) && (view.isFocusable() || view.hasFocusable());
+    }
+
     private List<Integer> getEpisodeFocusOrders() {
         return Arrays.asList(
                 R.id.flag,
                 R.id.quality,
                 R.id.array,
+                R.id.episodeTitle,
                 R.id.episodeReverse,
                 R.id.episodeViewMode,
                 R.id.episodeFileName,
@@ -3057,44 +3065,73 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void updateEpisodeHeaderFocus() {
-        int up = findFocusUp(episodeFocusIndex(R.id.episodeReverse));
-        int down = findFocusDown(episodeFocusIndex(R.id.episodeFileName));
-        mBinding.episodeReverse.setNextFocusUpId(up == 0 ? View.NO_ID : up);
-        mBinding.episodeReverse.setNextFocusDownId(down == 0 ? View.NO_ID : down);
-        mBinding.episodeReverse.setNextFocusRightId(R.id.episodeViewMode);
-        mBinding.episodeViewMode.setNextFocusUpId(up == 0 ? View.NO_ID : up);
-        mBinding.episodeViewMode.setNextFocusDownId(down == 0 ? View.NO_ID : down);
-        mBinding.episodeViewMode.setNextFocusLeftId(R.id.episodeReverse);
-        mBinding.episodeViewMode.setNextFocusRightId(R.id.episodeFileName);
-        mBinding.episodeFileName.setNextFocusUpId(up == 0 ? View.NO_ID : up);
-        mBinding.episodeFileName.setNextFocusDownId(down == 0 ? View.NO_ID : down);
-        mBinding.episodeFileName.setNextFocusLeftId(R.id.episodeViewMode);
+        int title = episodeFocusIndex(R.id.episodeTitle);
+        int reverse = episodeFocusIndex(R.id.episodeReverse);
+        int fileName = episodeFocusIndex(R.id.episodeFileName);
+        int up = findFocusUp(isEpisodeFocusTarget(mBinding.episodeTitle) ? title : reverse);
+        int down = findFocusDown(fileName);
+        int upId = up == 0 ? View.NO_ID : up;
+        int downId = down == 0 ? View.NO_ID : down;
+        boolean titleFocusable = isEpisodeFocusTarget(mBinding.episodeTitle);
+        int firstTool = firstEpisodeHeaderToolId();
+        mBinding.episodeTitle.setNextFocusUpId(upId);
+        mBinding.episodeTitle.setNextFocusDownId(downId);
+        mBinding.episodeTitle.setNextFocusRightId(firstTool == View.NO_ID ? View.NO_ID : firstTool);
+        mBinding.episodeReverse.setNextFocusUpId(upId);
+        mBinding.episodeReverse.setNextFocusDownId(downId);
+        mBinding.episodeReverse.setNextFocusLeftId(titleFocusable ? R.id.episodeTitle : View.NO_ID);
+        mBinding.episodeReverse.setNextFocusRightId(isEpisodeFocusTarget(mBinding.episodeViewMode)
+                ? R.id.episodeViewMode
+                : isEpisodeFocusTarget(mBinding.episodeFileName) ? R.id.episodeFileName : View.NO_ID);
+        mBinding.episodeViewMode.setNextFocusUpId(upId);
+        mBinding.episodeViewMode.setNextFocusDownId(downId);
+        mBinding.episodeViewMode.setNextFocusLeftId(isEpisodeFocusTarget(mBinding.episodeReverse)
+                ? R.id.episodeReverse : titleFocusable ? R.id.episodeTitle : View.NO_ID);
+        mBinding.episodeViewMode.setNextFocusRightId(isEpisodeFocusTarget(mBinding.episodeFileName)
+                ? R.id.episodeFileName : View.NO_ID);
+        mBinding.episodeFileName.setNextFocusUpId(upId);
+        mBinding.episodeFileName.setNextFocusDownId(downId);
+        mBinding.episodeFileName.setNextFocusLeftId(isEpisodeFocusTarget(mBinding.episodeViewMode)
+                ? R.id.episodeViewMode
+                : isEpisodeFocusTarget(mBinding.episodeReverse)
+                ? R.id.episodeReverse : titleFocusable ? R.id.episodeTitle : View.NO_ID);
+    }
+
+    private int firstEpisodeHeaderToolId() {
+        if (isEpisodeFocusTarget(mBinding.episodeReverse)) return R.id.episodeReverse;
+        if (isEpisodeFocusTarget(mBinding.episodeViewMode)) return R.id.episodeViewMode;
+        if (isEpisodeFocusTarget(mBinding.episodeFileName)) return R.id.episodeFileName;
+        return View.NO_ID;
     }
 
     private boolean onEpisodeHeaderToolKey(View view, int keyCode, KeyEvent event) {
         if (!KeyUtil.isLeftKey(event) && !KeyUtil.isRightKey(event)) return false;
         if (!KeyUtil.isActionDown(event)) return true;
-        if (KeyUtil.isRightKey(event) && view == mBinding.episodeReverse && isVisible(mBinding.episodeViewMode)) {
+        if (KeyUtil.isLeftKey(event) && view == mBinding.episodeReverse && isEpisodeFocusTarget(mBinding.episodeTitle)) {
+            mBinding.episodeTitle.requestFocus(View.FOCUS_LEFT);
+            return true;
+        }
+        if (KeyUtil.isRightKey(event) && view == mBinding.episodeReverse && isEpisodeFocusTarget(mBinding.episodeViewMode)) {
             mBinding.episodeViewMode.requestFocus(View.FOCUS_RIGHT);
             return true;
         }
-        if (KeyUtil.isRightKey(event) && view == mBinding.episodeReverse && !isVisible(mBinding.episodeViewMode) && isVisible(mBinding.episodeFileName)) {
+        if (KeyUtil.isRightKey(event) && view == mBinding.episodeReverse && !isEpisodeFocusTarget(mBinding.episodeViewMode) && isEpisodeFocusTarget(mBinding.episodeFileName)) {
             mBinding.episodeFileName.requestFocus(View.FOCUS_RIGHT);
             return true;
         }
-        if (KeyUtil.isRightKey(event) && view == mBinding.episodeViewMode && isVisible(mBinding.episodeFileName)) {
+        if (KeyUtil.isRightKey(event) && view == mBinding.episodeViewMode && isEpisodeFocusTarget(mBinding.episodeFileName)) {
             mBinding.episodeFileName.requestFocus(View.FOCUS_RIGHT);
             return true;
         }
-        if (KeyUtil.isLeftKey(event) && view == mBinding.episodeFileName && isVisible(mBinding.episodeViewMode)) {
+        if (KeyUtil.isLeftKey(event) && view == mBinding.episodeFileName && isEpisodeFocusTarget(mBinding.episodeViewMode)) {
             mBinding.episodeViewMode.requestFocus(View.FOCUS_LEFT);
             return true;
         }
-        if (KeyUtil.isLeftKey(event) && view == mBinding.episodeFileName && !isVisible(mBinding.episodeViewMode) && isVisible(mBinding.episodeReverse)) {
+        if (KeyUtil.isLeftKey(event) && view == mBinding.episodeFileName && !isEpisodeFocusTarget(mBinding.episodeViewMode) && isEpisodeFocusTarget(mBinding.episodeReverse)) {
             mBinding.episodeReverse.requestFocus(View.FOCUS_LEFT);
             return true;
         }
-        if (KeyUtil.isLeftKey(event) && view == mBinding.episodeViewMode && isVisible(mBinding.episodeReverse)) {
+        if (KeyUtil.isLeftKey(event) && view == mBinding.episodeViewMode && isEpisodeFocusTarget(mBinding.episodeReverse)) {
             mBinding.episodeReverse.requestFocus(View.FOCUS_LEFT);
             return true;
         }
@@ -4729,6 +4766,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 return;
             }
             queueTmdbBind(event.getVod());
+            updateEpisodeSeasonContext();
+            updateFocus();
             maybeShowPendingTmdbSeasonDialog();
         }
         else if (event.getType() == RefreshEvent.Type.VOD_RECOMMENDATIONS) {
@@ -4749,7 +4788,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private boolean isCurrentVodEvent(Vod item) {
-        return VodEventGuard.matches(item, getKey(), getId());
+        return VodEventGuard.matches(item, getKey(), getId(), mVod == null ? "" : mVod.getId());
     }
 
     private void loadNativePersonalRecommendations(Vod item) {
@@ -5095,6 +5134,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         // 卡片模式未变化时 setUseTmdbCard 不会 notify，仍需刷新标题/日期等已补齐的字段
         mEpisodeAdapter.notifyDataSetChanged();
         mEpisodeGridAdapter.notifyDataSetChanged();
+        updateFocus();
     }
 
     private void rememberRecommendationAdapter(RecommendationRow row, ArrayObjectAdapter adapter) {

@@ -515,20 +515,38 @@
                         android:visibility="gone">
 
                         <TextView
-                            android:id="@+id/episodeTitle"
+                            android:id="@+id/episodeLabel"
                             android:layout_width="wrap_content"
                             android:layout_height="36dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:focusableInTouchMode="false"
                             android:gravity="center_vertical"
-                            android:paddingStart="4dp"
-                            android:paddingEnd="8dp"
                             android:text="@string/detail_episode"
                             android:textColor="@android:color/white"
                             android:textSize="16sp"
                             android:textStyle="bold" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/episodeTitle"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:layout_marginStart="12dp"
+                            android:clickable="true"
+                            android:insetBottom="0dp"
+                            android:insetTop="0dp"
+                            android:focusable="true"
+                            android:focusableInTouchMode="false"
+                            android:gravity="center_vertical"
+                            android:minHeight="36dp"
+                            android:minWidth="0dp"
+                            android:paddingStart="12dp"
+                            android:paddingEnd="8dp"
+                            android:singleLine="true"
+                            android:text="@string/tmdb_season_button"
+                            android:textColor="@android:color/white"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            app:backgroundTint="@android:color/transparent"
+                            app:strokeColor="@android:color/transparent" />
 
                         <Space
                             android:layout_width="0dp"

@@ -45,7 +45,20 @@ public final class TmdbSeasonResolver {
             Map<Integer, Integer> seasonCounts,
             int sourceEpisodeCount) {
         return resolve(requestSeason, manualBinding, explicitSourceSeasons, titleSeason,
-                tmdbSeasons, seasonCounts, sourceEpisodeCount, null);
+                tmdbSeasons, seasonCounts, sourceEpisodeCount, null, true);
+    }
+
+    public static Resolution resolve(
+            int requestSeason,
+            TmdbSeasonMatchCache.Entry manualBinding,
+            List<Integer> explicitSourceSeasons,
+            int titleSeason,
+            List<Integer> tmdbSeasons,
+            Map<Integer, Integer> seasonCounts,
+            int sourceEpisodeCount,
+            boolean allowHeuristicGuessing) {
+        return resolve(requestSeason, manualBinding, explicitSourceSeasons, titleSeason,
+                tmdbSeasons, seasonCounts, sourceEpisodeCount, null, allowHeuristicGuessing);
     }
 
     public static Resolution resolve(
@@ -57,6 +70,20 @@ public final class TmdbSeasonResolver {
             Map<Integer, Integer> seasonCounts,
             int sourceEpisodeCount,
             List<Integer> sourceEpisodeNumbers) {
+        return resolve(requestSeason, manualBinding, explicitSourceSeasons, titleSeason,
+                tmdbSeasons, seasonCounts, sourceEpisodeCount, sourceEpisodeNumbers, true);
+    }
+
+    public static Resolution resolve(
+            int requestSeason,
+            TmdbSeasonMatchCache.Entry manualBinding,
+            List<Integer> explicitSourceSeasons,
+            int titleSeason,
+            List<Integer> tmdbSeasons,
+            Map<Integer, Integer> seasonCounts,
+            int sourceEpisodeCount,
+            List<Integer> sourceEpisodeNumbers,
+            boolean allowHeuristicGuessing) {
         List<Integer> seasons = distinctNonNegative(tmdbSeasons);
         List<Integer> sliceableSeasons = EpisodeSeasonPolicy.sliceableSeasons(seasons);
         if (requestSeason >= 0) {
@@ -100,7 +127,8 @@ public final class TmdbSeasonResolver {
 
         List<Integer> ordinarySeasons = new ArrayList<>();
         for (Integer season : seasons) if (season != null && season > 0) ordinarySeasons.add(season);
-        if (ordinarySeasons.size() == 1) return Resolution.resolved(ordinarySeasons.get(0), Source.SINGLE_SEASON, "single_ordinary_season");
+        if (allowHeuristicGuessing && ordinarySeasons.size() == 1) return Resolution.resolved(ordinarySeasons.get(0), Source.SINGLE_SEASON, "single_ordinary_season");
+        if (!allowHeuristicGuessing) return Resolution.ambiguous(Source.NONE, "heuristic_guessing_disabled");
         if (ordinarySeasons.isEmpty() && seasons.size() == 1 && seasons.get(0) == 0) {
             return Resolution.resolved(0, Source.SINGLE_SEASON, "specials_only");
         }

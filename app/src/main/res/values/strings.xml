@@ -1783,6 +1783,7 @@
     <string name="detail_tmdb_match_title">Match TMDB title</string>
     <string name="detail_tmdb_rematch">TMDB match</string>
     <string name="tmdb_season_match_title">Match TMDB season</string>
+    <string name="tmdb_season_button">Season</string>
     <string name="tmdb_season_match_current">Choose TMDB season. %1$s</string>
     <string name="tmdb_season_auto">Automatic (clear manual binding)</string>
     <string name="tmdb_season_auto_by_counts">Split by episode number keys</string>

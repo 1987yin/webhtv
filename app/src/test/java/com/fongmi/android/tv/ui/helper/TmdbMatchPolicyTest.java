@@ -31,6 +31,20 @@ public class TmdbMatchPolicyTest {
         assertTrue(TmdbMatchPolicy.splitSeasonDetailScore("凡人修仙传 第二季", split) >= 0);
     }
 
+    @Test
+    public void pushAutoMatchRejectsGenericOrUrlTitles() {
+        assertFalse(TmdbMatchPolicy.shouldAutoMatchPushTitle("\u5728\u7ebf\u89c6\u9891"));
+        assertFalse(TmdbMatchPolicy.shouldAutoMatchPushTitle("\u7f51\u7edc\u89c6\u9891 01"));
+        assertFalse(TmdbMatchPolicy.shouldAutoMatchPushTitle("https://example.com/live/3"));
+        assertFalse(TmdbMatchPolicy.shouldAutoMatchPushTitle("01"));
+    }
+
+    @Test
+    public void pushAutoMatchKeepsMeaningfulMediaTitles() {
+        assertTrue(TmdbMatchPolicy.shouldAutoMatchPushTitle("\u79c1\u5bb6\u4fa6\u63a2 \u7b2c3\u5b63"));
+        assertTrue(TmdbMatchPolicy.shouldAutoMatchPushTitle("Clarkson's Farm S03"));
+    }
+
     private JsonObject detail(String name, String originalName) {
         JsonObject object = new JsonObject();
         object.addProperty("name", name);

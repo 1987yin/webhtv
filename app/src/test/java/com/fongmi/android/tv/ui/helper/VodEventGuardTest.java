@@ -17,6 +17,16 @@ public class VodEventGuardTest {
     }
 
     @Test
+    public void matchesLoadedVodIdWhenIntentKeepsStablePushUrl() {
+        String intentId = "https://pan.quark.cn/s/a082fb2c7d82|一拳超人";
+        String loadedId = "1$4383$1";
+
+        assertTrue(VodEventGuard.matches(vod("push_agent", loadedId), "push_agent", intentId, loadedId));
+        assertFalse(VodEventGuard.matches(vod("push_agent", "2$999$1"), "push_agent", intentId, loadedId));
+        assertFalse(VodEventGuard.matches(vod("other_site", loadedId), "push_agent", intentId, loadedId));
+    }
+
+    @Test
     public void matchesIntentPageSuffix() {
         assertTrue(VodEventGuard.matches(vod("site-a", "123"), "site-a", "123/40"));
         assertEquals("123", VodEventGuard.stripPageSuffix("123/40"));

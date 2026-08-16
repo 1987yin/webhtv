@@ -706,12 +706,23 @@ public class TmdbUIAdapterTest {
         int currentGuard = source.indexOf("if (!isCurrentVodEvent(event.getVod()))", vodBranch);
         int update = source.indexOf("updateVod(event.getVod());", currentGuard);
         int helper = source.indexOf("private boolean isCurrentVodEvent(Vod item)", update);
-        int sharedGuard = source.indexOf("VodEventGuard.matches(item, getKey(), getId())", helper);
+        int sharedGuard = source.indexOf("VodEventGuard.matches(item, getKey(), getId(), mVod == null ? \"\" : mVod.getId())", helper);
 
         assertTrue("mobile VOD events must be identity-checked before mutating mVod and Intent state",
                 observer >= 0 && vodBranch > observer && currentGuard > vodBranch && update > currentGuard);
         assertTrue("mobile stale-event guard must delegate to the shared site/id policy",
                 helper > update && sharedGuard > helper);
+    }
+
+    @Test
+    public void leanbackGuardsTmdbEventsWithNavigationAndLoadedVodIdentities() throws Exception {
+        Path sourcePath = findFlavorJavaPath("leanback").resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
+        int helper = source.indexOf("private boolean isCurrentVodEvent(Vod item)");
+        int sharedGuard = source.indexOf("VodEventGuard.matches(item, getKey(), getId(), mVod == null ? \"\" : mVod.getId())", helper);
+
+        assertTrue("leanback stale-event guard must accept only the current navigation or loaded Vod identity",
+                helper >= 0 && sharedGuard > helper);
     }
 
     @Test

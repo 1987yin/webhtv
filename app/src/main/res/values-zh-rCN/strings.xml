@@ -1765,6 +1765,7 @@
     <string name="detail_tmdb_match_title">匹配 TMDB 条目</string>
     <string name="detail_tmdb_rematch">TMDB</string>
     <string name="tmdb_season_match_title">匹配 TMDB 季度</string>
+    <string name="tmdb_season_button">季度</string>
     <string name="tmdb_season_match_current">选择 TMDB 季度，%1$s</string>
     <string name="tmdb_season_auto">自动判断（清除手动绑定）</string>
     <string name="tmdb_season_auto_by_counts">按集号主键自动分季</string>
