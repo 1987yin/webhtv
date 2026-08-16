@@ -1126,6 +1126,62 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void leanbackHistoryPlaybackBindsAndSelectsTheCurrentEpisodeSegment() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int selector = source.indexOf("private int getSelectedEpisodePosition(List<Episode> episodes)");
+        int selectorEnd = source.indexOf("private String getDanmakuEpisodeName()", selector);
+        String selectorBody = selector >= 0 && selectorEnd > selector ? source.substring(selector, selectorEnd) : "";
+        assertTrue("history playback must resolve the current episode before adapter selection is initialized", selectorBody.contains("Episode historyEpisode = mHistory.getEpisode();")
+                && selectorBody.contains("episodes.get(i).matchesPlayback(historyEpisode)"));
+
+        int adapter = source.indexOf("private void setEpisodeAdapter(List<Episode> items, boolean scrollToCurrent)");
+        int end = source.indexOf("private void setArrayAdapter(int size)", adapter);
+        String body = adapter >= 0 && end > adapter ? source.substring(adapter, end) : "";
+
+        assertTrue(sourcePath + " is missing setEpisodeAdapter", adapter >= 0);
+        assertTrue("history playback must calculate the selected episode from the full episode list", body.contains("int selectedPosition = getSelectedEpisodePosition(items);"));
+        assertTrue("history playback must bind the segment containing the selected episode", body.contains("int segmentStart = EpisodeRangePolicy.segmentStart(size, selectedPosition, segmentSize);")
+                && body.contains("items.subList(segmentStart, Math.min(segmentStart + segmentSize, size))"));
+        assertTrue("history playback must select and scroll the matching segment instead of the first segment", body.contains("selectEpisodeSegmentPosition(EpisodeRangePolicy.segmentIndex(size, selectedPosition, segmentSize) + 2);"));
+
+        int nativeAdapter = source.indexOf("private void setUpstreamNativeEpisodeItems(List<Episode> items, boolean scrollToCurrent)");
+        int nativeEnd = source.indexOf("private void finishEpisodeLoading()", nativeAdapter);
+        String nativeBody = nativeAdapter >= 0 && nativeEnd > nativeAdapter ? source.substring(nativeAdapter, nativeEnd) : "";
+        assertTrue("the native episode module must also preserve the current segment", nativeBody.contains("int selectedPosition = getSelectedEpisodePosition(items);")
+                && nativeBody.contains("EpisodeRangePolicy.segmentStart(size, selectedPosition, segmentSize)")
+                && nativeBody.contains("selectEpisodeSegmentPosition(EpisodeRangePolicy.segmentIndex(size, selectedPosition, segmentSize) + 2);"));
+
+        int segment = source.indexOf("private void showEpisodeSegment(int position)");
+        int segmentEnd = source.indexOf("private boolean shouldEnterFullscreen(Episode item)", segment);
+        String segmentBody = segment >= 0 && segmentEnd > segment ? source.substring(segment, segmentEnd) : "";
+        assertTrue("focusing the current segment must preserve the current episode focus after adapter layout", segmentBody.contains("int selectedPosition = getSelectedEpisodePosition(episodes);")
+                && segmentBody.contains("int positionInSegment = selectedPosition >= start && selectedPosition < end ? selectedPosition - start : 0;")
+                && segmentBody.contains("scrollToEpisode(positionInSegment);"));
+
+        int events = source.indexOf("private void setRecyclerView()");
+        int eventsEnd = source.indexOf("private void setupTmdbGridViews()", events);
+        String eventBody = events >= 0 && eventsEnd > events ? source.substring(events, eventsEnd) : "";
+        int arrayKey = source.indexOf("private boolean onArrayKey(KeyEvent event)");
+        int arrayKeyEnd = source.indexOf("private boolean onEpisodeKey(KeyEvent event)", arrayKey);
+        String arrayKeyBody = arrayKey >= 0 && arrayKeyEnd > arrayKey ? source.substring(arrayKey, arrayKeyEnd) : "";
+        assertTrue("segment DPAD down must explicitly focus the current episode", eventBody.contains("mArrayAdapter.setOnKeyListener((view, keyCode, event) -> onArrayKey(event));")
+                && eventBody.contains("mBinding.array.setOnKeyListener((view, keyCode, event) -> onArrayKey(event));")
+                && arrayKeyBody.contains("!KeyUtil.isActionDown(event) || !KeyUtil.isDownKey(event)")
+                && arrayKeyBody.contains("selectEpisodeSegment(position, true);"));
+        assertTrue("segment focus handoff must preserve history fallback when no episode is marked selected", source.contains("if (requestEpisodeFocus) scrollToEpisode(getSelectedEpisodePosition(mEpisodeAdapter.getItems()), true);"));
+
+        Path arrayAdapterPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "ArrayAdapter.java"));
+        String arrayAdapter = new String(Files.readAllBytes(arrayAdapterPath), StandardCharsets.UTF_8);
+        Path segmentSelectorPath = findLeanbackResPath().resolve(Path.of("drawable", "selector_video_item.xml"));
+        String segmentSelector = new String(Files.readAllBytes(segmentSelectorPath), StandardCharsets.UTF_8);
+        assertTrue("original detail modes must keep the active episode range highlighted after focus moves to an episode", source.contains("mArrayAdapter.setSelectedPosition(position);")
+                && arrayAdapter.contains("setActivated(position == selectedPosition)")
+                && segmentSelector.contains("android:state_activated=\"true\"")
+                && segmentSelector.contains("#2CC56F"));
+    }
+
+    @Test
     public void mobilePlaybackPagesLargeEpisodeListsBeforeTmdbEpisodeMetadataArrives() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);

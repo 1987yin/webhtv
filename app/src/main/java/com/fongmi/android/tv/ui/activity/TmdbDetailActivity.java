@@ -80,6 +80,7 @@ import com.fongmi.android.tv.bean.Sub;
 import com.fongmi.android.tv.bean.TmdbConfig;
 import com.fongmi.android.tv.bean.TmdbEpisode;
 import com.fongmi.android.tv.bean.TmdbItem;
+import com.fongmi.android.tv.bean.TmdbVideo;
 import com.fongmi.android.tv.bean.TmdbMatchCache;
 import com.fongmi.android.tv.bean.TmdbSeasonMatchCache;
 import com.fongmi.android.tv.bean.TmdbPerson;
@@ -129,8 +130,10 @@ import com.fongmi.android.tv.ui.adapter.TmdbEpisodeAdapter;
 import com.fongmi.android.tv.ui.adapter.TmdbPersonAdapter;
 import com.fongmi.android.tv.ui.adapter.TmdbPhotoAdapter;
 import com.fongmi.android.tv.ui.adapter.TmdbRailAdapter;
+import com.fongmi.android.tv.ui.adapter.TmdbVideoAdapter;
 import com.fongmi.android.tv.ui.controller.VodPlayerControlController;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
+import com.fongmi.android.tv.ui.helper.TmdbVideoPlayback;
 import com.fongmi.android.tv.ui.custom.EpisodeTitlePopup;
 import com.fongmi.android.tv.ui.custom.PlayerGesture;
 import com.fongmi.android.tv.ui.custom.PlayerOsdController;
@@ -258,6 +261,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private final List<TmdbPerson> castItems = new ArrayList<>();
     private final List<TmdbPerson> creatorItems = new ArrayList<>();
     private final List<TmdbItem> relatedItems = new ArrayList<>();
+    private final List<TmdbVideo> relatedVideoItems = new ArrayList<>();
     private final List<TmdbItem> personalTmdbItems = new ArrayList<>();
     private final List<TmdbItem> personalDoubanItems = new ArrayList<>();
     private final List<TmdbItem> personalAiItems = new ArrayList<>();
@@ -318,9 +322,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private TmdbPersonAdapter creatorAdapter;
     private TmdbPhotoAdapter episodePhotoAdapter;
     private TmdbRailAdapter relatedAdapter;
+    private TmdbVideoAdapter relatedVideoAdapter;
     private TmdbRailAdapter personalTmdbAdapter;
     private TmdbRailAdapter personalDoubanAdapter;
     private TmdbRailAdapter personalAiAdapter;
+    private boolean relatedVideoLoading;
+    private String relatedVideoContextKey = "";
+    private int relatedVideoGeneration;
     private boolean overviewExpanded;
     private boolean useParse;
     private boolean inlineStarted;
@@ -628,6 +636,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         useParse = false;
         detailTmdbPhotos.clear();
         tmdbEpisodePhotos.clear();
+        relatedVideoItems.clear();
+        relatedVideoLoading = false;
+        relatedVideoContextKey = "";
+        relatedVideoGeneration++;
         personalTmdbItems.clear();
         personalDoubanItems.clear();
         personalAiItems.clear();
@@ -652,6 +664,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         castAdapter.setItems(new ArrayList<>());
         creatorAdapter.setItems(new ArrayList<>());
         relatedAdapter.setItems(new ArrayList<>());
+        relatedVideoAdapter.setItems(new ArrayList<>());
         personalTmdbAdapter.setItems(new ArrayList<>());
         personalDoubanAdapter.setItems(new ArrayList<>());
         personalAiAdapter.setItems(new ArrayList<>());
@@ -732,6 +745,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         creatorAdapter = new TmdbPersonAdapter(this::loadPersonDetail);
         episodePhotoAdapter = new TmdbPhotoAdapter(this::showPhotoDialog);
         relatedAdapter = new TmdbRailAdapter(this::openRelatedItem);
+        relatedVideoAdapter = new TmdbVideoAdapter();
+        relatedVideoAdapter.setOnItemClickListener(item -> TmdbVideoPlayback.play(this, item));
         personalTmdbAdapter = new TmdbRailAdapter(this::openRelatedItem);
         personalDoubanAdapter = new TmdbRailAdapter(this::openRelatedItem);
         personalAiAdapter = new TmdbRailAdapter(this::openRelatedItem);
@@ -764,6 +779,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.relatedList.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         binding.relatedList.setNestedScrollingEnabled(false);
         binding.relatedList.setAdapter(relatedAdapter);
+        binding.relatedVideoList.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+        binding.relatedVideoList.setNestedScrollingEnabled(false);
+        binding.relatedVideoList.setAdapter(relatedVideoAdapter);
         binding.personalTmdbList.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         binding.personalTmdbList.setNestedScrollingEnabled(false);
         binding.personalTmdbList.setAdapter(personalTmdbAdapter);
@@ -1386,17 +1404,31 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void showInlinePauseInfo() {
-        if (!isInlinePlayerMode() || service() == null || player() == null || player().isEmpty()) return;
-        if (Util.isMobile()) {
-            hideInlinePauseInfo();
-            return;
-        }
         inlinePauseInfo = true;
         binding.gestureAction.setImageResource(R.drawable.ic_widget_play);
         binding.gestureTime.setText(player().getPositionTime(0));
         binding.gestureDuration.setText(player().getDurationTime());
         binding.gestureSeek.setVisibility(View.VISIBLE);
+        binding.gestureSeek.bringToFront();
         updateInlineDisplayPanel();
+    }
+
+    private void syncInlinePauseInfo(boolean playing) {
+        if (binding == null) return;
+        if (shouldShowInlinePauseInfo(playing)) showInlinePauseInfo();
+        else hideInlinePauseInfo();
+    }
+
+    private boolean shouldShowInlinePauseInfo(boolean playing) {
+        return Util.isLeanback()
+                && inlineFullscreen
+                && inlineStarted
+                && isInlinePlayerMode()
+                && service() != null
+                && player() != null
+                && !player().isEmpty()
+                && !playing
+                && isPaused();
     }
 
     private void hideInlinePauseInfo() {
@@ -1535,6 +1567,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     @Override
     public void onTouchEnd() {
+        if (inlinePauseInfo) {
+            hideInlineTransientGestureViews();
+            binding.gestureSeek.setVisibility(View.VISIBLE);
+            binding.gestureSeek.bringToFront();
+            return;
+        }
         hideInlineGestureOverlays();
     }
 
@@ -1547,6 +1585,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void hideInlineGestureViews() {
         binding.gestureSeek.setVisibility(View.GONE);
+        hideInlineTransientGestureViews();
+    }
+
+    private void hideInlineTransientGestureViews() {
         binding.gestureSpeed.setVisibility(View.GONE);
         binding.gestureBright.setVisibility(View.GONE);
         binding.gestureVolume.setVisibility(View.GONE);
@@ -1680,6 +1722,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 binding.castTitle,
                 binding.creatorTitle,
                 binding.relatedTitle,
+                binding.relatedVideoTitle,
                 binding.personalTmdbTitle,
                 binding.personalDoubanTitle,
                 binding.personalAiTitle,
@@ -1760,6 +1803,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         TmdbDetailLayoutUtils.setHeightDp(binding.castList, 180);
         TmdbDetailLayoutUtils.setHeightDp(binding.creatorList, 180);
         TmdbDetailLayoutUtils.setHeightDp(binding.relatedList, 262);
+        TmdbDetailLayoutUtils.setHeightDp(binding.relatedVideoList, 180);
         TmdbDetailLayoutUtils.setHeightDp(binding.personalTmdbList, 262);
         TmdbDetailLayoutUtils.setHeightDp(binding.personalDoubanList, 262);
         TmdbDetailLayoutUtils.setHeightDp(binding.personalAiList, 262);
@@ -1811,6 +1855,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         TmdbDetailLayoutUtils.setHeightDp(binding.castList, compact ? 90 : 90);
         TmdbDetailLayoutUtils.setHeightDp(binding.creatorList, compact ? 90 : 90);
         TmdbDetailLayoutUtils.setHeightDp(binding.relatedList, compact ? 160 : 160);
+        TmdbDetailLayoutUtils.setHeightDp(binding.relatedVideoList, compact ? 128 : 160);
         TmdbDetailLayoutUtils.setHeightDp(binding.personalTmdbList, compact ? 160 : 160);
         TmdbDetailLayoutUtils.setHeightDp(binding.personalDoubanList, compact ? 160 : 160);
         TmdbDetailLayoutUtils.setHeightDp(binding.personalAiList, compact ? 160 : 160);
@@ -3241,6 +3286,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (castAdapter != null) castAdapter.setItems(List.of());
         if (creatorAdapter != null) creatorAdapter.setItems(List.of());
         if (relatedAdapter != null) relatedAdapter.setItems(List.of());
+        if (relatedVideoAdapter != null) relatedVideoAdapter.setItems(List.of());
+        relatedVideoItems.clear();
+        relatedVideoLoading = false;
+        relatedVideoContextKey = "";
+        relatedVideoGeneration++;
         if (personalTmdbAdapter != null) personalTmdbAdapter.setItems(List.of());
         if (personalDoubanAdapter != null) personalDoubanAdapter.setItems(List.of());
         if (personalAiAdapter != null) personalAiAdapter.setItems(List.of());
@@ -3276,6 +3326,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         bindOverview();
         bindSource();
         bindFlags();
+        loadRelatedVideosForCurrentContext();
         bindTmdbSection();
         updateKeepState();
         requestDetailPlayFocus();
@@ -4038,6 +4089,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             binding.episodeSkeleton.setVisibility(View.GONE);
             episodeAdapter.setItems(List.of(), Map.of(), null);
             updatePlayLabel();
+            loadRelatedVideosForCurrentContext();
             return;
         }
         if (selectedEpisode == null) {
@@ -4070,6 +4122,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         applyEpisodeViewport(pagedDisplayEpisodes, episodeNumbers, true);
         renderedEpisodeRangeIndex = episodeRanges.size() > 1 ? episodeRangeIndex : -1;
         if (shouldRefreshTmdbSection) bindTmdbSection();
+        loadRelatedVideosForCurrentContext();
     }
 
     private List<EpisodeRangePolicy.Range> buildCardEpisodeRanges(List<Episode> episodes, Episode selected) {
@@ -4184,6 +4237,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         recoverRecyclerViewIfDetached(binding.castList);
         recoverRecyclerViewIfDetached(binding.creatorList);
         recoverRecyclerViewIfDetached(binding.relatedList);
+        recoverRecyclerViewIfDetached(binding.relatedVideoList);
         recoverRecyclerViewIfDetached(binding.personalTmdbList);
         recoverRecyclerViewIfDetached(binding.personalDoubanList);
         recoverRecyclerViewIfDetached(binding.personalAiList);
@@ -5271,6 +5325,44 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return changed;
     }
 
+    private void loadRelatedVideosForCurrentContext() {
+        if (matchedTmdbItem == null || tmdbConfig == null || !tmdbConfig.isReady() || !isTmdbAllowedForCurrentSite()) return;
+        int seasonNumber = -1;
+        int episodeNumber = -1;
+        if (matchedTmdbItem.isTv()) {
+            TmdbEpisode tmdbEpisode = selectedEpisode == null ? null : selectedEpisode.getTmdbEpisode();
+            seasonNumber = tmdbEpisode != null && tmdbEpisode.getSeasonNumber() >= 0 ? tmdbEpisode.getSeasonNumber() : selectedSeasonNumber;
+            episodeNumber = tmdbEpisode != null && tmdbEpisode.getNumber() > 0 ? tmdbEpisode.getNumber() : sourceEpisodeNumber(selectedEpisode);
+        }
+        String contextKey = matchedTmdbItem.getMediaType() + ":" + matchedTmdbItem.getTmdbId() + ":" + seasonNumber + ":" + episodeNumber + ":" + tmdbConfig.getLanguage();
+        if (contextKey.equals(relatedVideoContextKey)) return;
+        int generation = loadGeneration;
+        int videoGeneration = ++relatedVideoGeneration;
+        TmdbItem item = matchedTmdbItem;
+        final int requestSeasonNumber = seasonNumber;
+        final int requestEpisodeNumber = episodeNumber;
+        relatedVideoContextKey = contextKey;
+        relatedVideoLoading = true;
+        relatedVideoItems.clear();
+        bindTmdbSection();
+        detailTasks.submit(() -> {
+            List<TmdbVideo> loaded = new ArrayList<>();
+            try {
+                loaded = tmdbService.relatedVideos(item, requestSeasonNumber, requestEpisodeNumber, tmdbConfig);
+            } catch (Throwable e) {
+                SpiderDebug.log("tmdb-video", "standalone related failed media=%s id=%d season=%d episode=%d error=%s", item.getMediaType(), item.getTmdbId(), requestSeasonNumber, requestEpisodeNumber, e.getMessage());
+            }
+            List<TmdbVideo> result = loaded;
+            runOnUiThread(() -> {
+                if (generation != loadGeneration || videoGeneration != relatedVideoGeneration || !contextKey.equals(relatedVideoContextKey) || !isSameTmdbItem(item, matchedTmdbItem)) return;
+                relatedVideoLoading = false;
+                relatedVideoItems.clear();
+                relatedVideoItems.addAll(result);
+                bindTmdbSection();
+            });
+        });
+    }
+
     private void bindTmdbSection() {
         if (!isTmdbAllowedForCurrentSite()) {
             binding.tmdbSection.setVisibility(View.GONE);
@@ -5281,11 +5373,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         boolean hasCreators = !creatorItems.isEmpty();
         boolean hasPhotos = !tmdbEpisodePhotos.isEmpty();
         boolean hasRelated = !relatedItems.isEmpty();
+        boolean hasRelatedVideos = !relatedVideoItems.isEmpty();
         boolean hasPersonalTmdb = !personalTmdbItems.isEmpty();
         boolean hasPersonalDouban = !personalDoubanItems.isEmpty();
         boolean hasPersonalAi = !personalAiItems.isEmpty();
         boolean hasExternalLinks = binding.externalLinksContainer.getChildCount() > 0;
-        binding.tmdbSection.setVisibility(hasPhotos || hasCast || hasCreators || hasRelated || hasPersonalTmdb || hasPersonalDouban || hasPersonalAi || hasExternalLinks || matchedTmdbDetail != null || canMatchTmdb() ? View.VISIBLE : View.GONE);
+        binding.tmdbSection.setVisibility(hasPhotos || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb || hasPersonalDouban || hasPersonalAi || hasExternalLinks || matchedTmdbDetail != null || canMatchTmdb() ? View.VISIBLE : View.GONE);
 
         binding.episodePhotoTitle.setVisibility(hasPhotos ? View.VISIBLE : View.GONE);
         binding.episodePhotoList.setVisibility(hasPhotos ? View.VISIBLE : View.GONE);
@@ -5310,19 +5403,25 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         relatedAdapter.setItems(relatedItems);
         relatedAdapter.rebindAttached(binding.relatedList);
 
-        setTopMargin(binding.personalTmdbTitle, hasPhotos || hasCast || hasCreators || hasRelated ? 20 : 0);
+        setTopMargin(binding.relatedVideoTitle, hasPhotos || hasCast || hasCreators || hasRelated ? 20 : 0);
+        binding.relatedVideoTitle.setVisibility(hasRelatedVideos ? View.VISIBLE : View.GONE);
+        binding.relatedVideoList.setVisibility(hasRelatedVideos ? View.VISIBLE : View.GONE);
+        relatedVideoAdapter.setItems(relatedVideoItems);
+        relatedVideoAdapter.rebindAttached(binding.relatedVideoList);
+
+        setTopMargin(binding.personalTmdbTitle, hasPhotos || hasCast || hasCreators || hasRelated || hasRelatedVideos ? 20 : 0);
         binding.personalTmdbTitle.setVisibility(hasPersonalTmdb ? View.VISIBLE : View.GONE);
         binding.personalTmdbList.setVisibility(hasPersonalTmdb ? View.VISIBLE : View.GONE);
         personalTmdbAdapter.setItems(personalTmdbItems);
         personalTmdbAdapter.rebindAttached(binding.personalTmdbList);
 
-        setTopMargin(binding.personalDoubanTitle, hasPhotos || hasCast || hasCreators || hasRelated || hasPersonalTmdb ? 20 : 0);
+        setTopMargin(binding.personalDoubanTitle, hasPhotos || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb ? 20 : 0);
         binding.personalDoubanTitle.setVisibility(hasPersonalDouban ? View.VISIBLE : View.GONE);
         binding.personalDoubanList.setVisibility(hasPersonalDouban ? View.VISIBLE : View.GONE);
         personalDoubanAdapter.setItems(personalDoubanItems);
         personalDoubanAdapter.rebindAttached(binding.personalDoubanList);
 
-        setTopMargin(binding.personalAiTitle, hasPhotos || hasCast || hasCreators || hasRelated || hasPersonalTmdb || hasPersonalDouban ? 20 : 0);
+        setTopMargin(binding.personalAiTitle, hasPhotos || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb || hasPersonalDouban ? 20 : 0);
         binding.personalAiTitle.setVisibility(hasPersonalAi ? View.VISIBLE : View.GONE);
         binding.personalAiList.setVisibility(hasPersonalAi ? View.VISIBLE : View.GONE);
         personalAiAdapter.setItems(personalAiItems);
@@ -5334,7 +5433,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         // 条件苛刻得多）。下一帧统一检测并恢复，成因与破法见 recoverRecyclerViewIfDetached。
         binding.episodePhotoList.post(this::recoverTmdbSectionListsIfDetached);
 
-        setTopMargin(binding.externalLinksTitle, hasPhotos || hasCast || hasCreators || hasRelated || hasPersonalTmdb || hasPersonalDouban || hasPersonalAi ? 20 : 0);
+        setTopMargin(binding.externalLinksTitle, hasPhotos || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb || hasPersonalDouban || hasPersonalAi ? 20 : 0);
         binding.externalLinksTitle.setVisibility(hasExternalLinks ? View.VISIBLE : View.GONE);
         binding.externalLinksContainer.setVisibility(hasExternalLinks ? View.VISIBLE : View.GONE);
 
@@ -5344,7 +5443,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         } else if (!isTmdbAllowedForCurrentSite()) {
             binding.tmdbStatus.setVisibility(View.VISIBLE);
             binding.tmdbStatus.setText(R.string.detail_tmdb_site_disabled);
-        } else if (!hasPhotos && !hasCast && !hasCreators && !hasRelated && !hasPersonalTmdb && !hasPersonalDouban && !hasPersonalAi && !hasExternalLinks) {
+        } else if (!hasPhotos && !hasCast && !hasCreators && !hasRelated && !hasRelatedVideos && !hasPersonalTmdb && !hasPersonalDouban && !hasPersonalAi && !hasExternalLinks) {
             binding.tmdbStatus.setVisibility(View.VISIBLE);
             binding.tmdbStatus.setText(R.string.detail_tmdb_empty);
         } else {
@@ -6535,7 +6634,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         }
         if (player().isPlaying()) controller().pause();
         else controller().play();
-        setInlineHideCallback();
+        if (Util.isLeanback() && inlineFullscreen) hideInlineControls();
+        else setInlineHideCallback();
     }
 
     private void toggleInlineControls() {
@@ -8784,6 +8884,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         boolean playing = service() != null && !player().isEmpty() && player().isPlaying();
         updateInlineButtons(playing);
         hideInlineControls();
+        syncInlinePauseInfo(playing);
         updateInlineDisplayPanel();
         binding.playerPanel.requestFocus();
         Util.toggleFullscreen(this, true);
@@ -9649,11 +9750,17 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     @Override
     protected void onPlayingChanged(boolean isPlaying) {
         if (!isInlinePlayerMode() || !inlineStarted || !isOwner()) return;
-        if (isPlaying) hideInlinePauseInfo();
-        else if (isPaused()) showInlinePauseInfo();
+        syncInlinePauseInfo(isPlaying);
         updateInlinePiPActions(isPlaying);
         updateInlineButtons(isPlaying);
         updateInlineDisplayPanel();
+    }
+
+    @Override
+    public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+        super.onPlayWhenReadyChanged(playWhenReady, reason);
+        if (!isInlinePlayerMode() || !inlineStarted || !isOwner()) return;
+        syncInlinePauseInfo(playWhenReady);
     }
 
     @Override
@@ -9682,6 +9789,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 inlineFirstReady = true;  // 标记已显示过控制栏
                 showInlineControls(true, false);
             }
+            syncInlinePauseInfo(player().isPlaying());
         }
         if (state == Player.STATE_ENDED) checkInlineEnded(true);
         updateInlineDisplayPanel();

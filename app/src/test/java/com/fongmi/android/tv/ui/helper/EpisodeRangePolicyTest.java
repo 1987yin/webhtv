@@ -68,6 +68,18 @@ public class EpisodeRangePolicyTest {
     }
 
     @Test
+    public void segmentIndex_selectsThePageContainingCurrentEpisode() {
+        assertEquals(80, EpisodeRangePolicy.segmentStart(131, 82, 40));
+        assertEquals(2, EpisodeRangePolicy.segmentIndex(131, 82, 40));
+    }
+
+    @Test
+    public void segmentIndex_clampsMissingOrOutOfRangeSelection() {
+        assertEquals(0, EpisodeRangePolicy.segmentIndex(0, -1, 40));
+        assertEquals(0, EpisodeRangePolicy.segmentIndex(131, -1, 40));
+        assertEquals(3, EpisodeRangePolicy.segmentIndex(131, 999, 40));
+    }
+    @Test
     public void slice_clampsRangeToItems() {
         List<Integer> items = List.of(1, 2, 3, 4);
 

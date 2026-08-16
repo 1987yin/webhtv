@@ -78,6 +78,10 @@ public class RefreshEvent {
         EventBus.getDefault().post(new RefreshEvent(Type.VOD_EPISODE_TITLES, vod));
     }
 
+    public static void vodRelatedVideos(Vod vod) {
+        EventBus.getDefault().post(new RefreshEvent(Type.VOD_RELATED_VIDEOS, vod));
+    }
+
     private RefreshEvent(Type type) {
         this.type = type;
     }
@@ -106,6 +110,6 @@ public class RefreshEvent {
 
     public enum Type {
         HOME, CATEGORY, HISTORY, KEEP, SIZE, THEME, LANGUAGE, LIVE, DETAIL, PLAYER, SUBTITLE, DANMAKU,
-        VOD, VOD_CORE, VOD_RECOMMENDATIONS, VOD_PERSONAL, VOD_EPISODE_TITLES
+        VOD, VOD_CORE, VOD_RECOMMENDATIONS, VOD_PERSONAL, VOD_EPISODE_TITLES, VOD_RELATED_VIDEOS
     }
 }
