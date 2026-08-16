@@ -7,6 +7,7 @@ import android.net.wifi.WifiManager;
 
 import com.fongmi.android.tv.App;
 import com.github.catvod.Proxy;
+import com.github.catvod.crawler.SpiderDebug;
 
 public class NsdDeviceDiscovery {
 
@@ -47,7 +48,10 @@ public class NsdDeviceDiscovery {
             public void onUnregistrationFailed(NsdServiceInfo serviceInfo, int errorCode) {
             }
         };
-        getManager().registerService(service, NsdManager.PROTOCOL_DNS_SD, registration);
+        RuntimeException failure = captureFailure(() -> getManager().registerService(service, NsdManager.PROTOCOL_DNS_SD, registration));
+        if (failure == null) return;
+        registration = null;
+        logFailure("register", failure);
     }
 
     public static synchronized void unregister() {
@@ -62,7 +66,12 @@ public class NsdDeviceDiscovery {
 
     public void start() {
         stop();
-        acquireLock();
+        RuntimeException lockFailure = captureFailure(this::acquireLock);
+        if (lockFailure != null) {
+            releaseLock();
+            logFailure("multicast-lock", lockFailure);
+            return;
+        }
         discovery = new NsdManager.DiscoveryListener() {
             @Override
             public void onDiscoveryStarted(String serviceType) {
@@ -90,7 +99,11 @@ public class NsdDeviceDiscovery {
             public void onStopDiscoveryFailed(String serviceType, int errorCode) {
             }
         };
-        getManager().discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discovery);
+        RuntimeException failure = captureFailure(() -> getManager().discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discovery));
+        if (failure == null) return;
+        discovery = null;
+        releaseLock();
+        logFailure("discover", failure);
     }
 
     public void stop() {
@@ -105,7 +118,7 @@ public class NsdDeviceDiscovery {
     }
 
     private void resolve(NsdServiceInfo serviceInfo) {
-        getManager().resolveService(serviceInfo, new NsdManager.ResolveListener() {
+        RuntimeException failure = captureFailure(() -> getManager().resolveService(serviceInfo, new NsdManager.ResolveListener() {
             @Override
             public void onResolveFailed(NsdServiceInfo serviceInfo, int errorCode) {
             }
@@ -116,7 +129,8 @@ public class NsdDeviceDiscovery {
                 String url = "http://" + serviceInfo.getHost().getHostAddress() + ":" + serviceInfo.getPort();
                 App.post(() -> listener.onServiceFound(url));
             }
-        });
+        }));
+        logFailure("resolve", failure);
     }
 
     private void acquireLock() {
@@ -134,6 +148,23 @@ public class NsdDeviceDiscovery {
         } catch (Exception ignored) {
         }
         lock = null;
+    }
+
+    static RuntimeException captureFailure(Runnable operation) {
+        try {
+            operation.run();
+            return null;
+        } catch (RuntimeException e) {
+            return e;
+        }
+    }
+
+    private static void logFailure(String operation, RuntimeException failure) {
+        if (failure == null) return;
+        try {
+            SpiderDebug.log("nsd-" + operation, failure);
+        } catch (RuntimeException ignored) {
+        }
     }
 
     private static NsdManager getManager() {

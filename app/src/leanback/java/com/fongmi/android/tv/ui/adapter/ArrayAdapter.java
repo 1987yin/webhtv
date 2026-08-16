@@ -26,6 +26,7 @@ public class ArrayAdapter extends RecyclerView.Adapter<ArrayAdapter.ViewHolder> 
     private int nextFocusDown;
     private int nextFocusUp;
     private int segmentSize;
+    private int selectedPosition = -1;
 
     public ArrayAdapter(OnClickListener listener) {
         mListener = listener;
@@ -41,11 +42,13 @@ public class ArrayAdapter extends RecyclerView.Adapter<ArrayAdapter.ViewHolder> 
     public void addAll(List<String> items) {
         mItems.clear();
         mItems.addAll(items);
+        selectedPosition = -1;
         notifyDataSetChanged();
     }
 
     public void clear() {
         mItems.clear();
+        selectedPosition = -1;
         notifyDataSetChanged();
     }
 
@@ -65,6 +68,14 @@ public class ArrayAdapter extends RecyclerView.Adapter<ArrayAdapter.ViewHolder> 
 
     public void setSegmentSize(int segmentSize) {
         this.segmentSize = Math.max(1, segmentSize);
+    }
+
+    public void setSelectedPosition(int position) {
+        if (selectedPosition == position) return;
+        int previous = selectedPosition;
+        selectedPosition = position;
+        if (previous >= 0 && previous < mItems.size()) notifyItemChanged(previous);
+        if (position >= 0 && position < mItems.size()) notifyItemChanged(position);
     }
 
     public void setNextFocus(int nextFocusUp, int nextFocusDown) {
@@ -94,6 +105,7 @@ public class ArrayAdapter extends RecyclerView.Adapter<ArrayAdapter.ViewHolder> 
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         String text = mItems.get(position);
         holder.binding.text.setText(text);
+        holder.binding.text.setActivated(position == selectedPosition);
         holder.binding.text.setNextFocusUpId(nextFocusUp == 0 ? View.NO_ID : nextFocusUp);
         holder.binding.text.setNextFocusDownId(nextFocusDown == 0 ? View.NO_ID : nextFocusDown);
         holder.binding.text.setOnKeyListener(keyListener);

@@ -10,6 +10,17 @@ public final class EpisodeRangePolicy {
     private EpisodeRangePolicy() {
     }
 
+    public static int segmentIndex(int size, int selectedIndex, int segmentSize) {
+        if (size <= 0) return 0;
+        int safeSegmentSize = Math.max(1, segmentSize);
+        int safeIndex = Math.max(0, Math.min(selectedIndex, size - 1));
+        return safeIndex / safeSegmentSize;
+    }
+
+    public static int segmentStart(int size, int selectedIndex, int segmentSize) {
+        return segmentIndex(size, selectedIndex, segmentSize) * Math.max(1, segmentSize);
+    }
+
     public static List<Range> build(int size, int selectedIndex, boolean reverse) {
         return build(size, selectedIndex, reverse, 0);
     }

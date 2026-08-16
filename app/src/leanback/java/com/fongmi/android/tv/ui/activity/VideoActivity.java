@@ -61,6 +61,7 @@ import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Sub;
 import com.fongmi.android.tv.bean.TmdbItem;
 import com.fongmi.android.tv.bean.TmdbEpisode;
+import com.fongmi.android.tv.bean.TmdbVideo;
 import com.fongmi.android.tv.bean.Track;
 import com.fongmi.android.tv.bean.UserAdRule;
 import com.fongmi.android.tv.bean.Vod;
@@ -121,11 +122,14 @@ import com.fongmi.android.tv.ui.dialog.TmdbSeasonOffsetDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
+import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
+
 import com.fongmi.android.tv.ui.helper.EpisodeSeasonPolicy;
 import com.fongmi.android.tv.ui.helper.SourceEpisodeSeasonCache;
 import com.fongmi.android.tv.ui.helper.PlayerControlFocusHelper;
 import com.fongmi.android.tv.ui.helper.TmdbEpisodeGridPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
+import com.fongmi.android.tv.ui.helper.TmdbVideoPlayback;
 import com.fongmi.android.tv.ui.helper.VodEventGuard;
 import com.fongmi.android.tv.ui.player.VodPlayerChrome;
 import com.fongmi.android.tv.ui.player.VodPlayerUiController;
@@ -1035,6 +1039,9 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private int getSelectedEpisodePosition(List<Episode> episodes) {
         for (int i = 0; i < episodes.size(); i++) if (episodes.get(i).isSelected()) return i;
+        if (mHistory == null) return 0;
+        Episode historyEpisode = mHistory.getEpisode();
+        for (int i = 0; i < episodes.size(); i++) if (episodes.get(i).matchesPlayback(historyEpisode)) return i;
         return 0;
     }
 
@@ -1411,6 +1418,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.array.setHorizontalSpacing(ResUtil.dp2px(8));
         mBinding.array.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.array.setAdapter(mArrayAdapter = new ArrayAdapter(this));
+        mArrayAdapter.setOnKeyListener((view, keyCode, event) -> onArrayKey(event));
+        mBinding.array.setOnKeyListener((view, keyCode, event) -> onArrayKey(event));
         mBinding.part.setHorizontalSpacing(ResUtil.dp2px(8));
         mBinding.part.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.part.setAdapter(mPartAdapter = new PartAdapter(item -> initSearch(item, false)));
@@ -1434,6 +1443,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.tmdbCrew.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.tmdbRecommendations.setHorizontalSpacing(ResUtil.dp2px(12));
         mBinding.tmdbRecommendations.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
+        mBinding.tmdbRelatedVideos.setHorizontalSpacing(ResUtil.dp2px(12));
+        mBinding.tmdbRelatedVideos.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.tmdbPersonalTmdbRecommendations.setHorizontalSpacing(ResUtil.dp2px(12));
         mBinding.tmdbPersonalTmdbRecommendations.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.tmdbPersonalDoubanRecommendations.setHorizontalSpacing(ResUtil.dp2px(12));
@@ -2053,6 +2064,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         clearTmdbGrid(mBinding.tmdbPhotos, R.id.tmdbPhotosLabel);
         clearTmdbGrid(mBinding.tmdbCrew, R.id.tmdbCrewLabel);
         clearTmdbGrid(mBinding.tmdbRecommendations, R.id.tmdbRecommendationsLabel);
+        clearTmdbGrid(mBinding.tmdbRelatedVideos, R.id.tmdbRelatedVideosLabel);
         clearNativePersonalRecommendations();
         // 重置背景幻灯片去重签名：切换条目时 setupBackdropSlideshow 靠 signature 去重，
         // 不清则新条目剧照与旧 signature 判定“相同”而跳过更新，导致背景海报不换。
@@ -2534,6 +2546,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         setEpisodeAdapter(item.getEpisodes());
         setQualityVisible(false);
         seamless(item);
+        loadTmdbRelatedVideosForCurrentEpisode();
     }
 
     private void setEpisodeAdapter(List<Episode> items) {
@@ -2575,9 +2588,12 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mEpisodeGridAdapter.setUseTmdbCard(useTmdbCards);
         applyActionButtonVisibility();
 
-        // 优化：只加载第一个分段的数据，避免一次性渲染所有集数导致卡顿
-        int segmentSize = getEpisodeSegmentSize(items.size());
-        List<Episode> initialItems = items.size() > segmentSize ? items.subList(0, Math.min(segmentSize, items.size())) : items;
+        // 优化：只加载当前集所在分段的数据，避免一次性渲染所有集数导致卡顿
+        int size = items.size();
+        int segmentSize = getEpisodeSegmentSize(size);
+        int selectedPosition = getSelectedEpisodePosition(items);
+        int segmentStart = EpisodeRangePolicy.segmentStart(size, selectedPosition, segmentSize);
+        List<Episode> initialItems = items.subList(segmentStart, Math.min(segmentStart + segmentSize, size));
         mEpisodeAdapter.addAll(initialItems);
         mEpisodeGridAdapter.addAll(initialItems);
 
@@ -2592,7 +2608,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             setEpisodeContentVisible(true);
         }
 
-        setArrayAdapter(items.size());
+        setArrayAdapter(size);
+        selectEpisodeSegmentPosition(EpisodeRangePolicy.segmentIndex(size, selectedPosition, segmentSize) + 2);
         updateFocus();
         if (scrollToCurrent) scrollToCurrentEpisode();
         setR2Callback();
@@ -2619,15 +2636,19 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mEpisodeGridAdapter.setVerticalGridMode(true);
         mEpisodeGridAdapter.setColumn(column);
 
-        // 优化：只加载第一个分段的数据，避免一次性渲染所有集数导致卡顿
-        int segmentSize = getEpisodeSegmentSize(items.size());
-        List<Episode> initialItems = items.size() > segmentSize ? items.subList(0, Math.min(segmentSize, items.size())) : items;
+        // 优化：只加载当前集所在分段的数据，避免一次性渲染所有集数导致卡顿
+        int size = items.size();
+        int segmentSize = getEpisodeSegmentSize(size);
+        int selectedPosition = getSelectedEpisodePosition(items);
+        int segmentStart = EpisodeRangePolicy.segmentStart(size, selectedPosition, segmentSize);
+        List<Episode> initialItems = items.subList(segmentStart, Math.min(segmentStart + segmentSize, size));
         mEpisodeAdapter.addAll(initialItems);
         mEpisodeGridAdapter.addAll(initialItems);
         updateEpisodeGridViewport();
         updateUpstreamNativeEpisodeGridViewport();
         mBinding.episodeGrid.post(this::updateUpstreamNativeEpisodeGridViewport);
         setArrayAdapter(items.size());
+        selectEpisodeSegmentPosition(EpisodeRangePolicy.segmentIndex(size, selectedPosition, segmentSize) + 2);
         updateFocus();
         if (scrollToCurrent) scrollToCurrentEpisode();
         setR2Callback();
@@ -2692,6 +2713,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         SpiderDebug.log("video-episode", "select old=%s new=%s focus=%s scroll=%s name=%s", oldPosition, newPosition, episodeFocused, scrollToEpisode, item.getName());
         if (scrollToEpisode && !episodeFocused) scrollToEpisode(newPosition);
         if (isFullscreen()) Notify.show(getString(R.string.play_ready, item.getName()));
+        loadTmdbRelatedVideosForCurrentEpisode();
         onRefresh();
     }
 
@@ -3030,6 +3052,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 R.id.tmdbPhotos,
                 R.id.tmdbCrew,
                 R.id.tmdbRecommendations,
+                R.id.tmdbRelatedVideos,
                 R.id.tmdbPersonalTmdbRecommendations,
                 R.id.tmdbPersonalDoubanRecommendations,
                 R.id.tmdbPersonalAiRecommendations,
@@ -3120,6 +3143,15 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         return false;
     }
 
+    private boolean onArrayKey(KeyEvent event) {
+        if (!KeyUtil.isActionDown(event) || !KeyUtil.isDownKey(event)) return false;
+        int position = mBinding.array.getSelectedPosition();
+        if (position <= 1) return false;
+        selectEpisodeSegment(position, true);
+        return true;
+    }
+
+
     private boolean onEpisodeKey(KeyEvent event) {
         if (!KeyUtil.isActionDown(event)) return false;
         RecyclerView episodeView = episodeGridMode ? mBinding.episodeGrid : mBinding.episode;
@@ -3191,10 +3223,16 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private void selectEpisodeSegment(int position, boolean requestEpisodeFocus) {
         if (position <= 1) return;
+        selectEpisodeSegmentPosition(position);
+        showEpisodeSegment(position);
+        if (requestEpisodeFocus) scrollToEpisode(mEpisodeAdapter.getPosition(), true);
+    }
+
+    private void selectEpisodeSegmentPosition(int position) {
+        if (position <= 1 || position >= mArrayAdapter.getItemCount()) return;
+        mArrayAdapter.setSelectedPosition(position);
         mBinding.array.setSelectedPosition(position);
         mBinding.array.scrollToPosition(position);
-        showEpisodeSegment(position);
-        if (requestEpisodeFocus) scrollToEpisode(0, true);
     }
 
     private void showEpisodeSegment(int position) {
@@ -3202,11 +3240,12 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (episodes.isEmpty()) return;
         int start = mArrayAdapter.getStart(position);
         int end = Math.min(start + getEpisodeSegmentSize(episodes.size()), episodes.size());
+        int selectedPosition = getSelectedEpisodePosition(episodes);
+        int positionInSegment = selectedPosition >= start && selectedPosition < end ? selectedPosition - start : 0;
         List<Episode> items = episodes.subList(start, end);
         mEpisodeAdapter.addAll(items);
         mEpisodeGridAdapter.addAll(items);
-        if (episodeGridMode) mBinding.episodeGrid.scrollToPosition(0);
-        else mBinding.episode.setSelectedPosition(0);
+        scrollToEpisode(positionInSegment);
     }
 
     private boolean shouldEnterFullscreen(Episode item) {
@@ -4744,6 +4783,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             if (!isCurrentVodEvent(event.getVod())) return;
             refreshTmdbEpisodeTitles();
         }
+        else if (event.getType() == RefreshEvent.Type.VOD_RELATED_VIDEOS) {
+            if (!isCurrentVodEvent(event.getVod())) return;
+            refreshTmdbRelatedVideos();
+        }
         else if (event.getType() == RefreshEvent.Type.SUBTITLE) player().setSub(Sub.from(event.getPath()));
         else if (event.getType() == RefreshEvent.Type.DANMAKU) player().reloadDanmaku(Danmaku.from(event.getPath()));
         else if (event.getType() == RefreshEvent.Type.HISTORY) refreshPersonalRecommendationsForHistory();
@@ -4832,6 +4875,25 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 }
             }
         });
+    }
+
+    private boolean bindTmdbVideoGrid(HorizontalGridView grid, View label, List<TmdbVideo> items) {
+        if (items == null || items.isEmpty()) {
+            grid.setAdapter(null);
+            grid.setVisibility(View.GONE);
+            label.setVisibility(View.GONE);
+            return false;
+        }
+        ArrayObjectAdapter adapter = new ArrayObjectAdapter(new com.fongmi.android.tv.ui.presenter.TmdbVideoPresenter(this::onTmdbRelatedVideoClick));
+        adapter.addAll(0, items);
+        grid.setAdapter(new ItemBridgeAdapter(adapter));
+        grid.setVisibility(View.VISIBLE);
+        label.setVisibility(View.VISIBLE);
+        return true;
+    }
+
+    private void onTmdbRelatedVideoClick(TmdbVideo item) {
+        TmdbVideoPlayback.play(this, item);
     }
 
     private boolean bindRecommendationGrid(HorizontalGridView grid, View label, List<TmdbItem> items) {
@@ -5058,6 +5120,24 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     // 细粒度刷新：个性化推荐（TMDB / 豆瓣）异步到达时只重绑这两个列表。
+    private void refreshTmdbRelatedVideos() {
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded() || mTmdbDetailLoading) return;
+        bindTmdbVideoGrid(mBinding.tmdbRelatedVideos, mBinding.tmdbRelatedVideosLabel, mTmdbUIAdapter.getRelatedVideos());
+        updateFocus();
+    }
+
+    private void loadTmdbRelatedVideosForCurrentEpisode() {
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
+        Episode episode = getEpisode();
+        TmdbEpisode tmdbEpisode = episode == null ? null : episode.getTmdbEpisode();
+        int seasonNumber = tmdbEpisode != null && tmdbEpisode.getSeasonNumber() >= 0
+                ? tmdbEpisode.getSeasonNumber() : currentSourceSeasonNumber();
+        int episodeNumber = tmdbEpisode == null ? (episode == null ? -1 : episode.getNumber()) : tmdbEpisode.getNumber();
+        if (episodeNumber <= 0) episodeNumber = -1;
+        mTmdbUIAdapter.loadRelatedVideosAsync(seasonNumber, episodeNumber);
+        refreshTmdbRelatedVideos();
+    }
+
     private void refreshTmdbPersonalRecommendations() {
         if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded() || mTmdbDetailLoading) return;
         bindRecommendationGrid(mBinding.tmdbPersonalTmdbRecommendations, mBinding.tmdbPersonalTmdbRecommendationsLabel, mTmdbUIAdapter.getPersonalTmdbRecommendations(), RecommendationRow.PERSONAL_TMDB);
@@ -5122,6 +5202,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private void bindTmdbData() {
         if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
+        loadTmdbRelatedVideosForCurrentEpisode();
 
         boolean hasTmdbContent = false;
         View lastVisibleGrid = null;
@@ -5206,6 +5287,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         }
 
         // 个性推荐 · TMDB
+        java.util.List<TmdbVideo> relatedVideos = mTmdbUIAdapter.getRelatedVideos();
+        if (bindTmdbVideoGrid(mBinding.tmdbRelatedVideos, mBinding.tmdbRelatedVideosLabel, relatedVideos)) {
+            if (lastVisibleGrid == null) setDetailButtonsNextFocus(R.id.tmdbRelatedVideos);
+            if (lastVisibleGrid != null) lastVisibleGrid.setNextFocusDownId(R.id.tmdbRelatedVideos);
+            lastVisibleGrid = mBinding.tmdbRelatedVideos;
+            if (!hasTmdbContent) hasTmdbContent = true;
+        }
+
         java.util.List<com.fongmi.android.tv.bean.TmdbItem> personalTmdbRecommendations = mTmdbUIAdapter.getPersonalTmdbRecommendations();
         if (bindRecommendationGrid(mBinding.tmdbPersonalTmdbRecommendations, mBinding.tmdbPersonalTmdbRecommendationsLabel, personalTmdbRecommendations, RecommendationRow.PERSONAL_TMDB)) {
             if (lastVisibleGrid == null) setDetailButtonsNextFocus(R.id.tmdbPersonalTmdbRecommendations);
