@@ -3216,7 +3216,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (position <= 1) return;
         selectEpisodeSegmentPosition(position);
         showEpisodeSegment(position);
-        if (requestEpisodeFocus) scrollToEpisode(mEpisodeAdapter.getPosition(), true);
+        if (requestEpisodeFocus) scrollToEpisode(getSelectedEpisodePosition(mEpisodeAdapter.getItems()), true);
     }
 
     private void selectEpisodeSegmentPosition(int position) {
