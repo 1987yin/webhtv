@@ -48,6 +48,41 @@ public class HomeCategoryNavigationSourceTest {
     }
 
     @Test
+    public void inlineCategoryEdgesSwitchCategoriesWithRowSpecificFocus() throws Exception {
+        String home = homeActivity();
+        String folder = read(source("leanback", "java", "com", "fongmi", "android", "tv", "ui", "fragment", "FolderFragment.java"));
+        String type = read(source("leanback", "java", "com", "fongmi", "android", "tv", "ui", "fragment", "TypeFragment.java"));
+        String row = read(source("leanback", "java", "com", "fongmi", "android", "tv", "ui", "custom", "CustomRowPresenter.java"));
+        String forwardEdge = method(folder, "public void onContentHorizontalEdge(int contentRow, boolean towardEnd)", "public boolean requestContentFocus()");
+        String edge = method(home, "public void onCategoryContentHorizontalEdge(Class item, int contentRow, boolean towardEnd)", "private Class getAdjacentCategory(Class item, boolean towardEnd)");
+        String adjacent = method(home, "private Class getAdjacentCategory(Class item, boolean towardEnd)", "private void showHomeContent()");
+
+        assertTrue("category card rows must report horizontal edge navigation", type.contains("new CustomRowPresenter(16, this::onContentHorizontalEdge)"));
+        assertTrue("filter rows must retain their edge focus without switching categories", type.contains("HorizontalGridView.FOCUS_SCROLL_ALIGNED, true)"));
+        assertTrue("row grids must consume the boundary key and report its logical direction", row.contains("edgeListener.onHorizontalEdge(towardEnd)") && row.contains("isHorizontalEdge(grid, event)"));
+        assertTrue("content rows must be relative to the filter-row offset", type.contains("getContentRow()") && type.contains("mBinding.recycler.getSelectedPosition() - (filterVisible ? mFilters.size() : 0)"));
+        assertTrue("folder fragments must forward content-edge navigation through a host contract", folder.contains("interface CategoryEdgeHost") && forwardEdge.contains("host.onCategoryContentHorizontalEdge(mType, contentRow, towardEnd);"));
+        assertTrue("nested folder pages must not switch the top-level category", forwardEdge.contains("if (getChildFragmentManager().getBackStackEntryCount() > 0) return;"));
+        assertTrue("right and left edges must select the adjacent category in opposite directions", adjacent.contains("int target = position + (towardEnd ? 1 : -1);"));
+        assertTrue("the synthetic home item must not be treated as an adjacent category", adjacent.contains("candidate.isHome()"));
+        assertTrue("first-row edges must focus the adjacent category's first card", edge.contains("if (contentRow == 0)") && edge.contains("focusFirstCard(item);"));
+        assertTrue("lower-row edges must focus the adjacent category button", edge.contains("else focusCategoryButton(item);"));
+        assertTrue("cached category pages must be visible before receiving the first-card request", adjacent.contains("getSupportFragmentManager().executePendingTransactions();") && adjacent.contains("mFolder.requestContentFocus(0);"));
+    }
+
+    @Test
+    public void firstCategoryContentRowMovesUpToSelectedCategoryHeader() throws Exception {
+        String grid = read(source("leanback", "java", "com", "fongmi", "android", "tv", "ui", "custom", "CustomVerticalGridView.java"));
+        String dispatch = method(grid, "public boolean dispatchKeyEvent(@NonNull KeyEvent event)", "private boolean focusHeader()");
+        String focusHeader = method(grid, "private boolean focusHeader()", "public boolean moveToTop()");
+
+        assertTrue("up from the first content row must use the configured header instead of geometric focus search", dispatch.contains("if (KeyUtil.isUpKey(event) && focusHeader()) return true;"));
+        assertTrue("only the first content row may route up to the header", focusHeader.contains("getSelectedPosition() != 0"));
+        assertTrue("the selected category row must be restored before focus moves", focusHeader.contains("showHeader();"));
+        assertTrue("the first configured focusable header must receive focus", focusHeader.contains("if (view.requestFocus()) return true;"));
+    }
+
+    @Test
     public void quickOkAppliesFilterOnlyAfterTheFocusedCategoryBecomesCurrent() throws Exception {
         String source = homeActivity();
         String folder = read(source("leanback", "java", "com", "fongmi", "android", "tv", "ui", "fragment", "FolderFragment.java"));
@@ -98,9 +133,11 @@ public class HomeCategoryNavigationSourceTest {
         String type = read(source("leanback", "java", "com", "fongmi", "android", "tv", "ui", "fragment", "TypeFragment.java"));
         String showCategory = method(home, "private void showCategoryContent(Class item)", "private void restoreTypeFocus(boolean keepTypeFocus, Class item)");
         String restoreFocus = method(home, "private void restoreTypeFocus(boolean keepTypeFocus, Class item)", "private void syncCategorySite()");
+        String clearCategory = method(home, "private void clearCategoryContent()", "private void updateToolbarVisibility(boolean visible)");
         String hiddenChanged = method(type, "public void onHiddenChanged(boolean hidden)", "public boolean requestContentFocus()");
 
         assertTrue("the switch must remember whether the type row owned focus", showCategory.contains("boolean keepTypeFocus = mBinding.typeRecycler.hasFocus();"));
+        assertTrue("removing category pages must invalidate pending content focus", clearCategory.contains("fragment instanceof FolderFragment folder") && clearCategory.contains("folder.clearContentFocusRequest();"));
         assertTrue("focus restoration must wait until the fragment transaction completes", showCategory.contains("transaction.runOnCommit(() -> {"));
         assertTrue("the completed transaction must restore type focus", showCategory.contains("restoreTypeFocus(keepTypeFocus, item);"));
         assertFalse("focus restoration must not leave a frame where cached content can cover the home chrome", restoreFocus.contains("mBinding.typeRecycler.post("));
