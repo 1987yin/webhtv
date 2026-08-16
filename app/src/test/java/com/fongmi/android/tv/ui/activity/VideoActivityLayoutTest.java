@@ -1169,7 +1169,7 @@ public class VideoActivityLayoutTest {
                 && eventBody.contains("mBinding.array.setOnKeyListener((view, keyCode, event) -> onArrayKey(event));")
                 && arrayKeyBody.contains("!KeyUtil.isActionDown(event) || !KeyUtil.isDownKey(event)")
                 && arrayKeyBody.contains("selectEpisodeSegment(position, true);"));
-        assertTrue("segment focus handoff must use the selected episode position", source.contains("if (requestEpisodeFocus) scrollToEpisode(mEpisodeAdapter.getPosition(), true);"));
+        assertTrue("segment focus handoff must preserve history fallback when no episode is marked selected", source.contains("if (requestEpisodeFocus) scrollToEpisode(getSelectedEpisodePosition(mEpisodeAdapter.getItems()), true);"));
 
         Path arrayAdapterPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "ArrayAdapter.java"));
         String arrayAdapter = new String(Files.readAllBytes(arrayAdapterPath), StandardCharsets.UTF_8);
