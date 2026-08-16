@@ -14,6 +14,20 @@
                 android:color="@color/white" />
         </shape>
     </item>
+    <item android:state_activated="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/black_50" />
+            <corners android:radius="4dp" />
+            <padding
+                android:bottom="8dp"
+                android:left="12dp"
+                android:right="12dp"
+                android:top="8dp" />
+            <stroke
+                android:width="2dp"
+                android:color="#2CC56F" />
+        </shape>
+    </item>
     <item android:state_selected="true">
         <shape android:shape="rectangle">
             <solid android:color="@color/black_50" />
