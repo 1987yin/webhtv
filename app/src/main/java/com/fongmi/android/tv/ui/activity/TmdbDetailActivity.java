@@ -1375,10 +1375,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void showInlinePauseInfo() {
-        if (!shouldShowInlinePauseInfo()) {
-            hideInlinePauseInfo();
-            return;
-        }
         inlinePauseInfo = true;
         binding.gestureAction.setImageResource(R.drawable.ic_widget_play);
         binding.gestureTime.setText(player().getPositionTime(0));
@@ -1388,13 +1384,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         updateInlineDisplayPanel();
     }
 
-    private void syncInlinePauseInfo() {
+    private void syncInlinePauseInfo(boolean playing) {
         if (binding == null) return;
-        if (shouldShowInlinePauseInfo()) showInlinePauseInfo();
+        if (shouldShowInlinePauseInfo(playing)) showInlinePauseInfo();
         else hideInlinePauseInfo();
     }
 
-    private boolean shouldShowInlinePauseInfo() {
+    private boolean shouldShowInlinePauseInfo(boolean playing) {
         return Util.isLeanback()
                 && inlineFullscreen
                 && inlineStarted
@@ -1402,7 +1398,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 && service() != null
                 && player() != null
                 && !player().isEmpty()
-                && !player().isPlaying()
+                && !playing
                 && isPaused();
     }
 
@@ -8797,7 +8793,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         boolean playing = service() != null && !player().isEmpty() && player().isPlaying();
         updateInlineButtons(playing);
         hideInlineControls();
-        syncInlinePauseInfo();
+        syncInlinePauseInfo(playing);
         updateInlineDisplayPanel();
         binding.playerPanel.requestFocus();
         Util.toggleFullscreen(this, true);
@@ -9628,7 +9624,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     @Override
     protected void onPlayingChanged(boolean isPlaying) {
         if (!isInlinePlayerMode() || !inlineStarted || !isOwner()) return;
-        syncInlinePauseInfo();
+        syncInlinePauseInfo(isPlaying);
         updateInlinePiPActions(isPlaying);
         updateInlineButtons(isPlaying);
         updateInlineDisplayPanel();
@@ -9638,7 +9634,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         super.onPlayWhenReadyChanged(playWhenReady, reason);
         if (!isInlinePlayerMode() || !inlineStarted || !isOwner()) return;
-        syncInlinePauseInfo();
+        syncInlinePauseInfo(playWhenReady);
     }
 
     @Override
@@ -9667,7 +9663,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 inlineFirstReady = true;  // 标记已显示过控制栏
                 showInlineControls(true, false);
             }
-            syncInlinePauseInfo();
+            syncInlinePauseInfo(player().isPlaying());
         }
         if (state == Player.STATE_ENDED) checkInlineEnded(true);
         updateInlineDisplayPanel();
