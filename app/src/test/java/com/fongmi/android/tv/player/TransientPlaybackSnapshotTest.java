@@ -36,4 +36,39 @@ public class TransientPlaybackSnapshotTest {
 
         assertFalse(snapshot.isRestorable());
     }
+
+    @Test
+    public void createNormalizesNullAndNegativeValues() {
+        TransientPlaybackSnapshot snapshot = TransientPlaybackSnapshot.create(null, null, null, -1L, false);
+
+        assertEquals("", snapshot.key());
+        assertTrue(snapshot.result() != null);
+        assertTrue(snapshot.result().getRealUrl().isEmpty());
+        assertSame(MediaMetadata.EMPTY, snapshot.metadata());
+        assertEquals(0L, snapshot.positionMs());
+        assertFalse(snapshot.shouldResume());
+    }
+
+    @Test
+    public void directConstructorAlsoNormalizesNullAndNegativeValues() {
+        TransientPlaybackSnapshot snapshot = new TransientPlaybackSnapshot(null, null, null, -1L, false);
+
+        assertEquals("", snapshot.key());
+        assertTrue(snapshot.result() != null);
+        assertSame(MediaMetadata.EMPTY, snapshot.metadata());
+        assertEquals(0L, snapshot.positionMs());
+        assertFalse(snapshot.isRestorable());
+    }
+
+    @Test
+    public void emptyKeyCannotBeRestoredWhenUrlIsValid() {
+        Result result = Result.playbackSnapshot(Result.empty(), "https://example.com/video.m3u8", Map.of(), "", null, List.of());
+
+        assertFalse(TransientPlaybackSnapshot.create("", result, MediaMetadata.EMPTY, 0L, false).isRestorable());
+    }
+
+    @Test
+    public void validKeyCannotBeRestoredWhenUrlIsEmpty() {
+        assertFalse(TransientPlaybackSnapshot.create("site|vod|episode", Result.empty(), MediaMetadata.EMPTY, 0L, false).isRestorable());
+    }
 }

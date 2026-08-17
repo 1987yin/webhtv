@@ -12,14 +12,16 @@ public record TransientPlaybackSnapshot(
         long positionMs,
         boolean shouldResume) {
 
+    public TransientPlaybackSnapshot {
+        key = key == null ? "" : key;
+        result = result == null ? Result.empty() : result;
+        metadata = metadata == null ? MediaMetadata.EMPTY : metadata;
+        positionMs = Math.max(0L, positionMs);
+    }
+
     public static TransientPlaybackSnapshot create(String key, Result result, MediaMetadata metadata,
                                                     long positionMs, boolean shouldResume) {
-        return new TransientPlaybackSnapshot(
-                key == null ? "" : key,
-                result == null ? Result.empty() : result,
-                metadata == null ? MediaMetadata.EMPTY : metadata,
-                Math.max(0L, positionMs),
-                shouldResume);
+        return new TransientPlaybackSnapshot(key, result, metadata, positionMs, shouldResume);
     }
 
     public boolean isRestorable() {
