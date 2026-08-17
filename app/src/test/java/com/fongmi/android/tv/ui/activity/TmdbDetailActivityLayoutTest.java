@@ -2347,7 +2347,6 @@ public class TmdbDetailActivityLayoutTest {
         int enter = handleBody.indexOf("if (KeyUtil.isEnterKey(event))");
         int playbackGuard = handleBody.indexOf("if (!inlineStarted || service() == null || player() == null || player().isEmpty())");
         String enterBody = javaBlockAt(handleBody, "if (KeyUtil.isEnterKey(event))");
-        String actionUpBody = javaBlockAt(enterBody, "if (KeyUtil.isActionUp(event))");
 
         assertFalse("TV confirm must not restart playback while the player is loading or stopped", confirmBody.contains("onPlay();"));
         assertFalse("TV confirm behavior must not depend on the stale inlineStarted flag", confirmBody.contains("inlineStarted"));
@@ -2363,15 +2362,18 @@ public class TmdbDetailActivityLayoutTest {
                         && !confirmBody.contains("toggleInlinePlayback();"));
         String toggleCall = "toggleInlinePlayback();";
         String mobileFallback = "showInlineControls(true);";
-        String normalizedActionUp = actionUpBody.replaceAll("\\s+", " ");
-        String platformBranch = "if (Util.isLeanback()) " + toggleCall + " else " + mobileFallback;
-        int toggleCallIndex = actionUpBody.indexOf(toggleCall);
-        assertTrue("fullscreen DPAD center must toggle playback exactly once on ACTION_UP before the view-level key listener runs",
-                !actionUpBody.isEmpty()
-                        && normalizedActionUp.contains(platformBranch)
-                        && toggleCallIndex == actionUpBody.lastIndexOf(toggleCall));
-        assertTrue("mobile fullscreen confirm must retain exactly one controls-first fallback bound to the leanback branch",
-                actionUpBody.indexOf(mobileFallback) == actionUpBody.lastIndexOf(mobileFallback));
+        String normalizedEnter = enterBody.replaceAll("\\s+", " ").trim();
+        String expectedEnter = "if (KeyUtil.isEnterKey(event)) { if (KeyUtil.isActionUp(event)) { "
+                + "if (Util.isLeanback()) " + toggleCall + " else " + mobileFallback
+                + " } return true; }";
+        assertTrue("fullscreen confirm must only perform the platform-specific action on ACTION_UP",
+                normalizedEnter.equals(expectedEnter));
+        assertTrue("fullscreen confirm must toggle playback exactly once in the complete enter branch",
+                enterBody.indexOf(toggleCall) >= 0
+                        && enterBody.indexOf(toggleCall) == enterBody.lastIndexOf(toggleCall));
+        assertTrue("mobile fullscreen confirm must expose controls exactly once in the complete enter branch",
+                enterBody.indexOf(mobileFallback) >= 0
+                        && enterBody.indexOf(mobileFallback) == enterBody.lastIndexOf(mobileFallback));
         assertTrue("TV fullscreen playback toggles must keep controls hidden like the native leanback player",
                 activity.substring(toggle, toggleEnd)
                         .contains("if (Util.isLeanback() && inlineFullscreen) hideInlineControls();"));
