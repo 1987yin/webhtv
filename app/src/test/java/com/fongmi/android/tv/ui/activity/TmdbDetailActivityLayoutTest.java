@@ -2204,6 +2204,68 @@ public class TmdbDetailActivityLayoutTest {
                         && activity.contains("return moveDetailEpisodeFocus(position, event);"));
     }
 
+
+    @Test
+    public void mobileDetailEpisodeHeaderUsesCompactSeasonLabelAndShrinkableTools() throws Exception {
+        String layout = readLayout("activity_tmdb_detail.xml");
+        Path mobileRes = findMobileResPath();
+        String defaults = new String(Files.readAllBytes(mobileRes.resolve(Path.of("values", "strings.xml"))), StandardCharsets.UTF_8);
+        String simplified = new String(Files.readAllBytes(mobileRes.resolve(Path.of("values-zh-rCN", "strings.xml"))), StandardCharsets.UTF_8);
+        String traditional = new String(Files.readAllBytes(mobileRes.resolve(Path.of("values-zh-rTW", "strings.xml"))), StandardCharsets.UTF_8);
+
+        assertTrue("mobile detail must shorten the season selector label",
+                defaults.contains("<string name=\"detail_episode_season_context\">Season %1$d</string>")
+                        && simplified.contains("<string name=\"detail_episode_season_context\">第%1$d季</string>")
+                        && traditional.contains("<string name=\"detail_episode_season_context\">第%1$d季</string>"));
+        assertAndroidIdHasAttribute("episode season selector", layout, "episodeTitle", "android:ellipsize=\"end\"");
+        assertAndroidIdHasAttribute("episode season selector", layout, "episodeTitle", "android:maxLines=\"1\"");
+        for (String id : List.of("episodeReverse", "episodeFileName", "episodeViewMode")) {
+            assertAndroidIdHasAttribute(id, layout, id, "android:layout_width=\"40dp\"");
+            assertAndroidIdHasAttribute(id, layout, id, "android:minWidth=\"0dp\"");
+        }
+    }
+
+    @Test
+    public void mobileDetailEpisodeHeaderUsesIconOnlyToolbarWithStateAwareAccessibility() throws Exception {
+        String layout = readLayout("activity_tmdb_detail.xml");
+        String activity = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+
+        assertTrue("detail episode toolbar must expose a state-aware reverse icon helper",
+                activity.contains("private void updateEpisodeReverseButton()")
+                        && activity.contains("binding.episodeReverse.setContentDescription(getString(episodeReverse ? R.string.detail_episode_forward : R.string.detail_episode_reverse));"));
+        assertTrue("detail episode toolbar must update reverse state without restoring text labels",
+                !activity.contains("binding.episodeReverse.setText(episodeReverse ? R.string.detail_episode_forward : R.string.detail_episode_reverse);")
+                        && !activity.contains("binding.episodeViewMode.setText(switchToList ? R.string.detail_episode_view_list : R.string.detail_episode_view_grid);")
+                        && !activity.contains("binding.episodeFileName.setText(showScraped ? R.string.detail_episode_file_name_original : R.string.detail_episode_file_name_scraped);"));
+
+        assertIconOnlyEpisodeTool(layout, "episodeReverse", "ic_action_reverse", "detail_episode_reverse");
+        assertIconOnlyEpisodeTool(layout, "episodeFileName", "ic_action_rename", "detail_episode_file_name_scraped_action");
+        assertIconOnlyEpisodeTool(layout, "episodeViewMode", "ic_site_grid", "detail_episode_view_grid_action");
+    }
+
+
+    @Test
+    public void nativeEnhancedEpisodeHeaderInitializesAllIconToolsBeforeFirstViewportBind() throws Exception {
+        String activity = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int render = activity.indexOf("private void renderEpisodes()");
+        int initialize = activity.indexOf("updateEpisodeToolButtons();", render);
+        int bindViewport = activity.indexOf("applyEpisodeViewport(pagedDisplayEpisodes", render);
+        int helper = activity.indexOf("private void updateEpisodeToolButtons()");
+        int nextHelper = activity.indexOf("private void updateEpisodeReverseButton()", helper);
+        String helperBody = helper >= 0 && nextHelper > helper ? activity.substring(helper, nextHelper) : "";
+
+        assertTrue("native enhanced episode header must initialize every icon tool before the first viewport bind",
+                render >= 0 && initialize > render && bindViewport > initialize);
+        for (String id : List.of("episodeReverse", "episodeFileName", "episodeViewMode")) {
+            assertTrue("native enhanced episode header must explicitly restore " + id + " visibility",
+                    helperBody.contains("binding." + id + ".setVisibility(View.VISIBLE);"));
+        }
+        assertTrue("native enhanced episode header must synchronize all icon and accessibility states together",
+                helperBody.contains("updateEpisodeReverseButton();")
+                        && helperBody.contains("updateEpisodeFileNameButton();")
+                        && helperBody.contains("updateEpisodeViewModeButton();"));
+    }
+
     @Test
     public void inlineEpisodeModeToggleClicksImmediatelyOnMobileWhileTvKeepsFocusNavigation() throws Exception {
         Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
@@ -2769,6 +2831,13 @@ public class TmdbDetailActivityLayoutTest {
         return Path.of("app", "src", "leanback", "res");
     }
 
+
+    private static Path findMobileResPath() {
+        Path moduleRelative = Path.of("src", "mobile", "res");
+        if (Files.exists(moduleRelative)) return moduleRelative;
+        return Path.of("app", "src", "mobile", "res");
+    }
+
     private static Path findAppModulePath() {
         if (Files.exists(Path.of("proguard-rules.pro"))) return Path.of(".");
         return Path.of("app");
@@ -2783,6 +2852,17 @@ public class TmdbDetailActivityLayoutTest {
             previous = index;
         }
     }
+
+    private static void assertIconOnlyEpisodeTool(String layout, String id, String icon, String contentDescription) {
+        int index = layout.indexOf("android:id=\"@+id/" + id + "\"");
+        assertTrue(id + " is missing from the detail layout", index >= 0);
+        assertTrue(id + " must use the " + icon + " icon", containsViewAttribute(layout, index, "app:icon=\"@drawable/" + icon + "\""));
+        assertTrue(id + " must render as icon-only", containsViewAttribute(layout, index, "app:iconGravity=\"textStart\""));
+        assertTrue(id + " must remove icon padding", containsViewAttribute(layout, index, "app:iconPadding=\"0dp\""));
+        assertTrue(id + " must expose an action description", containsViewAttribute(layout, index, "android:contentDescription=\"@string/" + contentDescription + "\""));
+        assertTrue(id + " must not keep a visible text label", !containsViewAttribute(layout, index, "android:text="));
+    }
+
 
     private static void assertAndroidIdHasAttribute(String label, String layout, String id, String attribute) {
         int index = layout.indexOf("android:id=\"@+id/" + id + "\"");
