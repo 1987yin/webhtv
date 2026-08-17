@@ -790,6 +790,26 @@
                             android:visibility="gone" />
 
                         <TextView
+                            android:id="@+id/relatedVideoTitle"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="20dp"
+                            android:text="@string/tmdb_related_videos_label"
+                            android:textColor="@android:color/white"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:visibility="gone" />
+
+                        <androidx.recyclerview.widget.RecyclerView
+                            android:id="@+id/relatedVideoList"
+                            android:layout_width="match_parent"
+                            android:layout_height="180dp"
+                            android:layout_marginTop="12dp"
+                            android:clipToPadding="false"
+                            android:paddingEnd="8dp"
+                            android:visibility="gone" />
+
+                        <TextView
                             android:id="@+id/personalTmdbTitle"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"

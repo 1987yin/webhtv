@@ -1841,6 +1841,7 @@
     <string name="tmdb_photos_label">Backdrops</string>
     <string name="tmdb_crew_label">Crew</string>
     <string name="tmdb_recommendations_label">You May Like</string>
+    <string name="tmdb_related_videos_label">Related Videos</string>
     <string name="tmdb_personal_recommendations_tmdb_label">Personal Picks - TMDB</string>
     <string name="tmdb_personal_recommendations_douban_label">Personal Picks - Douban</string>
     <string name="tmdb_personal_recommendations_ai_label">Personal Picks - Smart</string>
