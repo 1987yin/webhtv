@@ -1197,7 +1197,6 @@ public class HomeWebController {
         }
         pauseAt = System.currentTimeMillis();
         dispatchLifecycle("fmpause", "{time:" + pauseAt + "}");
-        pausePageMedia();
         webView.onPause();
     }
 

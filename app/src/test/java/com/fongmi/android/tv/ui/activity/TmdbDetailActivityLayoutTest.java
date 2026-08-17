@@ -2792,6 +2792,71 @@ public class TmdbDetailActivityLayoutTest {
                         && controller.contains("osd.release();"));
     }
 
+    @Test
+    public void tvInlinePauseFeedbackStaysVisibleAcrossDetailPlayerStatePaths() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int show = source.indexOf("private void showInlinePauseInfo()");
+        int sync = source.indexOf("private void syncInlinePauseInfo(boolean playing)");
+        int condition = source.indexOf("private boolean shouldShowInlinePauseInfo(boolean playing)", sync);
+        int hide = source.indexOf("private void hideInlinePauseInfo()", condition);
+        int seekEnd = source.indexOf("public void onSeekEnd(long time)", hide);
+        int touchEnd = source.indexOf("public void onTouchEnd()");
+        int touchEndEnd = source.indexOf("private void hideInlineGestureOverlays()", touchEnd);
+        int toggle = source.indexOf("private void toggleInlinePlayback()");
+        int toggleEnd = source.indexOf("private void toggleInlineControls()", toggle);
+        int enter = source.indexOf("private void enterInlineFullscreen()");
+        int enterEnd = source.indexOf("private boolean shouldShowDetailFullscreenControlsOnReady()", enter);
+        int playing = source.indexOf("protected void onPlayingChanged(boolean isPlaying)");
+        int playingEnd = source.indexOf("protected void onSizeChanged(VideoSize size)", playing);
+        int ready = source.indexOf("protected void onStateChanged(int state)");
+        int readyEnd = source.indexOf("protected void onTracksChanged()", ready);
+        int playWhenReady = source.indexOf("public void onPlayWhenReadyChanged(boolean playWhenReady, int reason)");
+        int playWhenReadyEnd = source.indexOf("protected void onSizeChanged(VideoSize size)", playWhenReady);
+
+        assertTrue("detail player must expose a reusable pause-feedback synchronizer", sync >= 0 && show >= 0 && condition > sync && hide > condition);
+        String syncBody = source.substring(sync, condition);
+        String conditionBody = source.substring(condition, hide);
+        String showBody = source.substring(show, sync);
+        String hideBody = source.substring(hide, seekEnd);
+        String touchEndBody = source.substring(touchEnd, touchEndEnd);
+        String toggleBody = source.substring(toggle, toggleEnd);
+        String enterBody = source.substring(enter, enterEnd);
+        String playingBody = source.substring(playing, playingEnd);
+        String readyBody = source.substring(ready, readyEnd);
+        String playWhenReadyBody = source.substring(playWhenReady, playWhenReadyEnd);
+
+        assertTrue("pause feedback synchronizer must choose exactly one visible state",
+                syncBody.contains("if (shouldShowInlinePauseInfo(playing)) showInlinePauseInfo();")
+                        && syncBody.contains("else hideInlinePauseInfo();"));
+        assertTrue("pause feedback must only appear for active leanback fullscreen playback",
+                conditionBody.contains("Util.isLeanback()")
+                        && conditionBody.contains("inlineFullscreen")
+                        && conditionBody.contains("inlineStarted")
+                        && conditionBody.contains("!playing")
+                        && !conditionBody.contains("!player().isPlaying()")
+                        && conditionBody.contains("isPaused()"));
+        assertTrue("pause feedback must render above every inline control layer",
+                showBody.contains("binding.gestureSeek.setVisibility(View.VISIBLE);")
+                        && showBody.contains("binding.gestureSeek.bringToFront();"));
+        assertTrue("clearing pause feedback must hide the center prompt",
+                hideBody.contains("inlinePauseInfo = false;")
+                        && hideBody.contains("binding.gestureSeek.setVisibility(View.GONE);"));
+        assertTrue("a touch-up after double-tap pause must not immediately remove the pause prompt",
+                touchEndBody.contains("if (inlinePauseInfo)")
+                        && touchEndBody.contains("binding.gestureSeek.bringToFront();")
+                        && touchEndBody.contains("return;"));
+        assertTrue("TV fullscreen play/pause action must dismiss controls like the native leanback player",
+                toggleBody.contains("if (Util.isLeanback() && inlineFullscreen) hideInlineControls();"));
+        assertTrue("entering fullscreen while already paused must restore the pause prompt",
+                enterBody.contains("syncInlinePauseInfo(playing);"));
+        assertTrue("playback and READY callbacks must both synchronize pause feedback",
+                playingBody.contains("syncInlinePauseInfo(isPlaying);")
+                        && readyBody.contains("syncInlinePauseInfo(player().isPlaying());"));
+        assertTrue("playWhenReady changes must cover engines that do not emit a second isPlaying callback",
+                playWhenReadyBody.contains("super.onPlayWhenReadyChanged(playWhenReady, reason);")
+                        && playWhenReadyBody.contains("syncInlinePauseInfo(playWhenReady);"));
+    }
+
     private static Path findMainJavaPath() {
         Path moduleRelative = Path.of("src", "main", "java");
         if (Files.exists(moduleRelative)) return moduleRelative;
