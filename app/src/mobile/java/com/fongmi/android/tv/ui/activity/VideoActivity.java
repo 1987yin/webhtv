@@ -2275,6 +2275,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (!episodeChanged) setEpisodeAdapter(item.getEpisodes());
         scrollEpisodeToSelected();
         setQualityVisible(false);
+        loadTmdbRelatedVideosForCurrentEpisode();
     }
 
     @Override
@@ -2286,6 +2287,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (flag != null) setEpisodeAdapter(flag.getEpisodes());
         applyAudioQueueMetadata(item);
         if (isFullscreen()) Notify.show(getString(R.string.play_ready, item.getName()));
+        loadTmdbRelatedVideosForCurrentEpisode();
         onRefresh();
     }
 
@@ -5073,6 +5075,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         hideNativePersonalRecommendations();
         moveFlagAndEpisodeToTmdb();
         mTmdbHeaderView.bind(mTmdbUIAdapter);
+        loadTmdbRelatedVideosForCurrentEpisode();
         styleTmdbSourceInFlagTitle();
         applyTmdbPlaybackControlColors();
         applyFusionPlayerBelowSpacing();
@@ -5085,6 +5088,23 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     private void refreshTmdbRecommendations() {
         if (mTmdbHeaderView == null || mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
         mTmdbHeaderView.refreshRecommendations();
+    }
+
+    private void refreshTmdbRelatedVideos() {
+        if (mTmdbHeaderView == null || mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
+        mTmdbHeaderView.refreshRelatedVideos();
+    }
+
+    private void loadTmdbRelatedVideosForCurrentEpisode() {
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
+        Episode episode = getEpisode();
+        TmdbEpisode tmdbEpisode = episode == null ? null : episode.getTmdbEpisode();
+        int seasonNumber = tmdbEpisode != null && tmdbEpisode.getSeasonNumber() >= 0
+                ? tmdbEpisode.getSeasonNumber() : currentSourceSeasonNumber();
+        int episodeNumber = tmdbEpisode == null ? (episode == null ? -1 : episode.getNumber()) : tmdbEpisode.getNumber();
+        if (episodeNumber <= 0) episodeNumber = -1;
+        mTmdbUIAdapter.loadRelatedVideosAsync(seasonNumber, episodeNumber);
+        if (mTmdbHeaderView != null) mTmdbHeaderView.refreshRelatedVideos();
     }
 
     private void refreshTmdbPersonalRecommendations() {
@@ -6572,6 +6592,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         else if (event.getType() == RefreshEvent.Type.VOD_EPISODE_TITLES) {
             if (!isCurrentVodEvent(event.getVod())) return;
             refreshTmdbEpisodeTitles();
+        }
+        else if (event.getType() == RefreshEvent.Type.VOD_RELATED_VIDEOS) {
+            if (!isCurrentVodEvent(event.getVod())) return;
+            refreshTmdbRelatedVideos();
         }
         else if (event.getType() == RefreshEvent.Type.HISTORY) refreshPersonalRecommendationsForHistory();
         else if (event.getType() == RefreshEvent.Type.SUBTITLE) player().setSub(Sub.from(event.getPath()));
