@@ -185,10 +185,9 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     public final boolean launchTransientPlayback(Intent intent) {
         if (intent == null || !transientPlayback.canBeginLaunch() || isFinishing() || isDestroyed()) return false;
         PlayerManager manager = player();
-        boolean hasActiveMedia = manager != null && !manager.isReleased() && !manager.isEmpty();
+        boolean hasPlaybackSession = manager != null && !manager.isReleased() && manager.hasSession();
         TransientPlaybackSnapshot transientSnapshot = captureTransientPlaybackSnapshot();
-        if (hasActiveMedia && transientSnapshot == null) return false;
-        if (!transientPlayback.beginLaunch(transientSnapshot)) {
+        if (!transientPlayback.beginLaunch(transientSnapshot, hasPlaybackSession)) {
             resumeAfterTransientPlayback(transientSnapshot != null && transientSnapshot.shouldResume());
             return false;
         }

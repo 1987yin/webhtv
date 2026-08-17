@@ -50,6 +50,16 @@ public class TransientPlaybackCoordinatorTest {
     }
 
     @Test
+    public void existingSessionRequiresRestorableSnapshotButEmptyPlayerDoesNot() {
+        TransientPlaybackCoordinator coordinator = new TransientPlaybackCoordinator();
+
+        assertFalse(coordinator.beginLaunch(null, true));
+        assertFalse(coordinator.isLaunchActive());
+        assertTrue(coordinator.beginLaunch(null, false));
+        assertTrue(coordinator.isLaunchActive());
+    }
+
+    @Test
     public void disconnectRequeuesInFlightRestoreForReconnect() {
         TransientPlaybackCoordinator coordinator = new TransientPlaybackCoordinator();
         TransientPlaybackSnapshot snapshot = snapshot("key", "https://video/item.m3u8", 4_000L, true);

@@ -14,7 +14,12 @@ public final class TransientPlaybackCoordinator {
     }
 
     public boolean beginLaunch(TransientPlaybackSnapshot snapshot) {
+        return beginLaunch(snapshot, false);
+    }
+
+    public boolean beginLaunch(TransientPlaybackSnapshot snapshot, boolean hasExistingSession) {
         if (!canBeginLaunch()) return false;
+        if (hasExistingSession && (snapshot == null || !snapshot.isRestorable())) return false;
         launchActive = true;
         launchSnapshot = snapshot;
         return true;

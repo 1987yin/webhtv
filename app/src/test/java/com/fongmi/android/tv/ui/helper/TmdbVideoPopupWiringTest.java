@@ -28,8 +28,9 @@ public class TmdbVideoPopupWiringTest {
         assertFalse(playback.contains("private TransientPlaybackSnapshot pendingTransientRestore"));
         assertFalse(playback.contains("private long pendingTransientSeekMs"));
         assertOrderAfter(playback, "public void onPrepare()", "PlaybackActivity.this.onPrepare();", "transientPlayback.consumePreparedPosition(", "manager.seekTo(positionMs)");
-        assertTrue(playback.contains("if (hasActiveMedia && transientSnapshot == null) return false;"));
-        assertOrderAfter(playback, "public final boolean launchTransientPlayback(Intent intent)", "transientPlayback.canBeginLaunch()", "transientPlayback.beginLaunch(transientSnapshot)", "startActivityForResult(intent, REQUEST_TRANSIENT_PLAYBACK)");
+        assertFalse(playback.contains("!manager.isEmpty()"));
+        assertTrue(playback.contains("boolean hasPlaybackSession = manager != null && !manager.isReleased() && manager.hasSession();"));
+        assertOrderAfter(playback, "public final boolean launchTransientPlayback(Intent intent)", "transientPlayback.canBeginLaunch()", "transientPlayback.beginLaunch(transientSnapshot, hasPlaybackSession)", "startActivityForResult(intent, REQUEST_TRANSIENT_PLAYBACK)");
         assertTrue(playback.contains("TransientPlaybackSnapshot snapshot = transientPlayback.cancelLaunch();"));
         assertTrue(playback.contains("transientPlayback.queueRestoreAfterResult();"));
         assertOrderAfter(playback, "private void restoreTransientPlayback()", "transientPlayback.beginRestore()", "manager.stop();", "startPlayerInternal(", "catch (RuntimeException e)", "transientPlayback.failRestore();", "PlaybackActivity.this.onError(ResUtil.getString(R.string.error_play_url))");
