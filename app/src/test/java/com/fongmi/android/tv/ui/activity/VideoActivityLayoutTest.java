@@ -1228,7 +1228,7 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
-    public void mobileDirectPlaybackUsesUpstreamNativeEpisodeGrid() throws Exception {
+    public void mobileDirectPlaybackUsesUpstreamNativeEpisodeModule() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int predicate = source.indexOf("private boolean shouldUseUpstreamNativeEpisodeModule()");
@@ -1241,18 +1241,66 @@ public class VideoActivityLayoutTest {
         assertTrue(sourcePath + " is missing direct native episode predicate", predicate >= 0);
         assertTrue("direct native episode mode must be scoped to the 影视原生 setting",
                 source.indexOf("return Setting.isDirectDetailPage() && !isTmdbMode();", predicate) > predicate);
-        assertTrue("direct native playback must bypass enhanced episode grid binding",
+        assertTrue("direct native playback must bypass enhanced episode binding",
                 setEpisode >= 0 && source.indexOf("if (shouldUseUpstreamNativeEpisodeModule())", setEpisode) > setEpisode);
-        assertTrue("direct native playback should restore the upstream episode grid",
+        assertTrue("direct native playback should keep upstream grouping while honoring the saved list/grid mode",
                 bind >= 0
-                        && source.indexOf("mEpisodeGridMode = true;", bind) > bind
-                        && source.indexOf("mEpisodeAdapter.setViewType(ViewType.GRID);", bind) > bind
+                        && source.indexOf("mEpisodeGridMode = Setting.getTmdbEpisodeGridMode();", bind) > bind
                         && source.indexOf("mBinding.more.setVisibility(View.GONE);", bind) > bind
                         && source.indexOf("EpisodeGroupAdapter.build(size, getSelectedEpisodePosition(items), mHistory != null && mHistory.isRevSort())", bind) > bind
                         && source.indexOf("mBinding.episodeGroup.setVisibility(groups.size() > 1 ? View.VISIBLE : View.GONE);", bind) > bind
                         && source.indexOf("setEpisodeItems(items, false);", bind) > bind);
-        assertTrue("direct native episode grid should use the standard viewport cap",
+        assertTrue("direct native episode module should use the standard viewport cap",
                 viewport >= 0 && !viewportBody.contains("shouldUseUpstreamNativeEpisodeModule()"));
+    }
+
+    @Test
+    public void mobileDirectPlaybackExposesUnifiedEpisodeToolbar() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int bind = source.indexOf("private void setUpstreamNativeEpisodeItems(List<Episode> items)");
+        int setItems = source.indexOf("private void setEpisodeItems(List<Episode> items, boolean useTmdbCard)");
+        int layout = source.indexOf("private void updateEpisodeLayout(List<Episode> items, boolean useTmdbCard)");
+        int reverse = source.indexOf("private void updateEpisodeReverseButton()", setItems);
+
+        assertTrue(sourcePath + " is missing native episode binding", bind >= 0);
+        assertTrue("native mobile playback should preserve the configured list/grid default",
+                source.indexOf("mEpisodeGridMode = Setting.getTmdbEpisodeGridMode();", bind) > bind);
+        assertTrue("native mobile playback should expose the filename icon when multiple episodes exist",
+                source.indexOf("mBinding.episodeFileName.setVisibility(size > 1 ? View.VISIBLE : View.GONE);", bind) > bind);
+        assertTrue("native mobile playback should expose the list/grid icon when multiple episodes exist",
+                source.indexOf("mBinding.episodeViewMode.setVisibility(size > 1 ? View.VISIBLE : View.GONE);", bind) > bind);
+        assertTrue("native mobile playback should keep reverse accessibility state synchronized",
+                reverse > setItems && source.indexOf("mBinding.reverse.setContentDescription", reverse) > reverse);
+        assertTrue("native mobile list mode should use the horizontal episode holder instead of forcing grid mode",
+                setItems >= 0
+                        && source.indexOf("mEpisodeAdapter.setViewType(!mEpisodeGridMode ? ViewType.HORI : ViewType.GRID);", setItems) > setItems
+                        && layout >= 0
+                        && source.indexOf("if (!mEpisodeGridMode) {", layout) > layout);
+    }
+
+    @Test
+    public void mobileNativeEnhancedEpisodeToolbarDoesNotWaitForTmdbCards() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int bind = source.indexOf("private void setEpisodeAdapter(List<Episode> items)");
+        int setItems = source.indexOf("private void setEpisodeItems(List<Episode> items, boolean useTmdbCard)");
+        int layout = source.indexOf("private void updateEpisodeLayout(List<Episode> items, boolean useTmdbCard)");
+        int refresh = source.indexOf("private void refreshTmdbEpisodeTitles()");
+
+        assertTrue("mobile native-enhanced playback must expose filename and view tools for every multi-episode source",
+                bind >= 0 && source.indexOf("boolean showViewMode = size > 1;", bind) > bind);
+        assertTrue("late TMDB metadata refresh must keep the same multi-episode toolbar rule",
+                refresh >= 0 && source.indexOf("boolean showViewMode = size > 1;", refresh) > refresh);
+        assertTrue("plain native episode cards must not be forced back to grid mode",
+                setItems >= 0
+                        && source.indexOf("if (items.size() < 2) mEpisodeGridMode = true;", setItems) > setItems
+                        && !source.substring(setItems, layout).contains("!useTmdbCard && !shouldUseUpstreamNativeEpisodeModule()"));
+        assertTrue("all mobile episode modes must honor horizontal list mode",
+                setItems >= 0
+                        && source.indexOf("mEpisodeAdapter.setViewType(!mEpisodeGridMode ? ViewType.HORI : ViewType.GRID);", setItems) > setItems
+                        && layout >= 0
+                        && source.indexOf("if (!mEpisodeGridMode) {", layout) > layout);
     }
 
     @Test

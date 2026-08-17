@@ -34,6 +34,7 @@
     <!-- Detail -->
     <string name="detail_flag">線路</string>
     <string name="detail_episode">選集</string>
+    <string name="detail_episode_season_context">第%1$d季</string>
     <string name="detail_quality">畫質</string>
     <string name="detail_content">簡介</string>
     <string name="detail_search">快搜「<xliff:g name="name">%s</xliff:g>」</string>

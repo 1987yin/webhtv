@@ -4080,8 +4080,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         renderEpisodeRanges(episodeRanges);
         List<Episode> pagedDisplayEpisodes = episodeRanges.size() > 1 ? EpisodeRangePolicy.slice(displayEpisodes, episodeRanges.get(episodeRangeIndex)) : displayEpisodes;
         Map<Episode, Integer> episodeNumbers = episodeNumbers(pagedDisplayEpisodes, episodes);
-        binding.episodeReverse.setText(episodeReverse ? R.string.detail_episode_forward : R.string.detail_episode_reverse);
-        binding.episodeViewMode.setVisibility(View.VISIBLE);
+        updateEpisodeToolButtons();
         applyEpisodeViewport(pagedDisplayEpisodes, episodeNumbers, true);
         renderedEpisodeRangeIndex = episodeRanges.size() > 1 ? episodeRangeIndex : -1;
         if (shouldRefreshTmdbSection) bindTmdbSection();
@@ -4232,7 +4231,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         else updateEpisodeRangeButtonStates();
         List<Episode> pageItems = ranges.size() > 1 ? EpisodeRangePolicy.slice(displayEpisodes, ranges.get(episodeRangeIndex)) : displayEpisodes;
         Map<Episode, Integer> numbers = episodeNumbers(pageItems, episodes);
-        binding.episodeReverse.setText(episodeReverse ? R.string.detail_episode_forward : R.string.detail_episode_reverse);
+        updateEpisodeReverseButton();
         applyEpisodeViewport(pageItems, numbers, scrollToSelection, forceRefresh);
         renderedEpisodeRangeIndex = ranges.size() > 1 ? episodeRangeIndex : -1;
     }
@@ -4757,16 +4756,28 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.episodeContainer.post(() -> episodeAdapter.refreshDisplaySettings(binding.episodeContainer));
     }
 
+    private void updateEpisodeToolButtons() {
+        binding.episodeReverse.setVisibility(View.VISIBLE);
+        binding.episodeFileName.setVisibility(View.VISIBLE);
+        binding.episodeViewMode.setVisibility(View.VISIBLE);
+        updateEpisodeReverseButton();
+        updateEpisodeFileNameButton();
+        updateEpisodeViewModeButton();
+    }
+
+    private void updateEpisodeReverseButton() {
+        binding.episodeReverse.setIconResource(R.drawable.ic_action_reverse);
+        binding.episodeReverse.setContentDescription(getString(episodeReverse ? R.string.detail_episode_forward : R.string.detail_episode_reverse));
+    }
     private void updateEpisodeViewModeButton() {
         boolean switchToList = episodeGridMode;
-        binding.episodeViewMode.setText(switchToList ? R.string.detail_episode_view_list : R.string.detail_episode_view_grid);
         binding.episodeViewMode.setIconResource(switchToList ? R.drawable.ic_site_list : R.drawable.ic_site_grid);
         binding.episodeViewMode.setContentDescription(getString(switchToList ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
     }
 
     private void updateEpisodeFileNameButton() {
         boolean showScraped = Setting.getTmdbEpisodeShowScrapedName();
-        binding.episodeFileName.setText(showScraped ? R.string.detail_episode_file_name_original : R.string.detail_episode_file_name_scraped);
+        binding.episodeFileName.setIconResource(R.drawable.ic_action_rename);
         binding.episodeFileName.setContentDescription(getString(showScraped ? R.string.detail_episode_file_name_original_action : R.string.detail_episode_file_name_scraped_action));
     }
 
