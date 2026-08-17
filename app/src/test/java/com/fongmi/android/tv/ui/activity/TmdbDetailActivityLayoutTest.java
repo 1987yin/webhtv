@@ -2363,16 +2363,15 @@ public class TmdbDetailActivityLayoutTest {
                         && !confirmBody.contains("toggleInlinePlayback();"));
         String toggleCall = "toggleInlinePlayback();";
         String mobileFallback = "showInlineControls(true);";
+        String normalizedActionUp = actionUpBody.replaceAll("\\s+", " ");
+        String platformBranch = "if (Util.isLeanback()) " + toggleCall + " else " + mobileFallback;
         int toggleCallIndex = actionUpBody.indexOf(toggleCall);
-        int leanbackToggleIndex = actionUpBody.indexOf("if (Util.isLeanback()) " + toggleCall);
-        int elseIndex = actionUpBody.indexOf("else " + mobileFallback);
         assertTrue("fullscreen DPAD center must toggle playback exactly once on ACTION_UP before the view-level key listener runs",
                 !actionUpBody.isEmpty()
-                        && leanbackToggleIndex >= 0
+                        && normalizedActionUp.contains(platformBranch)
                         && toggleCallIndex == actionUpBody.lastIndexOf(toggleCall));
-        assertTrue("mobile fullscreen confirm must retain exactly one controls-first fallback after the leanback toggle",
-                elseIndex > toggleCallIndex
-                        && actionUpBody.indexOf(mobileFallback) == actionUpBody.lastIndexOf(mobileFallback));
+        assertTrue("mobile fullscreen confirm must retain exactly one controls-first fallback bound to the leanback branch",
+                actionUpBody.indexOf(mobileFallback) == actionUpBody.lastIndexOf(mobileFallback));
         assertTrue("TV fullscreen playback toggles must keep controls hidden like the native leanback player",
                 activity.substring(toggle, toggleEnd)
                         .contains("if (Util.isLeanback() && inlineFullscreen) hideInlineControls();"));
