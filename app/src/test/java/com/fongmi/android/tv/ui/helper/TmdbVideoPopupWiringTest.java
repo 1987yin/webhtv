@@ -24,6 +24,18 @@ public class TmdbVideoPopupWiringTest {
         assertTrue(playback.contains("TransientPlaybackSnapshot.create("));
         assertTrue(playback.contains("pendingTransientSeekMs = snapshot.positionMs()"));
         assertTrue(playback.contains("snapshot.shouldResume()"));
+        assertOrderAfter(playback, "public void onPrepare()", "PlaybackActivity.this.onPrepare();", "applyPendingTransientSeek();");
+        assertTrue(playback.contains("if (hasActiveMedia && transientSnapshot == null) return false;"));
+        assertTrue(playback.contains("private String pendingTransientSeekKey;"));
+        assertTrue(playback.contains("private String pendingTransientSeekUrl;"));
+        assertTrue(playback.contains("pendingTransientSeekKey.equals(manager.getKey())"));
+        assertTrue(playback.contains("pendingTransientSeekUrl.equals(manager.getUrl())"));
+        assertOrderAfter(playback, "private void restoreTransientPlayback()", "manager.stop();", "startPlayerInternal(", "clearPendingTransientSeek();");
+        assertTrue(playback.contains("private boolean startPlayerInternal("));
+        assertOrderAfter(playback, "public void onError(String msg)", "clearPendingTransientSeek();", "PlaybackActivity.this.onError(msg);");
+        assertOrderAfter(playback, "public void onServiceDisconnected(ComponentName name)", "clearPendingTransientSeek();", "mService = null;");
+        assertOrderAfter(playback, "protected void onDestroy()", "clearPendingTransientSeek();", "super.onDestroy();");
+        assertTrue(playback.contains("resumeAfterTransientPlayback(snapshot != null && snapshot.shouldResume())"));
     }
 
     @Test

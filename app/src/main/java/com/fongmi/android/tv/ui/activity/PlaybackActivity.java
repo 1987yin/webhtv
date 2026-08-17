@@ -76,6 +76,8 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private TransientPlaybackSnapshot pendingTransientRestore;
     private boolean transientPlaybackActive;
     private long pendingTransientSeekMs = C.TIME_UNSET;
+    private String pendingTransientSeekKey;
+    private String pendingTransientSeekUrl;
 
     protected MediaController controller() {
         return mController;
@@ -186,7 +188,10 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     public final boolean launchTransientPlayback(Intent intent) {
         if (intent == null || transientPlaybackActive || isFinishing() || isDestroyed()) return false;
+        PlayerManager manager = player();
+        boolean hasActiveMedia = manager != null && !manager.isReleased() && !manager.isEmpty();
         transientSnapshot = captureTransientPlaybackSnapshot();
+        if (hasActiveMedia && transientSnapshot == null) return false;
         transientPlaybackActive = true;
         intent.putExtra(EXTRA_TRANSIENT_PLAYBACK, true);
         try {
@@ -223,11 +228,39 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         TransientPlaybackSnapshot snapshot = pendingTransientRestore;
         pendingTransientRestore = null;
         if (snapshot == null || !snapshot.isRestorable() || !isServiceReady()) {
-            pendingTransientSeekMs = C.TIME_UNSET;
+            clearPendingTransientSeek();
             return;
         }
+        PlayerManager manager = player();
+        manager.stop();
         pendingTransientSeekMs = snapshot.positionMs();
-        startPlayer(snapshot.key(), snapshot.result(), false, 0, snapshot.metadata(), snapshot.shouldResume());
+        pendingTransientSeekKey = snapshot.key();
+        pendingTransientSeekUrl = snapshot.result().getRealUrl();
+        boolean accepted = false;
+        try {
+            accepted = startPlayerInternal(snapshot.key(), snapshot.result(), false, 0, snapshot.metadata(), snapshot.shouldResume());
+        } finally {
+            if (!accepted) clearPendingTransientSeek();
+        }
+    }
+
+    private void applyPendingTransientSeek() {
+        PlayerManager manager = player();
+        long positionMs = pendingTransientSeekMs;
+        boolean matches = positionMs != C.TIME_UNSET
+                && manager != null
+                && pendingTransientSeekKey != null
+                && pendingTransientSeekUrl != null
+                && pendingTransientSeekKey.equals(manager.getKey())
+                && pendingTransientSeekUrl.equals(manager.getUrl());
+        clearPendingTransientSeek();
+        if (matches) manager.seekTo(positionMs);
+    }
+
+    private void clearPendingTransientSeek() {
+        pendingTransientSeekMs = C.TIME_UNSET;
+        pendingTransientSeekKey = null;
+        pendingTransientSeekUrl = null;
     }
 
     public final boolean pauseForTransientPlayback() {
@@ -404,13 +437,19 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     protected void startPlayer(String key, Result result, boolean useParse, long timeout, MediaMetadata metadata) {
-        startPlayer(key, result, useParse, timeout, metadata, PlayerSetting.isAutoPlay());
+        startPlayerInternal(key, result, useParse, timeout, metadata, PlayerSetting.isAutoPlay());
     }
 
     protected void startPlayer(String key, Result result, boolean useParse, long timeout, MediaMetadata metadata, boolean playWhenReady) {
+        startPlayerInternal(key, result, useParse, timeout, metadata, playWhenReady);
+    }
+
+    private boolean startPlayerInternal(String key, Result result, boolean useParse, long timeout, MediaMetadata metadata, boolean playWhenReady) {
         if (rejectUnsupportedDrm(key, result)) {
-            return;
-        } else if (result.getDrm() != null && !FrameworkMediaDrm.isCryptoSchemeSupported(result.getDrm().getUUID())) {
+            return false;
+        }
+        boolean accepted = false;
+        if (result.getDrm() != null && !FrameworkMediaDrm.isCryptoSchemeSupported(result.getDrm().getUUID())) {
             onError(ResUtil.getString(R.string.error_play_drm));
         } else if (result.hasMsg()) {
             onError(result.getMsg());
@@ -420,12 +459,15 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             preparedPlaybackKey = null;
             attachSurface();
             player().parse(key, result, useParse, metadata, playWhenReady);
+            accepted = true;
         } else {
             preparedPlaybackKey = null;
             attachSurface();
             player().start(PlaySpec.from(result, key, metadata), timeout, playWhenReady);
+            accepted = true;
         }
         syncKeepScreenOn();
+        return accepted;
     }
 
     private boolean rejectUnsupportedDrm(String key, Result result) {
@@ -772,12 +814,8 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             if (isOwner()) {
                 MediaItem item = player().getCurrentMediaItem();
                 preparedPlaybackKey = item == null ? null : item.mediaId;
-                if (pendingTransientSeekMs != C.TIME_UNSET) {
-                    long positionMs = pendingTransientSeekMs;
-                    pendingTransientSeekMs = C.TIME_UNSET;
-                    player().seekTo(positionMs);
-                }
                 PlaybackActivity.this.onPrepare();
+                applyPendingTransientSeek();
                 reconcileControllerReadyState();
             }
         }
@@ -799,11 +837,13 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
         @Override
         public void onError(String msg) {
+            clearPendingTransientSeek();
             if (isOwner()) PlaybackActivity.this.onError(msg);
         }
 
         @Override
         public void onReload(String msg) {
+            clearPendingTransientSeek();
             if (isOwner()) PlaybackActivity.this.onReload(msg);
         }
 
@@ -992,6 +1032,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service disconnected name=%s %s", name, lifecycleState());
         releaseController();
         getSeekView().setProgressPlayer(null);
+        clearPendingTransientSeek();
         mService = null;
         preparedPlaybackKey = null;
     }
@@ -1003,6 +1044,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         transientPlaybackActive = false;
         pendingTransientRestore = transientSnapshot != null && transientSnapshot.isRestorable() ? transientSnapshot : null;
         transientSnapshot = null;
+        if (pendingTransientRestore == null) clearPendingTransientSeek();
         if (isServiceReady()) restoreTransientPlayback();
     }
 
@@ -1054,6 +1096,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity destroy beforeRelease %s", lifecycleState());
         RealtimeSubtitleController.get().unbind(getExoView());
         restoreExoOutputMode();
+        clearPendingTransientSeek();
         super.onDestroy();
         if (isChangingConfigurations()) {
             if (mService != null) mService.removePlayerCallback(mPlayerCallback);
