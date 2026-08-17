@@ -33,6 +33,18 @@ public final class VodEventGuard {
         return true;
     }
 
+    /**
+     * 对没有源站身份的缓存 Vod 绑定当前播放页身份，避免缓存条目的集数 ID
+     * 让当前页的异步 TMDB 刷新事件被误判为过期事件。
+     */
+    public static Vod alignCachedIdentity(Vod item, String currentSiteKey, String currentId) {
+        if (item == null || TextUtils.isEmpty(currentId)) return item;
+        if (!TextUtils.isEmpty(item.getSiteKey())) return item;
+        if (!matches(item, currentSiteKey, currentId)) item.setId(currentId);
+        return item;
+    }
+
+
     private VodEventGuard() {
     }
 }
