@@ -8,7 +8,7 @@ TV 端“沉浸融合”和“详情直放”均由 `TmdbDetailActivity` 承载�
 
 ## 方案比较
 
-1. **局部对齐隐藏控制栏的确认键分支（采用）**：在 `TmdbDetailActivity.handleInlineKey()` 中，将全屏且控制栏隐藏时的确认键松开动作从 `showInlineControls(true)` 改为复用 `toggleInlinePlayback()`。改动最小，直接复用现有播放状态、加载状态、暂停提示及控制栏收起逻辑。
+1. **局部对齐隐藏控制栏的确认键分支（采用）**：在 `TmdbDetailActivity.handleInlineKey()` 中，仅将 TV/leanback 在全屏且控制栏隐藏时的确认键松开动作从 `showInlineControls(true)` 改为复用 `toggleInlinePlayback()`；mobile 仍保留显示控制栏的行为。改动最小，直接复用现有播放状态、加载状态、暂停提示及控制栏收起逻辑。
 2. **为详情页接入 `CustomKeyDownVod`**：可最大程度复用影视原生的整套按键映射，但会与详情页已有的焦点导航、选集导航和锁定态处理重叠，回归范围过大。
 3. **让首次确认键同时显示控制栏并切换播放**：能做到单击暂停，但不符合影视原生“切换后保持控制栏隐藏”的交互，也会改变暂停提示的视觉层级。
 
@@ -30,7 +30,7 @@ TV 端“沉浸融合”和“详情直放”均由 `TmdbDetailActivity` 承载�
 在 `TmdbDetailActivityLayoutTest` 中增加源码契约回归测试，验证：
 
 - 隐藏控制栏的全屏确认键在 `ACTION_UP` 调用 `toggleInlinePlayback()`；
-- 该分支不再调用 `showInlineControls(true)`；
+- leanback 子分支不再调用 `showInlineControls(true)`，mobile 子分支仍显示控制栏；
 - 播放切换仍复用现有方法，且 TV 全屏路径会收起控制栏；
 - 原有详情页焦点、锁定态和按键路由测试继续通过。
 

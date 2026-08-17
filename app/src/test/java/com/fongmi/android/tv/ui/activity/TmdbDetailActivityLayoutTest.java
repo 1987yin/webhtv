@@ -2320,7 +2320,7 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
-    public void leanbackInlinePlayerConfirmEntersFullscreenThenShowsControls() throws Exception {
+    public void inlinePlayerConfirmSeparatesPanelClickAndHiddenKeyBehavior() throws Exception {
         Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
 
@@ -2355,9 +2355,9 @@ public class TmdbDetailActivityLayoutTest {
         assertTrue("fullscreen DPAD center must be handled before playback-only key guards", enter >= 0 && playbackGuard > enter);
         assertFalse("hidden fullscreen key routing must not require a started player or attached service",
                 hiddenPredicateBody.contains("!inlineStarted") || hiddenPredicateBody.contains("service() == null"));
-        assertTrue("embedded TV confirm should enter fullscreen before exposing controls",
+        assertTrue("embedded TV player panel click should enter fullscreen before exposing controls",
                 confirmBody.contains("enterInlineFullscreenOrShowControlsOnConfirm();"));
-        assertTrue("fullscreen TV confirm should expose the controls overlay without changing playback",
+        assertTrue("fullscreen player panel click fallback should expose controls without changing playback",
                 confirmBody.contains("showInlineControls(true);")
                         && !confirmBody.contains("toggleInlinePlayback();"));
         String toggleCall = "toggleInlinePlayback();";
