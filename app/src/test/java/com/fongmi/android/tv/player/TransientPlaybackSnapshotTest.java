@@ -11,6 +11,7 @@ import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 public class TransientPlaybackSnapshotTest {
@@ -23,6 +24,7 @@ public class TransientPlaybackSnapshotTest {
 
         assertTrue(snapshot.isRestorable());
         assertEquals("site|vod|episode", snapshot.key());
+        assertSame(result, snapshot.result());
         assertEquals(42_000L, snapshot.positionMs());
         assertTrue(snapshot.shouldResume());
         assertEquals("Episode 3", snapshot.metadata().title);
