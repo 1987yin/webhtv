@@ -462,6 +462,50 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void inlinePlaybackReconnectRestoresExistingResultBeforeRetryingSourceResolution() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int disconnect = source.indexOf("public void onServiceDisconnected(ComponentName name)");
+        int disconnectEnd = source.indexOf("@Override", disconnect + 1);
+        int restore = source.indexOf("private void restoreInlinePlaybackIfNeeded()");
+        int restoreEnd = source.indexOf("private ", restore + 1);
+        int service = source.indexOf("protected void onServiceConnected()");
+        int controller = source.indexOf("protected void onControllerConnected()");
+
+        assertTrue("detail playback must observe service disconnects", disconnect >= 0 && disconnectEnd > disconnect);
+        String disconnectBody = source.substring(disconnect, disconnectEnd);
+        assertTrue("disconnecting inline playback must persist the last known position before detaching",
+                disconnectBody.contains("saveInlineHistory();")
+                        && disconnectBody.indexOf("saveInlineHistory();") < disconnectBody.indexOf("super.onServiceDisconnected(name);"));
+        assertTrue("disconnecting inline playback must mark the session for reconnect before detaching",
+                disconnectBody.contains("inlinePlaybackReconnectPending = true;")
+                        && disconnectBody.indexOf("inlinePlaybackReconnectPending = true;") < disconnectBody.indexOf("super.onServiceDisconnected(name);"));
+        assertTrue("inline playback must have a dedicated reconnect restore path", restore >= 0 && restoreEnd > restore);
+        String restoreBody = source.substring(restore, restoreEnd);
+        assertTrue("reconnect restore must require the previous inline result and an empty player",
+                restoreBody.contains("inlinePlaybackReconnectPending")
+                        && restoreBody.contains("currentInlineResult != null")
+                        && restoreBody.contains("player().isEmpty()"));
+        assertTrue("reconnect restore must resume from the position saved before detaching",
+                restoreBody.contains("startInlinePlayer(currentInlineResult, getInlineResumePosition());"));
+        assertTrue("service reconnect must attempt to restore an interrupted inline session",
+                service >= 0 && source.indexOf("restoreInlinePlaybackIfNeeded();", service) > service);
+        assertTrue("controller reconnect must attempt to restore an interrupted inline session",
+                controller >= 0 && source.indexOf("restoreInlinePlaybackIfNeeded();", controller) > controller);
+    }
+
+    @Test
+    public void inlinePlaybackDoesNotResolveSourceAgainWhileServiceReconnects() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int toggle = source.indexOf("private void toggleInlinePlayback()");
+        int toggleEnd = source.indexOf("private void toggleInlineControls()", toggle);
+        String body = toggle >= 0 && toggleEnd > toggle ? source.substring(toggle, toggleEnd) : "";
+
+        assertTrue("playback toggle must wait for service reconnect instead of resolving the source again",
+                body.contains("inlinePlaybackReconnectPending")
+                        && body.indexOf("inlinePlaybackReconnectPending") < body.indexOf("onPlay();"));
+    }
+
+    @Test
     public void playbackPageHidesThemeActionsWhileEnhancedDetailKeepsThem() throws Exception {
         String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
         int method = source.indexOf("private void updateDetailThemeButtonVisibility()");
@@ -1739,6 +1783,31 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void mobileLegacyDetailPhotoCardsOpenOnFirstTapAcrossDetailFlows() throws Exception {
+        Path adapterPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "TmdbPhotoAdapter.java"));
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String adapter = new String(Files.readAllBytes(adapterPath), StandardCharsets.UTF_8);
+        String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
+        int holderConstructor = adapter.indexOf("public ViewHolder(@NonNull android.view.View itemView)");
+        int bind = adapter.indexOf("void bind(", holderConstructor);
+
+        assertTrue(adapterPath + " is missing the shared photo holder", holderConstructor >= 0 && bind > holderConstructor);
+        String holderBody = adapter.substring(holderConstructor, bind);
+        assertTrue("mobile legacy photo cards must bypass first-tap focus while TV keeps layout focus",
+                holderBody.contains("if (!Util.isLeanback()) {")
+                        && holderBody.contains("itemView.setFocusable(false);")
+                        && holderBody.contains("itemView.setFocusableInTouchMode(false);")
+                        && !holderBody.contains("!legacyMode && !Util.isLeanback()"));
+        assertTrue("main photos plus movie and episode detail dialogs must share the corrected photo adapter",
+                activity.contains("episodePhotoAdapter = new TmdbPhotoAdapter(this::showPhotoDialog);")
+                        && activity.contains("new TmdbPhotoAdapter((position, url) -> showPhotoDialog(position, url, new ArrayList<>()))")
+                        && activity.contains("new TmdbPhotoAdapter((position, url) -> showPhotoDialog(position, url, photos))"));
+        assertTrue("detail photo clicks must still open the full-screen original image dialog",
+                activity.contains("private void showPhotoDialog(int position, String url, List<String> sourcePhotos)")
+                        && activity.contains("Dialog dialog = new Dialog(this);"));
+    }
+
+    @Test
     public void detailPhotoCardsUseUnifiedMaterialFocusStrokeAndAlignedCorners() throws Exception {
         Path layoutPath = findMainResPath().resolve(Path.of("layout", "adapter_tmdb_photo.xml"));
         Path adapterPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "TmdbPhotoAdapter.java"));
@@ -2665,6 +2734,71 @@ public class TmdbDetailActivityLayoutTest {
                         && controller.contains("osd.start();")
                         && controller.contains("osd.stop();")
                         && controller.contains("osd.release();"));
+    }
+
+    @Test
+    public void tvInlinePauseFeedbackStaysVisibleAcrossDetailPlayerStatePaths() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int show = source.indexOf("private void showInlinePauseInfo()");
+        int sync = source.indexOf("private void syncInlinePauseInfo(boolean playing)");
+        int condition = source.indexOf("private boolean shouldShowInlinePauseInfo(boolean playing)", sync);
+        int hide = source.indexOf("private void hideInlinePauseInfo()", condition);
+        int seekEnd = source.indexOf("public void onSeekEnd(long time)", hide);
+        int touchEnd = source.indexOf("public void onTouchEnd()");
+        int touchEndEnd = source.indexOf("private void hideInlineGestureOverlays()", touchEnd);
+        int toggle = source.indexOf("private void toggleInlinePlayback()");
+        int toggleEnd = source.indexOf("private void toggleInlineControls()", toggle);
+        int enter = source.indexOf("private void enterInlineFullscreen()");
+        int enterEnd = source.indexOf("private boolean shouldShowDetailFullscreenControlsOnReady()", enter);
+        int playing = source.indexOf("protected void onPlayingChanged(boolean isPlaying)");
+        int playingEnd = source.indexOf("protected void onSizeChanged(VideoSize size)", playing);
+        int ready = source.indexOf("protected void onStateChanged(int state)");
+        int readyEnd = source.indexOf("protected void onTracksChanged()", ready);
+        int playWhenReady = source.indexOf("public void onPlayWhenReadyChanged(boolean playWhenReady, int reason)");
+        int playWhenReadyEnd = source.indexOf("protected void onSizeChanged(VideoSize size)", playWhenReady);
+
+        assertTrue("detail player must expose a reusable pause-feedback synchronizer", sync >= 0 && show >= 0 && condition > sync && hide > condition);
+        String syncBody = source.substring(sync, condition);
+        String conditionBody = source.substring(condition, hide);
+        String showBody = source.substring(show, sync);
+        String hideBody = source.substring(hide, seekEnd);
+        String touchEndBody = source.substring(touchEnd, touchEndEnd);
+        String toggleBody = source.substring(toggle, toggleEnd);
+        String enterBody = source.substring(enter, enterEnd);
+        String playingBody = source.substring(playing, playingEnd);
+        String readyBody = source.substring(ready, readyEnd);
+        String playWhenReadyBody = source.substring(playWhenReady, playWhenReadyEnd);
+
+        assertTrue("pause feedback synchronizer must choose exactly one visible state",
+                syncBody.contains("if (shouldShowInlinePauseInfo(playing)) showInlinePauseInfo();")
+                        && syncBody.contains("else hideInlinePauseInfo();"));
+        assertTrue("pause feedback must only appear for active leanback fullscreen playback",
+                conditionBody.contains("Util.isLeanback()")
+                        && conditionBody.contains("inlineFullscreen")
+                        && conditionBody.contains("inlineStarted")
+                        && conditionBody.contains("!playing")
+                        && !conditionBody.contains("!player().isPlaying()")
+                        && conditionBody.contains("isPaused()"));
+        assertTrue("pause feedback must render above every inline control layer",
+                showBody.contains("binding.gestureSeek.setVisibility(View.VISIBLE);")
+                        && showBody.contains("binding.gestureSeek.bringToFront();"));
+        assertTrue("clearing pause feedback must hide the center prompt",
+                hideBody.contains("inlinePauseInfo = false;")
+                        && hideBody.contains("binding.gestureSeek.setVisibility(View.GONE);"));
+        assertTrue("a touch-up after double-tap pause must not immediately remove the pause prompt",
+                touchEndBody.contains("if (inlinePauseInfo)")
+                        && touchEndBody.contains("binding.gestureSeek.bringToFront();")
+                        && touchEndBody.contains("return;"));
+        assertTrue("TV fullscreen play/pause action must dismiss controls like the native leanback player",
+                toggleBody.contains("if (Util.isLeanback() && inlineFullscreen) hideInlineControls();"));
+        assertTrue("entering fullscreen while already paused must restore the pause prompt",
+                enterBody.contains("syncInlinePauseInfo(playing);"));
+        assertTrue("playback and READY callbacks must both synchronize pause feedback",
+                playingBody.contains("syncInlinePauseInfo(isPlaying);")
+                        && readyBody.contains("syncInlinePauseInfo(player().isPlaying());"));
+        assertTrue("playWhenReady changes must cover engines that do not emit a second isPlaying callback",
+                playWhenReadyBody.contains("super.onPlayWhenReadyChanged(playWhenReady, reason);")
+                        && playWhenReadyBody.contains("syncInlinePauseInfo(playWhenReady);"));
     }
 
     private static Path findMainJavaPath() {

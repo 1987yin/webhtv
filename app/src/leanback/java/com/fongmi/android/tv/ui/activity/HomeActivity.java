@@ -120,6 +120,9 @@ import android.app.AlertDialog;
 
 public class HomeActivity extends BaseActivity implements ExitConfirmDialog.Listener, CustomTitleView.Listener, VodPresenter.OnClickListener, FuncPresenter.OnClickListener, HistoryPresenter.OnClickListener, TypeAdapter.OnClickListener, HomeWebController.Listener, ConfigListener, FolderFragment.FilterHost, FolderFragment.ScrollHeaderHost {
 
+public class HomeActivity extends BaseActivity implements ExitConfirmDialog.Listener, CustomTitleView.Listener, VodPresenter.OnClickListener, FuncPresenter.OnClickListener, HistoryPresenter.OnClickListener, TypeAdapter.OnClickListener, HomeWebController.Listener, ConfigListener, FolderFragment.FilterHost, FolderFragment.ScrollHeaderHost, FolderFragment.CategoryEdgeHost {
+
+
     private static final String TV_NORMAL = "tv-normal";
     private static final String TV_TOOLBAR_HIDDEN = "tv-toolbar-hidden";
     private static final String TV_OVERLAY = "tv-overlay";
@@ -338,11 +341,45 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
         else showCategoryContent(item);
     }
 
+    @Override
+    public void onCategoryContentHorizontalEdge(Class item, int contentRow, boolean towardEnd) {
+        if (!isCurrentCategory(item) || contentRow < 0) return;
+        item = getAdjacentCategory(item, towardEnd);
+        if (item == null) return;
+        mBinding.typeRecycler.removeCallbacks(mTypeSwitch);
+        int position = mTypeAdapter.indexOf(item);
+        mBinding.typeRecycler.setSelectedPosition(position);
+        if (contentRow == 0) focusFirstCard(item);
+        else focusCategoryButton(item);
+    }
+
+    private Class getAdjacentCategory(Class item, boolean towardEnd) {
+        int position = mTypeAdapter.indexOf(item);
+        int target = position + (towardEnd ? 1 : -1);
+        if (position < 0 || target < 0 || target >= mTypeAdapter.getItemCount()) return null;
+        Class candidate = mTypeAdapter.get(target);
+        return candidate.isHome() ? null : candidate;
+    }
+
+    private void focusFirstCard(Class item) {
+        showCategoryContent(item);
+        getSupportFragmentManager().executePendingTransactions();
+        if (mFolder != null && isCurrentCategory(item)) mFolder.requestContentFocus(0);
+    }
+
+    private void focusCategoryButton(Class item) {
+        mBinding.typeRecycler.setVisibility(View.VISIBLE);
+        updateToolbarVisibility(true);
+        mBinding.typeRecycler.requestFocus();
+        showCategoryContent(item);
+    }
+
     private void showHomeContent() {
         mCurrentType = null;
         mBinding.progressLayout.setVisibility(View.VISIBLE);
         mBinding.categoryContainer.setVisibility(View.GONE);
         if (mFolder != null && mFolder.isAdded() && !mFolder.isHidden()) {
+            mFolder.clearContentFocusRequest();
             mFolder.setUserVisibleHint(false);
             getSupportFragmentManager().beginTransaction().hide(mFolder).commit();
         }
@@ -381,6 +418,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
 
         FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
         if (mFolder != null && mFolder.isAdded()) {
+            mFolder.clearContentFocusRequest();
             mFolder.setUserVisibleHint(false);
             transaction.hide(mFolder);
         }
@@ -422,7 +460,8 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
 
         FragmentTransaction transaction = null;
         for (Fragment fragment : getSupportFragmentManager().getFragments()) {
-            if (!(fragment instanceof FolderFragment)) continue;
+            if (!(fragment instanceof FolderFragment folder)) continue;
+            folder.clearContentFocusRequest();
             if (transaction == null) transaction = getSupportFragmentManager().beginTransaction();
             transaction.remove(fragment);
         }

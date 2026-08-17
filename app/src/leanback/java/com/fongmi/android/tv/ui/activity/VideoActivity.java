@@ -120,6 +120,8 @@ import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
+import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
+
 import com.fongmi.android.tv.ui.helper.EpisodeSeasonPolicy;
 import com.fongmi.android.tv.ui.helper.SourceEpisodeSeasonCache;
 import com.fongmi.android.tv.ui.helper.PlayerControlFocusHelper;
@@ -1034,6 +1036,9 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private int getSelectedEpisodePosition(List<Episode> episodes) {
         for (int i = 0; i < episodes.size(); i++) if (episodes.get(i).isSelected()) return i;
+        if (mHistory == null) return 0;
+        Episode historyEpisode = mHistory.getEpisode();
+        for (int i = 0; i < episodes.size(); i++) if (episodes.get(i).matchesPlayback(historyEpisode)) return i;
         return 0;
     }
 
@@ -1410,6 +1415,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.array.setHorizontalSpacing(ResUtil.dp2px(8));
         mBinding.array.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.array.setAdapter(mArrayAdapter = new ArrayAdapter(this));
+        mArrayAdapter.setOnKeyListener((view, keyCode, event) -> onArrayKey(event));
+        mBinding.array.setOnKeyListener((view, keyCode, event) -> onArrayKey(event));
         mBinding.part.setHorizontalSpacing(ResUtil.dp2px(8));
         mBinding.part.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.part.setAdapter(mPartAdapter = new PartAdapter(item -> initSearch(item, false)));
@@ -2574,9 +2581,12 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mEpisodeGridAdapter.setUseTmdbCard(useTmdbCards);
         applyActionButtonVisibility();
 
-        // 优化：只加载第一个分段的数据，避免一次性渲染所有集数导致卡顿
-        int segmentSize = getEpisodeSegmentSize(items.size());
-        List<Episode> initialItems = items.size() > segmentSize ? items.subList(0, Math.min(segmentSize, items.size())) : items;
+        // 优化：只加载当前集所在分段的数据，避免一次性渲染所有集数导致卡顿
+        int size = items.size();
+        int segmentSize = getEpisodeSegmentSize(size);
+        int selectedPosition = getSelectedEpisodePosition(items);
+        int segmentStart = EpisodeRangePolicy.segmentStart(size, selectedPosition, segmentSize);
+        List<Episode> initialItems = items.subList(segmentStart, Math.min(segmentStart + segmentSize, size));
         mEpisodeAdapter.addAll(initialItems);
         mEpisodeGridAdapter.addAll(initialItems);
 
@@ -2591,7 +2601,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             setEpisodeContentVisible(true);
         }
 
-        setArrayAdapter(items.size());
+        setArrayAdapter(size);
+        selectEpisodeSegmentPosition(EpisodeRangePolicy.segmentIndex(size, selectedPosition, segmentSize) + 2);
         updateFocus();
         if (scrollToCurrent) scrollToCurrentEpisode();
         setR2Callback();
@@ -2618,15 +2629,19 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mEpisodeGridAdapter.setVerticalGridMode(true);
         mEpisodeGridAdapter.setColumn(column);
 
-        // 优化：只加载第一个分段的数据，避免一次性渲染所有集数导致卡顿
-        int segmentSize = getEpisodeSegmentSize(items.size());
-        List<Episode> initialItems = items.size() > segmentSize ? items.subList(0, Math.min(segmentSize, items.size())) : items;
+        // 优化：只加载当前集所在分段的数据，避免一次性渲染所有集数导致卡顿
+        int size = items.size();
+        int segmentSize = getEpisodeSegmentSize(size);
+        int selectedPosition = getSelectedEpisodePosition(items);
+        int segmentStart = EpisodeRangePolicy.segmentStart(size, selectedPosition, segmentSize);
+        List<Episode> initialItems = items.subList(segmentStart, Math.min(segmentStart + segmentSize, size));
         mEpisodeAdapter.addAll(initialItems);
         mEpisodeGridAdapter.addAll(initialItems);
         updateEpisodeGridViewport();
         updateUpstreamNativeEpisodeGridViewport();
         mBinding.episodeGrid.post(this::updateUpstreamNativeEpisodeGridViewport);
         setArrayAdapter(items.size());
+        selectEpisodeSegmentPosition(EpisodeRangePolicy.segmentIndex(size, selectedPosition, segmentSize) + 2);
         updateFocus();
         if (scrollToCurrent) scrollToCurrentEpisode();
         setR2Callback();
@@ -3119,6 +3134,15 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         return false;
     }
 
+    private boolean onArrayKey(KeyEvent event) {
+        if (!KeyUtil.isActionDown(event) || !KeyUtil.isDownKey(event)) return false;
+        int position = mBinding.array.getSelectedPosition();
+        if (position <= 1) return false;
+        selectEpisodeSegment(position, true);
+        return true;
+    }
+
+
     private boolean onEpisodeKey(KeyEvent event) {
         if (!KeyUtil.isActionDown(event)) return false;
         RecyclerView episodeView = episodeGridMode ? mBinding.episodeGrid : mBinding.episode;
@@ -3190,10 +3214,16 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private void selectEpisodeSegment(int position, boolean requestEpisodeFocus) {
         if (position <= 1) return;
+        selectEpisodeSegmentPosition(position);
+        showEpisodeSegment(position);
+        if (requestEpisodeFocus) scrollToEpisode(getSelectedEpisodePosition(mEpisodeAdapter.getItems()), true);
+    }
+
+    private void selectEpisodeSegmentPosition(int position) {
+        if (position <= 1 || position >= mArrayAdapter.getItemCount()) return;
+        mArrayAdapter.setSelectedPosition(position);
         mBinding.array.setSelectedPosition(position);
         mBinding.array.scrollToPosition(position);
-        showEpisodeSegment(position);
-        if (requestEpisodeFocus) scrollToEpisode(0, true);
     }
 
     private void showEpisodeSegment(int position) {
@@ -3201,11 +3231,12 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (episodes.isEmpty()) return;
         int start = mArrayAdapter.getStart(position);
         int end = Math.min(start + getEpisodeSegmentSize(episodes.size()), episodes.size());
+        int selectedPosition = getSelectedEpisodePosition(episodes);
+        int positionInSegment = selectedPosition >= start && selectedPosition < end ? selectedPosition - start : 0;
         List<Episode> items = episodes.subList(start, end);
         mEpisodeAdapter.addAll(items);
         mEpisodeGridAdapter.addAll(items);
-        if (episodeGridMode) mBinding.episodeGrid.scrollToPosition(0);
-        else mBinding.episode.setSelectedPosition(0);
+        scrollToEpisode(positionInSegment);
     }
 
     private boolean shouldEnterFullscreen(Episode item) {

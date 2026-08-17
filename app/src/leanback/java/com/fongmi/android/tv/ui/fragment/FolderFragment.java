@@ -33,8 +33,14 @@ public class FolderFragment extends BaseFragment {
         void onScrollHeaderVisibilityChanged(boolean visible);
     }
 
+    public interface CategoryEdgeHost {
+
+        void onCategoryContentHorizontalEdge(Class item, int contentRow, boolean towardEnd);
+    }
+
     private FragmentFolderBinding mBinding;
     private Boolean pendingFilterVisible;
+    private Integer pendingContentRow;
     private Class mType;
 
     public static FolderFragment newInstance(String key, Class type) {
@@ -91,6 +97,7 @@ public class FolderFragment extends BaseFragment {
         mType = getType();
         FragmentTransaction transaction = getChildFragmentManager().beginTransaction().replace(R.id.container, TypeFragment.newInstance(getKey(), mType.getTypeId(), mType.getStyle(), getExtend(), mType.isFolder(), getHistoryResumeCid(), getHistoryResumeKey(), getHistoryResumeTargetCid()));
         transaction.runOnCommit(this::applyPendingFilter);
+        transaction.runOnCommit(this::applyPendingContentFocus);
         transaction.commit();
     }
 
@@ -131,9 +138,33 @@ public class FolderFragment extends BaseFragment {
         if (getActivity() instanceof ScrollHeaderHost host) host.onScrollHeaderVisibilityChanged(visible);
     }
 
+    public void onContentHorizontalEdge(int contentRow, boolean towardEnd) {
+        if (getChildFragmentManager().getBackStackEntryCount() > 0) return;
+        if (getActivity() instanceof CategoryEdgeHost host) host.onCategoryContentHorizontalEdge(mType, contentRow, towardEnd);
+    }
+
     public boolean requestContentFocus() {
         TypeFragment child = getChild();
         return child != null && child.requestContentFocus();
+    }
+
+    public void requestContentFocus(int contentRow) {
+        pendingContentRow = Math.max(0, contentRow);
+        applyPendingContentFocus();
+    }
+
+    private void applyPendingContentFocus() {
+        if (pendingContentRow == null) return;
+        TypeFragment child = getChild();
+        if (child == null) return;
+        child.requestContentFocus(pendingContentRow);
+        pendingContentRow = null;
+    }
+
+    public void clearContentFocusRequest() {
+        pendingContentRow = null;
+        TypeFragment child = getChild();
+        if (child != null) child.clearContentFocusRequest();
     }
 
     public void onRefresh() {

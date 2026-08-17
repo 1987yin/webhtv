@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.res.ColorStateList;
@@ -330,6 +331,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private boolean inlineShortDramaMode;
     private boolean inlinePauseInfo;
     private boolean inlinePlaybackLoading;
+    private boolean inlinePlaybackReconnectPending;
     private boolean inlinePlayerSwitchLoading;
     private boolean savingTmdbPhoto;
     private boolean pendingInlineLutImport;
@@ -1373,17 +1375,31 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void showInlinePauseInfo() {
-        if (!isInlinePlayerMode() || service() == null || player() == null || player().isEmpty()) return;
-        if (Util.isMobile()) {
-            hideInlinePauseInfo();
-            return;
-        }
         inlinePauseInfo = true;
         binding.gestureAction.setImageResource(R.drawable.ic_widget_play);
         binding.gestureTime.setText(player().getPositionTime(0));
         binding.gestureDuration.setText(player().getDurationTime());
         binding.gestureSeek.setVisibility(View.VISIBLE);
+        binding.gestureSeek.bringToFront();
         updateInlineDisplayPanel();
+    }
+
+    private void syncInlinePauseInfo(boolean playing) {
+        if (binding == null) return;
+        if (shouldShowInlinePauseInfo(playing)) showInlinePauseInfo();
+        else hideInlinePauseInfo();
+    }
+
+    private boolean shouldShowInlinePauseInfo(boolean playing) {
+        return Util.isLeanback()
+                && inlineFullscreen
+                && inlineStarted
+                && isInlinePlayerMode()
+                && service() != null
+                && player() != null
+                && !player().isEmpty()
+                && !playing
+                && isPaused();
     }
 
     private void hideInlinePauseInfo() {
@@ -1522,6 +1538,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     @Override
     public void onTouchEnd() {
+        if (inlinePauseInfo) {
+            hideInlineTransientGestureViews();
+            binding.gestureSeek.setVisibility(View.VISIBLE);
+            binding.gestureSeek.bringToFront();
+            return;
+        }
         hideInlineGestureOverlays();
     }
 
@@ -1534,6 +1556,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void hideInlineGestureViews() {
         binding.gestureSeek.setVisibility(View.GONE);
+        hideInlineTransientGestureViews();
+    }
+
+    private void hideInlineTransientGestureViews() {
         binding.gestureSpeed.setVisibility(View.GONE);
         binding.gestureBright.setVisibility(View.GONE);
         binding.gestureVolume.setVisibility(View.GONE);
@@ -6509,6 +6535,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void toggleInlinePlayback() {
         if (!isInlinePlayerMode()) return;
+        if (inlinePlaybackReconnectPending) return;
         if (controller() == null || service() == null || player().isEmpty()) {
             if (isSamePendingInlinePlayback(selectedEpisode)) return;
             onPlay();
@@ -6516,7 +6543,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         }
         if (player().isPlaying()) controller().pause();
         else controller().play();
-        setInlineHideCallback();
+        if (Util.isLeanback() && inlineFullscreen) hideInlineControls();
+        else setInlineHideCallback();
     }
 
     private void toggleInlineControls() {
@@ -8765,6 +8793,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         boolean playing = service() != null && !player().isEmpty() && player().isPlaying();
         updateInlineButtons(playing);
         hideInlineControls();
+        syncInlinePauseInfo(playing);
         updateInlineDisplayPanel();
         binding.playerPanel.requestFocus();
         Util.toggleFullscreen(this, true);
@@ -9552,19 +9581,38 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     @Override
+    public void onServiceDisconnected(ComponentName name) {
+        if (inlineStarted && currentInlineResult != null) {
+            saveInlineHistory();
+            inlinePlaybackReconnectPending = true;
+        }
+        super.onServiceDisconnected(name);
+    }
+
+    @Override
     protected void onServiceConnected() {
         ensureInlineDanmakuController();
+        restoreInlinePlaybackIfNeeded();
         startPendingInlinePlayer();
     }
 
     @Override
     protected void onControllerConnected() {
+        restoreInlinePlaybackIfNeeded();
         startPendingInlinePlayer();
     }
 
     private void startPendingInlinePlayer() {
         if (pendingInlineResult == null || service() == null || controller() == null) return;
         startInlinePlayer(pendingInlineResult);
+    }
+
+    private void restoreInlinePlaybackIfNeeded() {
+        if (!inlinePlaybackReconnectPending || service() == null || controller() == null || player() == null) return;
+        inlinePlaybackReconnectPending = false;
+        if (currentInlineResult != null && player().isEmpty()) {
+            startInlinePlayer(currentInlineResult, getInlineResumePosition());
+        }
     }
 
     private void ensureInlineDanmakuController() {
@@ -9576,11 +9624,17 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     @Override
     protected void onPlayingChanged(boolean isPlaying) {
         if (!isInlinePlayerMode() || !inlineStarted || !isOwner()) return;
-        if (isPlaying) hideInlinePauseInfo();
-        else if (isPaused()) showInlinePauseInfo();
+        syncInlinePauseInfo(isPlaying);
         updateInlinePiPActions(isPlaying);
         updateInlineButtons(isPlaying);
         updateInlineDisplayPanel();
+    }
+
+    @Override
+    public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+        super.onPlayWhenReadyChanged(playWhenReady, reason);
+        if (!isInlinePlayerMode() || !inlineStarted || !isOwner()) return;
+        syncInlinePauseInfo(playWhenReady);
     }
 
     @Override
@@ -9609,6 +9663,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 inlineFirstReady = true;  // 标记已显示过控制栏
                 showInlineControls(true, false);
             }
+            syncInlinePauseInfo(player().isPlaying());
         }
         if (state == Player.STATE_ENDED) checkInlineEnded(true);
         updateInlineDisplayPanel();
