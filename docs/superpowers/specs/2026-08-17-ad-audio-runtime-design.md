@@ -2,7 +2,7 @@
 
 ## 状态
 
-Draft，待评审。
+Accepted，Phase 1 本地运行时已实现，后续扩展按本文边界进行。
 
 ## 日期
 
@@ -10,11 +10,11 @@ Draft，待评审。
 
 ## 背景
 
-Phase 0 已完成频谱指纹算法、流式重采样、规则编解码、匹配器和 `PlaybackAudioTap` 的安全边界。当前实现仍停留在可测试的基础设施层：
+Phase 0 已完成频谱指纹算法、流式重采样、规则编解码和匹配器；Phase 1 已完成 `PlaybackMediaSignalHub`、`PlaybackMediaClock`、本地规则运行时和人工确认跳过闭环：
 
-- PCM 可以从现有 Exo 音频链路采集，但字幕控制器拥有 Tap 和音频时钟；
-- Matcher 可以产生 `START_MATCHED`/`FULL_MATCHED`，但没有播放器生命周期、媒体时间映射或用户确认入口；
-- 尚未定义规则包加载、后台计算背压、seek/换源后的结果失效和 UI 撤销语义；
+- PCM 由每个 PlayerManager 会话唯一的 Exo producer 采集，字幕与指纹仅作为隔离 consumer；
+- Matcher 的结果已经接入播放器生命周期、媒体时间映射、人工确认和撤销入口；
+- 规则包加载、后台计算背压、seek/换源后的结果失效和 UI 撤销语义均已定义并测试；
 - 如果直接把去广告逻辑挂到 `RealtimeSubtitleController`，首版虽然改动小，但未来会让字幕、广告、语音识别等消费者相互耦合。
 
 用户确认首版交互：命中疑似广告后先提示，用户确认才跳转；默认不自动跳过；支持关闭/忽略和跳转后的撤销。
@@ -24,7 +24,7 @@ Phase 0 已完成频谱指纹算法、流式重采样、规则编解码、匹配
 1. 建立播放器会话级、强类型的媒体信号中心，使 PCM、媒体时钟和生命周期事件只有一个权威来源。
 2. 让实时字幕、音频指纹以及未来的其他识别器成为相互隔离的消费者。
 3. 在不阻塞音频输出线程的前提下，提供稳定的确认跳转、忽略和撤销行为。
-4. 使 Exo、IJK、MPV 等不同内核可以通过 producer 适配器接入，而不修改 matcher、规则仓库和 UI 协议。
+4. 为 Exo、IJK、MPV 等不同内核保留 producer 适配器边界；当前只实现 Exo，其他内核不申请指纹跳过。
 5. 为规则包、匹配事件和播放器命令定义可扩展且向后兼容的接口。
 
 ## 非目标
@@ -322,3 +322,10 @@ UI 约束：
 7. 空规则、直播、不可 seek 或时钟无效时不显示误导提示；
 8. 文档、接口和测试与实现一起提交，且在可用版本完成前不合入 beta/dev。
 
+## 实现对照（Phase 1）
+
+- 实际 PCM 生产者为 `PlaybackMediaAudioPipeline`，以 `PipelineLease` 和最近一次 audio flush 的 generation 保护旧引擎回调。
+- 实际规则存储为 `AdAudioRuleStore`，运行时由 `AdAudioRuntimeController` 管理；规则导入后会原子替换并重建活动 matcher。
+- 实际播放器命令由 `PlayerManager.AdAudioPlaybackPort` 提供；它只允许 Exo、非直播、时长已知且可 seek 的点播。
+- 实际 UI 由 `AdSkipPromptPresenter` 提供，Activity stop/disconnect/destroy 会解绑并使旧按钮回调失效。
+- IJK、MPV、远程规则、H5 采集和自动跳过仍是后续扩展，不应被视为当前版本已支持的能力。

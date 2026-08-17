@@ -2452,4 +2452,22 @@
         <item>Surface</item>
         <item>Texture</item>
     </string-array>
+    <string name="ad_audio_candidate_title">疑似广告</string>
+    <string name="ad_audio_match_title">已匹配音频广告</string>
+    <string name="ad_audio_candidate_message">规则 %1$s 已匹配，是否跳过约 %2$d 秒？</string>
+    <string name="ad_audio_skip">跳过</string>
+    <string name="ad_audio_ignore">忽略</string>
+    <string name="ad_audio_skipped_title">已跳过广告</string>
+    <string name="ad_audio_skipped_message">可在 %1$d 秒内撤销。</string>
+    <string name="ad_audio_undo">撤销</string>
+    <string name="setting_ad_audio_title">音频指纹去广告（实验）</string>
+    <string name="setting_ad_audio_no_rules">无规则</string>
+    <string name="setting_ad_audio_rule_error">规则错误</string>
+    <string name="setting_ad_audio_rule_count">规则 %1$d · %2$s</string>
+    <string name="setting_ad_audio_import">导入规则 JSON</string>
+    <string name="setting_ad_audio_clear">清除规则</string>
+    <string name="setting_ad_audio_clear_confirm">确认清除已导入的音频指纹规则？</string>
+    <string name="setting_ad_audio_imported">已导入 %1$d 条规则 · %2$s</string>
+    <string name="setting_ad_audio_import_failed">规则导入失败，已保留原规则。</string>
+    <string name="setting_ad_audio_clear_done">已清除音频指纹规则</string>
 </resources>
