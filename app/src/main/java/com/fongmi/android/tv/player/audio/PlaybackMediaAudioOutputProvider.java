@@ -1,4 +1,4 @@
-package com.fongmi.android.tv.subtitle;
+package com.fongmi.android.tv.player.audio;
 
 import android.os.SystemClock;
 
@@ -11,12 +11,14 @@ import androidx.media3.exoplayer.audio.ForwardingAudioOutput;
 import androidx.media3.exoplayer.audio.ForwardingAudioOutputProvider;
 
 import java.nio.ByteBuffer;
+import java.util.Objects;
 
 @UnstableApi
-public final class RealtimeSubtitleAudioOutputProvider extends ForwardingAudioOutputProvider {
+public final class PlaybackMediaAudioOutputProvider extends ForwardingAudioOutputProvider {
 
     public interface ClockSink {
-        void onSample(long outputId, long writtenUs, long positionUs, long sampledElapsedMs, boolean playing);
+        void onSample(long outputId, long writtenUs, long positionUs,
+                      long sampledElapsedMs, boolean playing);
 
         void onReleased(long outputId);
     }
@@ -24,9 +26,9 @@ public final class RealtimeSubtitleAudioOutputProvider extends ForwardingAudioOu
     private final ClockSink sink;
     private long nextOutputId;
 
-    public RealtimeSubtitleAudioOutputProvider(AudioOutputProvider delegate, ClockSink sink) {
+    public PlaybackMediaAudioOutputProvider(AudioOutputProvider delegate, ClockSink sink) {
         super(delegate);
-        this.sink = sink;
+        this.sink = Objects.requireNonNull(sink, "sink");
     }
 
     @Override
@@ -34,14 +36,16 @@ public final class RealtimeSubtitleAudioOutputProvider extends ForwardingAudioOu
         AudioOutput output = super.getAudioOutput(config);
         long outputId = ++nextOutputId;
         int channelCount = Integer.bitCount(config.channelMask);
-        int frameSize = Util.isEncodingLinearPcm(config.encoding) && channelCount > 0 ? Util.getPcmFrameSize(config.encoding, channelCount) : C.LENGTH_UNSET;
+        int frameSize = Util.isEncodingLinearPcm(config.encoding) && channelCount > 0
+                ? Util.getPcmFrameSize(config.encoding, channelCount) : C.LENGTH_UNSET;
         sink.onSample(outputId, 0L, 0L, SystemClock.elapsedRealtime(), false);
         return new ForwardingAudioOutput(output) {
             private long writtenFrames;
             private boolean playing;
 
             @Override
-            public boolean write(ByteBuffer buffer, int encodedAccessUnitCount, long presentationTimeUs) throws WriteException {
+            public boolean write(ByteBuffer buffer, int encodedAccessUnitCount,
+                                 long presentationTimeUs) throws WriteException {
                 int before = buffer.remaining();
                 boolean handled = super.write(buffer, encodedAccessUnitCount, presentationTimeUs);
                 int consumed = before - buffer.remaining();
@@ -92,8 +96,10 @@ public final class RealtimeSubtitleAudioOutputProvider extends ForwardingAudioOu
             }
 
             private void sample(long positionUs) {
-                long writtenUs = config.sampleRate > 0 ? writtenFrames * 1_000_000L / config.sampleRate : 0L;
-                sink.onSample(outputId, writtenUs, Math.max(0L, positionUs), SystemClock.elapsedRealtime(), playing);
+                long writtenUs = config.sampleRate > 0
+                        ? writtenFrames * 1_000_000L / config.sampleRate : 0L;
+                sink.onSample(outputId, writtenUs, Math.max(0L, positionUs),
+                        SystemClock.elapsedRealtime(), playing);
             }
         };
     }

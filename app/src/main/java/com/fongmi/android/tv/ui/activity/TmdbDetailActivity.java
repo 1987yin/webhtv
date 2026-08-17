@@ -698,9 +698,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.episodeReverse.setOnClickListener(view -> toggleEpisodeReverse());
         binding.episodeViewMode.setOnClickListener(view -> toggleEpisodeViewMode());
         binding.episodeFileName.setOnClickListener(view -> toggleEpisodeFileName());
+        binding.episodeTitle.setOnKeyListener((view, keyCode, event) -> onDetailEpisodeToolKey(view, keyCode, event));
         binding.episodeReverse.setOnKeyListener((view, keyCode, event) -> onDetailEpisodeToolKey(view, keyCode, event));
         binding.episodeViewMode.setOnKeyListener((view, keyCode, event) -> onDetailEpisodeToolKey(view, keyCode, event));
         binding.episodeFileName.setOnKeyListener((view, keyCode, event) -> onDetailEpisodeToolKey(view, keyCode, event));
+        binding.episodeTitle.setNextFocusRightId(R.id.episodeReverse);
+        binding.episodeReverse.setNextFocusLeftId(R.id.episodeTitle);
         binding.episodeReverse.setNextFocusRightId(R.id.episodeFileName);
         binding.episodeFileName.setNextFocusLeftId(R.id.episodeReverse);
         binding.episodeFileName.setNextFocusRightId(R.id.episodeViewMode);
@@ -1652,6 +1655,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         setDetailActionButton(binding.themeModeTop, colors);
         setDetailActionButton(binding.themeMode, colors);
         setDetailActionButton(binding.themeModeDetail, colors);
+        setEpisodeTitleButton(binding.episodeTitle, colors);
         setEpisodeToolButton(binding.episodeReverse, colors);
         setEpisodeToolButton(binding.episodeViewMode, colors);
         setEpisodeToolButton(binding.episodeFileName, colors);
@@ -1706,7 +1710,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void tintTmdbSectionTitles(ThemeColors colors) {
         TextView[] titles = {
                 binding.flagTitle,
-                binding.episodeTitle,
+                binding.episodeLabel,
                 binding.episodePhotoTitle,
                 binding.castTitle,
                 binding.creatorTitle,
@@ -2034,12 +2038,32 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         button.setOnFocusChangeListener((view, focused) -> applyEpisodeToolButtonsFocus());
     }
 
+    private void setEpisodeTitleButton(MaterialButton button, ThemeColors colors) {
+        button.setSelected(false);
+        button.setActivated(false);
+        button.setRippleColor(ColorStateList.valueOf(Color.TRANSPARENT));
+        button.setOnFocusChangeListener(null);
+        applyEpisodeTitleButtonFocus(button, colors);
+        button.setOnFocusChangeListener((view, focused) -> applyEpisodeToolButtonsFocus());
+    }
+
     private void applyEpisodeToolButtonsFocus() {
         if (binding == null) return;
         ThemeColors colors = currentThemeColors();
+        applyEpisodeTitleButtonFocus(binding.episodeTitle, colors);
         applyEpisodeToolButtonFocus(binding.episodeReverse, colors);
         applyEpisodeToolButtonFocus(binding.episodeViewMode, colors);
         applyEpisodeToolButtonFocus(binding.episodeFileName, colors);
+    }
+
+    private void applyEpisodeTitleButtonFocus(MaterialButton button, ThemeColors colors) {
+        boolean actionable = button.isFocusable() && button.isEnabled();
+        boolean focused = actionable && button.hasFocus();
+        button.setBackgroundTintList(ColorStateList.valueOf(focused ? colors.control : Color.TRANSPARENT));
+        button.setTextColor(colors.primary);
+        button.setIconTint(ColorStateList.valueOf(colors.primary));
+        button.setStrokeWidth(focused ? ResUtil.dp2px(FOCUS_STROKE_DP) : 0);
+        button.setStrokeColor(ColorStateList.valueOf(focused ? FOCUS_STROKE : Color.TRANSPARENT));
     }
 
     private void applyEpisodeToolButtonFocus(MaterialButton button, ThemeColors colors) {
@@ -2907,9 +2931,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void updateTmdbSeasonActionVisibility() {
         boolean visible = matchedTmdbItem != null && matchedTmdbItem.isTv() && !seasonNumbers.isEmpty() && canMatchTmdb();
+        binding.episodeTitle.setVisibility(visible ? View.VISIBLE : View.GONE);
         binding.episodeTitle.setClickable(visible);
         binding.episodeTitle.setFocusable(visible);
         binding.episodeTitle.setFocusableInTouchMode(false);
+        if (visible) binding.episodeTitle.setText(detailSeasonButtonLabel());
         binding.episodeTitle.setContentDescription(visible
                 ? getString(R.string.tmdb_season_match_current, binding.episodeTitle.getText())
                 : binding.episodeTitle.getText());
@@ -2917,6 +2943,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (icon != null) icon.setTint(binding.episodeTitle.getCurrentTextColor());
         binding.episodeTitle.setCompoundDrawablePadding(visible ? ResUtil.dp2px(4) : 0);
         binding.episodeTitle.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, icon, null);
+        setEpisodeTitleButton(binding.episodeTitle, currentThemeColors());
     }
 
     private boolean hasAnyValidatedFlatSeasonMapping() {
@@ -3650,9 +3677,16 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return season < 0 ? "" : getString(R.string.detail_season_format, season);
     }
 
-    private void refreshSeasonContext() {
+    private String detailSeasonButtonLabel() {
         int season = currentSeasonContextNumber();
-        binding.episodeTitle.setText(season < 0 ? getString(R.string.detail_episode) : getString(R.string.detail_episode_season_context, season));
+        if (season < 0) {
+            Integer resolved = tmdbSeasonChoiceResolution().getSelectedSeason();
+            if (resolved != null) season = resolved;
+        }
+        return season < 0 ? getString(R.string.tmdb_season_button) : getString(R.string.detail_season_format, season);
+    }
+
+    private void refreshSeasonContext() {
         updateTmdbSeasonActionVisibility();
         bindMeta();
     }
@@ -4540,13 +4574,14 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private boolean focusDetailEpisodeToolButton(int direction) {
         if (binding == null || binding.episodeHeader.getVisibility() != View.VISIBLE) return false;
-        return focusDetailButton(binding.episodeReverse, direction)
+        return focusDetailButton(binding.episodeTitle, direction)
+                || focusDetailButton(binding.episodeReverse, direction)
                 || focusDetailButton(binding.episodeFileName, direction)
                 || focusDetailButton(binding.episodeViewMode, direction);
     }
 
     private boolean focusDetailButton(View button, int direction) {
-        if (binding == null || button == null || button.getVisibility() != View.VISIBLE || !button.isShown() || !button.isEnabled()) return false;
+        if (binding == null || button == null || button.getVisibility() != View.VISIBLE || !button.isShown() || !button.isEnabled() || !button.isFocusable()) return false;
         View previousFocus = getCurrentFocus();
         scrollDetailChildIntoViewNow(button, 12);
         button.requestFocus(direction);
@@ -4571,7 +4606,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private boolean isEpisodeToolButton(View view) {
-        return binding != null && (view == binding.episodeReverse || view == binding.episodeFileName || view == binding.episodeViewMode);
+        return binding != null && (view == binding.episodeTitle || view == binding.episodeReverse || view == binding.episodeFileName || view == binding.episodeViewMode);
     }
 
     private boolean focusDetailSeasonButton() {

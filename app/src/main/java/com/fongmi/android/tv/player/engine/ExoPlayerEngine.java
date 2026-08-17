@@ -18,6 +18,8 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.Track;
 import com.fongmi.android.tv.player.PlaybackTrace;
 import com.fongmi.android.tv.player.PlaybackResourceClassifier;
+import com.fongmi.android.tv.player.audio.PlaybackMediaClock;
+import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 import com.fongmi.android.tv.player.exo.ErrorMsgProvider;
 import com.fongmi.android.tv.player.exo.ExoDecoderRuntimeProfiles;
 import com.fongmi.android.tv.player.exo.ExoDecoderRuntimeSession;
@@ -71,6 +73,8 @@ public class ExoPlayerEngine implements PlayerEngine {
     private final ExoDecoderRuntimeSession decoderRuntimeSession;
     private final ExoDolbyVisionPlaybackState dolbyVisionPlaybackState;
     private final ExoFrameSchedulingSessionLock frameSchedulingSessionLock;
+    private final PlaybackMediaSignalHub mediaSignals;
+    private final PlaybackMediaClock mediaClock;
     private PlaySpec spec;
     private String activeFormat;
     private ExoPlayer player;
@@ -143,10 +147,17 @@ public class ExoPlayerEngine implements PlayerEngine {
     };
 
     public ExoPlayerEngine(int decode, Player.Listener listener) {
-        this(decode, listener, PrepareListener.NONE);
+        this(decode, listener, PrepareListener.NONE, null, null);
     }
 
     public ExoPlayerEngine(int decode, Player.Listener listener, PrepareListener prepareListener) {
+        this(decode, listener, prepareListener, null, null);
+    }
+
+    public ExoPlayerEngine(int decode, Player.Listener listener, PrepareListener prepareListener,
+                           PlaybackMediaSignalHub mediaSignals, PlaybackMediaClock mediaClock) {
+        this.mediaSignals = mediaSignals;
+        this.mediaClock = mediaClock;
         this.decoderRuntimeSession = ExoDecoderRuntimeProfiles.process().newSession();
         this.dolbyVisionPlaybackState = new ExoDolbyVisionPlaybackState();
         this.decoderRuntimeEnabledForPlayer =
@@ -168,7 +179,9 @@ public class ExoPlayerEngine implements PlayerEngine {
                     false,
                     decoderRuntimeSession,
                     frameSchedulingSettings,
-                    dolbyVisionPlaybackState);
+                    dolbyVisionPlaybackState,
+                    mediaSignals,
+                    mediaClock);
         } catch (RuntimeException | Error e) {
             MediaSourceFactory.releaseCacheSession();
             throw e;
@@ -234,7 +247,9 @@ public class ExoPlayerEngine implements PlayerEngine {
                 tunnelingFallbackAttempted,
                 decoderRuntimeSession,
                 schedulingSettings,
-                dolbyVisionPlaybackState);
+                dolbyVisionPlaybackState,
+                mediaSignals,
+                mediaClock);
         frameSchedulingSettings = schedulingSettings;
         frameSchedulingSessionLock.onRendererRebuilt(
                 schedulingSettings.decision());

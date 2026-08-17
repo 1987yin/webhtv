@@ -9,7 +9,6 @@ import android.text.TextUtils;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
-import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.text.Cue;
 import androidx.media3.ui.PlayerView;
 
@@ -17,6 +16,9 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.AiConfig;
 import com.fongmi.android.tv.player.PlayerManager;
+import com.fongmi.android.tv.player.audio.PlaybackMediaAudioProcessor;
+import com.fongmi.android.tv.player.audio.PlaybackMediaClock;
+import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.subtitle.RealtimeSubtitleModelCatalog.ModelFile;
 import com.fongmi.android.tv.subtitle.RealtimeSubtitleModelCatalog.ModelSpec;
@@ -36,7 +38,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
@@ -56,11 +57,7 @@ public final class RealtimeSubtitleController {
         void onProgress(int percent, String fileName);
     }
 
-    public record AudioPipeline(AudioProcessor audioProcessor, RealtimeSubtitleAudioOutputProvider.ClockSink clockSink) {
-    }
-
     private static final int AUDIO_QUEUE_CAPACITY = 16;
-    private static final long AUDIO_CLOCK_MAX_AGE_MS = 500L;
     private static final long CUE_TICK_MS = 20L;
     private static final long STORAGE_RESERVE_BYTES = 64L * 1024L * 1024L;
     private static final String DOWNLOAD_CANCELLED = "download_cancelled";
@@ -70,7 +67,6 @@ public final class RealtimeSubtitleController {
     private final ArrayList<ScheduledCue> pendingCues = new ArrayList<>();
     private final AtomicBoolean draining = new AtomicBoolean();
     private final AtomicInteger timelineGeneration = new AtomicInteger();
-    private final AtomicLong pipelineIds = new AtomicLong();
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> new Thread(r, "realtime-subtitle"));
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Object timelineLock = new Object();
@@ -87,21 +83,17 @@ public final class RealtimeSubtitleController {
     private volatile boolean preparing;
     private volatile boolean modelDownloading;
     private volatile boolean modelDeleting;
-    private volatile boolean audioPipelineRequested;
-    private volatile boolean latestPipelineLookahead;
     private volatile int modelDownloadProgress;
     private volatile String modelDownloadFile = "";
     private volatile int generation;
-    private volatile long latestPipelineId;
     private volatile long latestCapturedUs;
-    private volatile long latestAudioOutputId;
-    private volatile long audioOutputWrittenUs;
-    private volatile long audioOutputPositionUs;
-    private volatile long audioClockSampleElapsedMs = C.TIME_UNSET;
-    private volatile boolean audioClockPlaying;
     private WeakReference<PlayerView> playerView = new WeakReference<>(null);
     private WeakReference<PlayerManager> playerManager = new WeakReference<>(null);
+    private WeakReference<PlaybackMediaSignalHub> mediaSignals = new WeakReference<>(null);
+    private WeakReference<PlaybackMediaClock> mediaClock = new WeakReference<>(null);
     private WeakReference<Listener> listener = new WeakReference<>(null);
+    private PlaybackMediaSignalHub.Registration mediaRegistration;
+    private PlaybackMediaSignalHub.CaptureLease mediaCaptureLease;
     private RealtimeSubtitleRecognizer recognizer;
     private RealtimeSubtitleTranslator translator;
     private long previousChunkEndUs = C.TIME_UNSET;
@@ -116,57 +108,41 @@ public final class RealtimeSubtitleController {
     private RealtimeSubtitleController() {
     }
 
-    public AudioPipeline createAudioPipeline(boolean lookahead) {
-        long pipelineId = pipelineIds.incrementAndGet();
-        latestPipelineId = pipelineId;
-        latestPipelineLookahead = lookahead;
-        timelineGeneration.incrementAndGet();
-        audioQueue.clear();
-        resetTimeline(true);
-        if (enabled) {
-            worker.execute(this::resetStream);
-            main.post(this::disableNativeSubtitle);
+    public synchronized boolean requestAudioPipeline(PlayerManager player) {
+        if (player == null || player.isReleased()) return false;
+        PlaybackMediaSignalHub hub = player.mediaSignals();
+        mediaSignals = new WeakReference<>(hub);
+        mediaClock = new WeakReference<>(player.mediaClock());
+        if (mediaCaptureLease == null || mediaCaptureLease.isClosed()) {
+            mediaCaptureLease = hub.requestCapture(PlaybackMediaSignalHub.ConsumerKind.REALTIME_SUBTITLE);
         }
-        RealtimeSubtitleAudioProcessor processor = new RealtimeSubtitleAudioProcessor(new RealtimeSubtitleAudioProcessor.Listener() {
-            @Override
-            public boolean isListening() {
-                return pipelineId == latestPipelineId && enabled;
-            }
+        if (mediaRegistration == null || mediaRegistration.isClosed()) {
+            RealtimeSubtitleMediaConsumer consumer = new RealtimeSubtitleMediaConsumer(
+                    new RealtimeSubtitleMediaConsumer.Listener() {
+                        @Override
+                        public boolean isListening() {
+                            return enabled;
+                        }
 
-            @Override
-            public void onAudio(float[] samples, int sampleRate) {
-                offerAudio(pipelineId, samples, sampleRate);
-            }
+                        @Override
+                        public void onPcm(PlaybackMediaSignalHub.PcmFrame frame) {
+                            offerAudio(frame);
+                        }
 
-            @Override
-            public void onFlush() {
-                flushPipeline(pipelineId);
-            }
-        });
-        RealtimeSubtitleAudioOutputProvider.ClockSink clockSink = new RealtimeSubtitleAudioOutputProvider.ClockSink() {
-            @Override
-            public void onSample(long outputId, long writtenUs, long positionUs, long sampledElapsedMs, boolean playing) {
-                updateAudioClock(pipelineId, outputId, writtenUs, positionUs, sampledElapsedMs, playing);
-            }
-
-            @Override
-            public void onReleased(long outputId) {
-                releaseAudioClock(pipelineId, outputId);
-            }
-        };
-        return new AudioPipeline(processor, clockSink);
-    }
-
-    public void requestAudioPipeline() {
-        audioPipelineRequested = true;
-    }
-
-    public boolean isAudioPipelineRequested() {
-        return audioPipelineRequested;
+                        @Override
+                        public void onReset(PlaybackMediaSignalHub.Lifecycle event) {
+                            resetMediaTimeline();
+                        }
+                    });
+            mediaRegistration = hub.register("realtime-subtitle", worker,
+                    AUDIO_QUEUE_CAPACITY, consumer);
+        }
+        return !hub.isPipelineAttached();
     }
 
     public boolean isAudioPipelineReady() {
-        return latestPipelineLookahead;
+        PlaybackMediaSignalHub hub = mediaSignals.get();
+        return hub != null && hub.isPipelineAttached();
     }
 
     public boolean isEnabled() {
@@ -314,7 +290,7 @@ public final class RealtimeSubtitleController {
                 if (request != generation || DOWNLOAD_CANCELLED.equals(e.getMessage())) return;
                 enabled = false;
                 preparing = false;
-                audioPipelineRequested = false;
+                releaseMediaSignals();
                 releaseRecognizer();
                 main.post(() -> restorePlayback(true));
                 notifyState(State.ERROR, message(e));
@@ -331,7 +307,7 @@ public final class RealtimeSubtitleController {
         timelineGeneration.incrementAndGet();
         enabled = false;
         preparing = false;
-        audioPipelineRequested = false;
+        releaseMediaSignals();
         audioQueue.clear();
         main.removeCallbacks(cueTicker);
         runOnMain(() -> restorePlayback(rebuildAudioPipeline));
@@ -339,34 +315,38 @@ public final class RealtimeSubtitleController {
         notifyState(State.OFF, "");
     }
 
-    private void offerAudio(long pipelineId, float[] samples, int sampleRate) {
-        if (pipelineId != latestPipelineId || !enabled || samples == null || samples.length == 0 || sampleRate <= 0) return;
-        AudioChunk chunk = createAudioChunk(samples, sampleRate, false);
+    private void offerAudio(PlaybackMediaSignalHub.PcmFrame frame) {
+        float[] samples = frame.monoSamples();
+        int sampleRate = frame.sampleRate();
+        if (!enabled || samples.length == 0 || sampleRate <= 0) return;
+        AudioChunk chunk = createAudioChunk(frame, false);
         if (!audioQueue.offer(chunk)) {
             audioQueue.clear();
             timelineGeneration.incrementAndGet();
             resetTimeline(false);
-            chunk = createAudioChunk(samples, sampleRate, true);
+            chunk = createAudioChunk(frame, true);
             audioQueue.offer(chunk);
         }
         drainAudio();
     }
 
-    private AudioChunk createAudioChunk(float[] samples, int sampleRate, boolean discontinuity) {
+    private AudioChunk createAudioChunk(PlaybackMediaSignalHub.PcmFrame frame, boolean discontinuity) {
         synchronized (timelineLock) {
-            long startUs = capturedTimelineUs;
-            long endUs = startUs + Math.max(1L, samples.length * 1_000_000L / sampleRate);
+            long startUs = millisecondsToMicroseconds(frame.captureStartTimeMs());
+            long durationUs = Math.max(1L,
+                    frame.monoSamples().length * 1_000_000L / frame.sampleRate());
+            long endUs = startUs > Long.MAX_VALUE - durationUs ? Long.MAX_VALUE : startUs + durationUs;
             capturedTimelineUs = endUs;
             latestCapturedUs = endUs;
-            return new AudioChunk(samples, sampleRate, startUs, endUs, generation, timelineGeneration.get(), discontinuity);
+            return new AudioChunk(frame.monoSamples(), frame.sampleRate(), startUs, endUs,
+                    generation, timelineGeneration.get(), discontinuity);
         }
     }
 
-    private void flushPipeline(long pipelineId) {
-        if (pipelineId != latestPipelineId) return;
+    private void resetMediaTimeline() {
         audioQueue.clear();
         timelineGeneration.incrementAndGet();
-        resetTimeline(true);
+        resetTimeline(false);
         if (enabled) worker.execute(this::resetStream);
     }
 
@@ -391,7 +371,7 @@ public final class RealtimeSubtitleController {
         if (recognizer == null) return;
         if (chunk.discontinuity() || previousChunkEndUs != C.TIME_UNSET && Math.abs(chunk.startUs() - previousChunkEndUs) > 50_000L) resetStream();
         previousChunkEndUs = chunk.endUs();
-        float[] samples = RealtimeSubtitleAudioProcessor.resample(chunk.samples(), chunk.sampleRate(), 16_000);
+        float[] samples = PlaybackMediaAudioProcessor.resample(chunk.samples(), chunk.sampleRate(), 16_000);
         if (samples.length == 0) return;
         recognizer.accept(samples, chunk.startUs(), chunk.endUs(), chunk.timelineGeneration());
     }
@@ -412,7 +392,7 @@ public final class RealtimeSubtitleController {
             timelineGeneration.incrementAndGet();
             enabled = false;
             preparing = false;
-            audioPipelineRequested = false;
+            releaseMediaSignals();
         }
         audioQueue.clear();
         releaseRecognizer();
@@ -460,31 +440,14 @@ public final class RealtimeSubtitleController {
         showCue(ready.text());
     }
 
-    private void updateAudioClock(long pipelineId, long outputId, long writtenUs, long positionUs, long sampledElapsedMs, boolean playing) {
-        if (pipelineId != latestPipelineId || outputId < latestAudioOutputId) return;
-        latestAudioOutputId = outputId;
-        audioOutputWrittenUs = Math.max(0L, writtenUs);
-        audioOutputPositionUs = Math.max(0L, positionUs);
-        audioClockSampleElapsedMs = sampledElapsedMs;
-        audioClockPlaying = playing;
-    }
-
-    private void releaseAudioClock(long pipelineId, long outputId) {
-        if (pipelineId != latestPipelineId || outputId != latestAudioOutputId) return;
-        audioClockSampleElapsedMs = C.TIME_UNSET;
-        audioClockPlaying = false;
-    }
-
     private long readAudioHeadroomUs(long elapsedNowMs) {
-        long sampledAt = audioClockSampleElapsedMs;
-        if (sampledAt == C.TIME_UNSET) return C.TIME_UNSET;
-        long ageMs = elapsedNowMs - sampledAt;
-        if (ageMs < 0L || ageMs > AUDIO_CLOCK_MAX_AGE_MS) return C.TIME_UNSET;
-        long writtenUs = audioOutputWrittenUs;
-        long positionUs = audioOutputPositionUs;
-        if (audioClockPlaying && ageMs > 0L) positionUs += ageMs * 1_000L;
-        positionUs = Math.min(writtenUs, Math.max(0L, positionUs));
-        return Math.max(0L, writtenUs - positionUs);
+        PlaybackMediaClock clock = mediaClock.get();
+        if (clock == null) return C.TIME_UNSET;
+        PlaybackMediaClock.Snapshot snapshot = clock.snapshot(elapsedNowMs);
+        if (!snapshot.fresh()) return C.TIME_UNSET;
+        long presentedUs = snapshot.presentedCaptureMs() > Long.MAX_VALUE / 1_000L
+                ? Long.MAX_VALUE : snapshot.presentedCaptureMs() * 1_000L;
+        return Math.max(0L, latestCapturedUs - presentedUs);
     }
 
     private void resetTimeline(boolean clearClock) {
@@ -493,15 +456,12 @@ public final class RealtimeSubtitleController {
             latestCapturedUs = 0L;
         }
         runOnMain(this::clearCues);
-        if (clearClock) clearAudioClock();
     }
 
-    private void clearAudioClock() {
-        latestAudioOutputId = 0L;
-        audioOutputWrittenUs = 0L;
-        audioOutputPositionUs = 0L;
-        audioClockSampleElapsedMs = C.TIME_UNSET;
-        audioClockPlaying = false;
+    private static long millisecondsToMicroseconds(long milliseconds) {
+        if (milliseconds <= 0L) return 0L;
+        return milliseconds > Long.MAX_VALUE / 1_000L
+                ? Long.MAX_VALUE : milliseconds * 1_000L;
     }
 
     private void clearCues() {
@@ -739,10 +699,27 @@ public final class RealtimeSubtitleController {
         playerManager.clear();
     }
 
+    private synchronized void releaseMediaSignals() {
+        if (mediaRegistration != null) {
+            mediaRegistration.close();
+            mediaRegistration = null;
+        }
+        if (mediaCaptureLease != null) {
+            mediaCaptureLease.close();
+            mediaCaptureLease = null;
+        }
+        mediaSignals.clear();
+        mediaClock.clear();
+    }
+
     private void restorePlayback(boolean rebuildAudioPipeline) {
         clearCues();
         PlayerManager player = playerManager.get();
-        if (rebuildAudioPipeline && latestPipelineLookahead && player != null && !player.isReleased()) player.rebuildAudioPipeline();
+        PlaybackMediaSignalHub hub = player == null ? null : player.mediaSignals();
+        if (rebuildAudioPipeline && hub != null && hub.isPipelineAttached()
+                && !hub.isCaptureRequested() && player != null && !player.isReleased()) {
+            player.rebuildAudioPipeline();
+        }
         restoreNativeSubtitle();
     }
 

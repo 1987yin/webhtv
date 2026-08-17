@@ -107,6 +107,47 @@ public class TmdbEpisodeWiringTest {
         assertTrue(leanback.contains("if (mTmdbUIAdapter.applyManualSeason(seasonNumber)) refreshTmdbEpisodeTitles();"));
     }
 
+    @Test
+    public void leanbackSeasonSelectorParticipatesInRemoteFocusNavigation() throws Exception {
+        String leanback = read(flavorJava("leanback").resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")));
+
+        int focusOrders = leanback.indexOf("private List<Integer> getEpisodeFocusOrders()");
+        int focusUpdate = leanback.indexOf("private void updateFocus()", focusOrders);
+        String orders = leanback.substring(focusOrders, focusUpdate);
+        assertTrue(orders.contains("R.id.episodeTitle"));
+
+        int headerFocus = leanback.indexOf("private void updateEpisodeHeaderFocus()");
+        int headerKeys = leanback.indexOf("private boolean onEpisodeHeaderToolKey", headerFocus);
+        String header = leanback.substring(headerFocus, headerKeys);
+        assertTrue(header.contains("mBinding.episodeTitle.setNextFocusUpId"));
+        assertTrue(header.contains("mBinding.episodeTitle.setNextFocusDownId"));
+        assertTrue(header.contains("mBinding.episodeReverse.setNextFocusLeftId"));
+        assertTrue(leanback.contains("private boolean isEpisodeFocusTarget(View view)"));
+        assertTrue(leanback.contains("view.isFocusable()"));
+        assertTrue(leanback.contains("mBinding.episodeTitle.requestFocus(View.FOCUS_LEFT)"));
+        assertTrue(leanback.replace("\r\n", "\n").contains("mEpisodeGridAdapter.notifyDataSetChanged();\n        updateFocus();"));
+
+        int coreRefresh = leanback.indexOf("else if (event.getType() == RefreshEvent.Type.VOD_CORE)");
+        int recommendationRefresh = leanback.indexOf("else if (event.getType() == RefreshEvent.Type.VOD_RECOMMENDATIONS)", coreRefresh);
+        String coreRefreshBlock = leanback.substring(coreRefresh, recommendationRefresh);
+        assertTrue(coreRefreshBlock.contains("updateEpisodeSeasonContext();"));
+        assertTrue(coreRefreshBlock.contains("updateFocus();"));
+    }
+
+    @Test
+    public void pushSourcesUseConservativeTmdbSeasonResolution() throws Exception {
+        String adapter = read(mainJava().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "helper", "TmdbUIAdapter.java")));
+        String leanback = read(flavorJava("leanback").resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")));
+        String mobile = read(flavorJava("mobile").resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")));
+
+        assertTrue(adapter.contains("!SiteApi.PUSH.equals(cacheSiteKey(sourceVod))"));
+        assertTrue(adapter.contains("TmdbSeasonResolver.resolve("));
+        assertTrue(adapter.contains("TmdbMatchPolicy.shouldAutoMatchPushTitle(videoName)"));
+        assertTrue(adapter.contains("EpisodeSeasonPolicy.resolveExplicitSourceSeason("));
+        assertTrue(leanback.contains("SiteApi.PUSH.equals(getKey())"));
+        assertTrue(mobile.contains("SiteApi.PUSH.equals(getKey())"));
+    }
+
     private static String read(Path path) throws Exception {
         return Files.readString(path, StandardCharsets.UTF_8);
     }

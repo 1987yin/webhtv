@@ -62,6 +62,10 @@ import com.fongmi.android.tv.player.PlaybackAutoContextStore;
 import com.fongmi.android.tv.player.PlaybackExperimentCoordinator;
 import com.fongmi.android.tv.player.PlaybackExperimentPolicy;
 import com.fongmi.android.tv.player.PlaybackSystemConditionCoordinator;
+import com.fongmi.android.tv.player.audio.PlaybackMediaAudioOutputProvider;
+import com.fongmi.android.tv.player.audio.PlaybackMediaAudioPipeline;
+import com.fongmi.android.tv.player.audio.PlaybackMediaClock;
+import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 import com.fongmi.android.tv.player.engine.PlaySpec;
 import com.fongmi.android.tv.player.engine.PlayerEngine;
 import com.fongmi.android.tv.player.lut.LutSetting;
@@ -71,9 +75,7 @@ import com.fongmi.android.tv.setting.PlaybackExperimentSetting;
 import com.fongmi.android.tv.setting.ExoFrameSchedulingExperimentSetting;
 import com.fongmi.android.tv.setting.ExoPerformanceSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
-import com.fongmi.android.tv.subtitle.RealtimeSubtitleAudioOutputProvider;
 import com.fongmi.android.tv.subtitle.RealtimeSubtitleBufferSizeProvider;
-import com.fongmi.android.tv.subtitle.RealtimeSubtitleController;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.UrlUtil;
@@ -152,6 +154,26 @@ public class ExoUtil {
             @Nullable ExoDecoderRuntimeSession decoderRuntimeSession,
             ExoFrameSchedulingPlayerSettings frameSchedulingSettings,
             @Nullable ExoDolbyVisionPlaybackState dolbyVisionPlaybackState) {
+        return buildPlayer(
+                decode,
+                listener,
+                tunnelingFallbackAttempted,
+                decoderRuntimeSession,
+                frameSchedulingSettings,
+                dolbyVisionPlaybackState,
+                null,
+                null);
+    }
+
+    public static ExoPlayer buildPlayer(
+            int decode,
+            Player.Listener listener,
+            boolean tunnelingFallbackAttempted,
+            @Nullable ExoDecoderRuntimeSession decoderRuntimeSession,
+            ExoFrameSchedulingPlayerSettings frameSchedulingSettings,
+            @Nullable ExoDolbyVisionPlaybackState dolbyVisionPlaybackState,
+            @Nullable PlaybackMediaSignalHub mediaSignals,
+            @Nullable PlaybackMediaClock mediaClock) {
         ExoFrameSchedulingPlayerSettings schedulingSettings =
                 frameSchedulingSettings == null
                         ? ExoFrameSchedulingPlayerSettings.capture(decode)
@@ -170,7 +192,9 @@ public class ExoUtil {
                         automatic ? decoderRuntimeSession : null,
                         decoderOutput,
                         schedulingSettings,
-                        dolbyVisionPlaybackState))
+                        dolbyVisionPlaybackState,
+                        mediaSignals,
+                        mediaClock))
                 .setMediaSourceFactory(buildMediaSourceFactory())
                 .setVideoChangeFrameRateStrategy(ExoPerformanceSetting.getFrameRateStrategy());
         if (PlaybackPerformanceSetting.isHighBufferEnabled()) builder.setLoadControl(buildEnhancedLoadControl());
@@ -578,7 +602,9 @@ public class ExoUtil {
             @Nullable ExoDecoderRuntimeSession decoderRuntimeSession,
             ExoDecoderRuntimeSession.OutputConfig decoderOutput,
             ExoFrameSchedulingPlayerSettings frameSchedulingSettings,
-            @Nullable ExoDolbyVisionPlaybackState dolbyVisionPlaybackState) {
+            @Nullable ExoDolbyVisionPlaybackState dolbyVisionPlaybackState,
+            @Nullable PlaybackMediaSignalHub mediaSignals,
+            @Nullable PlaybackMediaClock mediaClock) {
         return buildRenderersFactory(
                 getAudioRenderMode(),
                 getVideoRenderMode(decode),
@@ -590,7 +616,9 @@ public class ExoUtil {
                 decoderRuntimeSession,
                 decoderOutput,
                 frameSchedulingSettings,
-                dolbyVisionPlaybackState);
+                dolbyVisionPlaybackState,
+                mediaSignals,
+                mediaClock);
     }
 
     static RenderersFactory buildRenderersFactory() {
@@ -616,6 +644,8 @@ public class ExoUtil {
                                         .CODEC_QUEUE_SYNC),
                         dynamicSchedulingEnabled,
                         codecQueueMode),
+                null,
+                null,
                 null);
     }
 
@@ -629,7 +659,9 @@ public class ExoUtil {
             @Nullable ExoDecoderRuntimeSession decoderRuntimeSession,
             ExoDecoderRuntimeSession.OutputConfig decoderOutput,
             ExoFrameSchedulingPlayerSettings frameSchedulingSettings,
-            @Nullable ExoDolbyVisionPlaybackState dolbyVisionPlaybackState) {
+            @Nullable ExoDolbyVisionPlaybackState dolbyVisionPlaybackState,
+            @Nullable PlaybackMediaSignalHub mediaSignals,
+            @Nullable PlaybackMediaClock mediaClock) {
         ExoFrameSchedulingExperimentPolicy.Decision frameSchedulingDecision =
                 frameSchedulingSettings.decision();
         int mode = PlayerSetting.getEffectiveFFmpegMode();
@@ -648,7 +680,8 @@ public class ExoUtil {
                     dolbyVisionPlaybackState) {
                 @Override
                 protected AudioSink buildAudioSink(@NonNull Context context, boolean enableFloatOutput, boolean enableAudioOutputPlaybackParams) {
-                    return ExoUtil.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParams, realtimePipeline);
+                    return ExoUtil.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParams,
+                            realtimePipeline, mediaSignals, mediaClock);
                 }
             };
         } else if (useFfmpegAudioFallback(mode) || useFfmpegVideoRenderer(mode)) {
@@ -660,14 +693,16 @@ public class ExoUtil {
                     videoPrefer) {
                 @Override
                 protected AudioSink buildAudioSink(@NonNull Context context, boolean enableFloatOutput, boolean enableAudioOutputPlaybackParams) {
-                    return ExoUtil.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParams, realtimePipeline);
+                    return ExoUtil.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParams,
+                            realtimePipeline, mediaSignals, mediaClock);
                 }
             };
         } else {
             factory = new DefaultRenderersFactory(App.get()) {
                 @Override
                 protected AudioSink buildAudioSink(@NonNull Context context, boolean enableFloatOutput, boolean enableAudioOutputPlaybackParams) {
-                    return ExoUtil.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParams, realtimePipeline);
+                    return ExoUtil.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParams,
+                            realtimePipeline, mediaSignals, mediaClock);
                 }
             };
         }
@@ -722,27 +757,31 @@ public class ExoUtil {
                         ExoFrameSchedulingExperimentSetting.getResolution()));
     }
 
-    private static AudioSink buildAudioSink(Context context, boolean enableFloatOutput, boolean enableAudioOutputPlaybackParams, boolean realtimePipeline) {
-        RealtimeSubtitleController controller = realtimePipeline ? RealtimeSubtitleController.get() : null;
-        boolean lookahead = controller != null && controller.isAudioPipelineRequested();
-        if (!lookahead) {
-            if (controller != null) controller.createAudioPipeline(false);
+    private static AudioSink buildAudioSink(Context context, boolean enableFloatOutput,
+                                            boolean enableAudioOutputPlaybackParams,
+                                            boolean realtimePipeline,
+                                            @Nullable PlaybackMediaSignalHub mediaSignals,
+                                            @Nullable PlaybackMediaClock mediaClock) {
+        if (mediaSignals != null && mediaClock != null && mediaSignals.isCaptureRequested()) {
+            PlaybackMediaAudioPipeline pipeline = PlaybackMediaAudioPipeline.create(mediaSignals, mediaClock);
             DefaultAudioSink.Builder builder = new DefaultAudioSink.Builder(context)
                     .setEnableFloatOutput(enableFloatOutput)
-                    .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams);
-            if (!PlayerSetting.isAudioPassThrough(PlayerSetting.EXO)) builder.setAudioOutputProvider(new AudioTrackAudioOutputProvider.Builder(null).build());
+                    .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
+                    .setAudioProcessors(new AudioProcessor[]{pipeline.audioProcessor()});
+            if (!PlayerSetting.isAudioPassThrough(PlayerSetting.EXO)) {
+                AudioTrackAudioOutputProvider.Builder outputBuilder = new AudioTrackAudioOutputProvider.Builder(null);
+                outputBuilder.setAudioTrackBufferSizeProvider(new RealtimeSubtitleBufferSizeProvider());
+                AudioOutputProvider output = outputBuilder.build();
+                builder.setAudioOutputProvider(new PlaybackMediaAudioOutputProvider(output, pipeline.clockSink()));
+            }
             return builder.build();
         }
-        RealtimeSubtitleController.AudioPipeline realtime = controller.createAudioPipeline(true);
+        if (mediaSignals != null) mediaSignals.detachPipeline();
         DefaultAudioSink.Builder builder = new DefaultAudioSink.Builder(context)
                 .setEnableFloatOutput(enableFloatOutput)
-                .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
-                .setAudioProcessors(new AudioProcessor[]{realtime.audioProcessor()});
+                .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams);
         if (!PlayerSetting.isAudioPassThrough(PlayerSetting.EXO)) {
-            AudioTrackAudioOutputProvider.Builder outputBuilder = new AudioTrackAudioOutputProvider.Builder(null);
-            outputBuilder.setAudioTrackBufferSizeProvider(new RealtimeSubtitleBufferSizeProvider());
-            AudioOutputProvider output = outputBuilder.build();
-            builder.setAudioOutputProvider(new RealtimeSubtitleAudioOutputProvider(output, realtime.clockSink()));
+            builder.setAudioOutputProvider(new AudioTrackAudioOutputProvider.Builder(null).build());
         }
         return builder.build();
     }

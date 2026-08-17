@@ -35,6 +35,11 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.SiteApi;
+import com.fongmi.android.tv.ad.audio.AdAudioRuleStore;
+import com.fongmi.android.tv.ad.audio.AdAudioDiagnostics;
+import com.fongmi.android.tv.ad.audio.AdAudioRuntimeController;
+import com.fongmi.android.tv.ad.audio.AdAudioSetting;
+import com.fongmi.android.tv.ad.audio.AdSkipCoordinator;
 import com.fongmi.android.tv.bean.Danmaku;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Sub;
@@ -47,6 +52,9 @@ import com.fongmi.android.tv.player.engine.PlaySpec;
 import com.fongmi.android.tv.player.engine.PlayerCacheState;
 import com.fongmi.android.tv.player.engine.PlayerEngine;
 import com.fongmi.android.tv.player.engine.SystemPlayerEngine;
+import com.fongmi.android.tv.player.audio.PlaybackMediaClock;
+import com.fongmi.android.tv.player.audio.PlaybackMediaSessionController;
+import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 import com.fongmi.android.tv.player.exo.TrackUtil;
 import com.fongmi.android.tv.player.exo.ExoDecoderResourceRecoveryLimiter;
 import com.fongmi.android.tv.player.exo.ExoNetworkGuardBufferPolicy;
@@ -165,6 +173,11 @@ public class PlayerManager implements ParseCallback {
     private final Runnable networkProtectionRunnable;
     private final Runnable playbackTelemetryRunnable;
     private final Callback callback;
+    private final PlaybackMediaSignalHub mediaSignals = new PlaybackMediaSignalHub(8);
+    private final PlaybackMediaClock mediaClock = new PlaybackMediaClock(500L);
+    private final PlaybackMediaSessionController mediaSession =
+            new PlaybackMediaSessionController(mediaSignals, mediaClock);
+    private final AdAudioRuntimeController adAudioRuntime;
     private final DynamicLutEffect dynamicLutEffect;
     private final AudioManager.OnAudioFocusChangeListener audioFocusChangeListener;
     private final BroadcastReceiver noisyReceiver;
@@ -349,11 +362,18 @@ public class PlayerManager implements ParseCallback {
         this.playerType = PlayerSetting.getPlayer();
         this.playerFallbackTried = new boolean[PLAYER_COUNT];
         clearFfmpegModeFallbackState();
+        this.adAudioRuntime = new AdAudioRuntimeController(
+                mediaSignals, mediaClock, AdAudioRuleStore.get()::load,
+                new AdAudioPlaybackPort());
+        this.adAudioRuntime.start(AdAudioSetting.isEnabled());
+        mediaSession.begin(0L);
         this.engine = buildEngine(playerType, PlayerEngine.HARD);
         this.player = engine.getPlayer();
     }
 
     public void release() {
+        mediaSession.beforeRelease();
+        adAudioRuntime.close();
         prepareSeq++;
         exoSpeedRestoreState.clear();
         lutApplySeq++;
@@ -382,7 +402,10 @@ public class PlayerManager implements ParseCallback {
         ijkRuntimeManualOverride = false;
         pendingIjkRuntimeFallbackReparse = false;
         closeMultiThreadProxyRegistration();
-        if (engine == null) return;
+        if (engine == null) {
+            mediaSession.close();
+            return;
+        }
         engine.release();
         engine = null;
         player = null;
@@ -393,6 +416,7 @@ public class PlayerManager implements ParseCallback {
         lutApplyInProgress = false;
         lutPipelineReadyForItem = false;
         lutPipelinePrepareInProgress = false;
+        mediaSession.close();
         pendingLutPreview = false;
         waitingLutBeforePlay = false;
         lutWarmupReloadPreviewPending = false;
@@ -636,6 +660,35 @@ public class PlayerManager implements ParseCallback {
 
     public long getPosition() {
         return player.getCurrentPosition();
+    }
+
+    public PlaybackMediaSignalHub mediaSignals() {
+        return mediaSignals;
+    }
+
+    public PlaybackMediaClock mediaClock() {
+        return mediaClock;
+    }
+
+    public void bindAdAudioUi(AdSkipCoordinator.UiPort ui) {
+        if (isReleased()) return;
+        adAudioRuntime.start(AdAudioSetting.isEnabled());
+        adAudioRuntime.bindUi(ui);
+        refreshAdAudioRuntime();
+    }
+
+    public void unbindAdAudioUi() {
+        adAudioRuntime.unbindUi();
+    }
+
+    public void reloadAdAudioRules() {
+        if (isReleased()) return;
+        adAudioRuntime.start(AdAudioSetting.isEnabled());
+        refreshAdAudioRuntime();
+    }
+
+    public AdAudioDiagnostics.Snapshot adAudioDiagnostics() {
+        return adAudioRuntime.diagnostics();
     }
 
     public long getBufferedDuration() {
@@ -1392,6 +1445,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void seekTo(long time) {
+        mediaSession.beforeSeek(Math.max(0L, time));
         long now = SystemClock.elapsedRealtime();
         invalidatePlaybackProfileAssessments(
                 PlaybackProfileAbCoordinator.InvalidationReason.USER_SEEK);
@@ -1491,6 +1545,9 @@ public void resetTrack(int type) {
         float speed = getSpeed();
         boolean repeat = isRepeatOne();
         boolean wasPlayWhenReady = player.getPlayWhenReady();
+        mediaSignals.detachPipeline();
+        mediaSession.reset(position == C.TIME_UNSET ? 0L : position,
+                PlaybackMediaSignalHub.ResetReason.ENGINE_REBUILD);
         ++prepareSeq;
         App.removeCallbacks(runnable);
         rebuildPlayer();
@@ -1505,6 +1562,12 @@ public void resetTrack(int type) {
         setRepeatOne(repeat);
         App.post(runnable, Constant.TIMEOUT_PLAY);
         callback.onPrepare();
+    }
+
+    private void refreshAdAudioRuntime() {
+        if (isReleased()) return;
+        adAudioRuntime.refresh();
+        if (adAudioRuntime.needsPipelineRebuild()) rebuildAudioPipeline();
     }
 
     public void restoreVideoTrack() {
@@ -4927,7 +4990,11 @@ public void resetTrack(int type) {
     }
 
     private PlayerEngine buildEngine(int type, int decode) {
-        if (type != PlayerSetting.EXO) exoSpeedRestoreState.clear();
+        if (type != PlayerSetting.EXO) {
+            exoSpeedRestoreState.clear();
+            mediaSignals.detachPipeline();
+            adAudioRuntime.suspend();
+        }
         PlayerEngine next = switch (type) {
             case PlayerSetting.IJK -> new IjkPlayerEngine(decode, listener);
             case PlayerSetting.SYSTEM -> new SystemPlayerEngine(decode, listener);
@@ -4947,11 +5014,63 @@ public void resetTrack(int type) {
                 public void onPrepareCanceled(int generation) {
                     cancelExoSpeedPrepare(generation);
                 }
-            });
+            }, mediaSignals, mediaClock);
         };
         ffmpegModeEngine = type == PlayerSetting.EXO ? PlayerSetting.getEffectiveFFmpegMode() : PlayerSetting.NONE;
         ffmpegModeEngineRefreshPending = false;
         return next;
+    }
+
+    private final class AdAudioPlaybackPort implements AdAudioRuntimeController.PlaybackPort {
+
+        @Override
+        public boolean isEligible(long sessionId, long generation) {
+            PlaybackMediaSignalHub.Session session = mediaSignals.session();
+            return session.id() == sessionId
+                    && session.generation() == generation
+                    && player != null
+                    && engine != null
+                    && spec != null
+                    && isExo()
+                    && player.getPlaybackState() == Player.STATE_READY
+                    && player.getCurrentMediaItem() != null
+                    && !player.isCurrentMediaItemLive()
+                    && player.getDuration() > 0L
+                    && player.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM);
+        }
+
+        @Override
+        public AdSkipCoordinator.PlaybackSnapshot snapshot(long sessionId, long generation) {
+            PlaybackMediaSignalHub.Session session = mediaSignals.session();
+            long position = player == null ? 0L : Math.max(0L, player.getCurrentPosition());
+            long duration = player == null ? C.TIME_UNSET : player.getDuration();
+            boolean live = player == null || player.isCurrentMediaItemLive();
+            boolean seekable = isEligible(session.id(), session.generation());
+            return new AdSkipCoordinator.PlaybackSnapshot(
+                    session.id(), session.generation(), position, duration,
+                    seekable, live, mediaClock.snapshot(SystemClock.elapsedRealtime()));
+        }
+
+        @Override
+        public AdSkipCoordinator.SeekResult seekTo(long sessionId, long generation, long positionMs) {
+            PlaybackMediaSignalHub.Session before = mediaSignals.session();
+            if (!isEligible(sessionId, generation)
+                    || before.id() != sessionId
+                    || before.generation() != generation) {
+                return AdSkipCoordinator.SeekResult.rejected(before.id(), before.generation());
+            }
+            long duration = player.getDuration();
+            long target = Math.max(0L, Math.min(positionMs, duration));
+            try {
+                PlayerManager.this.seekTo(target);
+            } catch (RuntimeException e) {
+                PlaybackMediaSignalHub.Session current = mediaSignals.session();
+                return AdSkipCoordinator.SeekResult.rejected(current.id(), current.generation());
+            }
+            PlaybackMediaSignalHub.Session after = mediaSignals.session();
+            return new AdSkipCoordinator.SeekResult(
+                    after.id() == sessionId, after.id(), after.generation());
+        }
     }
 
     public void browse(PlaySpec spec) {
@@ -4966,6 +5085,8 @@ public void resetTrack(int type) {
     }
 
     public void start(PlaySpec spec, long timeout, boolean playWhenReady) {
+        adAudioRuntime.suspend();
+        mediaSession.begin(0L);
         endPlaybackTelemetrySession("replace-start");
         prepareIjkRuntimeForUserPlayback();
         clearPendingSwitchRestore();
@@ -4987,6 +5108,8 @@ public void resetTrack(int type) {
     }
 
     public void parse(String key, Result result, boolean useParse, MediaMetadata metadata, boolean playWhenReady) {
+        adAudioRuntime.suspend();
+        mediaSession.begin(0L);
         endPlaybackTelemetrySession("replace-parse");
         prepareIjkRuntimeForUserPlayback();
         stopParse();
@@ -7347,6 +7470,7 @@ public void resetTrack(int type) {
             publishPlaybackAutoContext(state != Player.STATE_IDLE);
             if (state == Player.STATE_READY) {
                 manualPlayerSwitchPending = false;
+                App.post(PlayerManager.this::refreshAdAudioRuntime);
                 ijkRuntimeProfileController.onPrepared(playbackAutoSession);
                 onMpvHlsPlaybackReady(SystemClock.elapsedRealtime());
                 if (isIjk()) {
@@ -7401,6 +7525,11 @@ public void resetTrack(int type) {
 
         @Override
         public void onPositionDiscontinuity(@NonNull Player.PositionInfo oldPosition, @NonNull Player.PositionInfo newPosition, int reason) {
+            if (reason != Player.DISCONTINUITY_REASON_SEEK) {
+                mediaSession.reset(Math.max(0L, newPosition.positionMs),
+                        PlaybackMediaSignalHub.ResetReason.SOURCE_CHANGED);
+                App.post(PlayerManager.this::refreshAdAudioRuntime);
+            }
             rtspLiveLagController.onPositionDiscontinuity(playbackAutoSession);
             ijkRealtimeRecoveryController.onPositionDiscontinuity(
                     playbackAutoSession);

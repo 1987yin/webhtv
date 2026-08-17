@@ -151,6 +151,35 @@ public class TmdbSeasonResolverTest {
     }
 
     @Test
+    public void untrustedSourceDoesNotGuessOnlyOrdinarySeason() {
+        TmdbSeasonResolver.Resolution result = TmdbSeasonResolver.resolve(-1, null, List.of(), -1,
+                List.of(0, 3), Map.of(0, 2, 3, 1), 1, false);
+
+        assertEquals(TmdbSeasonResolver.Status.AMBIGUOUS, result.getStatus());
+        assertEquals(TmdbSeasonResolver.Source.NONE, result.getSource());
+        assertNull(result.getSelectedSeason());
+    }
+
+    @Test
+    public void untrustedSourceDoesNotGuessSeasonFromOneEpisodeCount() {
+        TmdbSeasonResolver.Resolution result = TmdbSeasonResolver.resolve(-1, null, List.of(), -1,
+                List.of(1, 2, 3), Map.of(1, 10, 2, 8, 3, 1), 1, false);
+
+        assertEquals(TmdbSeasonResolver.Status.AMBIGUOUS, result.getStatus());
+        assertEquals(TmdbSeasonResolver.Source.NONE, result.getSource());
+        assertNull(result.getSelectedSeason());
+    }
+
+    @Test
+    public void untrustedSourceStillHonorsExplicitSeasonEvidence() {
+        TmdbSeasonResolver.Resolution result = TmdbSeasonResolver.resolve(-1, null, List.of(3), -1,
+                List.of(1, 2, 3), Map.of(1, 10, 2, 8, 3, 1), 1, false);
+
+        assertResolved(result, 3, TmdbSeasonResolver.Source.EXPLICIT);
+    }
+
+
+    @Test
     public void duplicateExactEpisodeCountsStayAmbiguous() {
         TmdbSeasonResolver.Resolution result = resolve(-1, null, List.of(), -1,
                 List.of(1, 2), Map.of(1, 8, 2, 8), 8);

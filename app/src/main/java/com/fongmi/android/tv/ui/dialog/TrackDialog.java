@@ -273,8 +273,7 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
 
     private void startRealtimeAi() {
         RealtimeSubtitleController controller = RealtimeSubtitleController.get();
-        controller.requestAudioPipeline();
-        if (!controller.isAudioPipelineReady()) player.rebuildAudioPipeline();
+        if (controller.requestAudioPipeline(player)) player.rebuildAudioPipeline();
         controller.enable(player);
     }
 
@@ -286,8 +285,8 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
         PlayerSetting.putTunnel(false);
         PlaybackPerformanceSetting.markCustom();
         RealtimeSubtitleController controller = RealtimeSubtitleController.get();
-        controller.requestAudioPipeline();
-        if (changed || !controller.isAudioPipelineReady()) player.rebuildAudioPipeline();
+        boolean pipelineMissing = controller.requestAudioPipeline(player);
+        if (changed || pipelineMissing) player.rebuildAudioPipeline();
         enableRealtimeAi();
     }
 
