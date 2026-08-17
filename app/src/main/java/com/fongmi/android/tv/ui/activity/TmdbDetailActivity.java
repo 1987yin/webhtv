@@ -9555,7 +9555,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             return true;
         }
         if (KeyUtil.isEnterKey(event)) {
-            if (KeyUtil.isActionUp(event)) showInlineControls(true);
+            if (KeyUtil.isActionUp(event)) {
+                if (Util.isLeanback()) toggleInlinePlayback();
+                else showInlineControls(true);
+            }
             return true;
         }
         if (!inlineStarted || service() == null || player() == null || player().isEmpty()) return false;
