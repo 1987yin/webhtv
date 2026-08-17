@@ -2346,8 +2346,8 @@ public class TmdbDetailActivityLayoutTest {
         String hiddenPredicateBody = activity.substring(hiddenPredicate, hiddenPredicateEnd);
         int enter = handleBody.indexOf("if (KeyUtil.isEnterKey(event))");
         int playbackGuard = handleBody.indexOf("if (!inlineStarted || service() == null || player() == null || player().isEmpty())");
-        int enterEnd = playbackGuard > enter ? playbackGuard : handleBody.indexOf("if (event.isLongPress()", enter);
-        String enterBody = enter >= 0 && enterEnd > enter ? handleBody.substring(enter, enterEnd) : "";
+        String enterBody = javaBlockAt(handleBody, "if (KeyUtil.isEnterKey(event))");
+        String actionUpBody = javaBlockAt(enterBody, "if (KeyUtil.isActionUp(event))");
 
         assertFalse("TV confirm must not restart playback while the player is loading or stopped", confirmBody.contains("onPlay();"));
         assertFalse("TV confirm behavior must not depend on the stale inlineStarted flag", confirmBody.contains("inlineStarted"));
@@ -2361,11 +2361,18 @@ public class TmdbDetailActivityLayoutTest {
         assertTrue("fullscreen TV confirm should expose the controls overlay without changing playback",
                 confirmBody.contains("showInlineControls(true);")
                         && !confirmBody.contains("toggleInlinePlayback();"));
-        assertTrue("fullscreen DPAD center must toggle playback before the view-level key listener runs",
-                enterBody.contains("if (KeyUtil.isActionUp(event)) {")
-                        && enterBody.contains("if (Util.isLeanback()) toggleInlinePlayback();"));
-        assertTrue("mobile fullscreen confirm must retain the existing controls-first behavior",
-                enterBody.contains("else showInlineControls(true);"));
+        String toggleCall = "toggleInlinePlayback();";
+        String mobileFallback = "showInlineControls(true);";
+        int toggleCallIndex = actionUpBody.indexOf(toggleCall);
+        int leanbackToggleIndex = actionUpBody.indexOf("if (Util.isLeanback()) " + toggleCall);
+        int elseIndex = actionUpBody.indexOf("else " + mobileFallback);
+        assertTrue("fullscreen DPAD center must toggle playback exactly once on ACTION_UP before the view-level key listener runs",
+                !actionUpBody.isEmpty()
+                        && leanbackToggleIndex >= 0
+                        && toggleCallIndex == actionUpBody.lastIndexOf(toggleCall));
+        assertTrue("mobile fullscreen confirm must retain exactly one controls-first fallback after the leanback toggle",
+                elseIndex > toggleCallIndex
+                        && actionUpBody.indexOf(mobileFallback) == actionUpBody.lastIndexOf(mobileFallback));
         assertTrue("TV fullscreen playback toggles must keep controls hidden like the native leanback player",
                 activity.substring(toggle, toggleEnd)
                         .contains("if (Util.isLeanback() && inlineFullscreen) hideInlineControls();"));
@@ -2958,6 +2965,19 @@ public class TmdbDetailActivityLayoutTest {
         int tagEnd = layout.indexOf("/>", idIndex);
         if (tagEnd < 0) tagEnd = layout.indexOf(">", idIndex);
         return tagEnd > idIndex && layout.substring(idIndex, tagEnd).contains(attribute);
+    }
+
+    private static String javaBlockAt(String source, String marker) {
+        int markerIndex = source.indexOf(marker);
+        int openBrace = markerIndex < 0 ? -1 : source.indexOf('{', markerIndex + marker.length());
+        if (openBrace < 0) return "";
+        int depth = 0;
+        for (int i = openBrace; i < source.length(); i++) {
+            char current = source.charAt(i);
+            if (current == '{') depth++;
+            else if (current == '}' && --depth == 0) return source.substring(markerIndex, i + 1);
+        }
+        return "";
     }
 
     /**
