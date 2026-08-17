@@ -22,19 +22,22 @@ public class TmdbVideoPopupWiringTest {
         assertTrue(playback.contains("restoreTransientPlayback()"));
         assertTrue(playback.contains("private static final int REQUEST_TRANSIENT_PLAYBACK = 1098"));
         assertTrue(playback.contains("TransientPlaybackSnapshot.create("));
-        assertTrue(playback.contains("pendingTransientSeekMs = snapshot.positionMs()"));
         assertTrue(playback.contains("snapshot.shouldResume()"));
-        assertOrderAfter(playback, "public void onPrepare()", "PlaybackActivity.this.onPrepare();", "applyPendingTransientSeek();");
+        assertTrue(playback.contains("private final TransientPlaybackCoordinator transientPlayback = new TransientPlaybackCoordinator();"));
+        assertFalse(playback.contains("private TransientPlaybackSnapshot transientSnapshot"));
+        assertFalse(playback.contains("private TransientPlaybackSnapshot pendingTransientRestore"));
+        assertFalse(playback.contains("private long pendingTransientSeekMs"));
+        assertOrderAfter(playback, "public void onPrepare()", "PlaybackActivity.this.onPrepare();", "transientPlayback.consumePreparedPosition(", "manager.seekTo(positionMs)");
         assertTrue(playback.contains("if (hasActiveMedia && transientSnapshot == null) return false;"));
-        assertTrue(playback.contains("private String pendingTransientSeekKey;"));
-        assertTrue(playback.contains("private String pendingTransientSeekUrl;"));
-        assertTrue(playback.contains("pendingTransientSeekKey.equals(manager.getKey())"));
-        assertTrue(playback.contains("pendingTransientSeekUrl.equals(manager.getUrl())"));
-        assertOrderAfter(playback, "private void restoreTransientPlayback()", "manager.stop();", "startPlayerInternal(", "clearPendingTransientSeek();");
+        assertOrderAfter(playback, "public final boolean launchTransientPlayback(Intent intent)", "transientPlayback.canBeginLaunch()", "transientPlayback.beginLaunch(transientSnapshot)", "startActivityForResult(intent, REQUEST_TRANSIENT_PLAYBACK)");
+        assertTrue(playback.contains("TransientPlaybackSnapshot snapshot = transientPlayback.cancelLaunch();"));
+        assertTrue(playback.contains("transientPlayback.queueRestoreAfterResult();"));
+        assertOrderAfter(playback, "private void restoreTransientPlayback()", "transientPlayback.beginRestore()", "manager.stop();", "startPlayerInternal(", "catch (RuntimeException e)", "transientPlayback.failRestore();", "PlaybackActivity.this.onError(ResUtil.getString(R.string.error_play_url))");
         assertTrue(playback.contains("private boolean startPlayerInternal("));
-        assertOrderAfter(playback, "public void onError(String msg)", "clearPendingTransientSeek();", "PlaybackActivity.this.onError(msg);");
-        assertOrderAfter(playback, "public void onServiceDisconnected(ComponentName name)", "clearPendingTransientSeek();", "mService = null;");
-        assertOrderAfter(playback, "protected void onDestroy()", "clearPendingTransientSeek();", "super.onDestroy();");
+        assertOrderAfter(playback, "public void onError(String msg)", "transientPlayback.failRestore();", "PlaybackActivity.this.onError(msg);");
+        assertOrderAfter(playback, "public void onServiceDisconnected(ComponentName name)", "transientPlayback.requeueInFlightRestore();", "mService = null;");
+        assertTrue(playback.contains("if (transientPlayback.hasQueuedRestore()) restoreTransientPlayback();"));
+        assertOrderAfter(playback, "protected void onDestroy()", "transientPlayback.clear();", "super.onDestroy();");
         assertTrue(playback.contains("resumeAfterTransientPlayback(snapshot != null && snapshot.shouldResume())"));
     }
 
