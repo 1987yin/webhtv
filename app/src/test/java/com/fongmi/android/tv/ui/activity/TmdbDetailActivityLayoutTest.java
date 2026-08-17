@@ -2327,6 +2327,8 @@ public class TmdbDetailActivityLayoutTest {
         int confirm = activity.indexOf("private void onInlinePanelConfirm()");
         int helper = activity.indexOf("private void enterInlineFullscreenOrShowControlsOnConfirm()", confirm);
         int nextMethod = activity.indexOf("private void toggleInlinePlayback()", helper);
+        int toggle = activity.indexOf("private void toggleInlinePlayback()");
+        int toggleEnd = activity.indexOf("private void toggleInlineControls()", toggle);
         int handle = activity.indexOf("private boolean handleInlineKey(KeyEvent event)");
         int handleEnd = activity.indexOf("private boolean handleInlineFullscreenHiddenKey(KeyEvent event)", handle);
         int hiddenPredicate = activity.indexOf("private boolean isInlineFullscreenHiddenPlaybackKey(KeyEvent event)", handleEnd);
@@ -2334,6 +2336,7 @@ public class TmdbDetailActivityLayoutTest {
 
         assertTrue(activityPath + " is missing onInlinePanelConfirm", confirm >= 0);
         assertTrue(activityPath + " is missing enterInlineFullscreenOrShowControlsOnConfirm", helper > confirm && nextMethod > helper);
+        assertTrue(activityPath + " is missing toggleInlinePlayback", toggle >= 0 && toggleEnd > toggle);
         assertTrue(activityPath + " is missing handleInlineKey", handle >= 0 && handleEnd > handle);
         assertTrue(activityPath + " is missing fullscreen hidden-key predicate", hiddenPredicate > handleEnd && hiddenPredicateEnd > hiddenPredicate);
 
@@ -2358,9 +2361,12 @@ public class TmdbDetailActivityLayoutTest {
         assertTrue("fullscreen TV confirm should expose the controls overlay without changing playback",
                 confirmBody.contains("showInlineControls(true);")
                         && !confirmBody.contains("toggleInlinePlayback();"));
-        assertTrue("fullscreen DPAD center must expose controls before the view-level key listener runs",
-                enterBody.contains("showInlineControls(true);")
-                        && !enterBody.contains("toggleInlinePlayback();"));
+        assertTrue("fullscreen DPAD center must toggle playback before the view-level key listener runs",
+                enterBody.contains("if (KeyUtil.isActionUp(event)) toggleInlinePlayback();")
+                        && !enterBody.contains("showInlineControls(true);"));
+        assertTrue("TV fullscreen playback toggles must keep controls hidden like the native leanback player",
+                activity.substring(toggle, toggleEnd)
+                        .contains("if (Util.isLeanback() && inlineFullscreen) hideInlineControls();"));
         assertTrue("TV inline controls must expose an explicit play/retry action before playback starts",
                 activity.contains("private void toggleInlinePlayback()")
                         && activity.contains("binding.playerPlaybackAction")
