@@ -10,23 +10,19 @@ import java.util.concurrent.Executors;
 
 public final class AdAudioRuntimeController implements AutoCloseable {
 
-    public interface RuleSource {
-        AdAudioRuleStore.Snapshot load();
-    }
-
     public interface PlaybackPort extends AdSkipCoordinator.PlaybackPort {
         boolean isEligible(long sessionId, long generation);
     }
 
     private final PlaybackMediaSignalHub hub;
     private final PlaybackMediaClock clock;
-    private final RuleSource ruleSource;
+    private final AdAudioRuleSource ruleSource;
     private final PlaybackPort playback;
     private final Executor worker;
     private final Runnable workerShutdown;
     private final AdAudioDiagnostics diagnostics = new AdAudioDiagnostics();
 
-    private AdAudioRuleStore.Snapshot snapshot = new AdAudioRuleStore.Snapshot(
+    private AdAudioRuleSnapshot snapshot = new AdAudioRuleSnapshot(
             "local", "", AudioFingerprintRuleSet.empty(), java.util.List.of(), "");
     private AdSkipCoordinator.UiPort ui;
     private AdSkipCoordinator coordinator;
@@ -37,18 +33,18 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     private boolean closed;
 
     public AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
-                                    RuleSource ruleSource, PlaybackPort playback) {
+                                    AdAudioRuleSource ruleSource, PlaybackPort playback) {
         this(hub, clock, ruleSource, playback, createWorker());
     }
 
     private AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
-                                     RuleSource ruleSource, PlaybackPort playback,
+                                     AdAudioRuleSource ruleSource, PlaybackPort playback,
                                      Worker worker) {
         this(hub, clock, ruleSource, playback, worker.executor, worker.executor::shutdownNow);
     }
 
     AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
-                             RuleSource ruleSource, PlaybackPort playback,
+                             AdAudioRuleSource ruleSource, PlaybackPort playback,
                              Executor worker, Runnable workerShutdown) {
         this.hub = Objects.requireNonNull(hub, "hub");
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -112,7 +108,7 @@ public final class AdAudioRuntimeController implements AutoCloseable {
         return consumer != null && captureLease != null;
     }
 
-    public synchronized AdAudioRuleStore.Snapshot snapshot() {
+    public synchronized AdAudioRuleSnapshot snapshot() {
         return snapshot;
     }
 
@@ -142,10 +138,10 @@ public final class AdAudioRuntimeController implements AutoCloseable {
 
     private void loadRulesLocked() {
         try {
-            AdAudioRuleStore.Snapshot loaded = ruleSource.load();
+            AdAudioRuleSnapshot loaded = ruleSource.load();
             if (loaded == null) {
                 diagnostics.record(AdAudioDiagnostics.Code.RULE_LOAD_FAILED);
-                snapshot = new AdAudioRuleStore.Snapshot(
+                snapshot = new AdAudioRuleSnapshot(
                         "local", "", AudioFingerprintRuleSet.empty(), java.util.List.of(), "RULE_LOAD_FAILED");
             } else {
                 snapshot = loaded;
@@ -153,7 +149,7 @@ public final class AdAudioRuntimeController implements AutoCloseable {
             }
         } catch (RuntimeException e) {
             diagnostics.record(AdAudioDiagnostics.Code.RULE_LOAD_FAILED);
-            snapshot = new AdAudioRuleStore.Snapshot(
+            snapshot = new AdAudioRuleSnapshot(
                     "local", "", AudioFingerprintRuleSet.empty(), java.util.List.of(), "RULE_LOAD_FAILED");
         }
     }

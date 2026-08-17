@@ -159,17 +159,17 @@ public class AdAudioRuntimeControllerTest {
     }
 
     private static AdAudioRuntimeController runtime(
-            PlaybackMediaSignalHub hub, FakePlaybackPort playback, AdAudioRuleStore.Snapshot snapshot) {
+            PlaybackMediaSignalHub hub, FakePlaybackPort playback, AdAudioRuleSnapshot snapshot) {
         return new AdAudioRuntimeController(
                 hub, new PlaybackMediaClock(500L), () -> snapshot, playback,
                 Runnable::run, () -> { });
     }
 
-    private static AdAudioRuleStore.Snapshot goodSnapshot() {
+    private static AdAudioRuleSnapshot goodSnapshot() {
         return snapshotForRule("ad");
     }
 
-    private static AdAudioRuleStore.Snapshot snapshotForRule(String ruleId) {
+    private static AdAudioRuleSnapshot snapshotForRule(String ruleId) {
         AudioFingerprintRuleSet rules = AudioFingerprintRuleCodec.fromJson("{"
                 + "\"schemaVersion\":2,\"algorithm\":{"
                 + "\"id\":\"spectral-sequence-v2\",\"sampleRate\":16000,"
@@ -177,16 +177,16 @@ public class AdAudioRuntimeControllerTest {
                 + "\"rules\":[{\"id\":\"" + ruleId + "\",\"durationMs\":10000,"
                 + "\"anchorOffsetMs\":0,\"anchorDurationMs\":3000,"
                 + "\"fingerprint\":[\"32f0007c\",\"35c100e0\",\"3b8b01c0\",\"d30a0380\"]}]}" );
-        return new AdAudioRuleStore.Snapshot("test", "v1", rules, List.of(), "");
+        return new AdAudioRuleSnapshot("test", "v1", rules, List.of(), "");
     }
 
-    private static AdAudioRuleStore.Snapshot emptySnapshot() {
-        return new AdAudioRuleStore.Snapshot(
+    private static AdAudioRuleSnapshot emptySnapshot() {
+        return new AdAudioRuleSnapshot(
                 "test", "", AudioFingerprintRuleSet.empty(), List.of(), "");
     }
 
-    private static AdAudioRuleStore.Snapshot errorSnapshot() {
-        return new AdAudioRuleStore.Snapshot(
+    private static AdAudioRuleSnapshot errorSnapshot() {
+        return new AdAudioRuleSnapshot(
                 "test", "", AudioFingerprintRuleSet.empty(), List.of(), "INVALID_JSON");
     }
 
@@ -206,15 +206,15 @@ public class AdAudioRuntimeControllerTest {
         return output;
     }
 
-    private static final class MutableRuleSource implements AdAudioRuntimeController.RuleSource {
-        private AdAudioRuleStore.Snapshot snapshot;
+    private static final class MutableRuleSource implements AdAudioRuleSource {
+        private AdAudioRuleSnapshot snapshot;
 
-        MutableRuleSource(AdAudioRuleStore.Snapshot snapshot) {
+        MutableRuleSource(AdAudioRuleSnapshot snapshot) {
             this.snapshot = snapshot;
         }
 
         @Override
-        public AdAudioRuleStore.Snapshot load() {
+        public AdAudioRuleSnapshot load() {
             return snapshot;
         }
     }
