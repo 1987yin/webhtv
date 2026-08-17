@@ -2362,8 +2362,9 @@ public class TmdbDetailActivityLayoutTest {
                 confirmBody.contains("showInlineControls(true);")
                         && !confirmBody.contains("toggleInlinePlayback();"));
         assertTrue("fullscreen DPAD center must toggle playback before the view-level key listener runs",
-                enterBody.contains("if (KeyUtil.isActionUp(event)) toggleInlinePlayback();")
-                        && !enterBody.contains("showInlineControls(true);"));
+                enterBody.contains("if (Util.isLeanback()) toggleInlinePlayback();"));
+        assertTrue("mobile fullscreen confirm must retain the existing controls-first behavior",
+                enterBody.contains("else showInlineControls(true);"));
         assertTrue("TV fullscreen playback toggles must keep controls hidden like the native leanback player",
                 activity.substring(toggle, toggleEnd)
                         .contains("if (Util.isLeanback() && inlineFullscreen) hideInlineControls();"));
