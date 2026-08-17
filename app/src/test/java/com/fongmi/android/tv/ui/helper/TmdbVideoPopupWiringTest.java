@@ -43,6 +43,22 @@ public class TmdbVideoPopupWiringTest {
     }
 
     @Test
+    public void standardVideoActivitiesSupportIsolatedSingleItemTransientPlayback() throws Exception {
+        String siteApi = read("src", "main", "java", "com", "fongmi", "android", "tv", "api", "SiteApi.java");
+        String viewModel = read("src", "main", "java", "com", "fongmi", "android", "tv", "model", "SiteViewModel.java");
+        String mobile = read("src", "mobile", "java", "com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java");
+        String leanback = read("src", "leanback", "java", "com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java");
+
+        assertTrue(siteApi.contains("playerContentIsolated(@NonNull String key, @NonNull String flag, @NonNull String id, int playerType)"));
+        assertTrue(siteApi.contains("return playerContent(key, flag, id, playerType, new Source(), false);"));
+        assertTrue(viewModel.contains("playerContent(String key, String flag, String id, boolean isolated)"));
+        assertTrue(viewModel.contains("isolated ? SiteApi.playerContentIsolated(key, flag, id) : SiteApi.playerContent(key, flag, id)"));
+
+        assertTransientVideoActivityWiring(mobile, true);
+        assertTransientVideoActivityWiring(leanback, false);
+    }
+
+    @Test
     public void relatedVideoUsesIsolatedPopupAndRestoresHostPlayback() throws Exception {
         String helper = read("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "helper", "TmdbVideoPlayback.java");
         String dialog = read("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "dialog", "TmdbVideoPlayerDialog.java");
@@ -101,6 +117,33 @@ public class TmdbVideoPopupWiringTest {
             int current = source.indexOf(value, previous + 1);
             assertTrue("Missing or out-of-order value after " + anchor + ": " + value, current > previous);
             previous = current;
+        }
+    }
+
+    private static void assertTransientVideoActivityWiring(String source, boolean mobile) {
+        assertTrue(source.contains("public static Intent createTransientIntent(Activity activity, TmdbVideoPlayback.Launch launch)"));
+        assertTrue(source.contains("intent.putExtra(PlaybackActivity.EXTRA_TRANSIENT_PLAYBACK, true)"));
+        assertTrue(source.contains("putIntentPlaybackSelection(intent, launch.getPlayFlag(), launch.getPlayEpisodeName(), launch.getPlayEpisodeUrl())"));
+        assertTrue(source.contains("private boolean isTransientPlayback()"));
+        assertTrue(source.contains("getIntent().getBooleanExtra(PlaybackActivity.EXTRA_TRANSIENT_PLAYBACK, false)"));
+        assertTrue(source.contains("if (isTransientPlayback()) mViewModel.playerContent(getKey(), playFlag, episode.getUrl(), true)"));
+        assertTrue(source.contains("else mViewModel.playerContent(getKey(), playFlag, episode.getUrl())"));
+        assertTrue(source.contains("if (isTransientPlayback() && !isFullscreen()) enterFullscreen();"));
+        assertTrue(source.contains("private void applyTransientPlaybackControls()"));
+        assertTrue(source.contains("if (isTransientPlayback()) return;"));
+        assertTrue(source.contains("private void finishTransientPlayback()"));
+        assertTrue(source.contains("setResult(RESULT_OK)"));
+        assertTrue(source.contains("super.onActivityResult(requestCode, resultCode, data)"));
+        assertTrue(source.contains("case Player.STATE_ENDED:"));
+        assertTrue(source.contains("checkEnded(true)"));
+        assertTrue(source.contains("mBinding.control.action.next.setVisibility(View.GONE)"));
+        assertTrue(source.contains("mBinding.control.action.prev.setVisibility(View.GONE)"));
+        assertTrue(source.contains("mBinding.control.action.episodes.setVisibility(View.GONE)"));
+        if (mobile) {
+            assertTrue(source.contains("SiteApi.playerContentIsolated(key, flag, episode)"));
+            assertTrue(source.contains("SiteApi.playerContentIsolated(key, flag, episode, nextType)"));
+            assertTrue(source.contains("mBinding.control.next.setVisibility(View.GONE)"));
+            assertTrue(source.contains("mBinding.control.prev.setVisibility(View.GONE)"));
         }
     }
 
