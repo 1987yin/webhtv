@@ -2320,13 +2320,15 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
-    public void leanbackInlinePlayerConfirmEntersFullscreenThenShowsControls() throws Exception {
+    public void inlinePlayerConfirmSeparatesPanelClickAndHiddenKeyBehavior() throws Exception {
         Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
 
         int confirm = activity.indexOf("private void onInlinePanelConfirm()");
         int helper = activity.indexOf("private void enterInlineFullscreenOrShowControlsOnConfirm()", confirm);
         int nextMethod = activity.indexOf("private void toggleInlinePlayback()", helper);
+        int toggle = activity.indexOf("private void toggleInlinePlayback()");
+        int toggleEnd = activity.indexOf("private void toggleInlineControls()", toggle);
         int handle = activity.indexOf("private boolean handleInlineKey(KeyEvent event)");
         int handleEnd = activity.indexOf("private boolean handleInlineFullscreenHiddenKey(KeyEvent event)", handle);
         int hiddenPredicate = activity.indexOf("private boolean isInlineFullscreenHiddenPlaybackKey(KeyEvent event)", handleEnd);
@@ -2334,6 +2336,7 @@ public class TmdbDetailActivityLayoutTest {
 
         assertTrue(activityPath + " is missing onInlinePanelConfirm", confirm >= 0);
         assertTrue(activityPath + " is missing enterInlineFullscreenOrShowControlsOnConfirm", helper > confirm && nextMethod > helper);
+        assertTrue(activityPath + " is missing toggleInlinePlayback", toggle >= 0 && toggleEnd > toggle);
         assertTrue(activityPath + " is missing handleInlineKey", handle >= 0 && handleEnd > handle);
         assertTrue(activityPath + " is missing fullscreen hidden-key predicate", hiddenPredicate > handleEnd && hiddenPredicateEnd > hiddenPredicate);
 
@@ -2343,8 +2346,7 @@ public class TmdbDetailActivityLayoutTest {
         String hiddenPredicateBody = activity.substring(hiddenPredicate, hiddenPredicateEnd);
         int enter = handleBody.indexOf("if (KeyUtil.isEnterKey(event))");
         int playbackGuard = handleBody.indexOf("if (!inlineStarted || service() == null || player() == null || player().isEmpty())");
-        int enterEnd = playbackGuard > enter ? playbackGuard : handleBody.indexOf("if (event.isLongPress()", enter);
-        String enterBody = enter >= 0 && enterEnd > enter ? handleBody.substring(enter, enterEnd) : "";
+        String enterBody = javaBlockAt(handleBody, "if (KeyUtil.isEnterKey(event))");
 
         assertFalse("TV confirm must not restart playback while the player is loading or stopped", confirmBody.contains("onPlay();"));
         assertFalse("TV confirm behavior must not depend on the stale inlineStarted flag", confirmBody.contains("inlineStarted"));
@@ -2353,14 +2355,28 @@ public class TmdbDetailActivityLayoutTest {
         assertTrue("fullscreen DPAD center must be handled before playback-only key guards", enter >= 0 && playbackGuard > enter);
         assertFalse("hidden fullscreen key routing must not require a started player or attached service",
                 hiddenPredicateBody.contains("!inlineStarted") || hiddenPredicateBody.contains("service() == null"));
-        assertTrue("embedded TV confirm should enter fullscreen before exposing controls",
+        assertTrue("embedded TV player panel click should enter fullscreen before exposing controls",
                 confirmBody.contains("enterInlineFullscreenOrShowControlsOnConfirm();"));
-        assertTrue("fullscreen TV confirm should expose the controls overlay without changing playback",
+        assertTrue("fullscreen player panel click fallback should expose controls without changing playback",
                 confirmBody.contains("showInlineControls(true);")
                         && !confirmBody.contains("toggleInlinePlayback();"));
-        assertTrue("fullscreen DPAD center must expose controls before the view-level key listener runs",
-                enterBody.contains("showInlineControls(true);")
-                        && !enterBody.contains("toggleInlinePlayback();"));
+        String toggleCall = "toggleInlinePlayback();";
+        String mobileFallback = "showInlineControls(true);";
+        String normalizedEnter = enterBody.replaceAll("\\s+", " ").trim();
+        String expectedEnter = "if (KeyUtil.isEnterKey(event)) { if (KeyUtil.isActionUp(event)) { "
+                + "if (Util.isLeanback()) " + toggleCall + " else " + mobileFallback
+                + " } return true; }";
+        assertTrue("fullscreen confirm must only perform the platform-specific action on ACTION_UP",
+                normalizedEnter.equals(expectedEnter));
+        assertTrue("fullscreen confirm must toggle playback exactly once in the complete enter branch",
+                enterBody.indexOf(toggleCall) >= 0
+                        && enterBody.indexOf(toggleCall) == enterBody.lastIndexOf(toggleCall));
+        assertTrue("mobile fullscreen confirm must expose controls exactly once in the complete enter branch",
+                enterBody.indexOf(mobileFallback) >= 0
+                        && enterBody.indexOf(mobileFallback) == enterBody.lastIndexOf(mobileFallback));
+        assertTrue("TV fullscreen playback toggles must keep controls hidden like the native leanback player",
+                activity.substring(toggle, toggleEnd)
+                        .contains("if (Util.isLeanback() && inlineFullscreen) hideInlineControls();"));
         assertTrue("TV inline controls must expose an explicit play/retry action before playback starts",
                 activity.contains("private void toggleInlinePlayback()")
                         && activity.contains("binding.playerPlaybackAction")
@@ -2950,6 +2966,19 @@ public class TmdbDetailActivityLayoutTest {
         int tagEnd = layout.indexOf("/>", idIndex);
         if (tagEnd < 0) tagEnd = layout.indexOf(">", idIndex);
         return tagEnd > idIndex && layout.substring(idIndex, tagEnd).contains(attribute);
+    }
+
+    private static String javaBlockAt(String source, String marker) {
+        int markerIndex = source.indexOf(marker);
+        int openBrace = markerIndex < 0 ? -1 : source.indexOf('{', markerIndex + marker.length());
+        if (openBrace < 0) return "";
+        int depth = 0;
+        for (int i = openBrace; i < source.length(); i++) {
+            char current = source.charAt(i);
+            if (current == '{') depth++;
+            else if (current == '}' && --depth == 0) return source.substring(markerIndex, i + 1);
+        }
+        return "";
     }
 
     /**
