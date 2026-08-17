@@ -1808,6 +1808,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     private boolean setCachedTmdbDetail() {
         Vod cached = VodDetailCache.take(getTmdbVodCacheKey());
         if (cached == null) return false;
+        VodEventGuard.alignCachedIdentity(cached, getKey(), getId());
         detailStartTime = System.currentTimeMillis();
         detailHealthRecorded = true;
         mBinding.progressLayout.showProgress();
@@ -2343,12 +2344,13 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.next.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
         mBinding.control.prev.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
         mBinding.reverse.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
+        updateEpisodeReverseButton();
         if (shouldUseUpstreamNativeEpisodeModule()) {
             setUpstreamNativeEpisodeItems(items);
             return;
         }
         mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
-        boolean showViewMode = useTmdbCard && size > 1;
+        boolean showViewMode = size > 1;
         if (showViewMode) mEpisodeGridMode = Setting.getTmdbEpisodeGridMode();
         if (!showViewMode) mEpisodeGridMode = true;
         updateEpisodeViewModeButton();
@@ -2375,11 +2377,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void setUpstreamNativeEpisodeItems(List<Episode> items) {
         int size = items.size();
-        mEpisodeGridMode = true;
+        mEpisodeGridMode = Setting.getTmdbEpisodeGridMode();
         mEpisodeAdapter.setUseTmdbCard(false);
-        mEpisodeAdapter.setViewType(ViewType.GRID);
-        if (mBinding.episodeViewMode != null) mBinding.episodeViewMode.setVisibility(View.GONE);
-        if (mBinding.episodeFileName != null) mBinding.episodeFileName.setVisibility(View.GONE);
+        updateEpisodeViewModeButton();
+        updateEpisodeFileNameButton();
+        if (mBinding.episodeViewMode != null) mBinding.episodeViewMode.setVisibility(size > 1 ? View.VISIBLE : View.GONE);
+        if (mBinding.episodeFileName != null) mBinding.episodeFileName.setVisibility(size > 1 ? View.VISIBLE : View.GONE);
         mBinding.episode.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
         mBinding.more.setVisibility(View.GONE);
         List<EpisodeGroupAdapter.Group> groups = EpisodeGroupAdapter.build(size, getSelectedEpisodePosition(items), mHistory != null && mHistory.isRevSort());
@@ -2451,10 +2454,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void setEpisodeItems(List<Episode> items, boolean useTmdbCard) {
         List<Episode> displayItems = getEpisodeDisplayItems(items);
-        if (!useTmdbCard) mEpisodeGridMode = true;
+        if (items.size() < 2) mEpisodeGridMode = true;
         updateEpisodeFallbackStillUrl();
         mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
-        mEpisodeAdapter.setViewType(useTmdbCard && !mEpisodeGridMode ? ViewType.HORI : ViewType.GRID);
+        mEpisodeAdapter.setViewType(!mEpisodeGridMode ? ViewType.HORI : ViewType.GRID);
         mEpisodeAdapter.addAll(displayItems);
         updateEpisodeLayout(displayItems, useTmdbCard);
         if (shouldUseEpisodeRangePaging(items)) scrollToPosition(mBinding.episodeGroup, mEpisodeGroupAdapter.getPosition());
@@ -2468,7 +2471,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void updateEpisodeLayout(List<Episode> items, boolean useTmdbCard) {
-        if (useTmdbCard && !mEpisodeGridMode) {
+        if (!mEpisodeGridMode) {
             RecyclerView.LayoutManager manager = mBinding.episode.getLayoutManager();
             if (!(manager instanceof LinearLayoutManager) || manager instanceof GridLayoutManager || ((LinearLayoutManager) manager).getOrientation() != LinearLayoutManager.HORIZONTAL) {
                 mBinding.episode.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
@@ -2694,6 +2697,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         scrollToPosition(mBinding.episode, mEpisodeAdapter.getPosition());
     }
 
+    private void updateEpisodeReverseButton() {
+        if (mHistory == null) return;
+        mBinding.reverse.setImageResource(R.drawable.ic_action_reverse);
+        mBinding.reverse.setContentDescription(getString(mHistory.isRevSort() ? R.string.detail_episode_forward : R.string.detail_episode_reverse));
+    }
+
     private void updateEpisodeViewModeButton() {
         if (mBinding.episodeViewMode == null) return;
         boolean switchToList = mEpisodeGridMode;
@@ -2717,7 +2726,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             boolean useTmdbCard = mEpisodeAdapter.isUsingTmdbCard();
             ArrayList<Episode> items = new ArrayList<>(getCurrentEpisodeItems());
             android.util.Log.d("VideoActivity", "First episode tmdbEpisode=" + (items.isEmpty() ? "empty" : (items.get(0).getTmdbEpisode() != null ? "not null" : "null")));
-            int viewType = useTmdbCard && !mEpisodeGridMode ? ViewType.HORI : ViewType.GRID;
+            int viewType = !mEpisodeGridMode ? ViewType.HORI : ViewType.GRID;
             mEpisodeAdapter = new EpisodeAdapter(this, viewType, items);
             mEpisodeAdapter.setOnTitleReadyListener(this::onEpisodeTitlesReady);
             mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
@@ -5114,6 +5123,16 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mTmdbHeaderView.refreshPersonalRecommendationRows();
     }
 
+    private void mergeTmdbEpisodeMetadata(Vod item) {
+        if (item == null || item.getFlags() == null || mFlagAdapter == null || mFlagAdapter.isEmpty()) return;
+        Flag current = getFlag();
+        if (current == null) return;
+        for (Flag source : item.getFlags()) {
+            if (source == null || !current.equals(source) || source.getEpisodes() == null) continue;
+            current.mergeEpisodes(source.getEpisodes(), mHistory != null && mHistory.isRevSort());
+            return;
+        }
+    }
     private void refreshTmdbEpisodeTitles() {
         if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
         mSourceEpisodeSeasonCache.clear();
@@ -5125,7 +5144,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         List<Episode> items = flag.getEpisodes();
         int size = items.size();
         boolean useTmdbCard = shouldUseTmdbEpisodeCards(items);
-        boolean showViewMode = useTmdbCard && size > 1;
+        boolean showViewMode = size > 1;
         if (showViewMode) mEpisodeGridMode = Setting.getTmdbEpisodeGridMode();
         if (!showViewMode) mEpisodeGridMode = true;
         mBinding.control.action.episodes.setVisibility(size < 2 ? View.GONE : View.VISIBLE);
@@ -5146,7 +5165,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         List<Episode> displayItems = getEpisodeDisplayItems(items);
         updateEpisodeFallbackStillUrl();
         mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
-        mEpisodeAdapter.setViewType(useTmdbCard && !mEpisodeGridMode ? ViewType.HORI : ViewType.GRID);
+        mEpisodeAdapter.setViewType(!mEpisodeGridMode ? ViewType.HORI : ViewType.GRID);
         mEpisodeAdapter.refreshMetadata(displayItems);
         updateEpisodeLayout(displayItems, useTmdbCard);
         if (shouldUseEpisodeRangePaging(items)) scrollToPosition(mBinding.episodeGroup, mEpisodeGroupAdapter.getPosition());
@@ -6593,6 +6612,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         }
         else if (event.getType() == RefreshEvent.Type.VOD_EPISODE_TITLES) {
             if (!isCurrentVodEvent(event.getVod())) return;
+            mergeTmdbEpisodeMetadata(event.getVod());
             refreshTmdbEpisodeTitles();
         }
         else if (event.getType() == RefreshEvent.Type.VOD_RELATED_VIDEOS) {

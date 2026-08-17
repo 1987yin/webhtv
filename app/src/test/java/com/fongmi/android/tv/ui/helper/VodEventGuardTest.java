@@ -43,6 +43,28 @@ public class VodEventGuardTest {
         assertFalse(VodEventGuard.matches(vod("site-a", "123"), "site-a", "124"));
     }
 
+
+    @Test
+    public void alignsIdentityLessCachedVodToCurrentPlayback() {
+        String currentId = "https://pan.quark.cn/s/a082fb2c7d82|一拳超人";
+        Vod cached = vod("", "/1$4383$1");
+
+        assertFalse(VodEventGuard.matches(cached, "push_agent", currentId));
+        assertEquals(cached, VodEventGuard.alignCachedIdentity(cached, "push_agent", currentId));
+        assertEquals(currentId, cached.getId());
+        assertTrue(VodEventGuard.matches(cached, "push_agent", currentId));
+    }
+
+    @Test
+    public void doesNotAlignIdentifiedStaleVod() {
+        Vod stale = vod("site-a", "123");
+
+        VodEventGuard.alignCachedIdentity(stale, "site-b", "456");
+
+        assertEquals("123", stale.getId());
+        assertFalse(VodEventGuard.matches(stale, "site-b", "456"));
+    }
+
     @Test
     public void allowsMissingSourceIdentityFields() {
         assertTrue(VodEventGuard.matches(vod("", ""), "site-a", "123"));

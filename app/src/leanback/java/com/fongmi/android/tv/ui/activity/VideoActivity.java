@@ -1603,6 +1603,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private boolean setCachedTmdbDetail() {
         Vod cached = VodDetailCache.take(getTmdbVodCacheKey());
+        VodEventGuard.alignCachedIdentity(cached, getKey(), getId());
         if (cached == null) return false;
         detailStartTime = System.currentTimeMillis();
         detailHealthRecorded = true;
@@ -4819,6 +4820,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         }
         else if (event.getType() == RefreshEvent.Type.VOD_EPISODE_TITLES) {
             if (!isCurrentVodEvent(event.getVod())) return;
+            mergeTmdbEpisodeMetadata(event.getVod());
             refreshTmdbEpisodeTitles();
         }
         else if (event.getType() == RefreshEvent.Type.VOD_RELATED_VIDEOS) {
@@ -5186,6 +5188,16 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     // 决定，首次进入时集数先以纯文本渲染，TMDB 数据是此刻才补齐的——只 notify 不会重算卡片模式，
     // 会卡在文本态。这里重算卡片模式与 chrome 可见性即可，不走完整 setEpisodeAdapter：那会把
     // 列表拽回第一个分段（它只装载 items 的首段），用户停在 81-120 段时会被拉回 1-40。
+    private void mergeTmdbEpisodeMetadata(Vod item) {
+        if (item == null || item.getFlags() == null || mFlagAdapter == null || mFlagAdapter.isEmpty()) return;
+        Flag current = getFlag();
+        if (current == null) return;
+        for (Flag source : item.getFlags()) {
+            if (source == null || !current.equals(source) || source.getEpisodes() == null) continue;
+            current.mergeEpisodes(source.getEpisodes(), mHistory != null && mHistory.isRevSort());
+            return;
+        }
+    }
     private void refreshTmdbEpisodeTitles() {
         mSourceEpisodeSeasonCache.clear();
         updateEpisodeSeasonContext();

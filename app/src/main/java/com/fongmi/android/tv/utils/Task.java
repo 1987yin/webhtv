@@ -33,7 +33,11 @@ public class Task {
     private static final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     private static ThreadPoolExecutor createSearchPool() {
-        ThreadPoolExecutor pool = new ThreadPoolExecutor(20, 20, 60L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+        return createSearchPool(20);
+    }
+
+    private static ThreadPoolExecutor createSearchPool(int threads) {
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(threads, threads, 60L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
         pool.allowCoreThreadTimeOut(true);
         return pool;
     }
@@ -60,6 +64,10 @@ public class Task {
 
     public static ListeningExecutorService searchPoolExecutor() {
         return searchExecutor;
+    }
+
+    public static ListeningExecutorService newSearchExecutor(int threads) {
+        return MoreExecutors.listeningDecorator(createSearchPool(Math.max(1, threads)));
     }
 
     public static void applySearchThread(int threads) {

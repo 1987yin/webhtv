@@ -229,6 +229,20 @@ public class TmdbUIAdapterTest {
                 call > load && loadCached > call && take > helper && service > sync);
     }
 
+
+    @Test
+    public void tmdbRefreshEventsAlignIdentityLessCachedVodToCurrentPlayback() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "helper", "TmdbUIAdapter.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int helper = source.indexOf("private Vod alignCachedVodIdentity(Vod vod)");
+        int identity = source.indexOf("VodEventGuard.alignCachedIdentity", helper);
+        int notify = source.indexOf("private void notifyVodChanged", identity);
+        int assign = source.indexOf("pendingVodRefreshVod = alignCachedVodIdentity(vod);", notify);
+
+        assertTrue(sourcePath + " must normalize cache-only Vod identity before TMDB refresh dispatch", helper >= 0 && identity > helper);
+        assertTrue("TMDB refresh dispatch must use the normalized Vod", notify > identity && assign > notify);
+    }
+
     @Test
     public void tmdbVodRefreshesAreCoalescedAndStartupWorkIsDeferred() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "helper", "TmdbUIAdapter.java"));
@@ -788,6 +802,13 @@ public class TmdbUIAdapterTest {
                         && header.contains("public void refreshEpisodeMetadata()"));
     }
 
+
+    @Test
+    public void videoActivitiesMergeEpisodeMetadataBeforeRebindingCards() throws Exception {
+        assertEpisodeMetadataEventMerge("mobile");
+        assertEpisodeMetadataEventMerge("leanback");
+    }
+
     @Test
     public void tmdbAdapterTracksAndCancelsAttachedPrefetchAndLogsReuseState() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "helper", "TmdbUIAdapter.java"));
@@ -938,12 +959,26 @@ public class TmdbUIAdapterTest {
         return Path.of("app", "src", flavor, "java");
     }
 
+    private static void assertEpisodeMetadataEventMerge(String flavor) throws Exception {
+        Path sourcePath = findFlavorJavaPath(flavor).resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
+        int observer = source.indexOf("public void onRefreshEvent(RefreshEvent event)");
+        int branch = source.indexOf("event.getType() == RefreshEvent.Type.VOD_EPISODE_TITLES", observer);
+        int merge = source.indexOf("mergeTmdbEpisodeMetadata(event.getVod());", branch);
+        int refresh = source.indexOf("refreshTmdbEpisodeTitles();", branch);
+        int helper = source.indexOf("private void mergeTmdbEpisodeMetadata(Vod item)");
+        int mergeEpisodes = source.indexOf("current.mergeEpisodes(source.getEpisodes()", helper);
+
+        assertTrue(sourcePath + " must merge completed TMDB episode objects before rebinding cards",
+                observer >= 0 && branch > observer && merge > branch && refresh > merge && helper >= 0 && mergeEpisodes > helper);
+    }
     private static void assertVideoActivityDefersCachedDetail(String flavor) throws Exception {
         Path sourcePath = findFlavorJavaPath(flavor).resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int method = source.indexOf("private boolean setCachedTmdbDetail()");
         int take = source.indexOf("VodDetailCache.take(getTmdbVodCacheKey())", method);
-        int loading = source.indexOf("mBinding.progressLayout.showProgress();", take);
+        int align = source.indexOf("VodEventGuard.alignCachedIdentity(cached, getKey(), getId());", take);
+        int loading = source.indexOf("mBinding.progressLayout.showProgress();", align);
         int queued = source.indexOf("detail cache hit queued", loading);
         int post = source.indexOf("mBinding.getRoot().postDelayed(() ->", queued);
         int apply = source.indexOf("setDetail(Result.vod(cached));", post);
@@ -952,7 +987,7 @@ public class TmdbUIAdapterTest {
 
         assertTrue(sourcePath + " is missing cached TMDB source detail path", method >= 0);
         assertTrue("cached source detail should show playback page loading before applying detail on the next frame",
-                take > method && loading > take && queued > loading && post > queued && apply > post && delay > apply);
+                take > method && align > take && loading > align && queued > loading && post > queued && apply > post && delay > apply);
     }
 
     private static final class FakeVod extends Vod {

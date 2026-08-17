@@ -958,9 +958,18 @@ public class TmdbUIAdapter {
         }
     }
 
+    private Vod alignCachedVodIdentity(Vod vod) {
+        if (activity == null || activity.getIntent() == null) return vod;
+        return VodEventGuard.alignCachedIdentity(
+                vod,
+                activity.getIntent().getStringExtra("key"),
+                activity.getIntent().getStringExtra("id"));
+    }
+
+
     private void notifyVodChanged(Vod vod, int generation, RefreshEvent.Type type) {
         if (vod == null || !isCurrentGeneration(generation)) return;
-        pendingVodRefreshVod = vod;
+        pendingVodRefreshVod = alignCachedVodIdentity(vod);
         pendingVodRefreshGeneration = generation;
         // 累积待发送类型：240ms 合并窗口内若多种异步数据先后到达（如推荐与个性化），
         // 逐一派发各自的细粒度事件，避免后到者覆盖先到者的类型而丢刷新。
