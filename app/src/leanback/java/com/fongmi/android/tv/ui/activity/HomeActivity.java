@@ -118,7 +118,6 @@ import javax.net.ssl.HttpsURLConnection;
 
 import android.app.AlertDialog;
 
-public class HomeActivity extends BaseActivity implements ExitConfirmDialog.Listener, CustomTitleView.Listener, VodPresenter.OnClickListener, FuncPresenter.OnClickListener, HistoryPresenter.OnClickListener, TypeAdapter.OnClickListener, HomeWebController.Listener, ConfigListener, FolderFragment.FilterHost, FolderFragment.ScrollHeaderHost {
 
 public class HomeActivity extends BaseActivity implements ExitConfirmDialog.Listener, CustomTitleView.Listener, VodPresenter.OnClickListener, FuncPresenter.OnClickListener, HistoryPresenter.OnClickListener, TypeAdapter.OnClickListener, HomeWebController.Listener, ConfigListener, FolderFragment.FilterHost, FolderFragment.ScrollHeaderHost, FolderFragment.CategoryEdgeHost {
 
