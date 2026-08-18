@@ -60,23 +60,21 @@ public class TmdbVideoPopupWiringTest {
     }
 
     @Test
-    public void relatedVideoUsesIsolatedPopupAndRestoresHostPlayback() throws Exception {
+    public void relatedVideoUsesStandardFullscreenPlaybackAndRestoresHostPlayback() throws Exception {
         String helper = read("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "helper", "TmdbVideoPlayback.java");
-        String dialog = read("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "dialog", "TmdbVideoPlayerDialog.java");
         String playback = read("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java");
         String siteApi = read("src", "main", "java", "com", "fongmi", "android", "tv", "api", "SiteApi.java");
 
-        assertTrue(helper.contains("TmdbVideoPlayerDialog.show((FragmentActivity) activity, launch)"));
-        assertFalse(helper.contains("VideoActivity.startDirect"));
-        assertTrue(dialog.contains("pauseForTransientPlayback()"));
-        assertTrue(dialog.contains("resumeAfterTransientPlayback"));
-        assertTrue(dialog.contains("SiteApi.playerContentIsolated(SiteApi.PUSH"));
-        assertFalse(dialog.contains("SiteApi.playerContent(SiteApi.PUSH"));
+        assertTrue(helper.contains("if (!(activity instanceof PlaybackActivity)) return false;"));
+        assertTrue(helper.contains("VideoActivity.createTransientIntent(activity, launch)"));
+        assertTrue(helper.contains("playback.launchTransientPlayback("));
+        assertFalse(helper.contains("TmdbVideoPlayerDialog"));
+        assertFalse(helper.contains("FragmentActivity"));
+        assertFalse(exists("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "dialog", "TmdbVideoPlayerDialog.java"));
+        assertFalse(exists("src", "main", "res", "layout", "dialog_tmdb_video_player.xml"));
         assertTrue(siteApi.contains("public static Result playerContentIsolated"));
         assertTrue(siteApi.contains("return playerContent(key, flag, id, playerType, new Source(), false);"));
-        assertTrue(dialog.contains("new ExoPlayer.Builder"));
-        assertTrue(playback.contains("public final boolean pauseForTransientPlayback()"));
-        assertTrue(playback.contains("public final void resumeAfterTransientPlayback(boolean shouldResume)"));
+        assertTrue(playback.contains("public final boolean launchTransientPlayback(Intent intent)"));
     }
 
     @Test
@@ -215,5 +213,10 @@ public class TmdbVideoPopupWiringTest {
     private static String read(String... parts) throws Exception {
         Path root = Files.exists(Path.of("src", "main")) ? Path.of("") : Path.of("app");
         return Files.readString(root.resolve(Path.of("", parts)), StandardCharsets.UTF_8);
+    }
+
+    private static boolean exists(String... parts) {
+        Path root = Files.exists(Path.of("src", "main")) ? Path.of("") : Path.of("app");
+        return Files.exists(root.resolve(Path.of("", parts)));
     }
 }

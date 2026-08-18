@@ -5,11 +5,12 @@ import android.app.Activity;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.bean.TmdbVideo;
+import com.fongmi.android.tv.ui.activity.PlaybackActivity;
 import com.fongmi.android.tv.ui.activity.VideoActivity;
 import com.fongmi.android.tv.utils.PushParser;
 import com.fongmi.android.tv.utils.ResUtil;
 
-/** Converts a validated TMDB video into the existing in-app push playback request. */
+/** Converts a validated TMDB video into an isolated transient playback request. */
 public final class TmdbVideoPlayback {
 
     private TmdbVideoPlayback() {
@@ -36,21 +37,11 @@ public final class TmdbVideoPlayback {
     }
 
     public static boolean play(Activity activity, TmdbVideo video) {
-        if (activity == null) return false;
+        if (!(activity instanceof PlaybackActivity)) return false;
         Launch launch = create(video, ResUtil.getString(R.string.push));
         if (launch == null) return false;
-        VideoActivity.startDirect(
-                activity,
-                launch.getKey(),
-                launch.getId(),
-                launch.getName(),
-                launch.getPic(),
-                launch.getMark(),
-                launch.getPlayFlag(),
-                launch.getPlayEpisodeName(),
-                launch.getPlayEpisodeUrl(),
-                launch.isResumeFromHistory());
-        return true;
+        PlaybackActivity playback = (PlaybackActivity) activity;
+        return playback.launchTransientPlayback(VideoActivity.createTransientIntent(activity, launch));
     }
 
     public static final class Launch {

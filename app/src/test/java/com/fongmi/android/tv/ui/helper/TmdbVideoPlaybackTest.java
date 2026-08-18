@@ -6,9 +6,14 @@ import com.google.gson.JsonObject;
 
 import org.junit.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 public class TmdbVideoPlaybackTest {
 
@@ -28,7 +33,7 @@ public class TmdbVideoPlaybackTest {
         assertEquals("https://www.youtube.com/watch?v=abc_DEF-1|Official Trailer", launch.getId());
         assertEquals("Official Trailer", launch.getName());
         assertEquals("https://i.ytimg.com/vi/abc_DEF-1/hqdefault.jpg", launch.getPic());
-        assertEquals("Trailer · 当前集", launch.getMark());
+        assertEquals("预告片 · 当前集", launch.getMark());
         assertEquals("推送", launch.getPlayFlag());
         assertEquals("Official Trailer", launch.getPlayEpisodeName());
         assertEquals("https://www.youtube.com/watch?v=abc_DEF-1", launch.getPlayEpisodeUrl());
@@ -38,5 +43,17 @@ public class TmdbVideoPlaybackTest {
     @Test
     public void createLaunchRejectsMissingVideo() {
         assertNull(TmdbVideoPlayback.create(null, "推送"));
+    }
+
+    @Test
+    public void playRoutesThroughPlaybackActivityTransientLaunch() throws Exception {
+        Path root = Files.exists(Path.of("src", "main")) ? Path.of("") : Path.of("app");
+        String source = Files.readString(root.resolve(Path.of("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "helper", "TmdbVideoPlayback.java")), StandardCharsets.UTF_8);
+
+        assertTrue(source.contains("if (!(activity instanceof PlaybackActivity)) return false;"));
+        assertTrue(source.contains("VideoActivity.createTransientIntent(activity, launch)"));
+        assertTrue(source.contains("playback.launchTransientPlayback("));
+        assertFalse(source.contains("TmdbVideoPlayerDialog"));
+        assertFalse(source.contains("FragmentActivity"));
     }
 }
