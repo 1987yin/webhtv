@@ -65,10 +65,13 @@ public class TransientPlaybackCoordinatorTest {
         TransientPlaybackSnapshot snapshot = snapshot("key", "https://video/item.m3u8", 4_000L, true);
 
         coordinator.beginLaunch(snapshot);
+        assertTrue(coordinator.isTransientPlaybackActive());
         coordinator.queueRestoreAfterResult();
         assertTrue(coordinator.hasQueuedRestore());
+        assertTrue(coordinator.isTransientPlaybackActive());
         assertSame(snapshot, coordinator.beginRestore());
         assertFalse(coordinator.hasQueuedRestore());
+        assertTrue(coordinator.isTransientPlaybackActive());
 
         coordinator.requeueInFlightRestore();
         assertTrue(coordinator.hasQueuedRestore());

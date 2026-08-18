@@ -41,7 +41,7 @@ public class TmdbVideoPopupWiringTest {
         assertTrue(playback.contains("if (transientPlayback.hasQueuedRestore()) restoreTransientPlayback();"));
         assertOrderAfter(playback, "protected void onDestroy()", "transientPlayback.clear();", "super.onDestroy();");
         assertTrue(playback.contains("resumeAfterTransientPlayback(snapshot != null && snapshot.shouldResume())"));
-        assertTrue(playback.contains("return mService != null && !isOwner() && !transientPlayback.isLaunchActive();"));
+        assertTrue(playback.contains("return mService != null && !isOwner() && !transientPlayback.isTransientPlaybackActive();"));
     }
 
     @Test

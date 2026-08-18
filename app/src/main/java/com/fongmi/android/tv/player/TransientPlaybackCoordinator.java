@@ -71,6 +71,10 @@ public final class TransientPlaybackCoordinator {
         return launchActive;
     }
 
+    public boolean isTransientPlaybackActive() {
+        return launchActive || queuedRestore != null || inFlightRestore != null;
+    }
+
     public boolean hasQueuedRestore() {
         return queuedRestore != null;
     }
