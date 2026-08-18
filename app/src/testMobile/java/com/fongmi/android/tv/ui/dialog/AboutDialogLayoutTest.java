@@ -83,7 +83,8 @@ public class AboutDialogLayoutTest {
         String setting = read(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "setting", "Setting.java")));
         String proxy = read(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "utils", "GithubProxy.java")));
 
-        assertTrue(layout.contains("<com.google.android.material.switchmaterial.SwitchMaterial"));
+        assertTrue(layout.contains("<androidx.appcompat.widget.SwitchCompat"));
+        assertFalse(layout.contains("<com.google.android.material.switchmaterial.SwitchMaterial"));
         assertTrue(layout.contains("android:id=\"@+id/enabled\""));
         assertTrue(dialog.contains("binding.enabled.setChecked(Setting.isGithubProxyEnabled());"));
         assertTrue(dialog.contains("Setting.putGithubProxyEnabled(isChecked)"));
