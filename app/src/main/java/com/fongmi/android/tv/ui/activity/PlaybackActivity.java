@@ -5,9 +5,11 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Log;
+import android.view.Display;
 import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
@@ -548,10 +550,18 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
                 + " content=" + viewSize(content)
                 + " surface=" + surfaceName(surface) + ":" + viewSize(surface)
                 + " holder=" + surfaceHolderSize(surface)
-                + " rotation=" + (getDisplay() == null ? -1 : getDisplay().getRotation())
+                + " rotation=" + displayRotation()
                 + " orientation=" + getResources().getConfiguration().orientation;
         Log.d(SIZE_TAG, message);
         if (SpiderDebug.isEnabled()) SpiderDebug.log("surface-size", "%s", message);
+    }
+
+
+    @SuppressWarnings("deprecation")
+    private int displayRotation() {
+        Display display = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                ? getDisplay() : getWindowManager().getDefaultDisplay();
+        return display == null ? -1 : display.getRotation();
     }
 
     private static String viewSize(View view) {
