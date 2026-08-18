@@ -70,6 +70,10 @@ public final class SignedRulePackageStore {
                 directory.toAbsolutePath().normalize(), ignored -> new Object());
     }
 
+    String packageId() {
+        return packageId;
+    }
+
     public InstallResult install(byte[] signedPackage)
             throws SignedRulePackageException {
         synchronized (operationLock) {
