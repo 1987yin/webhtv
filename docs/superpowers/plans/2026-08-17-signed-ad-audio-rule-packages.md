@@ -379,6 +379,6 @@ rtk git add docs
 rtk git commit -m "docs: record signed audio package infrastructure"
 ```
 
-- [ ] **Step 7: Request correctness and security review**
+- [x] **Step 7: Request correctness and security review**
 
 Review the complete diff against the signed-package design, with findings prioritized around canonicalization, signature coverage, downgrade/recovery semantics, crash consistency, resource bounds, and accidental private-key inclusion. Fix every Critical/Important finding with a new failing test before final merge.
