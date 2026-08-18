@@ -61,6 +61,7 @@ import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Sub;
 import com.fongmi.android.tv.bean.TmdbItem;
 import com.fongmi.android.tv.bean.TmdbEpisode;
+import com.fongmi.android.tv.bean.TmdbVideo;
 import com.fongmi.android.tv.bean.Track;
 import com.fongmi.android.tv.bean.UserAdRule;
 import com.fongmi.android.tv.bean.Vod;
@@ -127,6 +128,7 @@ import com.fongmi.android.tv.ui.helper.SourceEpisodeSeasonCache;
 import com.fongmi.android.tv.ui.helper.PlayerControlFocusHelper;
 import com.fongmi.android.tv.ui.helper.TmdbEpisodeGridPolicy;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
+import com.fongmi.android.tv.ui.helper.TmdbVideoPlayback;
 import com.fongmi.android.tv.ui.helper.VodEventGuard;
 import com.fongmi.android.tv.ui.player.VodPlayerChrome;
 import com.fongmi.android.tv.ui.player.VodPlayerUiController;
@@ -1440,6 +1442,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.tmdbCrew.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.tmdbRecommendations.setHorizontalSpacing(ResUtil.dp2px(12));
         mBinding.tmdbRecommendations.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
+        mBinding.tmdbRelatedVideos.setHorizontalSpacing(ResUtil.dp2px(12));
+        mBinding.tmdbRelatedVideos.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.tmdbPersonalTmdbRecommendations.setHorizontalSpacing(ResUtil.dp2px(12));
         mBinding.tmdbPersonalTmdbRecommendations.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.tmdbPersonalDoubanRecommendations.setHorizontalSpacing(ResUtil.dp2px(12));
@@ -1596,6 +1600,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private boolean setCachedTmdbDetail() {
         Vod cached = VodDetailCache.take(getTmdbVodCacheKey());
+        VodEventGuard.alignCachedIdentity(cached, getKey(), getId());
         if (cached == null) return false;
         detailStartTime = System.currentTimeMillis();
         detailHealthRecorded = true;
@@ -2059,6 +2064,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         clearTmdbGrid(mBinding.tmdbPhotos, R.id.tmdbPhotosLabel);
         clearTmdbGrid(mBinding.tmdbCrew, R.id.tmdbCrewLabel);
         clearTmdbGrid(mBinding.tmdbRecommendations, R.id.tmdbRecommendationsLabel);
+        clearTmdbGrid(mBinding.tmdbRelatedVideos, R.id.tmdbRelatedVideosLabel);
         clearNativePersonalRecommendations();
         // 重置背景幻灯片去重签名：切换条目时 setupBackdropSlideshow 靠 signature 去重，
         // 不清则新条目剧照与旧 signature 判定“相同”而跳过更新，导致背景海报不换。
@@ -2540,6 +2546,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         setEpisodeAdapter(item.getEpisodes());
         setQualityVisible(false);
         seamless(item);
+        loadTmdbRelatedVideosForCurrentEpisode();
     }
 
     private void setEpisodeAdapter(List<Episode> items) {
@@ -2706,6 +2713,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         SpiderDebug.log("video-episode", "select old=%s new=%s focus=%s scroll=%s name=%s", oldPosition, newPosition, episodeFocused, scrollToEpisode, item.getName());
         if (scrollToEpisode && !episodeFocused) scrollToEpisode(newPosition);
         if (isFullscreen()) Notify.show(getString(R.string.play_ready, item.getName()));
+        loadTmdbRelatedVideosForCurrentEpisode();
         onRefresh();
     }
 
@@ -3044,6 +3052,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 R.id.tmdbPhotos,
                 R.id.tmdbCrew,
                 R.id.tmdbRecommendations,
+                R.id.tmdbRelatedVideos,
                 R.id.tmdbPersonalTmdbRecommendations,
                 R.id.tmdbPersonalDoubanRecommendations,
                 R.id.tmdbPersonalAiRecommendations,
@@ -4772,7 +4781,12 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         }
         else if (event.getType() == RefreshEvent.Type.VOD_EPISODE_TITLES) {
             if (!isCurrentVodEvent(event.getVod())) return;
+            mergeTmdbEpisodeMetadata(event.getVod());
             refreshTmdbEpisodeTitles();
+        }
+        else if (event.getType() == RefreshEvent.Type.VOD_RELATED_VIDEOS) {
+            if (!isCurrentVodEvent(event.getVod())) return;
+            refreshTmdbRelatedVideos();
         }
         else if (event.getType() == RefreshEvent.Type.SUBTITLE) player().setSub(Sub.from(event.getPath()));
         else if (event.getType() == RefreshEvent.Type.DANMAKU) player().reloadDanmaku(Danmaku.from(event.getPath()));
@@ -4862,6 +4876,25 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 }
             }
         });
+    }
+
+    private boolean bindTmdbVideoGrid(HorizontalGridView grid, View label, List<TmdbVideo> items) {
+        if (items == null || items.isEmpty()) {
+            grid.setAdapter(null);
+            grid.setVisibility(View.GONE);
+            label.setVisibility(View.GONE);
+            return false;
+        }
+        ArrayObjectAdapter adapter = new ArrayObjectAdapter(new com.fongmi.android.tv.ui.presenter.TmdbVideoPresenter(this::onTmdbRelatedVideoClick));
+        adapter.addAll(0, items);
+        grid.setAdapter(new ItemBridgeAdapter(adapter));
+        grid.setVisibility(View.VISIBLE);
+        label.setVisibility(View.VISIBLE);
+        return true;
+    }
+
+    private void onTmdbRelatedVideoClick(TmdbVideo item) {
+        TmdbVideoPlayback.play(this, item);
     }
 
     private boolean bindRecommendationGrid(HorizontalGridView grid, View label, List<TmdbItem> items) {
@@ -5088,6 +5121,24 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     // 细粒度刷新：个性化推荐（TMDB / 豆瓣）异步到达时只重绑这两个列表。
+    private void refreshTmdbRelatedVideos() {
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded() || mTmdbDetailLoading) return;
+        bindTmdbVideoGrid(mBinding.tmdbRelatedVideos, mBinding.tmdbRelatedVideosLabel, mTmdbUIAdapter.getRelatedVideos());
+        updateFocus();
+    }
+
+    private void loadTmdbRelatedVideosForCurrentEpisode() {
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
+        Episode episode = getEpisode();
+        TmdbEpisode tmdbEpisode = episode == null ? null : episode.getTmdbEpisode();
+        int seasonNumber = tmdbEpisode != null && tmdbEpisode.getSeasonNumber() >= 0
+                ? tmdbEpisode.getSeasonNumber() : currentSourceSeasonNumber();
+        int episodeNumber = tmdbEpisode == null ? (episode == null ? -1 : episode.getNumber()) : tmdbEpisode.getNumber();
+        if (episodeNumber <= 0) episodeNumber = -1;
+        mTmdbUIAdapter.loadRelatedVideosAsync(seasonNumber, episodeNumber);
+        refreshTmdbRelatedVideos();
+    }
+
     private void refreshTmdbPersonalRecommendations() {
         if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded() || mTmdbDetailLoading) return;
         bindRecommendationGrid(mBinding.tmdbPersonalTmdbRecommendations, mBinding.tmdbPersonalTmdbRecommendationsLabel, mTmdbUIAdapter.getPersonalTmdbRecommendations(), RecommendationRow.PERSONAL_TMDB);
@@ -5098,6 +5149,16 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     // 决定，首次进入时集数先以纯文本渲染，TMDB 数据是此刻才补齐的——只 notify 不会重算卡片模式，
     // 会卡在文本态。这里重算卡片模式与 chrome 可见性即可，不走完整 setEpisodeAdapter：那会把
     // 列表拽回第一个分段（它只装载 items 的首段），用户停在 81-120 段时会被拉回 1-40。
+    private void mergeTmdbEpisodeMetadata(Vod item) {
+        if (item == null || item.getFlags() == null || mFlagAdapter == null || mFlagAdapter.isEmpty()) return;
+        Flag current = getFlag();
+        if (current == null) return;
+        for (Flag source : item.getFlags()) {
+            if (source == null || !current.equals(source) || source.getEpisodes() == null) continue;
+            current.mergeEpisodes(source.getEpisodes(), mHistory != null && mHistory.isRevSort());
+            return;
+        }
+    }
     private void refreshTmdbEpisodeTitles() {
         mSourceEpisodeSeasonCache.clear();
         updateEpisodeSeasonContext();
@@ -5152,6 +5213,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private void bindTmdbData() {
         if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
+        loadTmdbRelatedVideosForCurrentEpisode();
 
         boolean hasTmdbContent = false;
         View lastVisibleGrid = null;
@@ -5236,6 +5298,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         }
 
         // 个性推荐 · TMDB
+        java.util.List<TmdbVideo> relatedVideos = mTmdbUIAdapter.getRelatedVideos();
+        if (bindTmdbVideoGrid(mBinding.tmdbRelatedVideos, mBinding.tmdbRelatedVideosLabel, relatedVideos)) {
+            if (lastVisibleGrid == null) setDetailButtonsNextFocus(R.id.tmdbRelatedVideos);
+            if (lastVisibleGrid != null) lastVisibleGrid.setNextFocusDownId(R.id.tmdbRelatedVideos);
+            lastVisibleGrid = mBinding.tmdbRelatedVideos;
+            if (!hasTmdbContent) hasTmdbContent = true;
+        }
+
         java.util.List<com.fongmi.android.tv.bean.TmdbItem> personalTmdbRecommendations = mTmdbUIAdapter.getPersonalTmdbRecommendations();
         if (bindRecommendationGrid(mBinding.tmdbPersonalTmdbRecommendations, mBinding.tmdbPersonalTmdbRecommendationsLabel, personalTmdbRecommendations, RecommendationRow.PERSONAL_TMDB)) {
             if (lastVisibleGrid == null) setDetailButtonsNextFocus(R.id.tmdbPersonalTmdbRecommendations);
