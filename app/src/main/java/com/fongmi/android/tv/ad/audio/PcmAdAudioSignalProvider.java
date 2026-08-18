@@ -87,14 +87,16 @@ public final class PcmAdAudioSignalProvider implements AdAudioSignalProvider {
 
     @Override
     public void onTimelineReset(TimelineReset reset) {
-        TimelineReset accepted;
+        ResetOutcome outcome;
         synchronized (this) {
             if (closed) return;
             Objects.requireNonNull(reset, "reset");
-            accepted = acceptTimelineResetLocked(reset.sessionId(), reset.generation(),
+            outcome = acceptTimelineResetLocked(reset.sessionId(), reset.generation(),
                     reset.reason(), reset.mediaAnchorMs(), consumer);
         }
-        notifyTimelineReset(accepted);
+        if (outcome == null) return;
+        notifyTimelineReset(outcome.reset());
+        notifyError(outcome.error());
     }
 
     @Override
@@ -198,12 +200,14 @@ public final class PcmAdAudioSignalProvider implements AdAudioSignalProvider {
 
             @Override
             public void onLifecycle(PlaybackMediaSignalHub.Lifecycle event) {
-                TimelineReset accepted;
+                ResetOutcome outcome;
                 synchronized (PcmAdAudioSignalProvider.this) {
-                    accepted = acceptTimelineResetLocked(event.sessionId(), event.generation(),
+                    outcome = acceptTimelineResetLocked(event.sessionId(), event.generation(),
                             mapReason(event.reason()), event.mediaAnchorMs(), source);
                 }
-                notifyTimelineReset(accepted);
+                if (outcome == null) return;
+                notifyTimelineReset(outcome.reset());
+                notifyError(outcome.error());
             }
 
             @Override
@@ -214,21 +218,23 @@ public final class PcmAdAudioSignalProvider implements AdAudioSignalProvider {
         };
     }
 
-    private TimelineReset acceptTimelineResetLocked(long sessionId, long generation,
-                                                    ResetReason reason, long mediaAnchorMs,
-                                                    AdAudioConsumer source) {
+    private ResetOutcome acceptTimelineResetLocked(long sessionId, long generation,
+                                                   ResetReason reason, long mediaAnchorMs,
+                                                   AdAudioConsumer source) {
         if (source == null || source != consumer || context == null) return null;
         if (sessionId == context.sessionId() && generation <= context.generation()) return null;
         context = new SessionContext(sessionId, generation,
                 context.mediaId(), context.mediaUrl(), context.headers());
         source.onLifecycle(new PlaybackMediaSignalHub.Lifecycle(
                 sessionId, generation, mapReason(reason), mediaAnchorMs));
-        observedMatcherErrors = source.matcherErrorCount();
+        ProviderError matcherError = observeMatcherErrorsLocked(source);
         if (reason == ResetReason.RELEASE) {
             deactivateLocked();
             state = enabled ? ProviderState.IDLE : ProviderState.DISABLED;
         }
-        return new TimelineReset(sessionId, generation, reason, mediaAnchorMs);
+        return new ResetOutcome(
+                new TimelineReset(sessionId, generation, reason, mediaAnchorMs),
+                matcherError);
     }
 
     private void onConsumerCandidate(AdAudioConsumer.Candidate candidate) {
@@ -362,5 +368,8 @@ public final class PcmAdAudioSignalProvider implements AdAudioSignalProvider {
 
     private static PlaybackMediaSignalHub.ResetReason mapReason(ResetReason reason) {
         return PlaybackMediaSignalHub.ResetReason.valueOf(reason.name());
+    }
+
+    private record ResetOutcome(TimelineReset reset, ProviderError error) {
     }
 }

@@ -8,6 +8,7 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class AdAudioDetectionMultiplexerTest {
 
@@ -88,6 +89,19 @@ public class AdAudioDetectionMultiplexerTest {
     }
 
     @Test
+    public void unknownRuleIdsAreRejectedBeforeStateAllocation() {
+        RecordingListener output = new RecordingListener();
+        AdAudioDetectionMultiplexer mux = multiplexer(8, output);
+
+        mux.onCandidate(candidate(
+                "probe", "untrusted-rule", 1_000L, 3_000L, true, 0.9d));
+
+        assertTrue(output.candidates.isEmpty());
+        assertEquals(0, mux.trackedCandidateCount());
+        assertEquals(1L, mux.diagnostics().invalid());
+    }
+
+    @Test
     public void boundedStateEvictsOldestCandidates() {
         RecordingListener output = new RecordingListener();
         AdAudioDetectionMultiplexer mux = multiplexer(2, output);
@@ -131,7 +145,8 @@ public class AdAudioDetectionMultiplexerTest {
         return new AdAudioDetectionMultiplexer(
                 new AdAudioSignalProvider.SessionContext(
                         7L, 2L, "media", "https://media.example/video.m3u8", Map.of()),
-                "rules-v1", capacity, listener);
+                "rules-v1", Set.of("rule-1", "rule-2", "rule-3"),
+                capacity, listener);
     }
 
     private static AdAudioSignalProvider.AdAudioCandidate candidate(

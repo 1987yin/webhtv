@@ -184,6 +184,29 @@ public class AdAudioSignalProviderTest {
         assertEquals(AdAudioSignalProvider.ProviderState.DEGRADED, provider.state());
     }
 
+    @Test
+    public void pcmMatcherRestartFailureAfterResetIsReported() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(4);
+        PlaybackMediaSignalHub.Session session = hub.beginSession(0L);
+        RecordingListener listener = new RecordingListener();
+        AtomicInteger creates = new AtomicInteger();
+        PcmAdAudioSignalProvider provider = pcmProvider(hub, ruleSet -> {
+            if (creates.incrementAndGet() > 1) {
+                throw new IllegalStateException("restart failed");
+            }
+            return quietMatcher();
+        });
+        provider.setEnabled(true);
+        provider.start(context(session.id(), session.generation()), rulesSnapshot(), listener);
+
+        hub.resetTimeline(2_000L, PlaybackMediaSignalHub.ResetReason.SEEK);
+
+        assertEquals(1, listener.errors.size());
+        assertEquals(AdAudioSignalProvider.ErrorCode.ANALYSIS_FAILED,
+                listener.errors.get(0).code());
+        assertEquals(AdAudioSignalProvider.ProviderState.DEGRADED, provider.state());
+    }
+
     private static AdAudioSignalProvider.SessionContext context(long sessionId, long generation) {
         return new AdAudioSignalProvider.SessionContext(
                 sessionId, generation, "media", "https://media.example/video.m3u8", Map.of());
@@ -216,6 +239,21 @@ public class AdAudioSignalProviderTest {
             public List<AudioFingerprintMatcher.MatchEvent> feed(
                     short[] samples, int sampleRate, long captureStartMs) {
                 return List.of(event);
+            }
+
+            @Override
+            public List<AudioFingerprintMatcher.MatchEvent> finish() {
+                return List.of();
+            }
+        };
+    }
+
+    private static AdAudioConsumer.Matcher quietMatcher() {
+        return new AdAudioConsumer.Matcher() {
+            @Override
+            public List<AudioFingerprintMatcher.MatchEvent> feed(
+                    short[] samples, int sampleRate, long captureStartMs) {
+                return List.of();
             }
 
             @Override

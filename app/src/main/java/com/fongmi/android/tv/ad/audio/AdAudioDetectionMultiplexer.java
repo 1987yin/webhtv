@@ -4,6 +4,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 public final class AdAudioDetectionMultiplexer
         implements AdAudioSignalProvider.Listener, AutoCloseable {
@@ -14,6 +15,7 @@ public final class AdAudioDetectionMultiplexer
 
     private final int capacity;
     private final AdAudioSignalProvider.Listener output;
+    private final Set<String> allowedRuleIds;
     private final LinkedHashMap<CandidateKey, CandidateEntry> candidates =
             new LinkedHashMap<>();
 
@@ -35,8 +37,16 @@ public final class AdAudioDetectionMultiplexer
             AdAudioSignalProvider.SessionContext context,
             String ruleVersion, int capacity,
             AdAudioSignalProvider.Listener output) {
+        this(context, ruleVersion, null, capacity, output);
+    }
+
+    public AdAudioDetectionMultiplexer(
+            AdAudioSignalProvider.SessionContext context,
+            String ruleVersion, Set<String> allowedRuleIds, int capacity,
+            AdAudioSignalProvider.Listener output) {
         this.context = Objects.requireNonNull(context, "context");
         this.ruleVersion = requireRuleVersion(ruleVersion);
+        this.allowedRuleIds = allowedRuleIds == null ? null : Set.copyOf(allowedRuleIds);
         if (capacity <= 0 || capacity > MAX_CAPACITY) {
             throw new IllegalArgumentException("capacity is out of range");
         }
@@ -49,14 +59,16 @@ public final class AdAudioDetectionMultiplexer
         AdAudioSignalProvider.AdAudioCandidate toEmit = null;
         synchronized (this) {
             if (closed) return;
-            if (candidate == null || !isCurrent(candidate)
-                    || candidate.endMs() - candidate.startMs() > MAX_CANDIDATE_DURATION_MS) {
-                if (candidate == null
-                        || candidate.endMs() - candidate.startMs() > MAX_CANDIDATE_DURATION_MS) {
-                    invalid++;
-                } else {
-                    stale++;
-                }
+            if (candidate == null) {
+                invalid++;
+                return;
+            }
+            if (!isCurrent(candidate)) {
+                stale++;
+                return;
+            }
+            if (!isAllowedRule(candidate) || isOversized(candidate)) {
+                invalid++;
                 return;
             }
             CandidateKey key = CandidateKey.of(candidate);
@@ -165,6 +177,15 @@ public final class AdAudioDetectionMultiplexer
         return candidate.sessionId() == context.sessionId()
                 && candidate.generation() == context.generation()
                 && candidate.ruleVersion().equals(ruleVersion);
+    }
+
+    private boolean isAllowedRule(AdAudioSignalProvider.AdAudioCandidate candidate) {
+        return allowedRuleIds == null || allowedRuleIds.contains(candidate.ruleId());
+    }
+
+    private static boolean isOversized(AdAudioSignalProvider.AdAudioCandidate candidate) {
+        return candidate.endMs() > saturatedAdd(
+                candidate.startMs(), MAX_CANDIDATE_DURATION_MS);
     }
 
     private boolean isOlder(long sessionId, long generation) {

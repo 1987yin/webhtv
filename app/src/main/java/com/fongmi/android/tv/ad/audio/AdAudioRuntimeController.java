@@ -5,6 +5,7 @@ import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 
 import java.util.Objects;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -246,7 +247,9 @@ public final class AdAudioRuntimeController implements AutoCloseable {
 
             @Override
             public void onProviderError(AdAudioSignalProvider.ProviderError error) {
-                diagnostics.record(AdAudioDiagnostics.Code.MATCHER_ERROR);
+                if (error != null && !PcmAdAudioSignalProvider.ID.equals(error.providerId())) {
+                    diagnostics.record(AdAudioDiagnostics.Code.MATCHER_ERROR);
+                }
             }
 
             @Override
@@ -266,7 +269,9 @@ public final class AdAudioRuntimeController implements AutoCloseable {
             }
         };
         AdAudioDetectionMultiplexer nextMux = new AdAudioDetectionMultiplexer(
-                context, snapshot.version(), RUNTIME_CANDIDATE_CAPACITY, output);
+                context, snapshot.version(), snapshot.ruleSet().rules().stream()
+                        .map(AudioFingerprintRule::id).collect(Collectors.toUnmodifiableSet()),
+                RUNTIME_CANDIDATE_CAPACITY, output);
         muxHolder[0] = nextMux;
         PcmAdAudioSignalProvider nextPcm = new PcmAdAudioSignalProvider(
                 hub, worker, diagnostics);

@@ -9,9 +9,10 @@ import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 
 import org.junit.Test;
 
-import java.util.List;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class AdAudioRuntimeControllerTest {
@@ -226,7 +227,8 @@ public class AdAudioRuntimeControllerTest {
         FakePlaybackPort playback = new FakePlaybackPort(hub, true);
         FakeSignalProvider probe = new FakeSignalProvider("probe");
         AdAudioRuntimeController runtime = runtimeWithProbe(
-                hub, playback, snapshotForRuleWithSidecar("ad"), sidecar -> probe);
+                hub, playback, snapshotForRulesWithSidecar(
+                        "prompt-ad", "auto-ad"), sidecar -> probe);
         FakeUiPort ui = new FakeUiPort();
         runtime.start(true);
         runtime.bindUi(ui);
@@ -297,14 +299,28 @@ public class AdAudioRuntimeControllerTest {
     }
 
     private static AdAudioRuleSnapshot snapshotForRuleWithSidecar(String ruleId) {
-        AdAudioRuleSnapshot base = snapshotForRule(ruleId);
+        return snapshotForRulesWithSidecar(ruleId);
+    }
+
+    private static AdAudioRuleSnapshot snapshotForRulesWithSidecar(String... ruleIds) {
+        AdAudioRuleSnapshot base = snapshotForRule(ruleIds[0]);
+        AudioFingerprintRule prototype = base.ruleSet().rules().get(0);
+        List<AudioFingerprintRule> rules = new ArrayList<>(ruleIds.length);
+        for (String ruleId : ruleIds) {
+            rules.add(new AudioFingerprintRule(
+                    ruleId, prototype.durationMs(), prototype.anchorOffsetMs(),
+                    prototype.anchorDurationMs(), prototype.fingerprint(),
+                    prototype.variants()));
+        }
+        AudioFingerprintRuleSet ruleSet = new AudioFingerprintRuleSet(
+                base.ruleSet().config(), rules);
         byte[] canonical = "{\"format\":\"ad-audio-probe-rules\"}"
                 .getBytes(StandardCharsets.UTF_8);
         ProbeRuleSidecar sidecar = ProbeRuleSidecar.verified(
                 "test", 1L, new byte[32], ProbeRuleSidecar.ALGORITHM_ID,
                 "converter-1", canonical, sha256(canonical));
         return new AdAudioRuleSnapshot(
-                base.sourceId(), base.version(), base.ruleSet(),
+                base.sourceId(), base.version(), ruleSet,
                 base.warnings(), base.lastError(), sidecar);
     }
 
