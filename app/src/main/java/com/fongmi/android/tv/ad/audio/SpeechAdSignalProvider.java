@@ -225,7 +225,8 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
             return null;
         }
         if (recognitionSession != null && registration != null
-                && captureLease != null && state == ProviderState.RUNNING) {
+                && captureLease != null) {
+            state = ProviderState.RUNNING;
             return null;
         }
         return activateLocked();
@@ -272,7 +273,7 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
         PlaybackMediaSignalHub.CaptureLease nextCaptureLease = null;
         try {
             nextSession = recognizerFactory.create(
-                    recognitionListener(token, sessionId, generation));
+                    recognitionListener(token));
             nextRegistration = hub.register(
                     HUB_CONSUMER_ID, DIRECT_EXECUTOR, 1,
                     hubConsumer(token));
@@ -294,19 +295,17 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
         return null;
     }
 
-    private SpeechRecognitionFactory.Listener recognitionListener(
-            long token, long sessionId, long generation) {
+    private SpeechRecognitionFactory.Listener recognitionListener(long token) {
         return new SpeechRecognitionFactory.Listener() {
             @Override
             public void onResult(String text, long startUs, long endUs,
                                  int callbackTimelineToken) {
-                onRecognitionResult(token, sessionId, generation,
-                        text, callbackTimelineToken);
+                onRecognitionResult(token, text, callbackTimelineToken);
             }
 
             @Override
             public void onError(Throwable error) {
-                onRecognitionError(token, sessionId, generation);
+                onRecognitionError(token);
             }
         };
     }
@@ -354,26 +353,27 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
             mailbox.addLast(new PcmEnvelope(
                     token, frame.sessionId(), frame.generation(), timelineToken,
                     samples, frame.sampleRate(), frame.captureStartTimeMs()));
-            scheduleDrainLocked(token);
+            scheduleDrainLocked(token, timelineToken);
         }
     }
 
-    private void scheduleDrainLocked(long token) {
+    private void scheduleDrainLocked(long token, int scheduledTimelineToken) {
         if (drainScheduled) return;
         drainScheduled = true;
         try {
-            worker.execute(() -> drainMailbox(token));
+            worker.execute(() -> drainMailbox(token, scheduledTimelineToken));
         } catch (RuntimeException error) {
             drainScheduled = false;
             diagnostics.record(AdAudioDiagnostics.Code.MATCHER_ERROR);
         }
     }
 
-    private void drainMailbox(long token) {
+    private void drainMailbox(long token, int scheduledTimelineToken) {
         while (true) {
             PcmEnvelope envelope;
             synchronized (this) {
-                if (closed || token != instanceToken) return;
+                if (closed || token != instanceToken
+                        || scheduledTimelineToken != timelineToken) return;
                 envelope = mailbox.pollFirst();
                 if (envelope == null) {
                     drainScheduled = false;
@@ -418,13 +418,12 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
         }
     }
 
-    private void onRecognitionResult(long token, long sessionId, long generation,
-                                     String text, int callbackTimelineToken) {
+    private void onRecognitionResult(long token, String text,
+                                     int callbackTimelineToken) {
         Listener currentListener;
         AdAudioCandidate candidate;
         synchronized (this) {
-            if (!isCurrentCallbackLocked(
-                    token, sessionId, generation, callbackTimelineToken)) {
+            if (!isCurrentCallbackLocked(token, callbackTimelineToken)) {
                 diagnostics.record(AdAudioDiagnostics.Code.SPEECH_STALE_CALLBACK);
                 return;
             }
@@ -463,7 +462,7 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
             }
             try {
                 candidate = new AdAudioCandidate(
-                        sessionId, generation, RULE_ID, ruleVersion,
+                        context.sessionId(), context.generation(), RULE_ID, ruleVersion,
                         startMs, endMs, true, 1.0d, ID);
             } catch (RuntimeException error) {
                 diagnostics.record(AdAudioDiagnostics.Code.MATCHER_ERROR);
@@ -476,12 +475,10 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
         notifyCandidate(currentListener, candidate);
     }
 
-    private void onRecognitionError(long token, long sessionId, long generation) {
+    private void onRecognitionError(long token) {
         Listener currentListener;
         synchronized (this) {
-            if (closed || token != instanceToken || context == null
-                    || context.sessionId() != sessionId
-                    || context.generation() != generation) {
+            if (closed || token != instanceToken || context == null) {
                 diagnostics.record(AdAudioDiagnostics.Code.SPEECH_STALE_CALLBACK);
                 return;
             }
@@ -515,7 +512,18 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
         hostPosition = null;
         lastMatchPositionMs = Long.MIN_VALUE;
         timelineToken = nextTimelineToken(timelineToken);
-        deactivateResourcesLocked(true, true);
+        if (!mailbox.isEmpty()) {
+            diagnostics.record(AdAudioDiagnostics.Code.STALE_GENERATION);
+        }
+        mailbox.clear();
+        drainScheduled = false;
+        if (recognitionSession != null) {
+            try {
+                recognitionSession.reset();
+            } catch (RuntimeException error) {
+                diagnostics.record(AdAudioDiagnostics.Code.MATCHER_ERROR);
+            }
+        }
         state = !enabled || config == null || !config.enabled()
                 ? ProviderState.DISABLED
                 : modelStatus == ModelStatus.READY
@@ -535,13 +543,12 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
                 && matchesContext(envelope.sessionId(), envelope.generation());
     }
 
-    private boolean isCurrentCallbackLocked(long token, long sessionId,
-                                            long generation,
+    private boolean isCurrentCallbackLocked(long token,
                                             int callbackTimelineToken) {
         return !closed && state == ProviderState.RUNNING
                 && token == instanceToken
                 && callbackTimelineToken == timelineToken
-                && matchesContext(sessionId, generation);
+                && context != null;
     }
 
     private boolean matchesContext(long sessionId, long generation) {

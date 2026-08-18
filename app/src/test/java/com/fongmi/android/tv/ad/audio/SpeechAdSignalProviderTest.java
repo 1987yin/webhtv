@@ -88,33 +88,44 @@ public class SpeechAdSignalProviderTest {
     }
 
     @Test
-    public void resetDropsLateRecognizerCallbackAndQueuedPcm() {
+    public void resetDropsLateWorkAndContinuesWithTheSameRecognizerSession() {
         ManualExecutor worker = new ManualExecutor();
         Fixture fixture = new Fixture(true, config(true, "\u8d4c\u573a", 15), worker, 4);
         fixture.host(10_000L, 60_000L, true, false);
-        FakeSession oldSession = fixture.factory.current();
+        FakeSession recognizer = fixture.factory.current();
         fixture.publish(new float[] {0.1f}, 16_000, 10_000L);
         worker.runAll();
-        int oldTimelineToken = oldSession.lastTimelineToken();
+        int oldTimelineToken = recognizer.lastTimelineToken();
         fixture.publish(new float[] {0.2f}, 16_000, 10_100L);
 
-        fixture.provider.onTimelineReset(new AdAudioSignalProvider.TimelineReset(
-                fixture.session.id(), fixture.session.generation() + 1L,
-                AdAudioSignalProvider.ResetReason.SEEK, 30_000L));
+        PlaybackMediaSignalHub.Session resetSession = fixture.hub.resetTimeline(
+                30_000L, PlaybackMediaSignalHub.ResetReason.SEEK);
         worker.runAll();
-        oldSession.emit("\u8d4c\u573a", oldTimelineToken);
+        recognizer.emit("\u8d4c\u573a", oldTimelineToken);
 
         assertTrue(fixture.emitted.isEmpty());
-        assertEquals(1, oldSession.resetCalls);
-        assertEquals(1, oldSession.acceptedSamples.size());
+        assertEquals(1, recognizer.resetCalls);
+        assertEquals(0, recognizer.closeCalls);
+        assertEquals(1, recognizer.acceptedSamples.size());
         assertTrue(fixture.diagnostics.count(AdAudioDiagnostics.Code.STALE_GENERATION) >= 1L);
         assertTrue(fixture.diagnostics.count(
                 AdAudioDiagnostics.Code.SPEECH_STALE_CALLBACK) >= 1L);
-        assertFalse(fixture.hub.isCaptureRequested(
+        assertTrue(fixture.hub.isCaptureRequested(
                 PlaybackMediaSignalHub.ConsumerKind.AD_AUDIO));
+
+        fixture.provider.onHostPosition(host(
+                resetSession, 30_000L, 60_000L, true, false));
+        fixture.hub.publishPcm(resetSession.frame(
+                new float[] {0.3f}, 16_000, 30_000L));
+        worker.runAll();
+        assertEquals(2, recognizer.acceptedSamples.size());
+        recognizer.emit("\u8d4c\u573a", recognizer.lastTimelineToken());
+
+        assertEquals(1, fixture.emitted.size());
+        assertEquals(resetSession.generation(), fixture.emitted.get(0).generation());
+        assertEquals(30_000L, fixture.emitted.get(0).startMs());
         fixture.close();
     }
-
     @Test
     public void cooldownSuppressesPartialAndFinalDuplicates() {
         Fixture fixture = new Fixture(true, config(true, "\u8d4c\u573a", 15), Runnable::run, 8);
