@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.bean;
 
+import com.fongmi.android.tv.setting.Setting;
 import com.google.gson.JsonObject;
 
 import org.junit.Test;
@@ -77,6 +78,13 @@ public class TmdbVideoTest {
         } finally {
             Locale.setDefault(previous);
         }
+    }
+
+    @Test
+    public void displayTypeUsesApplicationLanguageBeforeSystemLocale() {
+        assertEquals("预告片", videoType("Trailer").getDisplayType(Setting.LANGUAGE_SIMPLIFIED, Locale.ENGLISH));
+        assertEquals("預告片", videoType("Trailer").getDisplayType(Setting.LANGUAGE_TRADITIONAL, Locale.SIMPLIFIED_CHINESE));
+        assertEquals("Trailer", videoType("Trailer").getDisplayType(Setting.LANGUAGE_FOLLOW_SYSTEM, Locale.ENGLISH));
     }
 
     private static TmdbVideo videoType(String type) {

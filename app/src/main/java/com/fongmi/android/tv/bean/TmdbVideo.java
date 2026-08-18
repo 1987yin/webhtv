@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.bean;
 
+import com.fongmi.android.tv.setting.Setting;
 import com.google.gson.JsonObject;
 
 import java.util.ArrayList;
@@ -190,7 +191,13 @@ public final class TmdbVideo {
     }
 
     public String getDisplayType() {
-        Locale locale = Locale.getDefault();
+        return getDisplayType(Setting.getLanguage(), Locale.getDefault());
+    }
+
+    String getDisplayType(int language, Locale systemLocale) {
+        Locale locale = systemLocale == null ? Locale.getDefault() : systemLocale;
+        if (language == Setting.LANGUAGE_SIMPLIFIED) locale = Locale.SIMPLIFIED_CHINESE;
+        else if (language == Setting.LANGUAGE_TRADITIONAL) locale = Locale.TRADITIONAL_CHINESE;
         if (!Locale.CHINESE.getLanguage().equals(locale.getLanguage())) return type.isEmpty() ? "Video" : type;
         boolean traditional = "Hant".equalsIgnoreCase(locale.getScript())
                 || "TW".equalsIgnoreCase(locale.getCountry())

@@ -555,7 +555,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     private boolean shouldReclaim() {
-        return mService != null && !isOwner();
+        return mService != null && !isOwner() && !transientPlayback.isLaunchActive();
     }
 
     private void closePiP() {

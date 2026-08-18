@@ -41,6 +41,7 @@ public class TmdbVideoPopupWiringTest {
         assertTrue(playback.contains("if (transientPlayback.hasQueuedRestore()) restoreTransientPlayback();"));
         assertOrderAfter(playback, "protected void onDestroy()", "transientPlayback.clear();", "super.onDestroy();");
         assertTrue(playback.contains("resumeAfterTransientPlayback(snapshot != null && snapshot.shouldResume())"));
+        assertTrue(playback.contains("return mService != null && !isOwner() && !transientPlayback.isLaunchActive();"));
     }
 
     @Test
@@ -104,6 +105,8 @@ public class TmdbVideoPopupWiringTest {
 
         String leanbackActivity = read("src", "leanback", "java", "com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java");
         assertOrderAfter(leanbackActivity, "private void bindTmdbData()", "java.util.List<String> photos", "java.util.List<TmdbVideo> relatedVideos", "java.util.List<com.fongmi.android.tv.bean.TmdbPerson> creators", "java.util.List<com.fongmi.android.tv.bean.TmdbItem> recommendations");
+        String bindTmdbData = methodBody(leanbackActivity, "private void bindTmdbData()");
+        assertOrder(bindTmdbData, "lastVisibleGrid = mBinding.tmdbPhotos", "lastVisibleGrid = mBinding.tmdbRelatedVideos", "lastVisibleGrid = mBinding.tmdbCrew", "lastVisibleGrid = mBinding.tmdbRecommendations");
     }
 
     @Test
