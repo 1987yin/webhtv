@@ -35,6 +35,11 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.SiteApi;
+import com.fongmi.android.tv.ad.audio.AdAudioRuleStore;
+import com.fongmi.android.tv.ad.audio.AdAudioDiagnostics;
+import com.fongmi.android.tv.ad.audio.AdAudioRuntimeController;
+import com.fongmi.android.tv.ad.audio.AdAudioSetting;
+import com.fongmi.android.tv.ad.audio.AdSkipCoordinator;
 import com.fongmi.android.tv.bean.Danmaku;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Sub;
@@ -47,6 +52,9 @@ import com.fongmi.android.tv.player.engine.PlaySpec;
 import com.fongmi.android.tv.player.engine.PlayerCacheState;
 import com.fongmi.android.tv.player.engine.PlayerEngine;
 import com.fongmi.android.tv.player.engine.SystemPlayerEngine;
+import com.fongmi.android.tv.player.audio.PlaybackMediaClock;
+import com.fongmi.android.tv.player.audio.PlaybackMediaSessionController;
+import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 import com.fongmi.android.tv.player.exo.TrackUtil;
 import com.fongmi.android.tv.player.exo.ExoDecoderResourceRecoveryLimiter;
 import com.fongmi.android.tv.player.exo.ExoNetworkGuardBufferPolicy;
@@ -95,6 +103,7 @@ import com.fongmi.android.tv.player.mpv.MpvPreloadController;
 import com.fongmi.android.tv.player.mpv.MpvPreloadPolicy;
 import com.fongmi.android.tv.player.mpv.MpvResourcePressureController;
 import com.fongmi.android.tv.player.mpv.MpvResourcePressurePolicy;
+import com.fongmi.android.tv.player.mpv.MpvVulkanBackendPolicy;
 import com.fongmi.android.tv.server.proxy.MultiThreadProxy;
 import com.fongmi.android.tv.server.proxy.ProxyPlaybackPolicy;
 import com.fongmi.android.tv.server.proxy.ProxyRuntimeConfig;
@@ -102,10 +111,12 @@ import com.fongmi.android.tv.server.proxy.ProxyStreamRegistration;
 import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.setting.ExoPerformanceSetting;
+import com.fongmi.android.tv.setting.IjkPerformanceSetting;
 import com.fongmi.android.tv.setting.MpvPerformanceSetting;
 import com.fongmi.android.tv.setting.MultiThreadProxySetting;
 import com.fongmi.android.tv.setting.PlaybackExperimentSetting;
 import com.fongmi.android.tv.setting.PlaybackLightweightAssessmentSetting;
+import com.fongmi.android.tv.setting.PlaybackPerformanceCatalog;
 import com.fongmi.android.tv.setting.PlaybackPerformanceSetting;
 import com.fongmi.android.tv.setting.PlaybackProfileAbSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
@@ -156,6 +167,8 @@ public class PlayerManager implements ParseCallback {
     private static final long DANMAKU_FORCE_RELOAD_DEBOUNCE_MS = 10000;
     private static final long LIVE_DANMAKU_METRICS_INTERVAL_MS = 15000L;
     private static final long PLAYBACK_TELEMETRY_INTERVAL_MS = 5000L;
+    private static final long MPV_FRAME_TIMING_LOG_INTERVAL_MS = 5000L;
+    private static final long LUT_PREVIEW_FRAME_INTERVAL_MS = 16L;
     private static final float[] SPEED_PRESETS = new float[]{0.5f, 0.75f, 1f, 1.2f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f, 5f};
     private static final DecimalFormat SPEED_FORMAT = new DecimalFormat("0.##x");
     private static final Pattern HTTP_STATUS = Pattern.compile("(?i)(?:response code|http status|http error)\\D+(\\d{3})");
@@ -165,6 +178,11 @@ public class PlayerManager implements ParseCallback {
     private final Runnable networkProtectionRunnable;
     private final Runnable playbackTelemetryRunnable;
     private final Callback callback;
+    private final PlaybackMediaSignalHub mediaSignals = new PlaybackMediaSignalHub(8);
+    private final PlaybackMediaClock mediaClock = new PlaybackMediaClock(500L);
+    private final PlaybackMediaSessionController mediaSession =
+            new PlaybackMediaSessionController(mediaSignals, mediaClock);
+    private final AdAudioRuntimeController adAudioRuntime;
     private final DynamicLutEffect dynamicLutEffect;
     private final AudioManager.OnAudioFocusChangeListener audioFocusChangeListener;
     private final BroadcastReceiver noisyReceiver;
@@ -226,6 +244,7 @@ public class PlayerManager implements ParseCallback {
     private volatile long liveDanmakuGeneration;
     private volatile boolean liveDanmakuPlaybackActive;
     private long pendingSwitchPositionMs = C.TIME_UNSET;
+    private long pendingInitialStartPositionMs = C.TIME_UNSET;
     private float pendingSwitchSpeed = 1f;
     private boolean danmakuLoadInProgress;
     private boolean danmakuForeground = true;
@@ -257,6 +276,7 @@ public class PlayerManager implements ParseCallback {
     private boolean mpvAutoOutputEvaluationScheduled;
     private boolean mpvExplicitSubtitlePreference;
     private boolean mpvSurfaceFallbackTried;
+    private boolean mpvVulkanFallbackTried;
     private boolean mpvCopyFallbackTried;
     private boolean mpvHlsManagedReload;
     private boolean ijkBufferManagedReload;
@@ -282,6 +302,7 @@ public class PlayerManager implements ParseCallback {
     private float networkProtectionSpeed = 1f;
     private float networkProtectionSupportedSpeed = 1f;
     private long networkProtectionMediaBitrate;
+    private long lastMpvFrameTimingLogMs;
     private ExoNetworkGuardController.State networkProtectionState = ExoNetworkGuardController.State.NORMAL;
     private ExoNetworkGuardController.ProtectionTier networkProtectionTier = ExoNetworkGuardController.ProtectionTier.NONE;
     private String networkProtectionReason = "waiting";
@@ -349,11 +370,18 @@ public class PlayerManager implements ParseCallback {
         this.playerType = PlayerSetting.getPlayer();
         this.playerFallbackTried = new boolean[PLAYER_COUNT];
         clearFfmpegModeFallbackState();
+        this.adAudioRuntime = new AdAudioRuntimeController(
+                mediaSignals, mediaClock, AdAudioRuleStore.get()::load,
+                new AdAudioPlaybackPort());
+        this.adAudioRuntime.start(AdAudioSetting.isEnabled());
+        mediaSession.begin(0L);
         this.engine = buildEngine(playerType, PlayerEngine.HARD);
         this.player = engine.getPlayer();
     }
 
     public void release() {
+        mediaSession.beforeRelease();
+        adAudioRuntime.close();
         prepareSeq++;
         exoSpeedRestoreState.clear();
         lutApplySeq++;
@@ -382,7 +410,10 @@ public class PlayerManager implements ParseCallback {
         ijkRuntimeManualOverride = false;
         pendingIjkRuntimeFallbackReparse = false;
         closeMultiThreadProxyRegistration();
-        if (engine == null) return;
+        if (engine == null) {
+            mediaSession.close();
+            return;
+        }
         engine.release();
         engine = null;
         player = null;
@@ -393,6 +424,7 @@ public class PlayerManager implements ParseCallback {
         lutApplyInProgress = false;
         lutPipelineReadyForItem = false;
         lutPipelinePrepareInProgress = false;
+        mediaSession.close();
         pendingLutPreview = false;
         waitingLutBeforePlay = false;
         lutWarmupReloadPreviewPending = false;
@@ -638,6 +670,35 @@ public class PlayerManager implements ParseCallback {
         return player.getCurrentPosition();
     }
 
+    public PlaybackMediaSignalHub mediaSignals() {
+        return mediaSignals;
+    }
+
+    public PlaybackMediaClock mediaClock() {
+        return mediaClock;
+    }
+
+    public void bindAdAudioUi(AdSkipCoordinator.UiPort ui) {
+        if (isReleased()) return;
+        adAudioRuntime.start(AdAudioSetting.isEnabled());
+        adAudioRuntime.bindUi(ui);
+        refreshAdAudioRuntime();
+    }
+
+    public void unbindAdAudioUi() {
+        adAudioRuntime.unbindUi();
+    }
+
+    public void reloadAdAudioRules() {
+        if (isReleased()) return;
+        adAudioRuntime.start(AdAudioSetting.isEnabled());
+        refreshAdAudioRuntime();
+    }
+
+    public AdAudioDiagnostics.Snapshot adAudioDiagnostics() {
+        return adAudioRuntime.diagnostics();
+    }
+
     public long getBufferedDuration() {
         return Math.max(0, player.getBufferedPosition() - getPosition());
     }
@@ -703,6 +764,10 @@ public class PlayerManager implements ParseCallback {
 
     public String getGpuLoadDiagnostics() {
         return engine == null ? "" : engine.getGpuLoadDiagnostics();
+    }
+
+    public void setGpuLoadDiagnosticsEnabled(boolean enabled) {
+        if (engine != null) engine.setGpuLoadDiagnosticsEnabled(enabled);
     }
 
     public PlayerEngine.VideoPlaybackDetails getVideoPlaybackDetails() {
@@ -782,6 +847,22 @@ public class PlayerManager implements ParseCallback {
 
     public String getLutUnavailableReason() {
         return LutEligibility.getUnavailableReason(engine, spec);
+    }
+
+    public boolean selectLut(@Nullable LutPreset preset, boolean preview) {
+        if (preset != null) {
+            String reason = getLutUnavailableReason();
+            if (!TextUtils.isEmpty(reason)) {
+                if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-ui", "reject preset=%s reason=%s", preset.getId(), reason);
+                Notify.show(reason);
+                return false;
+            }
+        }
+        LutSetting.select(preset);
+        callback.onPlayerRenderRequired();
+        if (preset != null && preview) applyLutPreview(true);
+        else applyLut(true);
+        return true;
     }
 
     public boolean isIjk() {
@@ -877,6 +958,13 @@ public class PlayerManager implements ParseCallback {
 
     public boolean isExo() {
         return playerType == PlayerSetting.EXO;
+    }
+
+    public boolean requiresTextureRenderForLut() {
+        return isExo()
+                && LutSetting.isEnabled()
+                && canWarmLutPipeline()
+                && TextUtils.isEmpty(getLutUnavailableReason());
     }
 
     public boolean isNativePlayer() {
@@ -1346,10 +1434,6 @@ public class PlayerManager implements ParseCallback {
 
     public void setTrack(List<Track> tracks) {
         mpvExplicitSubtitlePreference = hasRequestedSubtitle(tracks);
-        if (shouldLeaveAutoSurfaceDirectForSubtitle(tracks)) {
-            rebuildAndRestartMpv(false, "subtitle-selected");
-            return;
-        }
         if (!tracks.isEmpty()) engine.setTrack(tracks);
     }
 
@@ -1392,6 +1476,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void seekTo(long time) {
+        mediaSession.beforeSeek(Math.max(0L, time));
         long now = SystemClock.elapsedRealtime();
         invalidatePlaybackProfileAssessments(
                 PlaybackProfileAbCoordinator.InvalidationReason.USER_SEEK);
@@ -1491,6 +1576,9 @@ public void resetTrack(int type) {
         float speed = getSpeed();
         boolean repeat = isRepeatOne();
         boolean wasPlayWhenReady = player.getPlayWhenReady();
+        mediaSignals.detachPipeline();
+        mediaSession.reset(position == C.TIME_UNSET ? 0L : position,
+                PlaybackMediaSignalHub.ResetReason.ENGINE_REBUILD);
         ++prepareSeq;
         App.removeCallbacks(runnable);
         rebuildPlayer();
@@ -1505,6 +1593,12 @@ public void resetTrack(int type) {
         setRepeatOne(repeat);
         App.post(runnable, Constant.TIMEOUT_PLAY);
         callback.onPrepare();
+    }
+
+    private void refreshAdAudioRuntime() {
+        if (isReleased()) return;
+        adAudioRuntime.refresh();
+        if (adAudioRuntime.needsPipelineRebuild()) rebuildAudioPipeline();
     }
 
     public void restoreVideoTrack() {
@@ -1881,8 +1975,20 @@ public void resetTrack(int type) {
         if (!(engine instanceof MpvPlayerEngine mpv) || !playbackAutoSession.active()) return;
         long now = SystemClock.elapsedRealtime();
         PlaybackAutoContext context = playbackAutoContextStore.snapshot();
-        boolean automatic = PlaybackPerformanceSetting.isAuto(PlayerSetting.MPV);
-        applyMpvHlsInitialControl(mpv, context, automatic, now);
+        boolean automaticForward = PlaybackPerformanceSetting.isAuto(
+                PlayerSetting.MPV,
+                PlaybackPerformanceCatalog.BUFFER_BYTES);
+        boolean automaticBack = PlaybackPerformanceSetting.isAuto(
+                PlayerSetting.MPV,
+                PlaybackPerformanceCatalog.BACK_BUFFER);
+        boolean automatic = automaticForward || automaticBack;
+        applyMpvHlsInitialControl(
+                mpv,
+                context,
+                PlaybackPerformanceSetting.isAuto(
+                        PlayerSetting.MPV,
+                        PlaybackPerformanceCatalog.MPV_HLS_BITRATE),
+                now);
         MpvAutoControlPolicy.Request request = MpvAutoControlPolicy.requestFrom(
                 context,
                 automatic,
@@ -1913,11 +2019,22 @@ public void resetTrack(int type) {
         String applyResult = "not-requested";
         MpvForwardCacheController.Trigger forwardTrigger = null;
         MpvBackCacheController.Trigger backTrigger = null;
+        long targetForwardBytes = automaticForward
+                ? decision.forwardBytes() : mpv.getConfiguredForwardCacheBytes();
+        long targetBackBytes = automaticBack
+                ? decision.backBytes() : mpv.getConfiguredBackCacheBytes();
+        if (targetBackBytes > targetForwardBytes) {
+            if (automaticForward && !automaticBack) {
+                targetForwardBytes = targetBackBytes;
+            } else if (!automaticForward && automaticBack) {
+                targetBackBytes = targetForwardBytes;
+            }
+        }
         if (decision.requestsApply()) {
             started = mpvAutoController.beginApply(playbackAutoSession, decision);
             MpvPlayer.AutoCacheBaselineResult result = started
                     ? mpv.applyAutoCacheBaseline(
-                    playbackTrace.current(), decision.forwardBytes(), decision.backBytes())
+                    playbackTrace.current(), targetForwardBytes, targetBackBytes)
                     : MpvPlayer.AutoCacheBaselineResult.REJECTED;
             applied = result.accepted();
             staged = result.staged();
@@ -1938,15 +2055,15 @@ public void resetTrack(int type) {
             boolean preserveForwardTarget = forwardBefore.baselineInitialized();
             boolean preserveBackTarget = backBefore.baselineInitialized();
             mpvForwardCacheController.recordBaseline(
-                    playbackAutoSession, decision.forwardBytes(), preserveForwardTarget);
+                    playbackAutoSession, targetForwardBytes, preserveForwardTarget);
             mpvBackCacheController.recordBaseline(
-                    playbackAutoSession, decision.backBytes(), preserveBackTarget);
+                    playbackAutoSession, targetBackBytes, preserveBackTarget);
             mpvCacheTargetCoordinator.recordBaseline(
-                    playbackAutoSession, decision.forwardBytes(), decision.backBytes());
-            forwardTrigger = preserveForwardTarget
+                    playbackAutoSession, targetForwardBytes, targetBackBytes);
+            forwardTrigger = !automaticForward ? null : preserveForwardTarget
                     ? MpvForwardCacheController.Trigger.REBUILD
                     : MpvForwardCacheController.Trigger.BASELINE;
-            backTrigger = preserveBackTarget
+            backTrigger = !automaticBack ? null : preserveBackTarget
                     ? MpvBackCacheController.Trigger.REBUILD
                     : MpvBackCacheController.Trigger.BASELINE;
         }
@@ -2084,7 +2201,8 @@ public void resetTrack(int type) {
         PlaybackAutoContext context = playbackAutoContextStore.snapshot();
         IjkBufferPolicy.Request request = buildIjkBufferRequest(
                 context, now, false);
-        IjkBufferPolicy.Decision policy = IjkBufferPolicy.resolve(request);
+        IjkBufferPolicy.Decision policy = mergeIjkBufferDecision(
+                IjkBufferPolicy.resolve(request));
         IjkBufferController.Decision decision =
                 ijkBufferController.stageInitial(
                         playbackAutoSession, context.session(), policy);
@@ -2095,10 +2213,10 @@ public void resetTrack(int type) {
                 ijkDecodePressureController.stageInitial(
                         playbackAutoSession,
                         context.session(),
-                        PlaybackPerformanceSetting.isAuto(PlayerSetting.IJK));
-        if (PlaybackPerformanceSetting.isAuto(PlayerSetting.IJK)) {
+                        hasAutomaticIjkDecodeOptions());
+        if (hasAutomaticIjkDecodeOptions()) {
             ijk.stageAutomaticDecodeControlConfig(
-                    decodeDecision.targetConfig());
+                    mergeIjkDecodeConfig(decodeDecision.targetConfig()));
         }
         publishIjkBufferDecision(
                 decision, request, IjkBufferController.Trigger.INITIAL,
@@ -2113,15 +2231,22 @@ public void resetTrack(int type) {
 
     private void restoreIjkStagedBufferConfig() {
         if (!(engine instanceof IjkPlayerEngine ijk)
-                || !PlaybackPerformanceSetting.isAuto(PlayerSetting.IJK)
+                || !PlaybackPerformanceSetting.hasAutomaticOptions(
+                PlayerSetting.IJK,
+                PlaybackPerformanceCatalog.IJK_BUFFER,
+                PlaybackPerformanceCatalog.IJK_WATER,
+                PlaybackPerformanceCatalog.IJK_PICTURE_QUEUE,
+                PlaybackPerformanceCatalog.IJK_SOFT_TUNE)
                 || !playbackAutoSession.active()) return;
         IjkBufferController.Snapshot snapshot = ijkBufferController.snapshot();
         if (!playbackAutoSession.equals(snapshot.session())) return;
-        ijk.stageAutomaticInputBufferConfig(snapshot.stagedConfig());
+        ijk.stageAutomaticInputBufferConfig(
+                mergeIjkBufferConfig(snapshot.stagedConfig()));
         IjkDecodePressureController.Snapshot decode =
                 ijkDecodePressureController.snapshot();
         if (playbackAutoSession.equals(decode.session())) {
-            ijk.stageAutomaticDecodeControlConfig(decode.stagedConfig());
+            ijk.stageAutomaticDecodeControlConfig(
+                    mergeIjkDecodeConfig(decode.stagedConfig()));
         }
     }
 
@@ -2142,7 +2267,8 @@ public void resetTrack(int type) {
         PlaybackAutoContext context = playbackAutoContextStore.snapshot();
         IjkBufferPolicy.Request request = buildIjkBufferRequest(
                 context, now, true);
-        IjkBufferPolicy.Decision policy = IjkBufferPolicy.resolve(request);
+        IjkBufferPolicy.Decision policy = mergeIjkBufferDecision(
+                IjkBufferPolicy.resolve(request));
         IjkBufferController.Decision decision = ijkBufferController.evaluate(
                 playbackAutoSession,
                 context.session(),
@@ -2175,7 +2301,8 @@ public void resetTrack(int type) {
                         playbackAutoSession, decision);
                 if (applyStarted) {
                     ijk.stageAutomaticInputBufferConfig(
-                            ijkBufferController.snapshot().stagedConfig());
+                            mergeIjkBufferConfig(
+                                    ijkBufferController.snapshot().stagedConfig()));
                     pendingIjkBufferDecision = decision;
                     boolean restartStarted = restartIjkBuffer(ijk, decision);
                     applySucceeded = restartStarted
@@ -2191,7 +2318,8 @@ public void resetTrack(int type) {
         }
         if (policy.managed()) {
             ijk.stageAutomaticInputBufferConfig(
-                    ijkBufferController.snapshot().stagedConfig());
+                    mergeIjkBufferConfig(
+                            ijkBufferController.snapshot().stagedConfig()));
         }
         publishIjkBufferDecision(
                 decision, request, trigger, applyStarted,
@@ -2227,6 +2355,21 @@ public void resetTrack(int type) {
         boolean streamUsable = streamFact.isUsable(now);
         PlaybackAutoContext.StreamKind stream = streamUsable
                 ? streamFact.value() : PlaybackAutoContext.StreamKind.UNKNOWN;
+        int configuredScene = PlaybackPerformanceSetting.isOverridden(
+                PlayerSetting.IJK,
+                PlaybackPerformanceCatalog.IJK_SCENE)
+                ? IjkPerformanceSetting.getScene()
+                : IjkPerformanceSetting.SCENE_AUTO;
+        if (configuredScene != IjkPerformanceSetting.SCENE_AUTO) {
+            stream = switch (configuredScene) {
+                case IjkPerformanceSetting.SCENE_VOD ->
+                        PlaybackAutoContext.StreamKind.VOD;
+                case IjkPerformanceSetting.SCENE_LIVE_LOW_LATENCY ->
+                        PlaybackAutoContext.StreamKind.LOW_LATENCY_LIVE;
+                default -> PlaybackAutoContext.StreamKind.LIVE;
+            };
+            streamUsable = true;
+        }
         boolean segmented = protocol == PlaybackAutoContext.Protocol.HLS
                 || protocol == PlaybackAutoContext.Protocol.DASH;
         if (!streamUsable && allowEngineScene && !segmented
@@ -2242,7 +2385,10 @@ public void resetTrack(int type) {
         boolean snapshotUsable = snapshotFact.isUsable(now)
                 && snapshotFact.value().hasEvidence();
         return new IjkBufferPolicy.Request(
-                PlaybackPerformanceSetting.isAuto(PlayerSetting.IJK),
+                PlaybackPerformanceSetting.hasAutomaticOptions(
+                        PlayerSetting.IJK,
+                        PlaybackPerformanceCatalog.IJK_BUFFER,
+                        PlaybackPerformanceCatalog.IJK_WATER),
                 isIjk(),
                 protocolUsable,
                 protocol,
@@ -2262,6 +2408,44 @@ public void resetTrack(int type) {
                 liveLagFact.isUsable(now) ? liveLagFact.value() : -1);
     }
 
+    private IjkBufferPolicy.Config mergeIjkBufferConfig(
+            IjkBufferPolicy.Config automatic) {
+        IjkBufferPolicy.Config safe = automatic == null
+                ? IjkBufferPolicy.safeInitialConfig() : automatic;
+        int bufferMb = PlaybackPerformanceSetting.isAuto(
+                PlayerSetting.IJK,
+                PlaybackPerformanceCatalog.IJK_BUFFER)
+                ? safe.bufferMb() : IjkPerformanceSetting.getBufferMb();
+        if (PlaybackPerformanceSetting.isAuto(
+                PlayerSetting.IJK,
+                PlaybackPerformanceCatalog.IJK_WATER)) {
+            return new IjkBufferPolicy.Config(
+                    bufferMb,
+                    safe.firstWaterMs(),
+                    safe.nextWaterMs(),
+                    safe.lastWaterMs());
+        }
+        return new IjkBufferPolicy.Config(
+                bufferMb,
+                IjkPerformanceSetting.getFirstWaterMs(),
+                IjkPerformanceSetting.getNextWaterMs(),
+                IjkPerformanceSetting.getLastWaterMs());
+    }
+
+    private IjkBufferPolicy.Decision mergeIjkBufferDecision(
+            IjkBufferPolicy.Decision decision) {
+        IjkBufferPolicy.Decision safe = decision == null
+                ? IjkBufferPolicy.resolve(null) : decision;
+        return new IjkBufferPolicy.Decision(
+                safe.managed(),
+                mergeIjkBufferConfig(safe.target()),
+                safe.reason(),
+                safe.memoryCeilingMb(),
+                safe.liveLagHigh(),
+                safe.targetOffsetMs(),
+                safe.mediaDemandBytes());
+    }
+
     private void evaluateIjkRealtimeRecovery(long nowElapsedMs) {
         if (!(engine instanceof IjkPlayerEngine ijk)
                 || !playbackAutoSession.active()) return;
@@ -2272,8 +2456,10 @@ public void resetTrack(int type) {
         boolean protocolUsable = protocolFact.isUsable(now);
         PlaybackAutoContext.Protocol protocol = protocolUsable
                 ? protocolFact.value() : PlaybackAutoContext.Protocol.UNKNOWN;
-        boolean automatic = PlaybackPerformanceSetting.isAuto(
-                PlayerSetting.IJK) && experimentAllowed(
+        boolean automatic = PlaybackPerformanceSetting.hasAutomaticOptions(
+                PlayerSetting.IJK,
+                PlaybackPerformanceCatalog.IJK_BUFFER,
+                PlaybackPerformanceCatalog.IJK_WATER) && experimentAllowed(
                 PlaybackExperimentPolicy.Action.IJK_REALTIME_REBUILD);
         boolean realtime = protocol == PlaybackAutoContext.Protocol.RTSP
                 || protocol == PlaybackAutoContext.Protocol.RTMP;
@@ -2325,7 +2511,8 @@ public void resetTrack(int type) {
                     pendingIjkBufferDecision = reloadGate;
                     pendingIjkRealtimeRecoveryDecision = decision;
                     ijk.stageAutomaticInputBufferConfig(
-                            ijkBufferController.snapshot().stagedConfig());
+                            mergeIjkBufferConfig(
+                                    ijkBufferController.snapshot().stagedConfig()));
                     restartStarted = restartIjkRealtimeRecovery(
                             ijk, reloadGate, decision);
                     if (!restartStarted) {
@@ -2365,7 +2552,7 @@ public void resetTrack(int type) {
                 && decodeFact.isUsable(now);
         IjkDecodePressurePolicy.Input policyInput =
                 new IjkDecodePressurePolicy.Input(
-                        PlaybackPerformanceSetting.isAuto(PlayerSetting.IJK)
+                        isIjkDecodePressureAutomatic()
                                 && experimentAllowed(
                                 PlaybackExperimentPolicy.Action.IJK_DECODE_REBUILD),
                         isIjk(),
@@ -2395,7 +2582,8 @@ public void resetTrack(int type) {
                                 playbackAutoSession,
                                 context.session(),
                                 policyInput,
-                                ijk.getAppliedDecodeControlConfig(),
+                                automaticIjkDecodeView(
+                                        ijk.getAppliedDecodeControlConfig()),
                                 reloadState.applyInProgress(),
                                 now));
 
@@ -2419,14 +2607,17 @@ public void resetTrack(int type) {
                     pendingIjkBufferDecision = reloadGate;
                     pendingIjkDecodePressureDecision = decision;
                     ijk.stageAutomaticInputBufferConfig(
-                            ijkBufferController.snapshot().stagedConfig());
+                            mergeIjkBufferConfig(
+                                    ijkBufferController.snapshot().stagedConfig()));
                     ijk.stageAutomaticDecodeControlConfig(
-                            ijkDecodePressureController.snapshot()
-                                    .stagedConfig());
+                            mergeIjkDecodeConfig(
+                                    ijkDecodePressureController.snapshot()
+                                            .stagedConfig()));
                     restartStarted = restartIjkDecodePressure(
                             ijk, reloadGate, decision);
                     boolean applied = restartStarted
-                            && decision.targetConfig().equals(
+                            && mergeIjkDecodeConfig(
+                            decision.targetConfig()).equals(
                             ijk.getAppliedDecodeControlConfig());
                     if (!applied) {
                         completeIjkBufferManagedReload(
@@ -2439,9 +2630,10 @@ public void resetTrack(int type) {
                 }
             }
         }
-        if (PlaybackPerformanceSetting.isAuto(PlayerSetting.IJK)) {
+        if (hasAutomaticIjkDecodeOptions()) {
             ijk.stageAutomaticDecodeControlConfig(
-                    ijkDecodePressureController.snapshot().stagedConfig());
+                    mergeIjkDecodeConfig(
+                            ijkDecodePressureController.snapshot().stagedConfig()));
         }
         publishIjkDecodePressureDecision(
                 decision,
@@ -2449,6 +2641,51 @@ public void resetTrack(int type) {
                 actionStarted,
                 restartStarted,
                 now);
+    }
+
+    private boolean hasAutomaticIjkDecodeOptions() {
+        return PlaybackPerformanceSetting.hasAutomaticOptions(
+                PlayerSetting.IJK,
+                PlaybackPerformanceCatalog.IJK_PICTURE_QUEUE,
+                PlaybackPerformanceCatalog.IJK_SOFT_TUNE);
+    }
+
+    private boolean isIjkDecodePressureAutomatic() {
+        return PlaybackPerformanceSetting.isAuto(
+                PlayerSetting.IJK,
+                PlaybackPerformanceCatalog.IJK_SOFT_TUNE);
+    }
+
+    private IjkDecodePressurePolicy.Config automaticIjkDecodeView(
+            IjkDecodePressurePolicy.Config applied) {
+        IjkDecodePressurePolicy.Config safe = applied == null
+                ? IjkDecodePressurePolicy.automaticInitialConfig()
+                : applied;
+        return new IjkDecodePressurePolicy.Config(
+                IjkDecodePressurePolicy.AUTOMATIC_PICTURE_QUEUE,
+                safe.tuneMode());
+    }
+
+    private IjkDecodePressurePolicy.Config mergeIjkDecodeConfig(
+            IjkDecodePressurePolicy.Config automatic) {
+        IjkDecodePressurePolicy.Config safe = automatic == null
+                ? IjkDecodePressurePolicy.automaticInitialConfig()
+                : automatic;
+        int pictureQueue = PlaybackPerformanceSetting.isAuto(
+                PlayerSetting.IJK,
+                PlaybackPerformanceCatalog.IJK_PICTURE_QUEUE)
+                ? safe.pictureQueue() : IjkPerformanceSetting.getPictureQueue();
+        IjkDecodePressurePolicy.TuneMode tune = PlaybackPerformanceSetting.isAuto(
+                PlayerSetting.IJK,
+                PlaybackPerformanceCatalog.IJK_SOFT_TUNE)
+                ? safe.tuneMode() : switch (IjkPerformanceSetting.getSoftTuneMode()) {
+            case IjkPerformanceSetting.SOFT_TUNE_AGGRESSIVE ->
+                    IjkDecodePressurePolicy.TuneMode.AGGRESSIVE;
+            case IjkPerformanceSetting.SOFT_TUNE_MILD ->
+                    IjkDecodePressurePolicy.TuneMode.MILD;
+            default -> IjkDecodePressurePolicy.TuneMode.OFF;
+        };
+        return new IjkDecodePressurePolicy.Config(pictureQueue, tune);
     }
 
     private boolean isIjkPlaybackActive() {
@@ -2624,12 +2861,19 @@ public void resetTrack(int type) {
                         playbackAutoSession, succeeded);
             }
             if (engine instanceof IjkPlayerEngine ijk
-                    && PlaybackPerformanceSetting.isAuto(PlayerSetting.IJK)
+                    && PlaybackPerformanceSetting.hasAutomaticOptions(
+                    PlayerSetting.IJK,
+                    PlaybackPerformanceCatalog.IJK_BUFFER,
+                    PlaybackPerformanceCatalog.IJK_WATER,
+                    PlaybackPerformanceCatalog.IJK_PICTURE_QUEUE,
+                    PlaybackPerformanceCatalog.IJK_SOFT_TUNE)
                     && playbackAutoSession.active()) {
                 ijk.stageAutomaticInputBufferConfig(
-                        ijkBufferController.snapshot().stagedConfig());
+                        mergeIjkBufferConfig(
+                                ijkBufferController.snapshot().stagedConfig()));
                 ijk.stageAutomaticDecodeControlConfig(
-                        ijkDecodePressureController.snapshot().stagedConfig());
+                        mergeIjkDecodeConfig(
+                                ijkDecodePressureController.snapshot().stagedConfig()));
             }
             String domain = recovery != null ? "ijk-realtime"
                     : decode != null ? "ijk-decode" : "ijk-buffer";
@@ -3705,7 +3949,16 @@ public void resetTrack(int type) {
         if (!(engine instanceof MpvPlayerEngine mpv) || !playbackAutoSession.active()) return;
         long now = Math.max(0, nowElapsedMs);
         PlaybackAutoContext context = playbackAutoContextStore.snapshot();
-        boolean automatic = PlaybackPerformanceSetting.isAuto(PlayerSetting.MPV);
+        boolean automaticForward = PlaybackPerformanceSetting.isAuto(
+                PlayerSetting.MPV,
+                PlaybackPerformanceCatalog.BUFFER_BYTES);
+        boolean automaticBack = PlaybackPerformanceSetting.isAuto(
+                PlayerSetting.MPV,
+                PlaybackPerformanceCatalog.BACK_BUFFER);
+        boolean automaticPreload = PlaybackPerformanceSetting.isAuto(
+                PlayerSetting.MPV,
+                PlaybackPerformanceCatalog.PRELOAD);
+        boolean automatic = automaticForward || automaticBack || automaticPreload;
         boolean performancePriority = MpvPerformanceSetting.isPerformancePriority();
         MpvForwardCacheController.Snapshot forwardBefore = mpvForwardCacheController.snapshot();
         MpvBackCacheController.Snapshot backBefore = mpvBackCacheController.snapshot();
@@ -3743,22 +3996,25 @@ public void resetTrack(int type) {
                 resourceDecision,
                 resourcePreloadChanged,
                 now);
-        evaluateMpvPreload(mpv, context, resourceDecision, automatic,
+        evaluateMpvPreload(mpv, context, resourceDecision, automaticPreload,
                 performancePriority, now);
         MpvForwardCachePolicy.Assessment forwardAssessment = MpvForwardCachePolicy.assess(
                 context,
-                automatic,
+                automaticForward,
                 isMpv(),
                 performancePriority,
                 baseline,
                 now);
-        MpvForwardCacheController.Decision forwardDecision = forwardTrigger == null
+        MpvForwardCacheController.Decision forwardDecision = !automaticForward
+                || forwardTrigger == null
                 ? null : mpvForwardCacheController.evaluate(
                 playbackAutoSession, context.session(), forwardAssessment, resourceDecision,
                 forwardTrigger, now);
         MpvForwardCacheController.Snapshot forwardEvaluated =
                 mpvForwardCacheController.snapshot();
-        long currentForward = forwardEvaluated.controlledTargetBytes() > 0
+        long currentForward = !automaticForward
+                ? mpv.getConfiguredForwardCacheBytes()
+                : forwardEvaluated.controlledTargetBytes() > 0
                 ? forwardEvaluated.controlledTargetBytes() : baseline;
         long targetForward = forwardDecision != null && forwardDecision.requestsApply()
                 ? forwardDecision.targetBytes() : currentForward;
@@ -3768,7 +4024,7 @@ public void resetTrack(int type) {
                 && backBefore.controlledTargetBytes() > 0;
         MpvBackCachePolicy.Request backRequest = MpvBackCachePolicy.requestFrom(
                 context,
-                automatic,
+                automaticBack,
                 isMpv(),
                 performancePriority,
                 seekableForBack,
@@ -3778,15 +4034,24 @@ public void resetTrack(int type) {
                 now);
         MpvBackCachePolicy.Assessment backAssessment =
                 MpvBackCachePolicy.resolve(backRequest);
-        MpvBackCacheController.Decision backDecision = backTrigger == null
+        MpvBackCacheController.Decision backDecision = !automaticBack
+                || backTrigger == null
                 ? null : mpvBackCacheController.evaluate(
                 playbackAutoSession, context.session(), backAssessment, resourceDecision,
                 backTrigger, seekObservation, now);
         MpvBackCacheController.Snapshot backEvaluated = mpvBackCacheController.snapshot();
-        long currentBack = backEvaluated.controlledTargetBytes() >= 0
+        long currentBack = !automaticBack
+                ? mpv.getConfiguredBackCacheBytes()
+                : backEvaluated.controlledTargetBytes() >= 0
                 ? backEvaluated.controlledTargetBytes() : 0;
         long targetBack = backDecision != null && backDecision.requestsApply()
                 ? backDecision.targetBytes() : currentBack;
+        if (automaticForward && !automaticBack && targetBack > targetForward) {
+            targetForward = targetBack;
+        } else if (!automaticForward && automaticBack
+                && targetBack > targetForward) {
+            targetBack = targetForward;
+        }
 
         boolean cacheExpansionAllowed = experimentAllowed(
                 PlaybackExperimentPolicy.Action.MPV_CACHE_EXPANSION);
@@ -4694,22 +4959,33 @@ public void resetTrack(int type) {
         if (!(engine instanceof MpvPlayerEngine mpv)) return;
         boolean hwdecOverrideCleared = mpv.clearHwdecOverride();
         boolean automaticOutput = MpvPerformanceSetting.getOutputMode() == MpvPerformanceSetting.OUTPUT_AUTO;
+        mpv.setSurfaceDirectOverride(null);
+        boolean autoDirectEligible = MpvAutoOutputPolicy.canStartSurfaceDirect(
+                engine.isHard(),
+                Util.isLeanback(),
+                videoEffectsActive || videoEffectsDirty || MpvPerformanceSetting.isInterpolation()
+                        || lutAllowed && LutSetting.isEnabled(),
+                MpvConfigStore.hasGpuVideoProcessing());
+        boolean shouldStartDirect = MpvPerformanceSetting.shouldUseSurfaceDirect(
+                autoDirectEligible, Util.isLeanback(), engine.isHard());
         boolean externalSubtitleActive = spec != null && spec.getSubs() != null && !spec.getSubs().isEmpty();
         boolean leaveForSubtitle = MpvAutoOutputPolicy.shouldLeaveSurfaceDirectForSubtitle(
                 automaticOutput, mpv.isSurfaceDirect(), externalSubtitleActive, mpvExplicitSubtitlePreference);
-        if (automaticOutput && MpvPerformanceSetting.isAutoSurfaceDirectEnabled() && mpv.isSurfaceDirect() && !leaveForSubtitle) {
+        if (leaveForSubtitle) shouldStartDirect = false;
+        if (automaticOutput && MpvPerformanceSetting.isAutoSurfaceDirectEnabled()
+                && mpv.isSurfaceDirect() && shouldStartDirect) {
             if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "preserve direct output for new item reason=auto-sticky");
             return;
         }
-        mpv.setSurfaceDirectOverride(null);
-        boolean shouldStartDirect = MpvPerformanceSetting.shouldUseSurfaceDirect(false, Util.isLeanback(), engine.isHard());
         if (mpv.isSurfaceDirect() == shouldStartDirect && !hwdecOverrideCleared) return;
         if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "prepare new item rebuild currentDirect=%s desiredDirect=%s mode=%s hwdecOverrideCleared=%s", mpv.isSurfaceDirect(), shouldStartDirect, MpvPerformanceSetting.getOutputModeText(), hwdecOverrideCleared);
+        mpv.setSurfaceDirectOverride(shouldStartDirect);
         rebuildPlayer();
     }
 
     private void resetMpvOutputRuntime() {
         resetMpvOutputEvaluationState();
+        lastMpvFrameTimingLogMs = 0;
         if (engine instanceof MpvPlayerEngine mpv) {
             mpv.setSurfaceDirectOverride(null);
             mpv.clearHwdecOverride();
@@ -4721,6 +4997,7 @@ public void resetTrack(int type) {
         mpvAutoOutputEvaluationScheduled = false;
         mpvAutoOutputProbeAttempts = 0;
         mpvSurfaceFallbackTried = false;
+        mpvVulkanFallbackTried = false;
         mpvCopyFallbackTried = false;
         mpvOutputEvaluationSeq++;
     }
@@ -4764,15 +5041,16 @@ public void resetTrack(int type) {
         if (earlyEvaluation
                 && !PlaybackPerformanceSetting
                 .isDv7Hdr10FallbackEnabled()) return false;
-        if (earlyEvaluation && !MpvAutoOutputPolicy.canEvaluateWithoutTracks(width, height, externalSubtitleActive)) return false;
-        boolean subtitleActive = MpvAutoOutputPolicy.requiresGpuSubtitle(externalSubtitleActive, mpvExplicitSubtitlePreference);
+        if (earlyEvaluation && !MpvAutoOutputPolicy.canEvaluateWithoutTracks(width, height)) return false;
+        boolean subtitleActive = externalSubtitleActive || mpvExplicitSubtitlePreference;
         boolean lutOrFilterActive = videoEffectsActive || videoEffectsDirty || lutAllowed && LutSetting.isEnabled() || MpvPerformanceSetting.isInterpolation();
         boolean customGpuProcessing = MpvConfigStore.hasGpuVideoProcessing();
         boolean forceNativeDv7 = isDv7NativeAttemptRequested();
         MpvAutoOutputPolicy.Decision decision = forceNativeDv7
                 ? new MpvAutoOutputPolicy.Decision(true,
                 "dv7-native-attempt")
-                : MpvAutoOutputPolicy.evaluate(width, height, engine.isHard(), Util.isLeanback(), subtitleActive, lutOrFilterActive, customGpuProcessing);
+                : MpvAutoOutputPolicy.evaluate(width, height, engine.isHard(),
+                Util.isLeanback(), lutOrFilterActive, customGpuProcessing);
         mpvAutoOutputEvaluated = true;
         boolean currentlyDirect = isMpvSurfaceDirect();
         boolean effectiveEligible = MpvPerformanceSetting.isAutoSurfaceDirectEnabled() && decision.eligible();
@@ -4816,12 +5094,6 @@ public void resetTrack(int type) {
                                 PlaybackTelemetry.DecisionInput.number("probe_attempts", mpvAutoOutputProbeAttempts, PlaybackAutoContext.ValueSource.PLAYER_MANAGER, PlaybackAutoContext.Confidence.HIGH))),
                 SystemClock.elapsedRealtime());
         return true;
-    }
-
-    private boolean shouldLeaveAutoSurfaceDirectForSubtitle(List<Track> tracks) {
-        // mediacodec_embed uses a separate transparent OSD Surface, so subtitle
-        // selection no longer requires rebuilding the video through gpu-next.
-        return false;
     }
 
     private boolean hasRequestedSubtitle(List<Track> tracks) {
@@ -4917,6 +5189,38 @@ public void resetTrack(int type) {
         };
     }
 
+    private boolean retryMpvVulkanBackendFailure(PlaybackException error) {
+        if (mpvVulkanFallbackTried || error == null
+                || !(engine instanceof MpvPlayerEngine mpv)
+                || !mpv.shouldFallbackVulkanToStable()) return false;
+        String message = error.getMessage();
+        boolean outputFailure = error.errorCode
+                == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
+                || message != null
+                && message.startsWith(MpvPlayer.ERROR_VIDEO_OUTPUT_FAILED);
+        if (!outputFailure) return false;
+        return retryMpvVulkanBackendToStable(mpv, "direct-output-failure");
+    }
+
+    private boolean retryMpvVulkanBackendTimeout() {
+        if (mpvVulkanFallbackTried || !(engine instanceof MpvPlayerEngine mpv)
+                || !mpv.shouldFallbackVulkanToStable()) return false;
+        VideoSize size = mpv.getVideoSizeSnapshot();
+        if ((size == null || size.width <= 0 || size.height <= 0)
+                && getVideoWidth() <= 0 && getVideoHeight() <= 0) return false;
+        return retryMpvVulkanBackendToStable(mpv, "direct-first-frame-timeout");
+    }
+
+    private boolean retryMpvVulkanBackendToStable(MpvPlayerEngine mpv,
+                                                   String reason) {
+        mpvVulkanFallbackTried = true;
+        MpvVulkanBackendPolicy.rememberDirectFailure();
+        mpv.setVulkanBackendOverride(MpvVulkanBackendPolicy.STABLE);
+        PlaybackTrace.log("mpv-vulkan", playbackTrace.current(),
+                "backend direct failed; fallback stable once reason=%s", reason);
+        return rebuildAndRestartMpv(false, reason);
+    }
+
     private boolean isDv7NativeAttemptRequested() {
         if (!isMpv() || engine == null || !engine.isHard()
                 || PlaybackPerformanceSetting
@@ -4927,7 +5231,11 @@ public void resetTrack(int type) {
     }
 
     private PlayerEngine buildEngine(int type, int decode) {
-        if (type != PlayerSetting.EXO) exoSpeedRestoreState.clear();
+        if (type != PlayerSetting.EXO) {
+            exoSpeedRestoreState.clear();
+            mediaSignals.detachPipeline();
+            adAudioRuntime.suspend();
+        }
         PlayerEngine next = switch (type) {
             case PlayerSetting.IJK -> new IjkPlayerEngine(decode, listener);
             case PlayerSetting.SYSTEM -> new SystemPlayerEngine(decode, listener);
@@ -4947,11 +5255,63 @@ public void resetTrack(int type) {
                 public void onPrepareCanceled(int generation) {
                     cancelExoSpeedPrepare(generation);
                 }
-            });
+            }, mediaSignals, mediaClock);
         };
         ffmpegModeEngine = type == PlayerSetting.EXO ? PlayerSetting.getEffectiveFFmpegMode() : PlayerSetting.NONE;
         ffmpegModeEngineRefreshPending = false;
         return next;
+    }
+
+    private final class AdAudioPlaybackPort implements AdAudioRuntimeController.PlaybackPort {
+
+        @Override
+        public boolean isEligible(long sessionId, long generation) {
+            PlaybackMediaSignalHub.Session session = mediaSignals.session();
+            return session.id() == sessionId
+                    && session.generation() == generation
+                    && player != null
+                    && engine != null
+                    && spec != null
+                    && isExo()
+                    && player.getPlaybackState() == Player.STATE_READY
+                    && player.getCurrentMediaItem() != null
+                    && !player.isCurrentMediaItemLive()
+                    && player.getDuration() > 0L
+                    && player.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM);
+        }
+
+        @Override
+        public AdSkipCoordinator.PlaybackSnapshot snapshot(long sessionId, long generation) {
+            PlaybackMediaSignalHub.Session session = mediaSignals.session();
+            long position = player == null ? 0L : Math.max(0L, player.getCurrentPosition());
+            long duration = player == null ? C.TIME_UNSET : player.getDuration();
+            boolean live = player == null || player.isCurrentMediaItemLive();
+            boolean seekable = isEligible(session.id(), session.generation());
+            return new AdSkipCoordinator.PlaybackSnapshot(
+                    session.id(), session.generation(), position, duration,
+                    seekable, live, mediaClock.snapshot(SystemClock.elapsedRealtime()));
+        }
+
+        @Override
+        public AdSkipCoordinator.SeekResult seekTo(long sessionId, long generation, long positionMs) {
+            PlaybackMediaSignalHub.Session before = mediaSignals.session();
+            if (!isEligible(sessionId, generation)
+                    || before.id() != sessionId
+                    || before.generation() != generation) {
+                return AdSkipCoordinator.SeekResult.rejected(before.id(), before.generation());
+            }
+            long duration = player.getDuration();
+            long target = Math.max(0L, Math.min(positionMs, duration));
+            try {
+                PlayerManager.this.seekTo(target);
+            } catch (RuntimeException e) {
+                PlaybackMediaSignalHub.Session current = mediaSignals.session();
+                return AdSkipCoordinator.SeekResult.rejected(current.id(), current.generation());
+            }
+            PlaybackMediaSignalHub.Session after = mediaSignals.session();
+            return new AdSkipCoordinator.SeekResult(
+                    after.id() == sessionId, after.id(), after.generation());
+        }
     }
 
     public void browse(PlaySpec spec) {
@@ -4966,11 +5326,18 @@ public void resetTrack(int type) {
     }
 
     public void start(PlaySpec spec, long timeout, boolean playWhenReady) {
+        start(spec, timeout, playWhenReady, C.TIME_UNSET);
+    }
+
+    public void start(PlaySpec spec, long timeout, boolean playWhenReady, long positionMs) {
+        adAudioRuntime.suspend();
+        mediaSession.begin(0L);
         endPlaybackTelemetrySession("replace-start");
         prepareIjkRuntimeForUserPlayback();
         clearPendingSwitchRestore();
         clearDanmaku("start");
         this.spec = spec;
+        pendingInitialStartPositionMs = positionMs > 0 ? positionMs : C.TIME_UNSET;
         prepareMpvOutputForNewItem();
         beginPlaybackTrace("start", false);
         this.playWhenReady = playWhenReady;
@@ -4987,12 +5354,20 @@ public void resetTrack(int type) {
     }
 
     public void parse(String key, Result result, boolean useParse, MediaMetadata metadata, boolean playWhenReady) {
+        parse(key, result, useParse, metadata, playWhenReady, C.TIME_UNSET);
+    }
+
+    public void parse(String key, Result result, boolean useParse, MediaMetadata metadata,
+                      boolean playWhenReady, long positionMs) {
+        adAudioRuntime.suspend();
+        mediaSession.begin(0L);
         endPlaybackTelemetrySession("replace-parse");
         prepareIjkRuntimeForUserPlayback();
         stopParse();
         clearPendingSwitchRestore();
         clearDanmaku("parse");
         spec = PlaySpec.fromParse(result, key, metadata, useParse);
+        pendingInitialStartPositionMs = positionMs > 0 ? positionMs : C.TIME_UNSET;
         prepareMpvOutputForNewItem();
         beginPlaybackTrace("parse", false);
         this.playWhenReady = playWhenReady;
@@ -5198,7 +5573,9 @@ public void resetTrack(int type) {
         waitingLutBeforePlay = false;
         applySubtitleStyle();
         playbackTrace.mark(PlaybackTrace.Stage.PREPARE, "player=" + playerType + " decode=" + engine.getDecode());
-        startWithProxy(spec, playWhenReady);
+        long initialPositionMs = pendingInitialStartPositionMs;
+        pendingInitialStartPositionMs = C.TIME_UNSET;
+        startWithProxy(spec, initialPositionMs, playWhenReady);
         publishPlaybackTelemetry();
         schedulePlaybackTelemetry();
         scheduleMpvAutoOutputEvaluation();
@@ -5415,7 +5792,21 @@ public void resetTrack(int type) {
             if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "rebuild clean player before media item reason=prepare spec=%s", debugSpec());
             rebuildPlayer();
         }
+        if (shouldPreinstallDynamicLutPipeline()
+                && safeSetVideoEffects(dynamicLutEffect.effects(), "prepare_dynamic_passthrough")) {
+            lutPipelineReadyForItem = true;
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "preinstalled dynamic pipeline before playback spec=%s", debugSpec());
+            return;
+        }
         clearVideoEffects("prepare");
+    }
+
+    private boolean shouldPreinstallDynamicLutPipeline() {
+        return LutSetting.isEnabled()
+                && engine != null
+                && !engine.supportsNativeLut()
+                && canWarmLutPipeline()
+                && TextUtils.isEmpty(getLutUnavailableReason());
     }
 
     private boolean shouldPrepareLutBeforePlay() {
@@ -5432,12 +5823,6 @@ public void resetTrack(int type) {
 
     private void applyLut(boolean notify, boolean preview) {
         if (engine == null) return;
-        if (isMpvSurfaceDirect() && MpvPerformanceSetting.getOutputMode() == MpvPerformanceSetting.OUTPUT_AUTO && LutSetting.isEnabled()) {
-            mpvAutoOutputEvaluated = true;
-            mpvOutputEvaluationSeq++;
-            if (rebuildAndRestartMpv(false, "lut-enabled")) App.post(() -> applyLut(notify, preview), 200);
-            return;
-        }
         int seq = ++lutApplySeq;
         if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "request seq=%d notify=%s preview=%s enabled=%s preset=%s state=%s videoFormat=%s tracksEmpty=%s active=%s dirty=%s applied=%s applying=%s pendingPreview=%s", seq, notify, preview, LutSetting.isEnabled(), LutSetting.getPresetId(), stateName(player.getPlaybackState()), engine.getVideoFormat(), engine.getCurrentTracks() == null || engine.getCurrentTracks().isEmpty(), videoEffectsActive, videoEffectsDirty, lutAppliedForItem, lutApplyInProgress, pendingLutPreview);
         if (!lutAllowed) {
@@ -5533,12 +5918,11 @@ public void resetTrack(int type) {
         pendingLutPreview = false;
         int strength = LutSetting.getStrength();
         int previewSeconds = LutSetting.getPreviewSeconds();
-        long previewStartMs = preview && player != null ? Math.max(0, player.getCurrentPosition()) : 0;
         Task.execute(() -> {
             long start = System.currentTimeMillis();
             try {
-                MpvLutShader shader = MpvLutShaderFactory.create(preset, strength, preview, previewStartMs, previewSeconds);
-                if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-mpv", "create shader preset=%s format=%s strength=%d preview=%s start=%d seconds=%d cost=%dms", preset.getId(), preset.getFormat(), strength, preview, previewStartMs, previewSeconds, System.currentTimeMillis() - start);
+                MpvLutShader shader = MpvLutShaderFactory.create(preset, strength, preview);
+                if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-mpv", "create shader preset=%s format=%s strength=%d preview=%s seconds=%d clock=monotonic cost=%dms", preset.getId(), preset.getFormat(), strength, preview, previewSeconds, System.currentTimeMillis() - start);
                 App.post(() -> applyNativeLutShader(seq, shader, notify, preview));
             } catch (Throwable e) {
                 if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-mpv", "create shader failed preset=%s strength=%d error=%s", preset.getId(), strength, causeChain(e));
@@ -5575,13 +5959,23 @@ public void resetTrack(int type) {
     }
 
     private void scheduleNativeLutPreviewCommit(int seq) {
-        int delayMs = Math.max(1, LutSetting.getPreviewSeconds()) * 1000 + MpvLutShaderFactory.PREVIEW_SLIDE_MS;
-        App.post(() -> {
-            if (seq != lutApplySeq || engine == null || !engine.supportsNativeLut()) return;
-            if (!lutAllowed || !LutSetting.isEnabled()) return;
-            if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-mpv", "commit preview shader seq=%d delay=%d", seq, delayMs);
-            applyLut(false, false);
-        }, delayMs);
+        int holdMs = Math.max(1, LutSetting.getPreviewSeconds()) * 1000;
+        long slideStartMs = SystemClock.elapsedRealtime() + holdMs;
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-mpv", "preview scheduled seq=%d hold=%d slide=%d", seq, holdMs, MpvLutShaderFactory.PREVIEW_SLIDE_MS);
+        App.post(() -> updateNativeLutPreview(seq, slideStartMs), holdMs);
+    }
+
+    private void updateNativeLutPreview(int seq, long slideStartMs) {
+        if (seq != lutApplySeq || engine == null || !engine.supportsNativeLut()) return;
+        if (!lutAllowed || !LutSetting.isEnabled()) return;
+        long elapsedMs = Math.max(0, SystemClock.elapsedRealtime() - slideStartMs);
+        float progress = Math.min(1f, elapsedMs / (float) MpvLutShaderFactory.PREVIEW_SLIDE_MS);
+        engine.setNativeLutPreviewProgress(progress);
+        if (progress < 1f) {
+            App.post(() -> updateNativeLutPreview(seq, slideStartMs), LUT_PREVIEW_FRAME_INTERVAL_MS);
+            return;
+        }
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-mpv", "preview completed seq=%d elapsed=%d", seq, elapsedMs);
     }
 
     private void applyLutColor(int seq, ColorLut colorLut, boolean notify, boolean preview, int previewSeconds) {
@@ -5603,7 +5997,13 @@ public void resetTrack(int type) {
             return;
         }
         dynamicLutEffect.set(colorLut, preview, previewSeconds);
-        if (safeSetVideoEffects(dynamicLutEffect.effects(), preview ? "preview_dynamic" : "apply_dynamic")) {
+        boolean applied = videoEffectsActive;
+        if (applied) {
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "updated dynamic pipeline in place reason=%s preview=%s", preview ? "preview_dynamic" : "apply_dynamic", preview);
+        } else {
+            applied = safeSetVideoEffects(dynamicLutEffect.effects(), preview ? "preview_dynamic" : "apply_dynamic");
+        }
+        if (applied) {
             lutAppliedForItem = true;
             pendingLutPreview = false;
         } else {
@@ -5683,20 +6083,14 @@ public void resetTrack(int type) {
         lutAppliedForItem = false;
         lutApplyInProgress = false;
         dynamicLutEffect.clear();
-        long position = Math.max(0, getPosition());
-        boolean playWhenReady = player.getPlayWhenReady();
-        float speed = getSpeed();
         if (!safeSetVideoEffects(dynamicLutEffect.effects(), reason + "_prepare_dynamic_passthrough")) {
             lutPipelinePrepareInProgress = false;
             return true;
         }
         lutPipelineReadyForItem = true;
-        if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "prepare current item with effects reason=%s position=%d play=%s spec=%s", reason, position, playWhenReady, debugSpec());
-        startLutWarmupRecovery();
-        restartWithProxy(spec, position, playWhenReady);
-        if (speed != 1f) setSpeed(speed);
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "prepare current item with effects in place reason=%s state=%s spec=%s", reason, stateName(player.getPlaybackState()), debugSpec());
         lutPipelinePrepareInProgress = false;
-        return false;
+        return true;
     }
 
     private void startLutWarmupRecovery() {
@@ -5803,6 +6197,10 @@ public void resetTrack(int type) {
         if (empty && !videoEffectsActive) {
             if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "skip clear effects reason=%s", reason);
             return false;
+        }
+        if (!empty && videoEffectsActive) {
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("lut", "reuse active effects reason=%s", reason);
+            return true;
         }
         try {
             engine.setVideoEffects(empty ? Collections.emptyList() : effects);
@@ -6395,7 +6793,9 @@ public void resetTrack(int type) {
                 && player.getPlaybackState() == Player.STATE_BUFFERING;
         MpvHlsVariantController.RuntimeObservation observation =
                 new MpvHlsVariantController.RuntimeObservation(
-                        PlaybackPerformanceSetting.isAuto(PlayerSetting.MPV)
+                        PlaybackPerformanceSetting.isAuto(
+                                PlayerSetting.MPV,
+                                PlaybackPerformanceCatalog.MPV_HLS_BITRATE)
                                 && experimentAllowed(
                                 PlaybackExperimentPolicy.Action.MPV_HLS_RUNTIME_RELOAD),
                         isMpv(),
@@ -6735,6 +7135,7 @@ public void resetTrack(int type) {
         PlaybackTelemetry.Metric<Long> firstFrame = firstFrameMs < 0 ? PlaybackTelemetry.Metric.unknown()
                 : PlaybackTelemetry.Metric.of(firstFrameMs, PlaybackAutoContext.ValueSource.PLAYER_CALLBACK,
                 PlaybackAutoContext.Confidence.HIGH);
+        logMpvFrameTiming(now);
         return new PlaybackTelemetry.RuntimeObservation(
                 phase,
                 loading,
@@ -6751,6 +7152,24 @@ public void resetTrack(int type) {
                         PlaybackAutoContext.ValueSource.PLAYER_MANAGER, PlaybackAutoContext.Confidence.HIGH),
                 firstFrame,
                 liveLag);
+    }
+
+    private void logMpvFrameTiming(long now) {
+        if (!SpiderDebug.isEnabled() || !(engine instanceof MpvPlayerEngine mpv)) return;
+        if (now - lastMpvFrameTimingLogMs < MPV_FRAME_TIMING_LOG_INTERVAL_MS) return;
+        lastMpvFrameTimingLogMs = now;
+        MpvPlayer.FrameTimingSnapshot timing = mpv.getFrameTimingSnapshot();
+        PlaybackTrace.log("mpv-frame-timing", playbackTrace.current(),
+                "dec=%d out=%d mistimed=%d delayed=%d avSyncMs=%d contentFps=%.3f displayFps=%.3f direct=%s observed=%s",
+                timing.decoderDroppedFrames(),
+                timing.outputDroppedFrames(),
+                timing.mistimedFrames(),
+                timing.delayedFrames(),
+                Math.round(timing.avSyncSeconds() * 1000.0),
+                timing.contentFrameRate(),
+                timing.displayFrameRate(),
+                mpv.isSurfaceDirect(),
+                timing.observed());
     }
 
     private void evaluateExoRtspLiveLag(
@@ -7310,6 +7729,9 @@ public void resetTrack(int type) {
 
         void onReload(String msg);
 
+        default void onPlayerRenderRequired() {
+        }
+
         void onPlayerRebuild(Player newPlayer, boolean resetVideoSurface);
     }
 
@@ -7347,6 +7769,7 @@ public void resetTrack(int type) {
             publishPlaybackAutoContext(state != Player.STATE_IDLE);
             if (state == Player.STATE_READY) {
                 manualPlayerSwitchPending = false;
+                App.post(PlayerManager.this::refreshAdAudioRuntime);
                 ijkRuntimeProfileController.onPrepared(playbackAutoSession);
                 onMpvHlsPlaybackReady(SystemClock.elapsedRealtime());
                 if (isIjk()) {
@@ -7401,6 +7824,11 @@ public void resetTrack(int type) {
 
         @Override
         public void onPositionDiscontinuity(@NonNull Player.PositionInfo oldPosition, @NonNull Player.PositionInfo newPosition, int reason) {
+            if (reason != Player.DISCONTINUITY_REASON_SEEK) {
+                mediaSession.reset(Math.max(0L, newPosition.positionMs),
+                        PlaybackMediaSignalHub.ResetReason.SOURCE_CHANGED);
+                App.post(PlayerManager.this::refreshAdAudioRuntime);
+            }
             rtspLiveLagController.onPositionDiscontinuity(playbackAutoSession);
             ijkRealtimeRecoveryController.onPositionDiscontinuity(
                     playbackAutoSession);
@@ -7488,6 +7916,7 @@ public void resetTrack(int type) {
                     PlaybackAutoContext.PlaybackPhase.ERROR, false);
             if (recoverMpvHlsVariantError()) return;
             if (retryMpvSurfaceDirectFailure(e)) return;
+            if (retryMpvVulkanBackendFailure(e)) return;
             PlaybackErrorClassifier.Failure failure = PlaybackErrorClassifier.classify(e, getEffectivePlaybackRoute());
             PlayerEngine.ErrorAction action = engine.handleError(e);
             int statusCode = httpStatus(e);
@@ -7535,6 +7964,7 @@ public void resetTrack(int type) {
                 false, "timeout", SystemClock.elapsedRealtime(), true);
         PlaybackException e = new PlaybackException(ResUtil.getString(R.string.error_play_timeout), null, PlaybackException.ERROR_CODE_TIMEOUT);
         if (retryLutWarmupByRefresh("timeout")) return;
+        if (retryMpvVulkanBackendTimeout()) return;
         if (manualPlayerSwitchPending) {
             finishPlaybackProfileAbSession(
                     "manual-switch-timeout", SystemClock.elapsedRealtime());

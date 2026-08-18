@@ -171,9 +171,7 @@ public final class KernelPerformanceSetting {
     }
 
     public static void applyPreset(int kernel, int profile) {
-        if (profile == PlaybackPerformanceSetting.PROFILE_ORIGINAL) {
-            applyOriginal(kernel);
-        } else if (profile == PlaybackPerformanceSetting.PROFILE_LIGHTWEIGHT
+        if (profile == PlaybackPerformanceSetting.PROFILE_LIGHTWEIGHT
                 || profile == PlaybackPerformanceSetting.PROFILE_COMPATIBLE) {
             putBuffer(kernel, kernel == PlayerSetting.EXO ? exoBufferForPreset(profile)
                     : kernel == PlayerSetting.MPV ? mpvBufferForPreset(profile) : 5);
@@ -188,7 +186,7 @@ public final class KernelPerformanceSetting {
             putPreloadTimeSeconds(kernel, preloadTimeForPreset(profile));
             putPreloadAheadSeconds(kernel, PreloadSetting.DEFAULT_AHEAD_SECONDS);
             putPausePreloadPolicy(kernel, PreloadSetting.DEFAULT_PAUSE_PRELOAD);
-            putAudioPassThrough(kernel, false);
+            putAudioPassThrough(kernel, audioPassthroughForPreset(kernel));
             putPreferAac(kernel, true);
             putAudioPrefer(kernel, false);
             putVideoPrefer(kernel, false);
@@ -206,7 +204,7 @@ public final class KernelPerformanceSetting {
             putPreloadTimeSeconds(kernel, preloadTimeForPreset(profile));
             putPreloadAheadSeconds(kernel, PreloadSetting.DEFAULT_AHEAD_SECONDS);
             putPausePreloadPolicy(kernel, PreloadSetting.DEFAULT_PAUSE_PRELOAD);
-            putAudioPassThrough(kernel, false);
+            putAudioPassThrough(kernel, audioPassthroughForPreset(kernel));
             putPreferAac(kernel, false);
             putAudioPrefer(kernel, false);
             putVideoPrefer(kernel, false);
@@ -293,6 +291,10 @@ public final class KernelPerformanceSetting {
                  PlaybackPerformanceSetting.PROFILE_COMPATIBLE -> 0;
             default -> 2;
         };
+    }
+
+    static boolean audioPassthroughForPreset(int kernel) {
+        return PlayerSetting.sanitizePlayer(kernel) != PlayerSetting.IJK;
     }
 
     private static synchronized void ensureMigrated() {
