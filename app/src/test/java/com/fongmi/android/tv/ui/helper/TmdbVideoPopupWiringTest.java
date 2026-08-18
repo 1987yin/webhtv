@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class TmdbVideoPopupWiringTest {
@@ -139,12 +140,76 @@ public class TmdbVideoPopupWiringTest {
         assertTrue(source.contains("mBinding.control.action.next.setVisibility(View.GONE)"));
         assertTrue(source.contains("mBinding.control.action.prev.setVisibility(View.GONE)"));
         assertTrue(source.contains("mBinding.control.action.episodes.setVisibility(View.GONE)"));
+
+        String flagClick = methodBody(source, "public void onItemClick(Flag item)");
+        assertFalse("transient initialization must be able to select its first flag", flagClick.contains("if (isTransientPlayback()) return;"));
+        assertTrue(flagClick.contains("mFlagAdapter.setSelected(item)"));
+        String checkFlag = methodBody(source, "private void checkFlag(Vod item)");
+        assertTrue("detail initialization must continue through flag selection", checkFlag.contains("onItemClick(mHistory.getFlag())"));
+
+        String checkHistory = methodBody(source, "private boolean checkHistory(Vod item)");
+        assertTrue(checkHistory.contains("History resumeHistory = isTransientPlayback() ? null : getIntentResumeHistory();"));
+        assertTrue(checkHistory.contains("mHistory = createTransientSessionHistory(item);"));
+        assertTrue(checkHistory.indexOf("createTransientSessionHistory(item)") < checkHistory.indexOf("History.findPlayback("));
+        String transientState = methodBody(source, "private History createTransientSessionHistory(Vod item)");
+        assertTrue(transientState.contains("new History()"));
+        assertFalse(transientState.contains("History.find"));
+        assertFalse(transientState.contains(".save("));
+        assertFalse(transientState.contains(".delete("));
+        assertFalse(transientState.contains(".replace("));
+        assertFalse(transientState.contains("PlaybackEventCollector"));
+
+        String reloadHistory = methodBody(source, "private boolean reloadHistoryAfterTmdbMatch(TmdbItem matched)");
+        assertTrue(reloadHistory.indexOf("if (isTransientPlayback()) return false;")
+                < reloadHistory.indexOf("History.findPlayback("));
+        String updateVod = methodBody(source, "private void updateVod(Vod item)");
+        assertTrue(updateVod.contains("if (keyChanged && isTransientPlayback()) mHistory.setKey(nextKey);"));
+        assertTrue(updateVod.contains("else if (keyChanged) mHistory.replace(nextKey);"));
+        assertTrue(methodBody(source, "private void saveHistory(boolean exit)")
+                .contains("if (isTransientPlayback()) return;"));
+        assertTrue(methodBody(source, "private void syncHistory()")
+                .contains("if (isTransientPlayback()) return;"));
+        assertTrue(source.contains("if (!isTransientPlayback()) PlaybackEventCollector.get().onProgress(mHistory, player())"));
+
+        assertEquals("history publication must have one guarded exit", 1,
+                count(source, "PlaybackEventCollector.get().updateHistory(mHistory)"));
+        String publishHistory = methodBody(source, "private void publishPlaybackHistory()");
+        assertTrue(publishHistory.contains("if (isTransientPlayback() || mHistory == null) return;"));
+        assertTrue(publishHistory.contains("PlaybackEventCollector.get().updateHistory(mHistory)"));
         if (mobile) {
             assertTrue(source.contains("SiteApi.playerContentIsolated(key, flag, episode)"));
             assertTrue(source.contains("SiteApi.playerContentIsolated(key, flag, episode, nextType)"));
             assertTrue(source.contains("mBinding.control.next.setVisibility(View.GONE)"));
             assertTrue(source.contains("mBinding.control.prev.setVisibility(View.GONE)"));
+        } else {
+            String fastHistory = methodBody(source, "private void prepareFastTmdbPlaybackHistory(Vod item, Flag flag, Episode episode)");
+            assertTrue(fastHistory.indexOf("createTransientSessionHistory(item)")
+                    < fastHistory.indexOf("History.findPlayback("));
         }
+    }
+
+    private static String methodBody(String source, String signature) {
+        int start = source.indexOf(signature);
+        assertTrue("Missing method: " + signature, start >= 0);
+        int open = source.indexOf('{', start);
+        assertTrue("Missing method body: " + signature, open >= 0);
+        int depth = 0;
+        for (int i = open; i < source.length(); i++) {
+            char value = source.charAt(i);
+            if (value == '{') depth++;
+            if (value == '}' && --depth == 0) return source.substring(open + 1, i);
+        }
+        throw new AssertionError("Unclosed method: " + signature);
+    }
+
+    private static int count(String source, String value) {
+        int count = 0;
+        int index = 0;
+        while ((index = source.indexOf(value, index)) >= 0) {
+            count++;
+            index += value.length();
+        }
+        return count;
     }
 
     private static String read(String... parts) throws Exception {

@@ -1813,7 +1813,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 updateEpisodeFallbackStillUrl();
             }
             setMetadata();
-            PlaybackEventCollector.get().updateHistory(mHistory);
+            publishPlaybackHistory();
         }
         SpiderDebug.log("video-flow", "fast tmdb detail hydrate cost=%dms key=%s content=%s artwork=%s cache=%s", System.currentTimeMillis() - start, getKey(), !TextUtils.isEmpty(content), !TextUtils.isEmpty(artwork), cacheHit);
     }
@@ -1972,7 +1972,9 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void prepareFastTmdbPlaybackHistory(Vod item, Flag flag, Episode episode) {
-        mHistory = isTransientPlayback() ? null : History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), getHistoryTmdbItem(), currentSourceSeasonNumber(item));
+        mHistory = isTransientPlayback()
+                ? createTransientSessionHistory(item)
+                : History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), getHistoryTmdbItem(), currentSourceSeasonNumber(item));
         mHistory = mHistory == null ? createHistory(item) : mHistory;
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
@@ -1985,7 +1987,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.control.action.ending.setText(mHistory.getEnding() <= 0 ? getString(R.string.play_ed) : Util.timeMs(mHistory.getEnding()));
         float speed = getPlaybackSpeed();
         mBinding.control.action.speed.setText(player().setSpeed(speed));
-        if (!isTransientPlayback()) PlaybackEventCollector.get().updateHistory(mHistory);
+        publishPlaybackHistory();
     }
 
     private void selectFastTmdbPlaybackEpisode(Vod item, Flag selectedFlag, Episode selectedEpisode) {
@@ -2566,7 +2568,6 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     @Override
     public void onItemClick(Flag item) {
-        if (isTransientPlayback()) return;
         if (mFlagAdapter.getItemCount() == 0 || item.isSelected()) return;
         Flag previous = getFlag();
         SpiderDebug.log("playback-action", "flag switch ui=leanback site=%s from=%s to=%s fullscreen=%s", getKey(), previous == null ? "" : previous.getFlag(), item.getFlag(), isFullscreen());
@@ -4141,14 +4142,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private boolean checkHistory(Vod item) {
         TmdbItem tmdbItem = getHistoryTmdbItem();
-        History resumeHistory = getIntentResumeHistory();
+        History resumeHistory = isTransientPlayback() ? null : getIntentResumeHistory();
         if (hasIntentResumeHistory() && resumeHistory == null) {
             Notify.show(R.string.history_record_missing);
             finish();
             return false;
         }
         if (isTransientPlayback()) {
-            mHistory = createHistory(item);
+            mHistory = createTransientSessionHistory(item);
         } else {
             mHistory = resumeHistory == null
                     ? History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), tmdbItem, currentSourceSeasonNumber(item))
@@ -4167,7 +4168,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mHistory.setVodName(item.getName());
         mHistory.setVodPic(getInitialArtwork(item));
         enrichHistoryMeta(item);
-        if (!isTransientPlayback()) PlaybackEventCollector.get().updateHistory(mHistory);
+        publishPlaybackHistory();
         setArtwork(getInitialArtwork(item));
         setScale(getScale());
         setPartAdapter();
@@ -4237,6 +4238,17 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         history.setWallPic(getWallPic());
         history.findEpisode(item.getFlags());
         return history;
+    }
+
+    private History createTransientSessionHistory(Vod item) {
+        History session = new History();
+        session.setKey(getHistoryKey());
+        session.setCid(VodConfig.getCid());
+        session.setVodName(item.getName());
+        session.setVodPic(getInitialArtwork(item));
+        session.setWallPic(getWallPic());
+        session.findEpisode(item.getFlags());
+        return session;
     }
 
     /**
@@ -4393,7 +4405,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mHistory.setVodRemarks(getHistoryEpisodeName(item));
         mHistory.setEpisodeUrl(item.getUrl());
         if (historyEpisode.getTmdbEpisode() != null || !sameEpisode) mHistory.setTmdbEpisodePosition(historyEpisode);
-        PlaybackEventCollector.get().updateHistory(mHistory);
+        publishPlaybackHistory();
     }
 
     private void checkKeepImg() {
@@ -4432,7 +4444,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             if (mHistory != null) {
                 String nextKey = getHistoryKey();
                 keyChanged = !TextUtils.equals(mHistory.getKey(), nextKey);
-                if (keyChanged) mHistory.replace(nextKey);
+                if (keyChanged && isTransientPlayback()) mHistory.setKey(nextKey);
+                else if (keyChanged) mHistory.replace(nextKey);
             }
         }
         boolean historyReloaded = reloadHistoryAfterTmdbMatch();
@@ -4456,7 +4469,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (pic || name) updateKeep();
         if (id) updateNavigationKey();
         if (name) setPartAdapter();
-        PlaybackEventCollector.get().updateHistory(mHistory);
+        publishPlaybackHistory();
         setText(item);
         if (shouldUseTmdbLayout()) suppressTmdbNativeTextFields();
     }
@@ -4795,7 +4808,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         position = mHistory.getPosition();
         duration = mHistory.getDuration();
         android.util.Log.d("VideoActivity", "onTimeChanged: position=" + position + " duration=" + duration + " canSave=" + mHistory.canSave());
-        PlaybackEventCollector.get().onProgress(mHistory, player());
+        if (!isTransientPlayback()) PlaybackEventCollector.get().onProgress(mHistory, player());
         if (mHistory.canSave() && mHistory.canSync()) syncHistory();
         if (applyAutoIntroSkip()) return;
         if (mHistory.getEnding() > 0 && duration > 0 && mHistory.getEnding() + position >= duration) {
@@ -4810,6 +4823,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (position > 0) mHistory.setPosition(position);
         if (duration > 0) mHistory.setDuration(duration);
         else if (mHistory.getDuration() < 0) mHistory.setDuration(0);
+        publishPlaybackHistory();
+    }
+
+    private void publishPlaybackHistory() {
+        if (isTransientPlayback() || mHistory == null) return;
         PlaybackEventCollector.get().updateHistory(mHistory);
     }
 
