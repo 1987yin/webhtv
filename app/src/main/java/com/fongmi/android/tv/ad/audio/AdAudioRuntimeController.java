@@ -3,9 +3,10 @@ package com.fongmi.android.tv.ad.audio;
 import com.fongmi.android.tv.player.audio.PlaybackMediaClock;
 import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 
-import java.util.Objects;
+import java.util.HashSet;
 import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,6 +28,11 @@ public final class AdAudioRuntimeController implements AutoCloseable {
         AdAudioSignalProvider create(ProbeRuleSidecar sidecar);
     }
 
+    @FunctionalInterface
+    public interface SpeechProviderFactory {
+        AdAudioSignalProvider create();
+    }
+
     private static final int RUNTIME_CANDIDATE_CAPACITY = 1_024;
 
     private final PlaybackMediaSignalHub hub;
@@ -36,6 +42,7 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     private final Executor worker;
     private final Runnable workerShutdown;
     private final ProbeProviderFactory probeProviderFactory;
+    private final SpeechProviderFactory speechProviderFactory;
     private final AdAudioDiagnostics diagnostics = new AdAudioDiagnostics();
 
     private AdAudioRuleSnapshot snapshot = new AdAudioRuleSnapshot(
@@ -44,9 +51,11 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     private AdSkipCoordinator coordinator;
     private PcmAdAudioSignalProvider pcmProvider;
     private AdAudioSignalProvider probeProvider;
+    private AdAudioSignalProvider speechProvider;
     private AdAudioDetectionMultiplexer multiplexer;
     private AdSkipPolicyController policy;
     private AdSkipPolicyController.Mode skipMode = AdSkipPolicyController.Mode.PROMPT;
+    private SpeechAdConfig speechConfig = SpeechAdConfig.defaults();
     private boolean enabled;
     private boolean closed;
 
@@ -59,21 +68,33 @@ public final class AdAudioRuntimeController implements AutoCloseable {
                                      AdAudioRuleSource ruleSource, PlaybackPort playback,
                                      Worker worker) {
         this(hub, clock, ruleSource, playback, worker.executor,
-                worker.executor::shutdownNow, ignored ->
-                        new NoopAdAudioSignalProvider("probe"));
+                worker.executor::shutdownNow,
+                ignored -> new NoopAdAudioSignalProvider("probe"),
+                () -> new NoopAdAudioSignalProvider(SpeechAdSignalProvider.ID));
     }
 
     AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
                              AdAudioRuleSource ruleSource, PlaybackPort playback,
                              Executor worker, Runnable workerShutdown) {
         this(hub, clock, ruleSource, playback, worker, workerShutdown,
-                ignored -> new NoopAdAudioSignalProvider("probe"));
+                ignored -> new NoopAdAudioSignalProvider("probe"),
+                () -> new NoopAdAudioSignalProvider(SpeechAdSignalProvider.ID));
     }
 
     AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
                              AdAudioRuleSource ruleSource, PlaybackPort playback,
                              Executor worker, Runnable workerShutdown,
                              ProbeProviderFactory probeProviderFactory) {
+        this(hub, clock, ruleSource, playback, worker, workerShutdown,
+                probeProviderFactory,
+                () -> new NoopAdAudioSignalProvider(SpeechAdSignalProvider.ID));
+    }
+
+    AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
+                             AdAudioRuleSource ruleSource, PlaybackPort playback,
+                             Executor worker, Runnable workerShutdown,
+                             ProbeProviderFactory probeProviderFactory,
+                             SpeechProviderFactory speechProviderFactory) {
         this.hub = Objects.requireNonNull(hub, "hub");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.ruleSource = Objects.requireNonNull(ruleSource, "ruleSource");
@@ -82,6 +103,8 @@ public final class AdAudioRuntimeController implements AutoCloseable {
         this.workerShutdown = workerShutdown;
         this.probeProviderFactory = Objects.requireNonNull(
                 probeProviderFactory, "probeProviderFactory");
+        this.speechProviderFactory = Objects.requireNonNull(
+                speechProviderFactory, "speechProviderFactory");
     }
 
     public synchronized void start(boolean enabled) {
@@ -131,8 +154,7 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     }
 
     public synchronized boolean needsPipelineRebuild() {
-        return pcmProvider != null && pcmProvider.state()
-                == AdAudioSignalProvider.ProviderState.RUNNING
+        return hub.isCaptureRequested(PlaybackMediaSignalHub.ConsumerKind.AD_AUDIO)
                 && !hub.isPipelineAttached();
     }
 
@@ -151,7 +173,16 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     public synchronized void setSkipMode(AdSkipPolicyController.Mode mode) {
         if (closed) return;
         skipMode = Objects.requireNonNull(mode, "mode");
-        if (policy != null) policy.setMode(mode);
+        if (policy != null) installModeResolver(policy);
+    }
+
+    public synchronized void setSpeechConfig(SpeechAdConfig config) {
+        if (closed) return;
+        SpeechAdConfig next = Objects.requireNonNull(config, "config");
+        boolean rebuild = !next.equals(speechConfig);
+        speechConfig = next;
+        if (policy != null) installModeResolver(policy);
+        if (rebuild) reconfigureLocked();
     }
 
     public AdAudioDiagnostics.Snapshot diagnostics() {
@@ -197,7 +228,9 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     }
 
     private void refreshLocked() {
-        if (!enabled || ui == null || snapshot.hasError() || !snapshot.hasRules()) {
+        boolean fingerprintReady = enabled && !snapshot.hasError() && snapshot.hasRules();
+        boolean speechReady = speechConfig.enabled() && !speechConfig.keywords().isEmpty();
+        if (ui == null || (!fingerprintReady && !speechReady)) {
             deactivateLocked();
             return;
         }
@@ -206,15 +239,19 @@ public final class AdAudioRuntimeController implements AutoCloseable {
             deactivateLocked();
             return;
         }
-        if (multiplexer != null && isActiveLocked()) {
-            publishHostPositionLocked(session);
-            return;
+        if (multiplexer != null) {
+            if (isActiveLocked()) {
+                publishHostPositionLocked(session);
+                return;
+            }
+            deactivateLocked();
         }
-        activateLocked(session);
+        activateLocked(session, fingerprintReady, speechReady);
         publishHostPositionLocked(session);
     }
 
-    private void activateLocked(PlaybackMediaSignalHub.Session session) {
+    private void activateLocked(PlaybackMediaSignalHub.Session session,
+                                boolean fingerprintReady, boolean speechReady) {
         AdSkipCoordinator currentCoordinator = coordinator;
         if (currentCoordinator == null) return;
         AdAudioSignalProvider.SessionContext context;
@@ -229,11 +266,12 @@ public final class AdAudioRuntimeController implements AutoCloseable {
             return;
         }
 
+        AdAudioRuleSnapshot routingSnapshot = routingSnapshotLocked();
         AdSkipPolicyController nextPolicy = new AdSkipPolicyController(
-                context, snapshot.version(), RUNTIME_CANDIDATE_CAPACITY,
+                context, routingSnapshot.version(), RUNTIME_CANDIDATE_CAPACITY,
                 currentCoordinator::onCandidate,
                 currentCoordinator::onAutoCandidate);
-        nextPolicy.setMode(skipMode);
+        installModeResolver(nextPolicy);
         AdAudioDetectionMultiplexer[] muxHolder = new AdAudioDetectionMultiplexer[1];
         AdAudioSignalProvider.Listener output = new AdAudioSignalProvider.Listener() {
             @Override
@@ -254,51 +292,78 @@ public final class AdAudioRuntimeController implements AutoCloseable {
 
             @Override
             public void onTimelineReset(AdAudioSignalProvider.TimelineReset reset) {
+                PcmAdAudioSignalProvider currentPcm;
                 AdAudioSignalProvider currentProbe;
+                AdAudioSignalProvider currentSpeech;
                 synchronized (AdAudioRuntimeController.this) {
                     if (multiplexer != muxHolder[0] || policy != nextPolicy
                             || coordinator != currentCoordinator) return;
+                    currentPcm = pcmProvider;
                     currentProbe = probeProvider;
+                    currentSpeech = speechProvider;
                 }
                 nextPolicy.onTimelineReset(reset);
                 currentCoordinator.onTimelineReset(new PlaybackMediaSignalHub.Lifecycle(
                         reset.sessionId(), reset.generation(),
                         PlaybackMediaSignalHub.ResetReason.valueOf(reset.reason().name()),
                         reset.mediaAnchorMs()));
+                notifyTimelineReset(currentPcm, reset);
                 notifyTimelineReset(currentProbe, reset);
+                notifyTimelineReset(currentSpeech, reset);
             }
         };
+        Set<String> allowedRuleIds = new HashSet<>();
+        if (fingerprintReady) {
+            snapshot.ruleSet().rules().stream()
+                    .map(AudioFingerprintRule::id)
+                    .forEach(allowedRuleIds::add);
+        }
+        if (speechReady) allowedRuleIds.add(SpeechAdSignalProvider.RULE_ID);
         AdAudioDetectionMultiplexer nextMux = new AdAudioDetectionMultiplexer(
-                context, snapshot.version(), snapshot.ruleSet().rules().stream()
-                        .map(AudioFingerprintRule::id).collect(Collectors.toUnmodifiableSet()),
+                context, routingSnapshot.version(), Set.copyOf(allowedRuleIds),
                 RUNTIME_CANDIDATE_CAPACITY, output);
         muxHolder[0] = nextMux;
-        PcmAdAudioSignalProvider nextPcm = new PcmAdAudioSignalProvider(
-                hub, worker, diagnostics);
-        AdAudioSignalProvider nextProbe = createProbeProviderLocked();
+        PcmAdAudioSignalProvider nextPcm = fingerprintReady
+                ? new PcmAdAudioSignalProvider(hub, worker, diagnostics) : null;
+        AdAudioSignalProvider nextProbe = fingerprintReady
+                ? createProbeProviderLocked() : null;
+        AdAudioSignalProvider nextSpeech = speechReady
+                ? createSpeechProviderLocked() : null;
 
         policy = nextPolicy;
         multiplexer = nextMux;
         pcmProvider = nextPcm;
         probeProvider = nextProbe;
+        speechProvider = nextSpeech;
 
-        startProvider(nextPcm, true, context, nextMux);
-        startProvider(nextProbe, snapshot.probeAvailable(), context, nextMux);
-        if (nextPcm.state() != AdAudioSignalProvider.ProviderState.RUNNING) {
+        startProvider(nextPcm, true, context, routingSnapshot, nextMux);
+        startProvider(nextProbe, snapshot.probeAvailable(), context, routingSnapshot, nextMux);
+        startProvider(nextSpeech, true, context, routingSnapshot, nextMux);
+        if (nextPcm != null && !isRunning(nextPcm)) {
             closeProvider(nextPcm);
             if (pcmProvider == nextPcm) pcmProvider = null;
         }
+        if (nextProbe != null && !isRunning(nextProbe)) {
+            closeProvider(nextProbe);
+            if (probeProvider == nextProbe) probeProvider = null;
+        }
+        if (nextSpeech != null && !isRunning(nextSpeech)) {
+            closeProvider(nextSpeech);
+            if (speechProvider == nextSpeech) speechProvider = null;
+        }
     }
-
     private void deactivateLocked() {
         PcmAdAudioSignalProvider oldPcm = pcmProvider;
         AdAudioSignalProvider oldProbe = probeProvider;
+        AdAudioSignalProvider oldSpeech = speechProvider;
         AdAudioDetectionMultiplexer oldMux = multiplexer;
         AdSkipPolicyController oldPolicy = policy;
         pcmProvider = null;
         probeProvider = null;
+        speechProvider = null;
         multiplexer = null;
         policy = null;
+        closeProvider(oldSpeech);
         closeProvider(oldProbe);
         closeProvider(oldPcm);
         if (oldMux != null) oldMux.close();
@@ -306,7 +371,8 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     }
 
     private boolean isActiveLocked() {
-        return isRunning(pcmProvider) || isRunning(probeProvider);
+        return isRunning(pcmProvider) || isRunning(probeProvider)
+                || isRunning(speechProvider);
     }
 
     private void publishHostPositionLocked(PlaybackMediaSignalHub.Session session) {
@@ -329,6 +395,7 @@ public final class AdAudioRuntimeController implements AutoCloseable {
         multiplexer.onHostPosition(position);
         notifyHostPosition(pcmProvider, position);
         notifyHostPosition(probeProvider, position);
+        notifyHostPosition(speechProvider, position);
     }
 
     private AdAudioSignalProvider createProbeProviderLocked() {
@@ -345,16 +412,42 @@ public final class AdAudioRuntimeController implements AutoCloseable {
 
     private void startProvider(AdAudioSignalProvider provider, boolean providerEnabled,
                                AdAudioSignalProvider.SessionContext context,
+                               AdAudioRuleSnapshot routingSnapshot,
                                AdAudioSignalProvider.Listener listener) {
+        if (provider == null) return;
         try {
             provider.setEnabled(providerEnabled);
-            provider.start(context, snapshot, listener);
+            provider.start(context, routingSnapshot, listener);
         } catch (RuntimeException e) {
             diagnostics.record(AdAudioDiagnostics.Code.MATCHER_ERROR);
             closeProvider(provider);
         }
     }
 
+    private AdAudioSignalProvider createSpeechProviderLocked() {
+        try {
+            AdAudioSignalProvider provider = speechProviderFactory.create();
+            return provider == null
+                    ? new NoopAdAudioSignalProvider(SpeechAdSignalProvider.ID)
+                    : provider;
+        } catch (RuntimeException e) {
+            diagnostics.record(AdAudioDiagnostics.Code.MATCHER_ERROR);
+            return new NoopAdAudioSignalProvider(SpeechAdSignalProvider.ID);
+        }
+    }
+
+    private AdAudioRuleSnapshot routingSnapshotLocked() {
+        if (!snapshot.version().isEmpty()) return snapshot;
+        return new AdAudioRuleSnapshot(
+                snapshot.sourceId(), "speech-runtime-v1", snapshot.ruleSet(),
+                snapshot.warnings(), snapshot.lastError(), snapshot.probeSidecar());
+    }
+
+    private void installModeResolver(AdSkipPolicyController target) {
+        target.setMode(skipMode);
+        target.setModeResolver(providerId -> SpeechAdSignalProvider.ID.equals(providerId)
+                ? speechConfig.mode() : skipMode);
+    }
     private static boolean isRunning(AdAudioSignalProvider provider) {
         return provider != null
                 && provider.state() == AdAudioSignalProvider.ProviderState.RUNNING;

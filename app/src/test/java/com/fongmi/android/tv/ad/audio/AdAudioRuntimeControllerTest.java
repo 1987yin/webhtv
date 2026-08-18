@@ -267,6 +267,85 @@ public class AdAudioRuntimeControllerTest {
         runtime.close();
     }
 
+    @Test
+    public void speechRunsWithoutFingerprintRulesAndUsesItsOwnAutoMode() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSignalProvider speech = new FakeSignalProvider(SpeechAdSignalProvider.ID);
+        AdAudioRuntimeController runtime = runtimeWithProviders(
+                hub, playback, emptySnapshot(),
+                ignored -> new NoopAdAudioSignalProvider("probe"), () -> speech);
+        FakeUiPort ui = new FakeUiPort();
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "\u8d4c\u573a", 15, "AUTO"));
+        runtime.start(false);
+        runtime.bindUi(ui);
+
+        assertEquals(AdAudioSignalProvider.ProviderState.RUNNING, speech.state());
+        speech.emit(SpeechAdSignalProvider.RULE_ID, 10_000L, 25_000L);
+        assertEquals(List.of(25_000L), playback.seekTargets);
+        assertEquals(0, ui.candidateShows);
+        runtime.close();
+    }
+
+    @Test
+    public void speechStartFailureDoesNotStopPcmOrProbe() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSignalProvider probe = new FakeSignalProvider("probe");
+        FakeSignalProvider speech = new FakeSignalProvider(SpeechAdSignalProvider.ID);
+        speech.failOnStart = true;
+        AdAudioRuntimeController runtime = runtimeWithProviders(
+                hub, playback, snapshotForRuleWithSidecar("ad"),
+                ignored -> probe, () -> speech);
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "\u8d4c\u573a", 15, "PROMPT"));
+        runtime.start(true);
+        runtime.bindUi(new FakeUiPort());
+
+        assertEquals(AdAudioSignalProvider.ProviderState.RUNNING, probe.state());
+        assertTrue(runtime.isActive());
+        assertTrue(hub.isCaptureRequested(PlaybackMediaSignalHub.ConsumerKind.AD_AUDIO));
+        runtime.close();
+    }
+
+    @Test
+    public void speechModeSwitchAffectsOnlyFutureSpeechCandidates() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        List<FakeSignalProvider> speeches = new ArrayList<>();
+        AdAudioRuntimeController runtime = runtimeWithProviders(
+                hub, playback, emptySnapshot(),
+                ignored -> new NoopAdAudioSignalProvider("probe"), () -> {
+                    FakeSignalProvider provider = new FakeSignalProvider(
+                            SpeechAdSignalProvider.ID);
+                    speeches.add(provider);
+                    return provider;
+                });
+        FakeUiPort ui = new FakeUiPort();
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "\u8d4c\u573a", 15, "PROMPT"));
+        runtime.start(false);
+        runtime.bindUi(ui);
+        speeches.get(0).emit(SpeechAdSignalProvider.RULE_ID, 1_000L, 16_000L);
+        ui.actions.ignore();
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "\u8d4c\u573a", 15, "AUTO"));
+        speeches.get(1).emit(SpeechAdSignalProvider.RULE_ID, 30_000L, 45_000L);
+
+        assertEquals(1, ui.candidateShows);
+        assertEquals(List.of(45_000L), playback.seekTargets);
+        assertEquals(AdAudioSignalProvider.ProviderState.CLOSED,
+                speeches.get(0).state());
+        runtime.close();
+    }
     private static AdAudioRuntimeController runtime(
             PlaybackMediaSignalHub hub, FakePlaybackPort playback, AdAudioRuleSnapshot snapshot) {
         return new AdAudioRuntimeController(
@@ -283,6 +362,15 @@ public class AdAudioRuntimeControllerTest {
                 Runnable::run, () -> { }, factory);
     }
 
+    private static AdAudioRuntimeController runtimeWithProviders(
+            PlaybackMediaSignalHub hub, FakePlaybackPort playback,
+            AdAudioRuleSnapshot snapshot,
+            AdAudioRuntimeController.ProbeProviderFactory probeFactory,
+            AdAudioRuntimeController.SpeechProviderFactory speechFactory) {
+        return new AdAudioRuntimeController(
+                hub, new PlaybackMediaClock(500L), () -> snapshot, playback,
+                Runnable::run, () -> { }, probeFactory, speechFactory);
+    }
     private static AdAudioRuleSnapshot goodSnapshot() {
         return snapshotForRule("ad");
     }
@@ -435,9 +523,12 @@ public class AdAudioRuntimeControllerTest {
     private static final class FakeSignalProvider implements AdAudioSignalProvider {
         private final String id;
         private Listener listener;
+        private SessionContext context;
+        private String ruleVersion;
         private ProviderState state = ProviderState.DISABLED;
         private int starts;
         private int closes;
+        private boolean failOnStart;
 
         private FakeSignalProvider(String id) {
             this.id = id;
@@ -450,6 +541,9 @@ public class AdAudioRuntimeControllerTest {
 
         @Override
         public void start(SessionContext context, AdAudioRuleSnapshot rules, Listener listener) {
+            if (failOnStart) throw new IllegalStateException("start failed");
+            this.context = context;
+            this.ruleVersion = rules.version();
             this.listener = listener;
             starts++;
             state = ProviderState.RUNNING;
@@ -482,6 +576,12 @@ public class AdAudioRuntimeControllerTest {
 
         private void emit(AdAudioCandidate candidate) {
             listener.onCandidate(candidate);
+        }
+
+        private void emit(String ruleId, long startMs, long endMs) {
+            listener.onCandidate(new AdAudioCandidate(
+                    context.sessionId(), context.generation(), ruleId, ruleVersion,
+                    startMs, endMs, true, 1.0d, id));
         }
 
         private void fail(ErrorCode code) {
