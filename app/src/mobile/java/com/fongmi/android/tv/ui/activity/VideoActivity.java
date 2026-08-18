@@ -4032,9 +4032,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     @Override
     public void onLutSelected(LutPreset preset) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-ui", "activity select preset=%s enabledBefore=%s current=%s", preset == null ? "original" : preset.getId(), LutSetting.isEnabled(), LutSetting.getPresetId());
-        LutSetting.select(preset);
-        if (preset == null) player().applyLut(true);
-        else player().applyLutPreview(true);
+        if (!player().selectLut(preset, preset != null)) return;
         setLut();
         setR1Callback();
     }

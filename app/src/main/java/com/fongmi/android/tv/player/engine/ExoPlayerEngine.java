@@ -39,6 +39,7 @@ import com.fongmi.android.tv.setting.ExoPerformanceSetting;
 import com.fongmi.android.tv.setting.PlaybackPerformanceSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.HashSet;
 import java.util.List;
@@ -583,6 +584,14 @@ public void resetTrack(int type) {
 
     @Override
     public void setVideoEffects(List<Effect> effects) {
+        if (SpiderDebug.isEnabled()) {
+            Format format = getVideoFormat();
+            SpiderDebug.log("lut-exo", "set effects=%d state=%d position=%d video=%s",
+                    effects == null ? 0 : effects.size(),
+                    player.getPlaybackState(),
+                    player.getCurrentPosition(),
+                    format == null ? "unknown" : format.width + "x" + format.height + "/" + format.sampleMimeType);
+        }
         player.setVideoEffects(effects);
     }
 
@@ -625,15 +634,17 @@ public void resetTrack(int type) {
                 PlaybackAnalyticsListener.getPlaybackTraceId());
         ExoDolbyVisionPlaybackState.Snapshot fallback =
                 dolbyVisionPlaybackState.snapshot();
+        boolean transformed = fallback.hdr10FallbackActive()
+                || fallback.p81ConversionActive();
         Format selected = TrackUtil.explicitlySelectedFormat(
                 getCurrentTracks(), C.TRACK_TYPE_VIDEO);
         Format runtime = currentAnalyticsSession
                 ? analytics.videoFormat() : null;
-        Format source = fallback.hdr10FallbackActive()
+        Format source = transformed
                 && fallback.sourceFormat() != null
                 ? fallback.sourceFormat()
                 : selected != null ? selected : runtime;
-        Format output = fallback.hdr10FallbackActive()
+        Format output = transformed
                 && fallback.outputFormat() != null
                 ? fallback.outputFormat()
                 : runtime != null ? runtime : player.getVideoFormat();
@@ -652,7 +663,8 @@ public void resetTrack(int type) {
                 currentAnalyticsSession ? analytics.videoDecoderName() : "",
                 "",
                 output == null ? null : output.colorInfo,
-                fallback.hdr10FallbackActive());
+                fallback.hdr10FallbackActive(),
+                fallback.p81ConversionActive());
     }
 
     @Override

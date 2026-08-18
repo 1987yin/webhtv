@@ -15,22 +15,24 @@ public class MpvSurfaceLifecycleSourceTest {
     @Test
     public void sameSurfaceResizeUpdatesSizeWithoutDetachingNativeSurface() throws Exception {
         String method = methodBody(readMpvPlayer(), "private void bindVideoOutput()", "private void clearVideoOutput()");
-        int fastPathStart = method.indexOf("if (sameVideoSurface && sameOsdSurface)");
+        int fastPathStart = method.indexOf("if (sameVideoSurface)");
         int replacementPathStart = method.indexOf(
                 "if (surfaceAttached || osdSurfaceAttached) detachMpvSurface();",
                 fastPathStart);
 
-        assertTrue("Missing same video/OSD surface fast path", fastPathStart >= 0);
-        assertTrue("Missing replacement video/OSD surface detach path", replacementPathStart > fastPathStart);
+        assertTrue("Missing same-video-surface fast path", fastPathStart >= 0);
+        assertTrue("Missing replacement surface detach path", replacementPathStart > fastPathStart);
 
         String fastPath = method.substring(fastPathStart, replacementPathStart);
         assertTrue("Same-surface resize must refresh the holder dimensions", fastPath.contains("updateSurfaceSize(surfaceHolder)"));
+        assertTrue("Same video surface must reconcile the independently managed OSD surface", fastPath.contains("reconcileOsdSurface()"));
         assertFalse("Same-surface resize must not race native VO teardown", fastPath.contains("detachMpvSurface()"));
     }
 
     @Test
     public void contextShutdownTimeoutKeepsOldContextMarkedAsDestroying() throws Exception {
         String source = readMpvLib();
+        String playerSource = readMpvPlayer();
         String initializeContext = methodBody(
                 source,
                 "public static synchronized void initializeCreatedContext()",
@@ -44,9 +46,13 @@ public class MpvSurfaceLifecycleSourceTest {
                 "private static boolean awaitContextShutdown()",
                 "public static synchronized void destroyCreatedContext()");
         String ensureInitialized = methodBody(
-                readMpvPlayer(),
+                playerSource,
                 "private void ensureInitialized()",
                 "private void applyPreInitOptions()");
+        String initWrapper = methodBody(
+                playerSource,
+                "private void mpvInit()",
+                "private void mpvDestroyCreatedContext()");
 
         assertTrue("Creation must stop while the previous native context is still shutting down",
                 tryCreate.contains("if (!awaitContextShutdown()) return false;"));
@@ -66,8 +72,10 @@ public class MpvSurfaceLifecycleSourceTest {
                 initializeContext.contains("contextCreated = false;"));
         assertTrue("A failed native init call must clear the attempt guard",
                 initializeContext.contains("contextCreationAttempted = false;"));
-        assertTrue("MpvPlayer must use the lifecycle-safe init wrapper",
-                ensureInitialized.contains("MPVLib.initializeCreatedContext();"));
+        assertTrue("MpvPlayer initialization must use the instrumented init wrapper",
+                ensureInitialized.contains("mpvInit();"));
+        assertTrue("The init wrapper must call the lifecycle-safe MPVLib initializer",
+                initWrapper.contains("MPVLib.initializeCreatedContext();"));
     }
 
     private static String readMpvPlayer() throws IOException {

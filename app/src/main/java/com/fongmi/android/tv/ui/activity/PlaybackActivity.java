@@ -16,6 +16,7 @@ import android.view.WindowManager;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
+import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Format;
@@ -335,6 +336,11 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     protected void startPlayer(String key, Result result, boolean useParse, long timeout, MediaMetadata metadata) {
+        startPlayer(key, result, useParse, timeout, metadata, C.TIME_UNSET);
+    }
+
+    protected void startPlayer(String key, Result result, boolean useParse, long timeout,
+                               MediaMetadata metadata, long startPositionMs) {
         if (rejectUnsupportedDrm(key, result)) {
             return;
         } else if (result.getDrm() != null && !FrameworkMediaDrm.isCryptoSchemeSupported(result.getDrm().getUUID())) {
@@ -346,11 +352,11 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         } else if (result.needParse() || useParse) {
             preparedPlaybackKey = null;
             attachSurface();
-            player().parse(key, result, useParse, metadata, PlayerSetting.isAutoPlay());
+            player().parse(key, result, useParse, metadata, PlayerSetting.isAutoPlay(), startPositionMs);
         } else {
             preparedPlaybackKey = null;
             attachSurface();
-            player().start(PlaySpec.from(result, key, metadata), timeout, PlayerSetting.isAutoPlay());
+            player().start(PlaySpec.from(result, key, metadata), timeout, PlayerSetting.isAutoPlay(), startPositionMs);
         }
         syncKeepScreenOn();
     }
@@ -531,7 +537,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         String playerText = mService == null ? "none" : player().getPlayerText();
         boolean nativePlayer = mService != null && player().isNativePlayer();
         int targetRender = mService == null ? -1 : getRender();
-        Log.d(SIZE_TAG, "playback " + step
+        String message = "playback " + step
                 + " key=" + getPlaybackKey()
                 + " player=" + playerText
                 + " native=" + nativePlayer
@@ -540,7 +546,12 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
                 + " resize=" + view.getResizeMode()
                 + " playerView=" + viewSize(view)
                 + " content=" + viewSize(content)
-                + " surface=" + surfaceName(surface) + ":" + viewSize(surface));
+                + " surface=" + surfaceName(surface) + ":" + viewSize(surface)
+                + " holder=" + surfaceHolderSize(surface)
+                + " rotation=" + (getDisplay() == null ? -1 : getDisplay().getRotation())
+                + " orientation=" + getResources().getConfiguration().orientation;
+        Log.d(SIZE_TAG, message);
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("surface-size", "%s", message);
     }
 
     private static String viewSize(View view) {
@@ -550,6 +561,12 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     private static String surfaceName(View view) {
         return view == null ? "null" : view.getClass().getSimpleName();
+    }
+
+    private static String surfaceHolderSize(View view) {
+        if (!(view instanceof SurfaceView surfaceView)) return "n/a";
+        android.graphics.Rect frame = surfaceView.getHolder().getSurfaceFrame();
+        return frame.width() + "x" + frame.height() + "/valid=" + surfaceView.getHolder().getSurface().isValid();
     }
 
     private void syncShutter() {
@@ -611,6 +628,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     private int getRender() {
         if (mService != null && player().isNativePlayer()) return 0;
+        if (mService != null && player().requiresTextureRenderForLut()) return PlayerSetting.RENDER_TEXTURE;
         return PlayerSetting.getRender();
     }
 
@@ -727,6 +745,16 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         @Override
         public void onReload(String msg) {
             if (isOwner()) PlaybackActivity.this.onReload(msg);
+        }
+
+        @Override
+        public void onPlayerRenderRequired() {
+            if (!isOwner()) return;
+            int targetRender = getRender();
+            if (render == targetRender) return;
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "LUT switch render from=%d to=%d", render, targetRender);
+            setRender();
+            applyResizeMode(requestedAspectMode);
         }
 
         @Override

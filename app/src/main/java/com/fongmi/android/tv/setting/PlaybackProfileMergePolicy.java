@@ -10,8 +10,7 @@ public final class PlaybackProfileMergePolicy {
             PlaybackPerformanceSetting.PROFILE_AUTO,
             PlaybackPerformanceSetting.PROFILE_RECOMMENDED,
             PlaybackPerformanceSetting.PROFILE_COMPATIBLE,
-            PlaybackPerformanceSetting.PROFILE_LIGHTWEIGHT,
-            PlaybackPerformanceSetting.PROFILE_ORIGINAL
+            PlaybackPerformanceSetting.PROFILE_LIGHTWEIGHT
     };
 
     private PlaybackProfileMergePolicy() {
@@ -57,8 +56,7 @@ public final class PlaybackProfileMergePolicy {
                  PlaybackPerformanceSetting.PROFILE_RECOMMENDED,
                  PlaybackPerformanceSetting.PROFILE_COMPATIBLE,
                  PlaybackPerformanceSetting.PROFILE_CUSTOM,
-                 PlaybackPerformanceSetting.PROFILE_LIGHTWEIGHT,
-                 PlaybackPerformanceSetting.PROFILE_ORIGINAL -> rawProfile;
+                 PlaybackPerformanceSetting.PROFILE_LIGHTWEIGHT -> rawProfile;
             default -> PlaybackPerformanceSetting.PROFILE_AUTO;
         };
     }
