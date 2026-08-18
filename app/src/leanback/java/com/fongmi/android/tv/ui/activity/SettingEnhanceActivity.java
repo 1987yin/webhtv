@@ -15,6 +15,7 @@ import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.ad.audio.AdAudioRuleStore;
+import com.fongmi.android.tv.ad.audio.AdAudioRuleSnapshot;
 import com.fongmi.android.tv.ad.audio.AdAudioSetting;
 import com.fongmi.android.tv.bean.AiConfig;
 import com.fongmi.android.tv.bean.AudioConfig;
@@ -68,7 +69,7 @@ public class SettingEnhanceActivity extends BaseActivity {
     private static final int[] DETAIL_THEME_MODES = {Setting.DETAIL_STYLE_NATIVE, Setting.DETAIL_STYLE_PROFILE, Setting.DETAIL_STYLE_CINEMA};
 
     private ActivitySettingEnhanceBinding mBinding;
-    private volatile AdAudioRuleStore.Snapshot adAudioSnapshot = AdAudioRuleStore.get().current();
+    private volatile AdAudioRuleSnapshot adAudioSnapshot = AdAudioRuleStore.get().current();
     private final ActivityResultLauncher<String[]> adAudioRulePicker =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::importAdAudioRules);
 
@@ -410,7 +411,7 @@ public class SettingEnhanceActivity extends BaseActivity {
 
     private String getAdAudioFingerprintText() {
         String enabled = getSwitch(AdAudioSetting.isEnabled());
-        AdAudioRuleStore.Snapshot snapshot = adAudioSnapshot;
+        AdAudioRuleSnapshot snapshot = adAudioSnapshot;
         if (snapshot == null || snapshot.hasError()) {
             return enabled + " · " + getString(R.string.setting_ad_audio_rule_error);
         }
