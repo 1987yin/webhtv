@@ -30,6 +30,7 @@ import androidx.media3.ui.PlayerView;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.player.PlaybackAutoContext;
+import com.fongmi.android.tv.player.PlaybackServiceReleasePolicy;
 import com.fongmi.android.tv.player.PlaybackTelemetry;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.TransientPlaybackCoordinator;
@@ -716,13 +717,17 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private void releaseService(boolean owner) {
         mService.removePlayerCallback(mPlayerCallback);
         mService.clearNavigationCallback(getNavigationCallback());
-        if (owner && mService.isKeepAlive()) {
-            mService.resetSessionActivity();
-        } else if (mService.hasExternalClient() || mService.hasPlayerCallback()) {
-            if (owner) mService.suspend();
-            mService.resetSessionActivity();
-        } else if (owner) {
-            mService.shutdown();
+        boolean transientPlayback = getIntent() != null && getIntent().getBooleanExtra(EXTRA_TRANSIENT_PLAYBACK, false);
+        boolean hasConsumer = mService.hasExternalClient() || mService.hasPlayerCallback();
+        switch (PlaybackServiceReleasePolicy.decide(transientPlayback, owner, mService.isKeepAlive(), hasConsumer)) {
+            case RESET_SESSION -> mService.resetSessionActivity();
+            case SUSPEND_AND_RESET -> {
+                mService.suspend();
+                mService.resetSessionActivity();
+            }
+            case SHUTDOWN -> mService.shutdown();
+            case DETACH -> {
+            }
         }
     }
 
