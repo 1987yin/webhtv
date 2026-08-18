@@ -12,7 +12,13 @@ public final class AdAudioDiagnostics {
         CLOCK_UNAVAILABLE,
         RULE_LOAD_FAILED,
         MATCHER_ERROR,
-        SEEK_REJECTED
+        SEEK_REJECTED,
+        SPEECH_MODEL_UNAVAILABLE,
+        SPEECH_START_FAILED,
+        SPEECH_TEXT_EMPTY,
+        SPEECH_MATCHED,
+        SPEECH_COOLDOWN,
+        SPEECH_STALE_CALLBACK
     }
 
     private final EnumMap<Code, Long> counts = new EnumMap<>(Code.class);
