@@ -645,7 +645,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     public static Intent createTransientIntent(Activity activity, TmdbVideoPlayback.Launch launch) {
-        Intent intent = new Intent(activity, VideoActivity.class);
+        Intent intent = new Intent(activity, TransientVideoActivity.class);
         intent.putExtra("collect", false);
         intent.putExtra("cast", false);
         intent.putExtra("mark", launch.getMark());

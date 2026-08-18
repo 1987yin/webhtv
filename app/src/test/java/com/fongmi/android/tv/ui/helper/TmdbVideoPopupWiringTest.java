@@ -64,6 +64,14 @@ public class TmdbVideoPopupWiringTest {
         String helper = read("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "helper", "TmdbVideoPlayback.java");
         String playback = read("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java");
         String siteApi = read("src", "main", "java", "com", "fongmi", "android", "tv", "api", "SiteApi.java");
+        String mobile = read("src", "mobile", "java", "com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java");
+        String mobileTransient = read("src", "mobile", "java", "com", "fongmi", "android", "tv", "ui", "activity", "TransientVideoActivity.java");
+        String mobileManifest = read("src", "mobile", "AndroidManifest.xml");
+        String leanback = read("src", "leanback", "java", "com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java");
+        String leanbackTransient = read("src", "leanback", "java", "com", "fongmi", "android", "tv", "ui", "activity", "TransientVideoActivity.java");
+        String leanbackManifest = read("src", "leanback", "AndroidManifest.xml");
+        String mobileTransientFactory = methodBody(mobile, "public static Intent createTransientIntent(Activity activity, TmdbVideoPlayback.Launch launch)");
+        String leanbackTransientFactory = methodBody(leanback, "public static Intent createTransientIntent(Activity activity, TmdbVideoPlayback.Launch launch)");
 
         assertTrue(helper.contains("if (!(activity instanceof PlaybackActivity)) return false;"));
         assertTrue(helper.contains("VideoActivity.createTransientIntent(activity, launch)"));
@@ -75,6 +83,12 @@ public class TmdbVideoPopupWiringTest {
         assertTrue(siteApi.contains("public static Result playerContentIsolated"));
         assertTrue(siteApi.contains("return playerContent(key, flag, id, playerType, new Source(), false);"));
         assertTrue(playback.contains("public final boolean launchTransientPlayback(Intent intent)"));
+        assertTrue(mobileTransientFactory.contains("new Intent(activity, TransientVideoActivity.class)"));
+        assertTrue(leanbackTransientFactory.contains("new Intent(activity, TransientVideoActivity.class)"));
+        assertTrue(mobileTransient.contains("class TransientVideoActivity extends VideoActivity"));
+        assertTrue(leanbackTransient.contains("class TransientVideoActivity extends VideoActivity"));
+        assertOrder(mobileManifest, "android:name=\".ui.activity.TransientVideoActivity\"", "android:launchMode=\"standard\"");
+        assertOrder(leanbackManifest, "android:name=\".ui.activity.TransientVideoActivity\"", "android:launchMode=\"standard\"");
     }
 
     @Test

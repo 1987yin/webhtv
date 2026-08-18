@@ -190,6 +190,22 @@ public final class TmdbVideo {
     }
 
     public String getDisplayType() {
-        return type.isEmpty() ? "视频" : type;
+        Locale locale = Locale.getDefault();
+        if (!Locale.CHINESE.getLanguage().equals(locale.getLanguage())) return type.isEmpty() ? "Video" : type;
+        boolean traditional = "Hant".equalsIgnoreCase(locale.getScript())
+                || "TW".equalsIgnoreCase(locale.getCountry())
+                || "HK".equalsIgnoreCase(locale.getCountry())
+                || "MO".equalsIgnoreCase(locale.getCountry());
+        switch (type.toLowerCase(Locale.ROOT)) {
+            case "trailer": return traditional ? "預告片" : "预告片";
+            case "teaser": return traditional ? "前導預告" : "先导预告";
+            case "clip": return "片段";
+            case "featurette": return traditional ? "製作特輯" : "制作特辑";
+            case "behind the scenes": return traditional ? "幕後花絮" : "幕后花絮";
+            case "recap": return traditional ? "劇情回顧" : "剧情回顾";
+            case "bloopers": return "NG 花絮";
+            case "opening credits": return traditional ? "片頭" : "片头";
+            default: return traditional ? "視頻" : "视频";
+        }
     }
 }

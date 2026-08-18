@@ -134,6 +134,12 @@
             android:screenOrientation="sensorLandscape" />
 
         <activity
+            android:name=".ui.activity.TransientVideoActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|navigation"
+            android:launchMode="standard"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
             android:name=".ui.activity.TmdbDetailActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
             android:parentActivityName=".ui.activity.HomeActivity"
