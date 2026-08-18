@@ -128,6 +128,26 @@ public class AboutDialogLayoutTest {
                         || remove.contains("android:focusableInTouchMode=\"true\""));
     }
 
+    @Test
+    public void githubProxyDialogUsesRoomierTvDimensions() {
+        assertEquals(1274, AboutDialog.resolveGithubProxyWidth(1920, 1080));
+        assertEquals(850, AboutDialog.resolveGithubProxyWidth(1280, 720));
+        assertEquals(994, AboutDialog.resolveGithubProxyWidth(1080, 1920));
+        assertEquals(886, AboutDialog.resolveGithubProxyHeight(1080));
+        assertEquals(259, AboutDialog.resolveGithubProxyListHeight(1080));
+    }
+
+    @Test
+    public void githubProxyDialogAppliesDedicatedTvWindowSizing() throws Exception {
+        String source = read(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "AboutDialog.java")));
+
+        assertTrue(source.contains("configureGithubProxyWindow(activity, githubDialog, binding);"));
+        assertTrue(source.contains("resolveGithubProxyWidth(screenWidth, screenHeight)"));
+        assertTrue(source.contains("resolveGithubProxyHeight(screenHeight)"));
+        assertTrue(source.contains("resolveGithubProxyListHeight(screenHeight)"));
+    }
+
+
     private static String read(Path path) throws Exception {
         return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
     }

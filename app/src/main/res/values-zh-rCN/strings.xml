@@ -177,6 +177,11 @@
     <string name="setting_danmaku">弹幕设置</string>
     <string name="setting_subtitle">字幕设置</string>
     <string name="setting_enhance">增强功能</string>
+    <string name="setting_tmdb">TMDB</string>
+    <string name="setting_ai">AI 服务</string>
+    <string name="setting_ai_group_recommendation">推荐</string>
+    <string name="setting_ai_group_detection">内容识别</string>
+    <string name="setting_ai_group_subtitle">字幕</string>
     <string name="setting_personal">个性设置</string>
     <string name="setting_group_rule">分组规则</string>
     <string name="setting_group_rule_summary">已启用 %1$d / %2$d</string>
@@ -2365,7 +2370,7 @@
     <string name="dialog_short_drama_add">添加</string>
     <string name="viewing_report_refreshing">刷新报告中...</string>
     <string name="setting_ai_ad_detection">AI 智能去广</string>
-    <string name="setting_ad_rule_manage">规则管理</string>
+    <string name="setting_ad_rule_manage">广告规则管理</string>
     <string name="ad_rule_add_manual">手动添加规则</string>
     <string name="ad_rule_import_candidates">待审核接口规则（%d）</string>
     <string name="ad_rule_import_title">导入接口去广规则</string>
