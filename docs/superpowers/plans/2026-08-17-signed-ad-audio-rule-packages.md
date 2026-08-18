@@ -43,7 +43,7 @@
 - Modify: all Java references to `AdAudioRuleStore.Snapshot` and `AdAudioRuntimeController.RuleSource`
 - Test: `app/src/test/java/com/fongmi/android/tv/ad/audio/AdAudioRuleSourceContractTest.java`
 
-- [ ] **Step 1: Write the failing source contract test**
+- [x] **Step 1: Write the failing source contract test**
 
 ```java
 @Test
@@ -58,7 +58,7 @@ public void localStoreImplementsStableSourceContract() throws Exception {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and confirm RED**
+- [x] **Step 2: Run the focused test and confirm RED**
 
 Run:
 
@@ -68,7 +68,7 @@ rtk .\gradlew.bat -Dandroid.overridePathCheck=true :app:testLeanbackArm64_v8aDeb
 
 Expected: compilation fails because `AdAudioRuleSource` and `AdAudioRuleSnapshot` do not exist.
 
-- [ ] **Step 3: Add the stable types and migrate callers**
+- [x] **Step 3: Add the stable types and migrate callers**
 
 ```java
 public interface AdAudioRuleSource {
@@ -92,13 +92,13 @@ public record AdAudioRuleSnapshot(String sourceId, String version,
 
 Make `AdAudioRuleStore implements AdAudioRuleSource`, remove its nested `Snapshot`, and make `AdAudioRuntimeController` depend on `AdAudioRuleSource`.
 
-- [ ] **Step 4: Run all existing ad-audio tests and confirm GREEN**
+- [x] **Step 4: Run all existing ad-audio tests and confirm GREEN**
 
 Run the focused suite with `--tests "com.fongmi.android.tv.ad.audio.*"`.
 
 Expected: all existing and new audio-ad tests pass with no behavioral changes.
 
-- [ ] **Step 5: Commit the contract migration**
+- [x] **Step 5: Commit the contract migration**
 
 ```powershell
 rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio app/src/test/java/com/fongmi/android/tv/ad/audio app/src/main/java/com/fongmi/android/tv/player/PlayerManager.java app/src/leanback app/src/mobile
@@ -114,7 +114,7 @@ rtk git commit -m "refactor: decouple ad audio rule sources"
 - Create: `app/src/test/java/com/fongmi/android/tv/ad/audio/TinkEd25519CompatibilityTest.java`
 - Create: `app/src/test/java/com/fongmi/android/tv/ad/audio/SignedRulePackageTestKeys.java`
 
-- [ ] **Step 1: Write a test that loads a TEST-ONLY RAW Tink keyset**
+- [x] **Step 1: Write a test that loads a TEST-ONLY RAW Tink keyset**
 
 The fixture stores a fixed Tink JSON private keyset with `outputPrefixType: "RAW"`. The test obtains `PublicKeySign` and `PublicKeyVerify`, signs `"webhtv-ed25519-test"`, asserts a 64-byte signature, and verifies it.
 
@@ -128,11 +128,11 @@ public void rawEd25519SignatureIsPortableLength() throws Exception {
 }
 ```
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Expected: compilation fails because Tink classes and the catalog dependency are absent.
 
-- [ ] **Step 3: Add the pinned dependency**
+- [x] **Step 3: Add the pinned dependency**
 
 Add:
 
@@ -149,11 +149,11 @@ implementation libs.tink.android
 
 Load the test key with `TinkJsonProtoKeysetFormat`, obtain primitives using `RegistryConfiguration.get()`, and keep the fixture under test sources only.
 
-- [ ] **Step 4: Run and confirm GREEN**
+- [x] **Step 4: Run and confirm GREEN**
 
 Expected: signature length is exactly 64 and verification succeeds.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 rtk git add gradle/libs.versions.toml app/build.gradle app/src/test/java/com/fongmi/android/tv/ad/audio
@@ -168,7 +168,7 @@ rtk git commit -m "build: add Tink Ed25519 verification"
 - Create: `app/src/main/java/com/fongmi/android/tv/ad/audio/SignedRulePackageCodec.java`
 - Test: `app/src/test/java/com/fongmi/android/tv/ad/audio/SignedRulePackageCodecTest.java`
 
-- [ ] **Step 1: Write RED tests for valid parsing and exact signing input**
+- [x] **Step 1: Write RED tests for valid parsing and exact signing input**
 
 Tests construct a schema-1 envelope around the existing minimal SDK-v2 fixture and assert:
 
@@ -183,11 +183,11 @@ assertEquals(expectedCanonicalPayload, parsed.canonicalPayload());
 
 Add one test per boundary: unknown field, duplicate field at each nesting level, trailing JSON, decimal revision, illegal ID, uppercase digest, padded base64, wrong signature length, deep JSON, token budget, and raw size over `MAX_PACKAGE_BYTES`.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Expected: compilation fails because codec and exception types do not exist.
 
-- [ ] **Step 3: Implement the minimal strict codec**
+- [x] **Step 3: Implement the minimal strict codec**
 
 Expose:
 
@@ -204,11 +204,11 @@ Use a streaming preflight that tracks object member names per depth, token count
 
 `SignedRulePackageException` contains only a `Code` enum and stable generic message; it never embeds untrusted text.
 
-- [ ] **Step 4: Run codec and existing rule-codec tests and confirm GREEN**
+- [x] **Step 4: Run codec and existing rule-codec tests and confirm GREEN**
 
 Expected: strict package tests and `AudioFingerprintRuleCodecTest` pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio app/src/test/java/com/fongmi/android/tv/ad/audio
@@ -223,7 +223,7 @@ rtk git commit -m "feat: add strict signed rule envelope codec"
 - Create: `app/src/main/java/com/fongmi/android/tv/ad/audio/SignedRulePackageVerifier.java`
 - Test: `app/src/test/java/com/fongmi/android/tv/ad/audio/SignedRulePackageVerifierTest.java`
 
-- [ ] **Step 1: Write RED tests for verification policy**
+- [x] **Step 1: Write RED tests for verification policy**
 
 Create an in-memory registry entry using the test RAW verifier. Test valid install/cache verification plus tampering of every signed field, unknown key, unsupported algorithm, ACTIVE/RETIRED/REVOKED behavior, key validity bounds, package not-yet-valid, expiry, and 90-day maximum lifetime.
 
@@ -235,11 +235,11 @@ assertEquals(42L, verified.revision());
 assertEquals("official.ad-audio", verified.packageId());
 ```
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Expected: compilation fails because registry and verifier do not exist.
 
-- [ ] **Step 3: Implement registry and verifier**
+- [x] **Step 3: Implement registry and verifier**
 
 Registry contract:
 
@@ -254,9 +254,9 @@ public interface TrustedRuleKeyRegistry {
 
 Verifier order is raw limit -> strict parse -> canonical digest -> constant-time digest comparison -> package/time/key policy -> Tink verify. Convert all Tink `GeneralSecurityException` failures to `SIGNATURE_INVALID` without retaining exception text.
 
-- [ ] **Step 4: Run verifier and codec tests and confirm GREEN**
+- [x] **Step 4: Run verifier and codec tests and confirm GREEN**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio app/src/test/java/com/fongmi/android/tv/ad/audio
@@ -270,17 +270,17 @@ rtk git commit -m "feat: verify trusted audio rule packages"
 - Create: `app/src/main/java/com/fongmi/android/tv/ad/audio/SignedRulePackageStore.java`
 - Test: `app/src/test/java/com/fongmi/android/tv/ad/audio/SignedRulePackageStoreTest.java`
 
-- [ ] **Step 1: Write RED persistence tests**
+- [x] **Step 1: Write RED persistence tests**
 
 Cover first install, higher revision rotation, lower revision rejection, same revision/same digest idempotence, same revision/different digest conflict, reinstall after downloaded files are cleared, current corruption recovery, expired/revoked previous rejection, state reconstruction, and high-water preservation after recovery.
 
 Add a package-private `WriteFault` callback with named stages so tests can throw `IOException` before each atomic replacement and then construct a new store to assert it loads only a complete verified slot.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Expected: compilation fails because `SignedRulePackageStore` does not exist.
 
-- [ ] **Step 3: Implement store state and atomic operations**
+- [x] **Step 3: Implement store state and atomic operations**
 
 Public surface:
 
@@ -294,9 +294,9 @@ public final class SignedRulePackageStore {
 
 Keep `current.json`, `previous.json`, and `state.json` in the configured package directory. Write every file through a same-directory `.tmp`, sync, and atomic replace. Revalidate raw signed envelopes on every load. Preserve state during `clearDownloaded()` and never lower the high-water revision.
 
-- [ ] **Step 4: Run store, verifier, and codec tests and confirm GREEN**
+- [x] **Step 4: Run store, verifier, and codec tests and confirm GREEN**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio app/src/test/java/com/fongmi/android/tv/ad/audio
@@ -312,19 +312,19 @@ rtk git commit -m "feat: persist verified audio rule packages"
 - Test: `app/src/test/java/com/fongmi/android/tv/ad/audio/SignedRulePackageSourceTest.java`
 - Test: `app/src/test/java/com/fongmi/android/tv/ad/audio/PrioritizedAdAudioRuleSourceTest.java`
 
-- [ ] **Step 1: Write RED source mapping and precedence tests**
+- [x] **Step 1: Write RED source mapping and precedence tests**
 
 Assert signed snapshots use `signed:<packageId>` and `<revision>:<digest16>`, recovered previous adds `CACHE_RECOVERED`, local valid rules win, empty local falls back to signed, invalid local falls back with `LOCAL_SOURCE_INVALID`, and both unavailable return an empty snapshot with the most specific error.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
-- [ ] **Step 3: Implement the two source adapters**
+- [x] **Step 3: Implement the two source adapters**
 
 Do not merge `AudioFingerprintRuleSet` instances. Do not add network calls. Do not wire an empty production key registry into `PlayerManager`; keep its current local source until a separately reviewed production public key is provided.
 
-- [ ] **Step 4: Run all ad-audio tests and confirm GREEN**
+- [x] **Step 4: Run all ad-audio tests and confirm GREEN**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio app/src/test/java/com/fongmi/android/tv/ad/audio
@@ -339,15 +339,15 @@ rtk git commit -m "feat: add signed audio rule sources"
 - Modify: `docs/audio-fingerprint-phase0-implementation.md`
 - Modify: this plan to mark executed steps.
 
-- [ ] **Step 1: Update delivered-state documentation**
+- [x] **Step 1: Update delivered-state documentation**
 
 Mark signed verification/cache/source infrastructure complete. Keep production key provisioning, fixed HTTPS updater, author quality pipeline, and H5 oracle explicitly pending.
 
-- [ ] **Step 2: Run focused security and persistence tests**
+- [x] **Step 2: Run focused security and persistence tests**
 
 Run all `SignedRulePackage*`, `TrustedRuleKeyRegistry*`, `PrioritizedAdAudioRuleSource*`, and existing `AudioFingerprintRuleCodecTest` tests.
 
-- [ ] **Step 3: Run the full Leanback unit test suite**
+- [x] **Step 3: Run the full Leanback unit test suite**
 
 ```powershell
 rtk .\gradlew.bat -Dandroid.overridePathCheck=true :app:testLeanbackArm64_v8aDebugUnitTest --no-daemon --no-build-cache --console=plain
@@ -355,7 +355,7 @@ rtk .\gradlew.bat -Dandroid.overridePathCheck=true :app:testLeanbackArm64_v8aDeb
 
 Expected: all suites pass with zero failures/errors.
 
-- [ ] **Step 4: Compile Mobile**
+- [x] **Step 4: Compile Mobile**
 
 ```powershell
 rtk .\gradlew.bat -Dandroid.overridePathCheck=true :app:compileMobileArm64_v8aDebugJavaWithJavac --no-daemon --no-build-cache --console=plain
@@ -363,7 +363,7 @@ rtk .\gradlew.bat -Dandroid.overridePathCheck=true :app:compileMobileArm64_v8aDe
 
 Expected: `BUILD SUCCESSFUL`.
 
-- [ ] **Step 5: Run repository hygiene and secret checks**
+- [x] **Step 5: Run repository hygiene and secret checks**
 
 ```powershell
 rtk git diff --check
@@ -372,7 +372,7 @@ rtk git status --short
 
 Inspect staged content for private-key or secret material. Only the clearly marked TEST-ONLY fixture may contain private test key bytes; no production key or endpoint is allowed.
 
-- [ ] **Step 6: Commit documentation**
+- [x] **Step 6: Commit documentation**
 
 ```powershell
 rtk git add docs
