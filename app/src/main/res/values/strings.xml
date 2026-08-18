@@ -1324,6 +1324,7 @@
     <string name="lut_empty_favorites">No favorite LUT presets</string>
     <string name="lut_apply_failed">LUT color has been disabled temporarily</string>
     <string name="lut_unavailable_player">Current player engine does not support LUT color</string>
+    <string name="lut_unavailable_output_mode">Current output mode does not support LUT color. Switch to GPU output mode to use it</string>
     <string name="lut_unavailable_drm">DRM protected videos do not support LUT color</string>
     <string name="lut_unavailable_tunnel">Tunnel mode does not support LUT color</string>
     <string name="lut_unavailable_soft_decode">Software decode does not support LUT color</string>
@@ -1783,6 +1784,7 @@
     <string name="detail_tmdb_match_title">Match TMDB title</string>
     <string name="detail_tmdb_rematch">TMDB match</string>
     <string name="tmdb_season_match_title">Match TMDB season</string>
+    <string name="tmdb_season_button">Season</string>
     <string name="tmdb_season_match_current">Choose TMDB season. %1$s</string>
     <string name="tmdb_season_auto">Automatic (clear manual binding)</string>
     <string name="tmdb_season_auto_by_counts">Split by episode number keys</string>
@@ -2456,6 +2458,24 @@
 <string name="player_audio_repeat">Repeat</string>
 
     <string name="web_theme_detail_loading">正在加载详情页…</string>
+    <string name="ad_audio_candidate_title">Suspected advertisement</string>
+    <string name="ad_audio_match_title">Audio advertisement matched</string>
+    <string name="ad_audio_candidate_message">Rule %1$s matched. Skip about %2$d seconds?</string>
+    <string name="ad_audio_skip">Skip</string>
+    <string name="ad_audio_ignore">Ignore</string>
+    <string name="ad_audio_skipped_title">Advertisement skipped</string>
+    <string name="ad_audio_skipped_message">You can undo within %1$d seconds.</string>
+    <string name="ad_audio_undo">Undo</string>
+    <string name="setting_ad_audio_title">Audio fingerprint ad skipping (experimental)</string>
+    <string name="setting_ad_audio_no_rules">No rules</string>
+    <string name="setting_ad_audio_rule_error">Rule error</string>
+    <string name="setting_ad_audio_rule_count">Rules %1$d · %2$s</string>
+    <string name="setting_ad_audio_import">Import rule JSON</string>
+    <string name="setting_ad_audio_clear">Clear rules</string>
+    <string name="setting_ad_audio_clear_confirm">Clear the imported audio fingerprint rules?</string>
+    <string name="setting_ad_audio_imported">Imported %1$d rules · %2$s</string>
+    <string name="setting_ad_audio_import_failed">Rule import failed; the previous rules were kept.</string>
+    <string name="setting_ad_audio_clear_done">Audio fingerprint rules cleared</string>
 
     <string name="download">Download</string>
     <string name="download_play_first">Play the episode before downloading</string>
@@ -2488,17 +2508,4 @@
     <string name="download_delete_episode">Delete this episode?</string>
     <string name="download_delete_group">Delete all downloaded episodes of this drama?</string>
     <string name="download_long_press_tip">Tap to pause or resume, long press to delete</string>
-
-    <!-- TMDB season offset (custom) -->
-    <string name="tmdb_season_offset_title">TMDB Season Offset</string>
-    <string name="tmdb_season_offset_hint">When a show was renamed, its source season number may differ from the TMDB season number. Set the offset per TMDB title. Source season + offset = TMDB season.</string>
-    <string name="tmdb_season_offset_empty">No season offset configured yet. Tap \"Add\" to add one.</string>
-    <string name="add">Add</string>
-    <string name="delete">Delete</string>
-    <string name="tmdb_season_offset_add_title">Add Season Offset</string>
-    <string name="tmdb_season_offset_name_hint">TMDB title (e.g. Running Man)</string>
-    <string name="tmdb_season_offset_value_hint">Offset (integer, e.g. 4)</string>
-    <string name="tmdb_season_offset_name_required">Please enter a title</string>
-    <string name="tmdb_season_offset_value_invalid">Please enter a valid integer offset</string>
-    <string name="tmdb_season_offset_current">Current show: %s</string>
 </resources>

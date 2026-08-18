@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.db;
 
+import android.database.Cursor;
+
 import androidx.annotation.NonNull;
 import androidx.room.migration.Migration;
 import androidx.sqlite.db.SupportSQLiteDatabase;
@@ -101,4 +103,44 @@ public class Migrations {
             database.execSQL("CREATE INDEX IF NOT EXISTS `index_PlaybackDeleteTombstone_deletedAt` ON `PlaybackDeleteTombstone` (`deletedAt`)");
         }
     };
+
+    public static final Migration MIGRATION_41_42 = new Migration(41, 42) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE PlaybackDeleteTombstone ADD COLUMN `mediaType` TEXT NOT NULL DEFAULT ''");
+            database.execSQL("ALTER TABLE PlaybackDeleteTombstone ADD COLUMN `tmdbId` INTEGER NOT NULL DEFAULT 0");
+            database.execSQL("ALTER TABLE PlaybackDeleteTombstone ADD COLUMN `seasonNumber` INTEGER NOT NULL DEFAULT -1");
+            database.execSQL("CREATE TABLE IF NOT EXISTS TmdbSeasonProgress (`cid` INTEGER NOT NULL, `mediaType` TEXT NOT NULL, `tmdbId` INTEGER NOT NULL, `seasonNumber` INTEGER NOT NULL, `episodeNumber` INTEGER NOT NULL, `position` INTEGER NOT NULL, `duration` INTEGER NOT NULL, `sourceFlag` TEXT NOT NULL, `sourceEpisodeName` TEXT NOT NULL, `sourceEpisodeUrl` TEXT NOT NULL, `sourceHistoryKey` TEXT NOT NULL, `sourceBindingKey` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`cid`, `mediaType`, `tmdbId`, `seasonNumber`))");
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_TmdbSeasonProgress_cid_mediaType_tmdbId_sourceHistoryKey_updatedAt` ON `TmdbSeasonProgress` (`cid`, `mediaType`, `tmdbId`, `sourceHistoryKey`, `updatedAt`)");
+        }
+    };
+
+    public static final Migration MIGRATION_42_43 = new Migration(42, 43) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            addColumnIfMissing(database, "PlaybackDeleteTombstone", "mediaType",
+                    "ALTER TABLE PlaybackDeleteTombstone ADD COLUMN `mediaType` TEXT NOT NULL DEFAULT ''");
+            addColumnIfMissing(database, "PlaybackDeleteTombstone", "tmdbId",
+                    "ALTER TABLE PlaybackDeleteTombstone ADD COLUMN `tmdbId` INTEGER NOT NULL DEFAULT 0");
+            addColumnIfMissing(database, "PlaybackDeleteTombstone", "seasonNumber",
+                    "ALTER TABLE PlaybackDeleteTombstone ADD COLUMN `seasonNumber` INTEGER NOT NULL DEFAULT -1");
+            database.execSQL("CREATE TABLE IF NOT EXISTS TmdbSeasonProgress (`cid` INTEGER NOT NULL, `mediaType` TEXT NOT NULL, `tmdbId` INTEGER NOT NULL, `seasonNumber` INTEGER NOT NULL, `episodeNumber` INTEGER NOT NULL, `position` INTEGER NOT NULL, `duration` INTEGER NOT NULL, `sourceFlag` TEXT NOT NULL, `sourceEpisodeName` TEXT NOT NULL, `sourceEpisodeUrl` TEXT NOT NULL, `sourceHistoryKey` TEXT NOT NULL, `sourceBindingKey` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`cid`, `mediaType`, `tmdbId`, `seasonNumber`))");
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_TmdbSeasonProgress_cid_mediaType_tmdbId_sourceHistoryKey_updatedAt` ON `TmdbSeasonProgress` (`cid`, `mediaType`, `tmdbId`, `sourceHistoryKey`, `updatedAt`)");
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_TmdbSeasonProgress_cid_sourceHistoryKey` ON `TmdbSeasonProgress` (`cid`, `sourceHistoryKey`)");
+        }
+    };
+
+    private static void addColumnIfMissing(
+            SupportSQLiteDatabase database,
+            String table,
+            String column,
+            String statement) {
+        try (Cursor cursor = database.query("PRAGMA table_info(`" + table + "`)")) {
+            int nameIndex = cursor.getColumnIndex("name");
+            while (cursor.moveToNext()) {
+                if (nameIndex >= 0 && column.equals(cursor.getString(nameIndex))) return;
+            }
+        }
+        database.execSQL(statement);
+    }
 }
