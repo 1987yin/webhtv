@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ad.audio;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 
 import org.junit.Rule;
@@ -24,7 +25,18 @@ public class AdAudioRuleSourceContractTest {
 
         assertEquals("local", snapshot.sourceId());
         assertFalse(snapshot.hasRules());
+        assertNull(snapshot.probeSidecar());
+        assertFalse(snapshot.probeAvailable());
         assertThrows(UnsupportedOperationException.class,
                 () -> snapshot.warnings().add("mutable"));
+    }
+
+    @Test
+    public void legacySnapshotRemainsWithoutProbeSidecar() {
+        AdAudioRuleSnapshot snapshot = new AdAudioRuleSnapshot(
+                "local", "", AudioFingerprintRuleSet.empty(), java.util.List.of(), "");
+
+        assertNull(snapshot.probeSidecar());
+        assertFalse(snapshot.probeAvailable());
     }
 }

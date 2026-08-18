@@ -4,7 +4,14 @@ import java.util.List;
 
 public record AdAudioRuleSnapshot(String sourceId, String version,
                                   AudioFingerprintRuleSet ruleSet,
-                                  List<String> warnings, String lastError) {
+                                  List<String> warnings, String lastError,
+                                  ProbeRuleSidecar probeSidecar) {
+
+    public AdAudioRuleSnapshot(String sourceId, String version,
+                               AudioFingerprintRuleSet ruleSet,
+                               List<String> warnings, String lastError) {
+        this(sourceId, version, ruleSet, warnings, lastError, null);
+    }
 
     public AdAudioRuleSnapshot {
         if (sourceId == null || version == null || ruleSet == null
@@ -20,5 +27,9 @@ public record AdAudioRuleSnapshot(String sourceId, String version,
 
     public boolean hasError() {
         return !lastError.isEmpty();
+    }
+
+    public boolean probeAvailable() {
+        return probeSidecar != null;
     }
 }
