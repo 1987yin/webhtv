@@ -4,6 +4,7 @@ import com.fongmi.android.tv.player.audio.PlaybackMediaClock;
 import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 
 import java.util.Objects;
+import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -26,9 +27,7 @@ public final class AdAudioRuntimeController implements AutoCloseable {
             "local", "", AudioFingerprintRuleSet.empty(), java.util.List.of(), "");
     private AdSkipCoordinator.UiPort ui;
     private AdSkipCoordinator coordinator;
-    private AdAudioConsumer consumer;
-    private PlaybackMediaSignalHub.Registration registration;
-    private PlaybackMediaSignalHub.CaptureLease captureLease;
+    private PcmAdAudioSignalProvider pcmProvider;
     private boolean enabled;
     private boolean closed;
 
@@ -101,11 +100,14 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     }
 
     public synchronized boolean needsPipelineRebuild() {
-        return consumer != null && captureLease != null && !hub.isPipelineAttached();
+        return pcmProvider != null && pcmProvider.state()
+                == AdAudioSignalProvider.ProviderState.RUNNING
+                && !hub.isPipelineAttached();
     }
 
     public synchronized boolean isActive() {
-        return consumer != null && captureLease != null;
+        return pcmProvider != null
+                && pcmProvider.state() == AdAudioSignalProvider.ProviderState.RUNNING;
     }
 
     public synchronized AdAudioRuleSnapshot snapshot() {
@@ -164,65 +166,66 @@ public final class AdAudioRuntimeController implements AutoCloseable {
             deactivateLocked();
             return;
         }
-        if (consumer != null && captureLease != null) return;
+        if (pcmProvider != null
+                && pcmProvider.state() == AdAudioSignalProvider.ProviderState.RUNNING) return;
         activateLocked(session);
     }
 
     private void activateLocked(PlaybackMediaSignalHub.Session session) {
         AdSkipCoordinator currentCoordinator = coordinator;
         if (currentCoordinator == null) return;
-        AdAudioConsumer[] holder = new AdAudioConsumer[1];
-        AdAudioConsumer nextConsumer = new AdAudioConsumer(
-                candidate -> {
-                    synchronized (AdAudioRuntimeController.this) {
-                        if (consumer != holder[0] || coordinator != currentCoordinator) return;
-                    }
-                    currentCoordinator.onCandidate(candidate);
-                },
-                8,
-                Runnable::run,
-                diagnostics);
-        holder[0] = nextConsumer;
-        nextConsumer.start(session.id(), session.generation(), snapshot.ruleSet());
-        PlaybackMediaSignalHub.Consumer bridge = new PlaybackMediaSignalHub.Consumer() {
+        PcmAdAudioSignalProvider[] holder = new PcmAdAudioSignalProvider[1];
+        PcmAdAudioSignalProvider nextProvider = new PcmAdAudioSignalProvider(
+                hub, worker, diagnostics);
+        holder[0] = nextProvider;
+        AdAudioSignalProvider.Listener listener = new AdAudioSignalProvider.Listener() {
             @Override
-            public void onPcm(PlaybackMediaSignalHub.PcmFrame frame) {
-                nextConsumer.onPcm(frame);
+            public void onCandidate(AdAudioSignalProvider.AdAudioCandidate candidate) {
+                synchronized (AdAudioRuntimeController.this) {
+                    if (pcmProvider != holder[0] || coordinator != currentCoordinator) return;
+                }
+                currentCoordinator.onCandidate(toLegacyCandidate(candidate));
             }
 
             @Override
-            public void onLifecycle(PlaybackMediaSignalHub.Lifecycle event) {
-                nextConsumer.onLifecycle(event);
-                currentCoordinator.onTimelineReset(event);
+            public void onProviderError(AdAudioSignalProvider.ProviderError error) {
+                diagnostics.record(AdAudioDiagnostics.Code.MATCHER_ERROR);
             }
 
             @Override
-            public void onFailure(RuntimeException error) {
-                nextConsumer.onFailure(error);
+            public void onTimelineReset(AdAudioSignalProvider.TimelineReset reset) {
+                currentCoordinator.onTimelineReset(new PlaybackMediaSignalHub.Lifecycle(
+                        reset.sessionId(), reset.generation(),
+                        PlaybackMediaSignalHub.ResetReason.valueOf(reset.reason().name()),
+                        reset.mediaAnchorMs()));
             }
         };
-        PlaybackMediaSignalHub.Registration nextRegistration = hub.register(
-                "ad-audio", worker, 8, bridge);
-        PlaybackMediaSignalHub.CaptureLease nextLease = hub.requestCapture(
-                PlaybackMediaSignalHub.ConsumerKind.AD_AUDIO);
-        consumer = nextConsumer;
-        registration = nextRegistration;
-        captureLease = nextLease;
+        nextProvider.setEnabled(true);
+        nextProvider.start(new AdAudioSignalProvider.SessionContext(
+                session.id(), session.generation(),
+                "session-" + session.id(), "", Map.of()), snapshot, listener);
+        if (nextProvider.state() == AdAudioSignalProvider.ProviderState.RUNNING) {
+            pcmProvider = nextProvider;
+        } else {
+            nextProvider.close();
+        }
     }
 
     private void deactivateLocked() {
-        if (captureLease != null) {
-            captureLease.close();
-            captureLease = null;
+        if (pcmProvider != null) {
+            pcmProvider.close();
+            pcmProvider = null;
         }
-        if (registration != null) {
-            registration.close();
-            registration = null;
-        }
-        if (consumer != null) {
-            consumer.close();
-            consumer = null;
-        }
+    }
+
+    private static AdAudioConsumer.Candidate toLegacyCandidate(
+            AdAudioSignalProvider.AdAudioCandidate candidate) {
+        AudioFingerprintMatcher.MatchEvent event = new AudioFingerprintMatcher.MatchEvent(
+                candidate.fullMatch() ? AudioFingerprintMatcher.Type.FULL_MATCHED
+                        : AudioFingerprintMatcher.Type.START_MATCHED,
+                candidate.ruleId(), candidate.startMs(), candidate.endMs(),
+                (float) candidate.similarity(), 0);
+        return new AdAudioConsumer.Candidate(candidate.sessionId(), candidate.generation(), event);
     }
 
     private static Worker createWorker() {

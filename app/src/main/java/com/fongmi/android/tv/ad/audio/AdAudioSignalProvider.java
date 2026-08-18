@@ -101,6 +101,9 @@ public interface AdAudioSignalProvider extends AutoCloseable {
         void onCandidate(AdAudioCandidate candidate);
 
         void onProviderError(ProviderError error);
+
+        default void onTimelineReset(TimelineReset reset) {
+        }
     }
 
     String id();
