@@ -21,11 +21,14 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.TmdbItem;
+import com.fongmi.android.tv.bean.TmdbVideo;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.service.OmdbService;
 import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.ui.adapter.TmdbCastAdapter;
+import com.fongmi.android.tv.ui.adapter.TmdbVideoAdapter;
 import com.fongmi.android.tv.ui.helper.TmdbUIAdapter;
+import com.fongmi.android.tv.ui.helper.TmdbVideoPlayback;
 import com.fongmi.android.tv.ui.helper.TmdbDetailLabels;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
 import com.fongmi.android.tv.ui.helper.TmdbCinemaTheme;
@@ -75,6 +78,7 @@ public class TmdbHeaderView {
             R.id.tmdbPhotosLabel,
             R.id.tmdbExternalLinksLabel,
             R.id.tmdbRecommendationsLabel,
+            R.id.tmdbRelatedVideosLabel,
             R.id.tmdbPersonalTmdbRecommendationsLabel,
             R.id.tmdbPersonalDoubanRecommendationsLabel,
             R.id.tmdbPersonalAiRecommendationsLabel,
@@ -118,6 +122,7 @@ public class TmdbHeaderView {
     private com.fongmi.android.tv.ui.adapter.TmdbRecommendationAdapter personalDoubanRecommendationAdapter;
     private com.fongmi.android.tv.ui.adapter.TmdbRecommendationAdapter personalAiRecommendationAdapter;
     private com.fongmi.android.tv.ui.adapter.TmdbRecommendationAdapter recommendationAdapter;
+    private TmdbVideoAdapter relatedVideoAdapter;
     private TmdbUIAdapter boundAdapter;
     private boolean loadingRecommendations;
     private boolean loadingPersonalTmdbRecommendations;
@@ -360,6 +365,8 @@ public class TmdbHeaderView {
         }
 
         // 个性推荐
+        bindRelatedVideoRow(adapter.getRelatedVideos());
+
         bindRecommendationRow(R.id.tmdbPersonalTmdbRecommendationsLabel, R.id.tmdbPersonalTmdbRecommendations, personalTmdbRecommendationAdapter, adapter.getPersonalTmdbRecommendations());
         bindRecommendationRow(R.id.tmdbPersonalDoubanRecommendationsLabel, R.id.tmdbPersonalDoubanRecommendations, personalDoubanRecommendationAdapter, adapter.getPersonalDoubanRecommendations());
         bindPersonalAiRecommendationRow(adapter.getPersonalAiRecommendations());
@@ -398,6 +405,11 @@ public class TmdbHeaderView {
     public void refreshRecommendations() {
         if (boundAdapter == null || headerRoot == null || recommendationAdapter == null) return;
         bindRecommendationRow(R.id.tmdbRecommendationsLabel, R.id.tmdbRecommendations, recommendationAdapter, boundAdapter.getRecommendations());
+    }
+
+    public void refreshRelatedVideos() {
+        if (boundAdapter == null || headerRoot == null || relatedVideoAdapter == null) return;
+        bindRelatedVideoRow(boundAdapter.getRelatedVideos());
     }
 
     public void refreshPersonalRecommendationRows() {
@@ -478,6 +490,11 @@ public class TmdbHeaderView {
         personalAiRecommendationAdapter.setOnItemFocusListener(this::showAiRecommendationReason);
         personalAiRecommendationsRv.setAdapter(personalAiRecommendationAdapter);
 
+        RecyclerView relatedVideosRv = headerRoot.findViewById(R.id.tmdbRelatedVideos);
+        relatedVideoAdapter = new TmdbVideoAdapter();
+        relatedVideoAdapter.setOnItemClickListener(this::onRelatedVideoClick);
+        relatedVideosRv.setAdapter(relatedVideoAdapter);
+
         RecyclerView recommendationsRv = headerRoot.findViewById(R.id.tmdbRecommendations);
         recommendationAdapter = new com.fongmi.android.tv.ui.adapter.TmdbRecommendationAdapter();
         recommendationAdapter.setOnItemClickListener(this::onRecommendationClick);
@@ -499,6 +516,18 @@ public class TmdbHeaderView {
         personalAiRecommendationAdapter.removeItem(item);
         showAiRecommendationReason(item, false);
         refreshPersonalRecommendations();
+    }
+
+    private void bindRelatedVideoRow(List<TmdbVideo> items) {
+        if (items != null && !items.isEmpty()) {
+            headerRoot.findViewById(R.id.tmdbRelatedVideosLabel).setVisibility(View.VISIBLE);
+            headerRoot.findViewById(R.id.tmdbRelatedVideos).setVisibility(View.VISIBLE);
+            relatedVideoAdapter.setItems(items);
+        } else {
+            relatedVideoAdapter.setItems(new ArrayList<>());
+            headerRoot.findViewById(R.id.tmdbRelatedVideosLabel).setVisibility(View.GONE);
+            headerRoot.findViewById(R.id.tmdbRelatedVideos).setVisibility(View.GONE);
+        }
     }
 
     private void bindRecommendationRow(int labelId, int recyclerId, com.fongmi.android.tv.ui.adapter.TmdbRecommendationAdapter adapter, List<TmdbItem> items) {
@@ -636,6 +665,10 @@ public class TmdbHeaderView {
      */
     private void onRecommendationClick(TmdbItem item) {
         TmdbNavigation.open(activity, item, currentSite());
+    }
+
+    private void onRelatedVideoClick(TmdbVideo item) {
+        TmdbVideoPlayback.play(activity, item);
     }
 
     private com.fongmi.android.tv.bean.Site currentSite() {

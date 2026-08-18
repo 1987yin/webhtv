@@ -1172,8 +1172,37 @@
             android:clipToPadding="false"
             android:descendantFocusability="afterDescendants"
             android:focusable="true"
-            android:nextFocusDown="@id/tmdbPersonalTmdbRecommendations"
+            android:nextFocusDown="@id/tmdbRelatedVideos"
             android:nextFocusUp="@id/tmdbCrew"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:visibility="gone" />
+
+        <!-- TMDB related videos -->
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/tmdbRelatedVideosLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="24dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            android:text="@string/tmdb_related_videos_label"
+            android:textColor="@color/white"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <androidx.leanback.widget.HorizontalGridView
+            android:id="@+id/tmdbRelatedVideos"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:descendantFocusability="afterDescendants"
+            android:focusable="true"
+            android:nextFocusDown="@id/tmdbPersonalTmdbRecommendations"
+            android:nextFocusUp="@id/tmdbRecommendations"
             android:paddingStart="24dp"
             android:paddingEnd="24dp"
             android:visibility="gone" />
@@ -1202,7 +1231,7 @@
             android:descendantFocusability="afterDescendants"
             android:focusable="true"
             android:nextFocusDown="@id/tmdbPersonalDoubanRecommendations"
-            android:nextFocusUp="@id/tmdbRecommendations"
+            android:nextFocusUp="@id/tmdbRelatedVideos"
             android:paddingStart="24dp"
             android:paddingEnd="24dp"
             android:visibility="gone" />

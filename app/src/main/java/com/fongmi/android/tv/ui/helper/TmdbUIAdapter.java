@@ -9,6 +9,7 @@ import com.fongmi.android.tv.bean.Flag;
 import com.fongmi.android.tv.bean.TmdbConfig;
 import com.fongmi.android.tv.bean.TmdbEpisode;
 import com.fongmi.android.tv.bean.TmdbItem;
+import com.fongmi.android.tv.bean.TmdbVideo;
 import com.fongmi.android.tv.bean.TmdbMatchCache;
 import com.fongmi.android.tv.bean.TmdbSeasonMatchCache;
 import com.fongmi.android.tv.bean.TmdbPerson;
@@ -78,6 +79,7 @@ public class TmdbUIAdapter {
     private JsonObject tmdbDetail;
     private List<TmdbPerson> tmdbCast;
     private List<TmdbItem> recommendations;
+    private List<TmdbVideo> relatedVideos;
     private List<TmdbItem> personalTmdbRecommendations;
     private List<TmdbItem> personalDoubanRecommendations;
     private List<TmdbItem> personalAiRecommendations;
@@ -100,11 +102,14 @@ public class TmdbUIAdapter {
     private boolean personalDoubanLoading;
     private boolean personalRefreshLoading;
     private boolean personalAiLoading;
+    private boolean relatedVideoLoading;
+    private String relatedVideoContextKey = "";
     private boolean loaded;
     private volatile boolean episodeMetadataLoaded;
 
     private volatile int loadGeneration;
     private volatile int episodeMetadataGeneration;
+    private volatile int relatedVideoGeneration;
     private final Object episodeMetadataLock = new Object();
     private volatile int pendingVodRefreshGeneration;
     private volatile Vod pendingVodRefreshVod;
@@ -514,6 +519,7 @@ public class TmdbUIAdapter {
         tmdbDetail = null;
         tmdbCast = null;
         recommendations = null;
+        relatedVideos = null;
         personalTmdbRecommendations = null;
         personalDoubanRecommendations = null;
         personalAiRecommendations = null;
@@ -536,6 +542,9 @@ public class TmdbUIAdapter {
         personalDoubanLoading = false;
         personalRefreshLoading = false;
         personalAiLoading = false;
+        relatedVideoLoading = false;
+        relatedVideoContextKey = "";
+        relatedVideoGeneration++;
         loaded = false;
         episodeMetadataLoaded = false;
         pendingVodRefreshVod = null;
@@ -867,6 +876,7 @@ public class TmdbUIAdapter {
             episodeInfo = TmdbEpisodeInfo.from(item.getMediaType(), detail, sourceSeasonNumber);
             tmdbCast = cast;
             recommendations = new ArrayList<>();
+            relatedVideos = null;
             recommendationPage = 1;
             recommendationHasMore = false;
             PersonalRecommendationService.RecommendationPages personalPages = PersonalRecommendationService.RecommendationPages.empty();
@@ -969,6 +979,7 @@ public class TmdbUIAdapter {
                 case VOD_RECOMMENDATIONS -> RefreshEvent.vodRecommendations(vod);
                 case VOD_PERSONAL -> RefreshEvent.vodPersonal(vod);
                 case VOD_EPISODE_TITLES -> RefreshEvent.vodEpisodeTitles(vod);
+                case VOD_RELATED_VIDEOS -> RefreshEvent.vodRelatedVideos(vod);
                 default -> RefreshEvent.vod(vod);
             }
         }
@@ -989,6 +1000,7 @@ public class TmdbUIAdapter {
                     loadEpisodeTitlesAsync(vod, item, generation, metadataGeneration, selectedSeason);
                 }
             }
+            loadRelatedVideosAsync(sourceSeasonNumber, -1);
             loadRelatedRecommendationsAsync(vod, item, detail, generation);
             loadPersonalRecommendationsAsync(vod, item, detail, generation);
         };
@@ -1580,6 +1592,43 @@ public class TmdbUIAdapter {
      */
     public List<TmdbItem> getRecommendations() {
         return recommendations == null ? new ArrayList<>() : new ArrayList<>(recommendations);
+    }
+
+    public List<TmdbVideo> getRelatedVideos() {
+        return relatedVideos == null ? new ArrayList<>() : new ArrayList<>(relatedVideos);
+    }
+
+    public void loadRelatedVideosAsync(int seasonNumber, int episodeNumber) {
+        TmdbItem item = tmdbItem;
+        Vod currentVod = vod;
+        if (!loaded || item == null || !isReady()) {
+            relatedVideos = new ArrayList<>();
+            return;
+        }
+        int generation = loadGeneration;
+        String contextKey = item.getMediaType() + ":" + item.getTmdbId() + ":" + seasonNumber + ":" + episodeNumber + ":" + tmdbConfig.getLanguage();
+        if (contextKey.equals(relatedVideoContextKey) && (relatedVideoLoading || relatedVideos != null)) return;
+        int videoGeneration = ++relatedVideoGeneration;
+        relatedVideoContextKey = contextKey;
+        relatedVideoLoading = true;
+        relatedVideos = new ArrayList<>();
+        backgroundTasks.submit(() -> {
+            List<TmdbVideo> loadedVideos = new ArrayList<>();
+            try {
+                loadedVideos = tmdbService.relatedVideos(item, seasonNumber, episodeNumber, tmdbConfig);
+            } catch (Throwable e) {
+                SpiderDebug.log("tmdb-video", "related async failed media=%s id=%d season=%d episode=%d error=%s", item.getMediaType(), item.getTmdbId(), seasonNumber, episodeNumber, e.getMessage());
+            }
+            List<TmdbVideo> result = loadedVideos;
+            activity.runOnUiThread(() -> {
+                boolean sameItem = tmdbItem != null && tmdbItem.getTmdbId() == item.getTmdbId() && Objects.equals(tmdbItem.getMediaType(), item.getMediaType());
+                if (!isCurrentGeneration(generation) || relatedVideoGeneration != videoGeneration || !contextKey.equals(relatedVideoContextKey) || !sameItem) return;
+                relatedVideoLoading = false;
+                relatedVideos = new ArrayList<>(result);
+                SpiderDebug.log("tmdb-video", "related async loaded media=%s id=%d season=%d episode=%d count=%d", item.getMediaType(), item.getTmdbId(), seasonNumber, episodeNumber, relatedVideos.size());
+                notifyVodChanged(currentVod, generation, RefreshEvent.Type.VOD_RELATED_VIDEOS);
+            });
+        });
     }
 
     public boolean hasMoreRecommendations() {
