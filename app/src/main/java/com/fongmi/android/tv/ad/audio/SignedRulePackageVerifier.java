@@ -69,6 +69,10 @@ public final class SignedRulePackageVerifier {
                 parsed.ruleSet(), parsed.keyId(), parsed.algorithm());
     }
 
+    String expectedPackageId() {
+        return expectedPackageId;
+    }
+
     private TrustedRuleKeyRegistry.Entry findKey(String keyId)
             throws SignedRulePackageException {
         Optional<TrustedRuleKeyRegistry.Entry> entry = keyRegistry.find(keyId);
