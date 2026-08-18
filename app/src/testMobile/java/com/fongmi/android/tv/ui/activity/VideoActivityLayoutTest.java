@@ -1208,8 +1208,8 @@ public class VideoActivityLayoutTest {
 
         assertTrue(sourcePath + " is missing flag click handler", click >= 0);
         assertTrue("history episode selection/playback should happen before the fallback page bind",
-                body.contains("boolean episodeChanged = seamless(item);")
-                        && body.contains("if (!episodeChanged) setEpisodeAdapter(item.getEpisodes());"));
+                body.contains("boolean episodeChanged = seamless(resolved);")
+                        && body.contains("if (!episodeChanged) setEpisodeAdapter(resolved.getEpisodes());"));
         assertTrue("seamless selection must report whether it already rebuilt the page",
                 source.contains("private boolean seamless(Flag flag)"));
     }
@@ -2804,7 +2804,7 @@ public class VideoActivityLayoutTest {
         assertTrue("non-detail playback must preserve flag, episode title, and episode url",
                 historyStartBody.contains("startDirect(activity, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), item.getVodRemarks(), item.getVodFlag(), item.getVodRemarks(), item.getEpisodeUrl(), item)"));
         assertTrue("direct playback must preserve the requested episode selection in the intent",
-                video.contains("putIntentPlaybackSelection(intent, playFlag, playEpisodeName, playEpisodeUrl);"));
+                video.contains("putIntentPlaybackSelection(intent, playFlag, playFlagKey, playEpisodeName, playEpisodeUrl);"));
     }
 
     @Test
@@ -2827,7 +2827,7 @@ public class VideoActivityLayoutTest {
         assertTrue("TV non-detail playback must preserve flag, episode title, and episode url",
                 historyStartBody.contains("startDirect(activity, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), item.getVodRemarks(), item.getVodFlag(), item.getVodRemarks(), item.getEpisodeUrl(), item)"));
         assertTrue("TV direct playback must preserve the requested episode selection in the intent",
-                video.contains("putIntentPlaybackSelection(intent, playFlag, playEpisodeName, playEpisodeUrl);"));
+                video.contains("putIntentPlaybackSelection(intent, playFlag, playFlagKey, playEpisodeName, playEpisodeUrl);"));
     }
 
     @Test
@@ -2917,6 +2917,83 @@ public class VideoActivityLayoutTest {
         assertTrue("seek must show loading before scheduling the READY fallback", show > started && remove > show && post > remove);
         assertTrue("seek fallback must only clear loading once playback is READY", readyGuard > helper && reveal > readyGuard);
         assertTrue("seek fallback callback must be removed on destroy", destroyRemove > destroy);
+    }
+
+    @Test
+    public void duplicateNamedFlagsPreferExactEpisodeUrlInBothPlayers() throws Exception {
+        for (Path root : List.of(findMobileJavaPath(), findLeanbackJavaPath())) {
+            Path sourcePath = root.resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+            String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+            String body = methodBody(source, "private Flag findIntentPlaybackFlag", "private Episode findIntentPlaybackEpisode");
+
+            assertTrue(sourcePath + " must delegate duplicate-line selection with the stable key and exact episode URL",
+                    body.contains("TmdbUIAdapter.selectPlaybackFlag(")
+                            && body.contains("flags, playFlagKey, playUrl, playFlag"));
+        }
+    }
+
+    @Test
+    public void duplicateNamedFlagsUseIdentitySelectionInBothAdapters() throws Exception {
+        for (Path root : List.of(findMobileJavaPath(), findLeanbackJavaPath())) {
+            Path sourcePath = root.resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "FlagAdapter.java"));
+            String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+            String index = methodBody(source, "public int indexOf(Flag", "public int getPosition()");
+            String selected = methodBody(source, "public void setSelected(Flag", "public void toggle(Episode");
+
+            assertTrue(sourcePath + " must find the exact duplicate flag object before the legacy name fallback",
+                    index.contains("mItems.get(i) ==")
+                            && index.indexOf("mItems.get(i) ==") < index.indexOf("mItems.indexOf("));
+            assertTrue(sourcePath + " must select exactly one resolved flag position",
+                    selected.contains("setSelected(i == position)"));
+            assertFalse(sourcePath + " must not delegate duplicate selection to Flag.equals",
+                    selected.contains("setSelected(item)") || selected.contains("setSelected(flag)"));
+
+            if (root.equals(findLeanbackJavaPath())) {
+                Path videoPath = root.resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+                String video = new String(Files.readAllBytes(videoPath), StandardCharsets.UTF_8);
+                String fastSelection = methodBody(video,
+                        "private void selectFastTmdbPlaybackEpisode(Vod item, Flag selectedFlag, Episode selectedEpisode)",
+                        "private void updateFastTmdbPlaybackHistory(Flag flag, Episode episode)");
+                assertTrue("leanback fast TMDB playback must select only the exact duplicate Flag object",
+                        fastSelection.contains("flag == selectedFlag"));
+                assertFalse("leanback fast TMDB playback must not select duplicate Flags by display name",
+                        fastSelection.contains("TextUtils.equals(flag.getFlag(), selectedFlag.getFlag())"));
+            }
+        }
+    }
+
+    @Test
+    public void bothPlayersPersistStableFlagKeyWithHistory() throws Exception {
+        for (Path root : List.of(findMobileJavaPath(), findLeanbackJavaPath())) {
+            Path sourcePath = root.resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+            String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+            String body = methodBody(source, "private void setHistoryFlag", "private Episode getEpisode()");
+
+            assertTrue(sourcePath + " must persist the identity-first adapter index with quarterly progress",
+                    body.contains("mFlagAdapter.indexOf(flag)")
+                            && body.contains("TmdbUIAdapter.flagKey(flag, index)")
+                            && body.contains("mHistory.setSourceBindingKey(flagKey)"));
+            assertTrue(sourcePath + " must recover the stable index before the TMDB adapter is bound",
+                    body.contains("TmdbUIAdapter.flagIndex(mVod.getFlags(), flag)"));
+        }
+    }
+
+    @Test
+    public void bothPlayersResolveHistoryToActualFlagBeforeLoadingEpisodes() throws Exception {
+        for (Path root : List.of(findMobileJavaPath(), findLeanbackJavaPath())) {
+            Path sourcePath = root.resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+            String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+            String resolve = methodBody(source, "private Flag resolveHistoryPlaybackFlag", "private Episode getEpisode()");
+            String click = methodBody(source, "public void onItemClick(Flag item)", "@Override");
+
+            assertTrue(sourcePath + " must resolve current-list flags with stable key, exact URL, and legacy name",
+                    resolve.contains("TmdbUIAdapter.selectPlaybackFlag(")
+                            && resolve.contains("flags, flagKey, episodeUrl, flagName"));
+            assertTrue(sourcePath + " must load episodes and TMDB state from the resolved adapter object",
+                    click.contains("Flag resolved = mFlagAdapter.get(")
+                            && click.contains("mTmdbUIAdapter.setActiveFlag(resolved)")
+                            && click.contains("resolved.getEpisodes()"));
+        }
     }
 
     private static Path findMobileResPath() {

@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 public class FlagAdapterTest {
@@ -36,6 +37,23 @@ public class FlagAdapterTest {
         adapter.setSelected(new Flag("missing"));
 
         assertEquals(0, adapter.getItemCount());
+    }
+
+    @Test
+    public void setSelected_duplicateNames_selectsExactFlagOnly() {
+        Flag first = new Flag("duplicate");
+        Flag second = new Flag("duplicate");
+        FlagAdapter adapter = new FlagAdapter(item -> {
+        });
+        adapter.getItems().addAll(Arrays.asList(first, second));
+
+        adapter.setSelected(second);
+
+        assertFalse(first.isSelected());
+        assertTrue(second.isSelected());
+        assertEquals(1, adapter.getPosition());
+        assertEquals(1, adapter.indexOf(second));
+        assertSame(second, adapter.getActivated());
     }
 
     @Test

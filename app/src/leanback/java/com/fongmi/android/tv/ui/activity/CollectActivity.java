@@ -32,6 +32,7 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Collect;
 import com.fongmi.android.tv.bean.History;
+import com.fongmi.android.tv.playback.HistoryResumePayload;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
@@ -125,7 +126,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         intent.putExtra("pic", history.getVodPic());
         intent.putExtra("wallPic", history.getWallPic());
         intent.putExtra("historyResumeCid", history.getCid());
-        intent.putExtra("historyResumeKey", history.getKey());
+        intent.putExtra("historyResumeKey", HistoryResumePayload.encode(history));
         intent.putExtra("historyResumeTargetCid", targetCid);
         activity.startActivity(intent);
     }

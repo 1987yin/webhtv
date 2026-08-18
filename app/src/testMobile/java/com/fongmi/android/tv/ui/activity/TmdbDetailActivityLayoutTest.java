@@ -13,6 +13,35 @@ import static org.junit.Assert.assertTrue;
 public class TmdbDetailActivityLayoutTest {
 
     @Test
+    public void seasonSourceRoutesRefreshAndCarrySnapshotSelection() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
+
+        assertTrue(source.contains("refreshSeasonSourceRoutes();"));
+        assertTrue(source.contains("switchSourceDetail(source, item)"));
+        assertTrue(source.contains("source.seasonNumber()"));
+        assertTrue(source.contains("source.sourceFlag()"));
+        assertTrue(source.contains("source.episodeUrl()"));
+        assertTrue(source.contains("source.resumeHistoryPayload()"));
+    }
+
+    @Test
+    public void seasonSourceSwitchReplacesThePreviousSeasonResumePayload() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int sourceOverload = source.indexOf("private void switchSourceDetail(SourceMatch");
+        int switchStart = source.indexOf("private void switchSourceDetail(", sourceOverload + 1);
+        String switchBody = source.substring(switchStart, source.indexOf("private String sourceSwitchMark"));
+
+        assertTrue("source switching must remove the previous season resume marker",
+                switchBody.contains("intent.removeExtra(EXTRA_RESUME_FROM_HISTORY);")
+                        && switchBody.contains("intent.removeExtra(EXTRA_RESUME_HISTORY_CID);")
+                        && switchBody.contains("intent.removeExtra(EXTRA_RESUME_HISTORY_KEY);"));
+        assertTrue("a season source may install only a currently restorable target payload",
+                switchBody.contains("HistoryResumePayload.restore(resumeHistoryCid, resumeHistoryPayload)")
+                        && switchBody.contains("intent.putExtra(EXTRA_RESUME_HISTORY_KEY, resumeHistoryPayload);"));
+    }
+
+    @Test
     public void automaticTmdbMatchUsesResolvedMediaTitleBeforeSearching() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -2933,6 +2962,116 @@ public class TmdbDetailActivityLayoutTest {
         assertTrue("playWhenReady changes must cover engines that do not emit a second isPlaying callback",
                 playWhenReadyBody.contains("super.onPlayWhenReadyChanged(playWhenReady, reason);")
                         && playWhenReadyBody.contains("syncInlinePauseInfo(playWhenReady);"));
+    }
+
+    @Test
+    public void duplicateNamedFlagsUseUrlThenStableKeyAndObjectIdentity() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String standalone = source.substring(source.indexOf("private Flag initialStandaloneFlag"),
+                source.indexOf("private Episode initialStandaloneEpisode"));
+        String initial = source.substring(source.indexOf("private Flag findInitialFlag"),
+                source.indexOf("private Episode findIntentPlaybackEpisode"));
+        String episode = source.substring(source.indexOf("private Episode findIntentPlaybackEpisode"),
+                source.indexOf("private MaterialButton createChipButton"));
+
+        assertTrue("standalone preload must resolve duplicate flags with the stable key and exact episode URL",
+                standalone.contains("getIntentPlaybackEpisodeUrl()")
+                        && standalone.contains("getIntentPlaybackFlagKey()")
+                        && standalone.contains("TmdbUIAdapter.selectPlaybackFlag("));
+        assertTrue("detail binding must resolve duplicate flags with the stable key and exact episode URL",
+                initial.contains("getIntentPlaybackEpisodeUrl()")
+                        && initial.contains("getIntentPlaybackFlagKey()")
+                        && initial.contains("TmdbUIAdapter.selectPlaybackFlag("));
+        assertTrue("standalone preload must reuse the stable key restored from seasonal history",
+                standalone.contains("saved.getSourceBindingKey()")
+                        && standalone.contains("saved.getEpisodeUrl()")
+                        && standalone.contains("saved.getVodFlag()"));
+        assertTrue("detail binding must reuse the stable key restored from seasonal history",
+                initial.contains("history.getSourceBindingKey()")
+                        && initial.contains("history.getEpisodeUrl()")
+                        && initial.contains("history.getVodFlag()"));
+        assertTrue("episode lookup must allow its exact URL to override a stale duplicate flag key",
+                episode.indexOf("findEpisodeByUrl(getIntentPlaybackEpisodeUrl()") < episode.indexOf("getIntentPlaybackFlagKey()"));
+        assertFalse("duplicate flag selection and focus must not rely on Flag.equals, which compares names only",
+                source.contains("equals(selectedFlag)"));
+        assertTrue(source.contains("flags.get(i) == selectedFlag")
+                && source.contains("flag == selectedFlag"));
+        String seasonSources = source.substring(source.indexOf("private List<SourceMatch> findSeasonHistorySources"),
+                source.indexOf("private int currentSeasonSourceScope"));
+        assertTrue("persisted duplicate flag keys must win over legacy same-name route binding lookup",
+                seasonSources.indexOf("TmdbUIAdapter.isFlagKey(saved.getSourceBindingKey())")
+                        < seasonSources.indexOf("TextUtils.equals(saved.getVodFlag(), binding.getSourceFlag())"));
+    }
+
+    @Test
+    public void initialStandaloneFlagLoadsSeasonBindingBeforeRoutesAndEpisodes() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String bindFlags = source.substring(source.indexOf("private void bindFlags()"),
+                source.indexOf("private void bindSeasonSourceRoutes"));
+        String applyBundle = source.substring(source.indexOf("private void applyTmdbBundle"),
+                source.indexOf("private void showTmdbMatchDialog"));
+
+        int select = bindFlags.indexOf("selectedFlag = currentFlag;");
+        int loadBinding = bindFlags.indexOf("loadTmdbSeasonBinding();", select);
+        int bindRoutes = bindFlags.indexOf("bindSeasonSourceRoutes(routeGeneration);", loadBinding);
+        int renderEpisodes = bindFlags.indexOf("renderEpisodes();", loadBinding);
+
+        assertTrue("initial flag must load its stable-key season binding before routes and episodes",
+                select >= 0 && loadBinding > select && bindRoutes > loadBinding && renderEpisodes > loadBinding);
+        assertTrue("bundle application must not read a route binding before the initial flag exists",
+                applyBundle.contains("if (selectedFlag != null) loadTmdbSeasonBinding();"));
+    }
+
+    @Test
+    public void knownSeasonAutoFallbackUsesOnlyValidatedSeasonRoutes() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String manual = source.substring(source.indexOf("private void changeSource()"),
+                source.indexOf("private SourceMatch searchAutoChangeSource"));
+        String automatic = source.substring(source.indexOf("private void tryAutoChangeSource()"),
+                source.indexOf("private boolean openGlobalSourceSearch"));
+        String guardedSearch = source.substring(source.indexOf("private SourceMatch searchAutoChangeSource"),
+                source.indexOf("private void tryAutoChangeSource()"));
+        String seasonScope = source.substring(source.indexOf("private int currentSeasonSourceScope"),
+                source.indexOf("private SourceMatch searchChangeSource(Site"));
+
+        assertTrue("manual source changes may retain ordinary search", manual.contains("searchChangeSource(keyword)"));
+        assertTrue("automatic source changes must use the season-aware guard", automatic.contains("searchAutoChangeSource(keyword)"));
+        assertTrue("known TV seasons must only reuse validated season history routes",
+                guardedSearch.contains("currentSeasonSourceScope() >= 0")
+                        && guardedSearch.contains("return findSeasonHistorySource();"));
+        assertTrue("explicit current-line season evidence must beat stale history season state",
+                seasonScope.indexOf("sourceTitleSeasonNumber()") < seasonScope.indexOf("history != null"));
+    }
+
+    @Test
+    public void tmdbSeasonCacheWritesHoldOneLockForTheWholeMutation() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String load = source.substring(source.indexOf("private void loadTmdbSeasonBinding"),
+                source.indexOf("private void updateTmdbSeasonActionVisibility"));
+        String save = source.substring(source.indexOf("private void saveTmdbSeasonBinding"),
+                source.indexOf("private void clearTmdbSeasonBinding"));
+        String clear = source.substring(source.indexOf("private void clearTmdbSeasonBinding"),
+                source.indexOf("private String selectedSeasonFlagKey"));
+
+        assertTrue(save.contains("synchronized (Setting.class)")
+                && save.indexOf("Setting.getTmdbSeasonMatchCache()") < save.indexOf("Setting.putTmdbSeasonMatchCache(cache)"));
+        assertTrue(clear.contains("synchronized (Setting.class)")
+                && clear.indexOf("Setting.getTmdbSeasonMatchCache()") < clear.indexOf("Setting.putTmdbSeasonMatchCache(cache)"));
+        assertTrue("pruning stale sibling routes must persist even when the active binding did not change",
+                load.contains("boolean cacheChanged = cache.pruneRouteBindings")
+                        && load.contains("cacheChanged |= cache.recordRouteBinding")
+                        && load.contains("if (cacheChanged) Setting.putTmdbSeasonMatchCache(cache)"));
+    }
+
+    @Test
+    public void manualSeasonBindingClearsOnlySelectedFlagMetadata() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String clear = source.substring(source.indexOf("private void clearBoundTmdbEpisodeMetadata"),
+                source.indexOf("private void showManualTmdbMatchDialog"));
+
+        assertTrue(clear.contains("selectedFlag.getEpisodes()"));
+        assertFalse("manual remapping must preserve metadata already loaded for sibling flags",
+                clear.contains("vod.getFlags()"));
     }
 
     private static Path findMainJavaPath() {
