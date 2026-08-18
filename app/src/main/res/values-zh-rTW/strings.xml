@@ -177,6 +177,11 @@
     <string name="setting_danmaku">彈幕設定</string>
     <string name="setting_subtitle">字幕設定</string>
     <string name="setting_enhance">增強功能</string>
+    <string name="setting_tmdb">TMDB</string>
+    <string name="setting_ai">AI 服務</string>
+    <string name="setting_ai_group_recommendation">推薦</string>
+    <string name="setting_ai_group_detection">內容識別</string>
+    <string name="setting_ai_group_subtitle">字幕</string>
     <string name="setting_search_thread">搜尋線程</string>
     <string name="setting_personal">個性設定</string>
     <string name="setting_group_rule">分組規則</string>
@@ -2320,7 +2325,7 @@
     <string name="detail_site_not_searchable">當前站源不支持搜索</string>
     <string name="viewing_report_refreshing">刷新報告中...</string>
     <string name="setting_ai_ad_detection">AI 智能去廣</string>
-    <string name="setting_ad_rule_manage">規則管理</string>
+    <string name="setting_ad_rule_manage">廣告規則管理</string>
     <string name="ad_rule_add_manual">手動添加規則</string>
     <string name="ad_rule_import_candidates">待審覈接口規則（%d）</string>
     <string name="ad_rule_import_title">導入接口去廣規則</string>
