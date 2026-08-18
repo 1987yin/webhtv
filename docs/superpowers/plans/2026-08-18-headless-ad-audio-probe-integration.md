@@ -15,6 +15,10 @@
 将创建以下小文件，避免把第三方 API 或策略继续堆入现有大类：
 
 - `app/src/main/java/com/fongmi/android/tv/ad/audio/ProbeRuleSidecar.java`：不可变 v1 sidecar 数据模型和 digest/revision 绑定校验。
+- `app/src/main/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarCodec.java`：独立 sidecar artifact 的严格 JSON codec 和确定性签名输入。
+- `app/src/main/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarVerifier.java`：复用可信公钥注册表验证独立 artifact。
+- `app/src/main/java/com/fongmi/android/tv/ad/audio/VerifiedProbeRuleSidecarPackage.java`：已验签 artifact 元数据与 sidecar。
+- `app/src/main/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarStore.java`：独立 current/previous/high-water 缓存。
 - `app/src/main/java/com/fongmi/android/tv/ad/audio/AdAudioSignalProvider.java`：Provider、上下文、候选、生命周期和状态契约。
 - `app/src/main/java/com/fongmi/android/tv/ad/audio/NoopAdAudioSignalProvider.java`：能力关闭时的无资源实现。
 - `app/src/main/java/com/fongmi/android/tv/ad/audio/PcmAdAudioSignalProvider.java`：将现有 `AdAudioConsumer` 适配到 Provider 契约。
@@ -22,6 +26,8 @@
 - `app/src/main/java/com/fongmi/android/tv/ad/audio/AdSkipPolicyController.java`：线程安全的 PROMPT/AUTO 实时策略。
 - `app/src/main/java/com/fongmi/android/tv/ad/audio/AdAudioRuleSnapshot.java`：增加可选 sidecar 字段并保持旧构造器兼容。
 - `app/src/test/java/com/fongmi/android/tv/ad/audio/ProbeRuleSidecarTest.java`：sidecar 绑定、digest、上限和错配测试。
+- `app/src/test/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarVerifierTest.java`：artifact 字段、签名、时间、密钥和 source 绑定测试。
+- `app/src/test/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarStoreTest.java`：sidecar 独立缓存、回滚和恢复测试。
 - `app/src/test/java/com/fongmi/android/tv/ad/audio/AdAudioSignalProviderTest.java`：Noop/Pcm 生命周期和旧回调测试。
 - `app/src/test/java/com/fongmi/android/tv/ad/audio/AdAudioDetectionMultiplexerTest.java`：候选去重、排序、generation 和 provider 异常测试。
 - `app/src/test/java/com/fongmi/android/tv/ad/audio/AdSkipPolicyControllerTest.java`：实时切换语义测试。
@@ -35,7 +41,7 @@
 - Create: `app/src/test/java/com/fongmi/android/tv/ad/audio/ProbeRuleSidecarTest.java`
 - Create: `app/src/main/java/com/fongmi/android/tv/ad/audio/ProbeRuleSidecar.java`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 测试必须覆盖：有效绑定通过、source revision 错配拒绝、source digest 错配拒绝、sidecar digest 错配拒绝、算法不是 `spectral-sequence-v1` 拒绝、canonical bytes 超过上限拒绝、数组 getter 防御性复制。测试构造一个最小 canonical sidecar 字节串和 32 字节 digest，不访问文件或网络。
 
@@ -50,7 +56,7 @@ public void bindingRejectsRevisionMismatch() {
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 运行：
 
@@ -60,31 +66,71 @@ rtk proxy cmd.exe /d /c gradlew.bat :app:testLeanbackArm64_v8aDebugUnitTest --te
 
 预期：因 `ProbeRuleSidecar` 不存在或绑定方法未实现而失败。
 
-- [ ] **Step 3: 实现最小 sidecar 模型**
+- [x] **Step 3: 实现最小 sidecar 模型**
 
 `ProbeRuleSidecar` 使用不可变字段：`sourceRevision`、`sourceDigest`、`algorithm`、`converterVersion`、`canonicalRules`、`sidecarDigest`。构造时复制 byte 数组、限制 source revision 为正数、digest 必须 32 字节、算法必须精确为 `spectral-sequence-v1`、canonical bytes 不超过签名包预算，并以 `MessageDigest.isEqual` 校验 canonical bytes 的 SHA-256。`requireBoundTo` 使用常量时间比较校验 revision 和 source digest；失败抛出 `IllegalArgumentException`。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 重复 Task 1 Step 2，预期该测试类全部通过。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```text
 rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio/ProbeRuleSidecar.java app/src/test/java/com/fongmi/android/tv/ad/audio/ProbeRuleSidecarTest.java
 rtk git commit -m "feat: define verified probe rule sidecar"
 ```
 
-## Task 2: 扩展规则快照并锁定验签绑定入口
+## Task 2: 实现独立签名 sidecar artifact
+
+**Files:**
+- Create: `app/src/main/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarCodec.java`
+- Create: `app/src/main/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarVerifier.java`
+- Create: `app/src/main/java/com/fongmi/android/tv/ad/audio/VerifiedProbeRuleSidecarPackage.java`
+- Create: `app/src/test/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarVerifierTest.java`
+
+- [x] **Step 1: 写失败测试**
+
+使用测试 Ed25519 RAW key 生成独立 artifact，覆盖：有效签名通过；artifact/package/source/revision/digest/algorithm/converter/rules digest/signature 任一字段篡改都拒绝；未知/重复字段、trailing data、非整数、非 UTF-8、超大 rules、错误 base64url 拒绝；ACTIVE/RETIRED/REVOKED key 与 INSTALL/CACHE 语义和主包一致。
+
+- [x] **Step 2: 运行测试确认失败**
+
+```text
+rtk proxy cmd.exe /d /c gradlew.bat :app:testLeanbackArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.ad.audio.SignedProbeRuleSidecarVerifierTest --no-daemon --no-build-cache --console=plain
+```
+
+预期：因独立 artifact codec/verifier 类型不存在而失败。
+
+- [x] **Step 3: 实现严格 codec 与 verifier**
+
+artifact 使用 `artifactSchemaVersion:1`、固定 `artifactType:ad-audio-probe-sidecar`、独立 `packageId/revision/time`、`sourcePackageId/sourceRevision/sourcePayloadSha256`、固定 v1 algorithm、converterVersion、`rulesSha256/rulesBase64Url` 和 Ed25519 signature。codec 使用流式 `JsonReader`，拒绝未知/重复字段和 trailing data；原始包、字符串、rules bytes、token 和成员数都有硬上限。
+
+签名域固定为 `webhtv.ad-audio.probe-sidecar/v1`，签名输入使用长度前缀和大端整数，覆盖全部 artifact/source 元数据与两个摘要。verifier 复用 `TrustedRuleKeyRegistry` 和主包的时间/key lifecycle 语义，成功后返回 `VerifiedProbeRuleSidecarPackage`。
+
+- [x] **Step 4: 运行测试确认通过**
+
+重复 Task 2 Step 2，预期 verifier 测试全部通过；同时运行既有 `SignedRulePackageVerifierTest`，证明主包签名域未改变。
+
+- [x] **Step 5: 提交**
+
+```text
+rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarCodec.java app/src/main/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarVerifier.java app/src/main/java/com/fongmi/android/tv/ad/audio/VerifiedProbeRuleSidecarPackage.java app/src/test/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarVerifierTest.java
+rtk git commit -m "feat: verify independent probe rule sidecars"
+```
+
+## Task 3: 独立缓存 sidecar 并与主快照配对
 
 **Files:**
 - Modify: `app/src/main/java/com/fongmi/android/tv/ad/audio/AdAudioRuleSnapshot.java`
+- Create: `app/src/main/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarStore.java`
+- Modify: `app/src/main/java/com/fongmi/android/tv/ad/audio/SignedRulePackageSource.java`
 - Test: `app/src/test/java/com/fongmi/android/tv/ad/audio/ProbeRuleSidecarTest.java`
+- Create: `app/src/test/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarStoreTest.java`
 - Test: existing `app/src/test/java/com/fongmi/android/tv/ad/audio/AdAudioRuleSourceContractTest.java`
 
 - [ ] **Step 1: 写失败测试**
 
-新增断言：旧五参数构造器得到 `null` sidecar；新构造器保存 sidecar；`withProbeSidecar` 只接受 source revision/digest 已绑定的 sidecar；sidecar 不存在时 `probeAvailable()` 为 false。
+新增断言：旧五参数构造器得到 `null` sidecar；sidecar 独立 store 拒绝 revision 回滚和同 revision 换包，损坏 current 时恢复 previous；source 只有在 `sourcePackageId/sourceRevision/sourceDigest` 全部匹配主包时才把 sidecar 放入 snapshot；sidecar 不存在、损坏或错配时主规则仍成功返回并附固定 warning。
 
 ```java
 @Test
@@ -99,25 +145,27 @@ public void legacySnapshotRemainsWithoutProbeSidecar() {
 - [ ] **Step 2: 运行相关测试确认失败**
 
 ```text
-rtk proxy cmd.exe /d /c gradlew.bat :app:testLeanbackArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.ad.audio.AdAudioRuleSourceContractTest --tests com.fongmi.android.tv.ad.audio.ProbeRuleSidecarTest --no-daemon --no-build-cache --console=plain
+rtk proxy cmd.exe /d /c gradlew.bat :app:testLeanbackArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.ad.audio.AdAudioRuleSourceContractTest --tests com.fongmi.android.tv.ad.audio.ProbeRuleSidecarTest --tests com.fongmi.android.tv.ad.audio.SignedProbeRuleSidecarStoreTest --tests com.fongmi.android.tv.ad.audio.SignedRulePackageSourceTest --no-daemon --no-build-cache --console=plain
 ```
 
 - [ ] **Step 3: 实现兼容扩展**
 
-保留原五参数 public 构造器，内部委托新构造器并传入 `null`；新增 `ProbeRuleSidecar probeSidecar` 字段、六参数构造器和 `probeAvailable()`。不改变 `hasRules()`、`hasError()` 和现有 source/version 语义。规则 source 在把已验签包转换为 snapshot 时负责传入 sidecar；snapshot 自身不读磁盘。
+保留原五参数 public 构造器，内部委托新构造器并传入 `null`；新增 `ProbeRuleSidecar probeSidecar` 字段、六参数构造器和 `probeAvailable()`。`SignedProbeRuleSidecarStore` 使用自己的目录、current/previous/state 和 operation lock，复用主 store 的原子写、fsync、回滚/冲突语义但不共享高水位。
+
+`SignedRulePackageSource` 增加可选 sidecar loader。先加载主包，再加载 sidecar；只有 packageId/revision/digest 绑定成功才构造带 sidecar 的 snapshot。sidecar 的任何错误都转为固定 warning，不改变主 snapshot 的 `lastError`。
 
 - [ ] **Step 4: 运行测试确认通过**
 
-重复 Task 2 Step 2，预期现有 source contract 与新断言均通过。
+重复 Task 3 Step 2，预期现有 source contract、主包 source 和 sidecar store 测试均通过。
 
 - [ ] **Step 5: 提交**
 
 ```text
-rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio/AdAudioRuleSnapshot.java app/src/test/java/com/fongmi/android/tv/ad/audio/ProbeRuleSidecarTest.java app/src/test/java/com/fongmi/android/tv/ad/audio/AdAudioRuleSourceContractTest.java
-rtk git commit -m "feat: expose optional probe sidecar in rule snapshots"
+rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio/AdAudioRuleSnapshot.java app/src/main/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarStore.java app/src/main/java/com/fongmi/android/tv/ad/audio/SignedRulePackageSource.java app/src/test/java/com/fongmi/android/tv/ad/audio/ProbeRuleSidecarTest.java app/src/test/java/com/fongmi/android/tv/ad/audio/SignedProbeRuleSidecarStoreTest.java app/src/test/java/com/fongmi/android/tv/ad/audio/AdAudioRuleSourceContractTest.java app/src/test/java/com/fongmi/android/tv/ad/audio/SignedRulePackageSourceTest.java
+rtk git commit -m "feat: pair verified probe sidecars with rule snapshots"
 ```
 
-## Task 3: 建立 Provider 契约与 Noop 实现
+## Task 4: 建立 Provider 契约与 Noop 实现
 
 **Files:**
 - Create: `app/src/main/java/com/fongmi/android/tv/ad/audio/AdAudioSignalProvider.java`
@@ -142,7 +190,7 @@ rtk proxy cmd.exe /d /c gradlew.bat :app:testLeanbackArm64_v8aDebugUnitTest --te
 
 - [ ] **Step 4: 运行测试确认通过**
 
-重复 Task 3 Step 2，预期全部通过。
+重复 Task 4 Step 2，预期全部通过。
 
 - [ ] **Step 5: 提交**
 
@@ -151,7 +199,7 @@ rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio/AdAudioSignalProvid
 rtk git commit -m "feat: add extensible ad audio signal provider contract"
 ```
 
-## Task 4: 将现有 PCM matcher 适配到 Provider
+## Task 5: 将现有 PCM matcher 适配到 Provider
 
 **Files:**
 - Create: `app/src/main/java/com/fongmi/android/tv/ad/audio/PcmAdAudioSignalProvider.java`
@@ -176,7 +224,7 @@ rtk proxy cmd.exe /d /c gradlew.bat :app:testLeanbackArm64_v8aDebugUnitTest --te
 
 - [ ] **Step 4: 运行测试确认通过**
 
-重复 Task 4 Step 2，并运行既有 controller 测试：
+重复 Task 5 Step 2，并运行既有 controller 测试：
 
 ```text
 rtk proxy cmd.exe /d /c gradlew.bat :app:testLeanbackArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.ad.audio.AdAudioRuntimeControllerTest --tests com.fongmi.android.tv.ad.audio.AdAudioSignalProviderTest --no-daemon --no-build-cache --console=plain
@@ -189,7 +237,7 @@ rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio/PcmAdAudioSignalPro
 rtk git commit -m "refactor: adapt pcm matcher to signal provider"
 ```
 
-## Task 5: 实现候选合并器
+## Task 6: 实现候选合并器
 
 **Files:**
 - Create: `app/src/main/java/com/fongmi/android/tv/ad/audio/AdAudioDetectionMultiplexer.java`
@@ -225,7 +273,7 @@ rtk proxy cmd.exe /d /c gradlew.bat :app:testLeanbackArm64_v8aDebugUnitTest --te
 
 - [ ] **Step 4: 运行测试确认通过**
 
-重复 Task 5 Step 2，预期所有 mux 测试通过。
+重复 Task 6 Step 2，预期所有 mux 测试通过。
 
 - [ ] **Step 5: 提交**
 
@@ -234,7 +282,7 @@ rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio/AdAudioDetectionMul
 rtk git commit -m "feat: deduplicate ad audio detection candidates"
 ```
 
-## Task 6: 实现实时提示/自动策略
+## Task 7: 实现实时提示/自动策略
 
 **Files:**
 - Create: `app/src/main/java/com/fongmi/android/tv/ad/audio/AdSkipPolicyController.java`
@@ -270,7 +318,7 @@ rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio/AdSkipPolicyControl
 rtk git commit -m "feat: support realtime ad skip policy switching"
 ```
 
-## Task 7: 组合 Runtime controller 与 fake Probe
+## Task 8: 组合 Runtime controller 与 fake Probe
 
 **Files:**
 - Modify: `app/src/main/java/com/fongmi/android/tv/ad/audio/AdAudioRuntimeController.java`
@@ -307,7 +355,7 @@ rtk git add app/src/main/java/com/fongmi/android/tv/ad/audio/AdAudioRuntimeContr
 rtk git commit -m "feat: compose pcm and probe signal providers"
 ```
 
-## Task 8: 全量验证与文档收尾
+## Task 9: 全量验证与文档收尾
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-08-18-headless-ad-audio-probe-integration-design.md` only for measured results
@@ -357,7 +405,7 @@ rtk git commit -m "docs: record headless probe integration verification"
 
 ## 自审清单
 
-- 规格覆盖：sidecar 信任、Provider 替换、候选去重、实时策略、生命周期、fail-open、资源边界和回滚分别由 Task 1-8 覆盖。
+- 规格覆盖：sidecar 独立验签/缓存、Provider 替换、候选去重、实时策略、生命周期、fail-open、资源边界和回滚分别由 Task 1-9 覆盖。
 - 无占位符：每个任务给出了文件、失败测试、命令、实现约束和提交命令；没有以“以后处理”代替实现。
 - 类型一致：`AdAudioSignalProvider.AdAudioCandidate` 是 multiplexer、policy 和 runtime 共用的候选类型；`AdAudioRuleSnapshot.probeSidecar()` 是唯一 sidecar 入口；Provider 生命周期统一使用 `SessionContext/TimelineReset`。
 - 外部依赖边界：第一阶段没有 AAR 坐标、网络规则或运行时远程 JSON；第二阶段才允许增加独立 adapter。

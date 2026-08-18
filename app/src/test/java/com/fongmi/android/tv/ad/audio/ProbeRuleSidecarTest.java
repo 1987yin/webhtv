@@ -13,6 +13,7 @@ import java.security.MessageDigest;
 public class ProbeRuleSidecarTest {
 
     private static final long REVISION = 8L;
+    private static final String SOURCE_PACKAGE_ID = "official.ad-audio";
 
     @Test
     public void validSidecarBindsToSignedPayload() throws Exception {
@@ -20,8 +21,9 @@ public class ProbeRuleSidecarTest {
         byte[] canonicalRules = rules();
         ProbeRuleSidecar sidecar = sidecar(sourceDigest, canonicalRules);
 
-        sidecar.requireBoundTo(REVISION, sourceDigest);
+        sidecar.requireBoundTo(SOURCE_PACKAGE_ID, REVISION, sourceDigest);
 
+        assertEquals(SOURCE_PACKAGE_ID, sidecar.sourcePackageId());
         assertEquals(REVISION, sidecar.sourceRevision());
         assertEquals(ProbeRuleSidecar.ALGORITHM_ID, sidecar.algorithm());
         assertEquals("converter-1", sidecar.converterVersion());
@@ -34,7 +36,16 @@ public class ProbeRuleSidecarTest {
         ProbeRuleSidecar sidecar = sidecar(sourceDigest, rules());
 
         assertThrows(IllegalArgumentException.class,
-                () -> sidecar.requireBoundTo(REVISION + 1L, sourceDigest));
+                () -> sidecar.requireBoundTo(SOURCE_PACKAGE_ID, REVISION + 1L, sourceDigest));
+    }
+
+    @Test
+    public void bindingRejectsSourcePackageMismatch() throws Exception {
+        byte[] sourceDigest = digest("signed-v2");
+        ProbeRuleSidecar sidecar = sidecar(sourceDigest, rules());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> sidecar.requireBoundTo("other.ad-audio", REVISION, sourceDigest));
     }
 
     @Test
@@ -42,7 +53,7 @@ public class ProbeRuleSidecarTest {
         ProbeRuleSidecar sidecar = sidecar(digest("signed-v2"), rules());
 
         assertThrows(IllegalArgumentException.class,
-                () -> sidecar.requireBoundTo(REVISION, digest("other-v2")));
+                () -> sidecar.requireBoundTo(SOURCE_PACKAGE_ID, REVISION, digest("other-v2")));
     }
 
     @Test
@@ -50,7 +61,7 @@ public class ProbeRuleSidecarTest {
         byte[] canonicalRules = rules();
 
         assertThrows(IllegalArgumentException.class,
-                () -> ProbeRuleSidecar.verified(REVISION, digest("signed-v2"),
+                () -> ProbeRuleSidecar.verified(SOURCE_PACKAGE_ID, REVISION, digest("signed-v2"),
                         ProbeRuleSidecar.ALGORITHM_ID, "converter-1", canonicalRules,
                         digest("different-sidecar")));
     }
@@ -60,7 +71,7 @@ public class ProbeRuleSidecarTest {
         byte[] canonicalRules = rules();
 
         assertThrows(IllegalArgumentException.class,
-                () -> ProbeRuleSidecar.verified(REVISION, digest("signed-v2"),
+                () -> ProbeRuleSidecar.verified(SOURCE_PACKAGE_ID, REVISION, digest("signed-v2"),
                         "spectral-sequence-v2", "converter-1", canonicalRules,
                         digest(canonicalRules)));
     }
@@ -70,9 +81,19 @@ public class ProbeRuleSidecarTest {
         byte[] oversized = new byte[AdAudioRuleStore.MAX_IMPORT_BYTES + 1];
 
         assertThrows(IllegalArgumentException.class,
-                () -> ProbeRuleSidecar.verified(REVISION, digest("signed-v2"),
+                () -> ProbeRuleSidecar.verified(SOURCE_PACKAGE_ID, REVISION, digest("signed-v2"),
                         ProbeRuleSidecar.ALGORITHM_ID, "converter-1", oversized,
                         digest(oversized)));
+    }
+
+    @Test
+    public void verifiedRejectsInvalidUtf8Rules() throws Exception {
+        byte[] invalidUtf8 = new byte[]{(byte) 0xC3, 0x28};
+
+        assertThrows(IllegalArgumentException.class,
+                () -> ProbeRuleSidecar.verified(SOURCE_PACKAGE_ID, REVISION,
+                        digest("signed-v2"), ProbeRuleSidecar.ALGORITHM_ID,
+                        "converter-1", invalidUtf8, digest(invalidUtf8)));
     }
 
     @Test
@@ -80,7 +101,7 @@ public class ProbeRuleSidecarTest {
         byte[] sourceDigest = digest("signed-v2");
         byte[] canonicalRules = rules();
         byte[] sidecarDigest = digest(canonicalRules);
-        ProbeRuleSidecar sidecar = ProbeRuleSidecar.verified(REVISION, sourceDigest,
+        ProbeRuleSidecar sidecar = ProbeRuleSidecar.verified(SOURCE_PACKAGE_ID, REVISION, sourceDigest,
                 ProbeRuleSidecar.ALGORITHM_ID, "converter-1", canonicalRules, sidecarDigest);
 
         sourceDigest[0] ^= 1;
@@ -97,7 +118,7 @@ public class ProbeRuleSidecarTest {
 
     private static ProbeRuleSidecar sidecar(byte[] sourceDigest, byte[] canonicalRules)
             throws Exception {
-        return ProbeRuleSidecar.verified(REVISION, sourceDigest,
+        return ProbeRuleSidecar.verified(SOURCE_PACKAGE_ID, REVISION, sourceDigest,
                 ProbeRuleSidecar.ALGORITHM_ID, "converter-1", canonicalRules,
                 digest(canonicalRules));
     }
