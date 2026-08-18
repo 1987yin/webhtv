@@ -151,7 +151,6 @@ import com.fongmi.android.tv.ui.dialog.SubtitleManualSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.ChoiceDialog;
 import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
-import com.fongmi.android.tv.ui.dialog.TmdbSeasonOffsetDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.helper.DetailThemeVisibility;
 import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
