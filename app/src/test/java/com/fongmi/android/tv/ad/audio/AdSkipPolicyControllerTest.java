@@ -88,38 +88,46 @@ public class AdSkipPolicyControllerTest {
     }
 
     @Test
-    public void providerSpecificAutoModeDoesNotAffectOtherProviders() {
+    public void speechAutoDoesNotChangePcmOrProbePolicy() {
         RecordingSinks sinks = new RecordingSinks();
         AdSkipPolicyController policy = policy(sinks);
+        policy.setModeResolver(provider -> "speech".equals(provider)
+                ? AdSkipPolicyController.Mode.AUTO
+                : AdSkipPolicyController.Mode.PROMPT);
 
-        policy.setProviderMode("speech", AdSkipPolicyController.Mode.AUTO);
         policy.onCandidate(candidate("speech-rule", 1_000L, 3_000L, true, "speech"));
         policy.onCandidate(candidate("pcm-rule", 4_000L, 6_000L, true, "pcm"));
+        policy.onCandidate(candidate("probe-rule", 7_000L, 9_000L, true, "probe"));
 
-        assertEquals(AdSkipPolicyController.Mode.AUTO, policy.modeForProvider("speech"));
-        assertEquals(AdSkipPolicyController.Mode.PROMPT, policy.modeForProvider("pcm"));
         assertEquals(1, sinks.automated.size());
         assertEquals("speech", sinks.automated.get(0).providerId());
-        assertEquals(1, sinks.prompted.size());
+        assertEquals(2, sinks.prompted.size());
         assertEquals("pcm", sinks.prompted.get(0).providerId());
+        assertEquals("probe", sinks.prompted.get(1).providerId());
     }
 
     @Test
-    public void providerSpecificPromptModeSurvivesGlobalModeChanges() {
+    public void unknownProviderDefaultsToPromptWhenResolverReturnsNull() {
         RecordingSinks sinks = new RecordingSinks();
         AdSkipPolicyController policy = policy(sinks);
+        policy.setModeResolver(provider -> null);
 
-        policy.setProviderMode("speech", AdSkipPolicyController.Mode.PROMPT);
-        policy.setMode(AdSkipPolicyController.Mode.AUTO);
-        policy.onCandidate(candidate("speech-rule", 1_000L, 3_000L, true, "speech"));
-        policy.onCandidate(candidate("probe-rule", 4_000L, 6_000L, true, "probe"));
+        policy.onCandidate(candidate("future-rule", 1_000L, 3_000L, true, "future"));
 
-        assertEquals(AdSkipPolicyController.Mode.PROMPT, policy.modeForProvider("speech"));
-        assertEquals(AdSkipPolicyController.Mode.AUTO, policy.modeForProvider("probe"));
         assertEquals(1, sinks.prompted.size());
-        assertEquals("speech", sinks.prompted.get(0).providerId());
-        assertEquals(1, sinks.automated.size());
-        assertEquals("probe", sinks.automated.get(0).providerId());
+        assertTrue(sinks.automated.isEmpty());
+    }
+
+    @Test
+    public void resolverFailureDefaultsToPrompt() {
+        RecordingSinks sinks = new RecordingSinks();
+        AdSkipPolicyController policy = policy(sinks);
+        policy.setModeResolver(provider -> { throw new IllegalStateException("boom"); });
+
+        policy.onCandidate(candidate("future-rule", 1_000L, 3_000L, true, "future"));
+
+        assertEquals(1, sinks.prompted.size());
+        assertTrue(sinks.automated.isEmpty());
     }
     @Test
     public void closeStopsAllFutureDispatch() {
