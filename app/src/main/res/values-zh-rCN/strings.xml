@@ -1321,6 +1321,7 @@
     <string name="lut_empty_favorites">暂无收藏 LUT</string>
     <string name="lut_apply_failed">LUT 调色已临时关闭</string>
     <string name="lut_unavailable_player">当前播放器内核不支持 LUT 调色</string>
+    <string name="lut_unavailable_output_mode">当前输出模式不支持 LUT 调色，请切换为 GPU 输出模式后使用</string>
     <string name="lut_unavailable_drm">DRM 保护视频不支持 LUT 调色</string>
     <string name="lut_unavailable_tunnel">隧道模式不支持 LUT 调色</string>
     <string name="lut_unavailable_soft_decode">软解不支持 LUT 调色</string>
@@ -1765,6 +1766,7 @@
     <string name="detail_tmdb_match_title">匹配 TMDB 条目</string>
     <string name="detail_tmdb_rematch">TMDB</string>
     <string name="tmdb_season_match_title">匹配 TMDB 季度</string>
+    <string name="tmdb_season_button">季度</string>
     <string name="tmdb_season_match_current">选择 TMDB 季度，%1$s</string>
     <string name="tmdb_season_auto">自动判断（清除手动绑定）</string>
     <string name="tmdb_season_auto_by_counts">按集号主键自动分季</string>
@@ -2451,6 +2453,24 @@
         <item>Surface</item>
         <item>Texture</item>
     </string-array>
+    <string name="ad_audio_candidate_title">疑似广告</string>
+    <string name="ad_audio_match_title">已匹配音频广告</string>
+    <string name="ad_audio_candidate_message">规则 %1$s 已匹配，是否跳过约 %2$d 秒？</string>
+    <string name="ad_audio_skip">跳过</string>
+    <string name="ad_audio_ignore">忽略</string>
+    <string name="ad_audio_skipped_title">已跳过广告</string>
+    <string name="ad_audio_skipped_message">可在 %1$d 秒内撤销。</string>
+    <string name="ad_audio_undo">撤销</string>
+    <string name="setting_ad_audio_title">音频指纹去广告（实验）</string>
+    <string name="setting_ad_audio_no_rules">无规则</string>
+    <string name="setting_ad_audio_rule_error">规则错误</string>
+    <string name="setting_ad_audio_rule_count">规则 %1$d · %2$s</string>
+    <string name="setting_ad_audio_import">导入规则 JSON</string>
+    <string name="setting_ad_audio_clear">清除规则</string>
+    <string name="setting_ad_audio_clear_confirm">确认清除已导入的音频指纹规则？</string>
+    <string name="setting_ad_audio_imported">已导入 %1$d 条规则 · %2$s</string>
+    <string name="setting_ad_audio_import_failed">规则导入失败，已保留原规则。</string>
+    <string name="setting_ad_audio_clear_done">已清除音频指纹规则</string>
 
     <string name="download">下载</string>
     <string name="download_play_first">请先播放该集后再下载</string>
@@ -2483,17 +2503,4 @@
     <string name="download_delete_episode">确定删除该集？</string>
     <string name="download_delete_group">确定删除该剧全部已下载缓存？</string>
     <string name="download_long_press_tip">点击可暂停/继续，长按删除</string>
-
-    <!-- TMDB season offset (custom) -->
-    <string name="tmdb_season_offset_title">TMDB 季号偏移</string>
-    <string name="tmdb_season_offset_hint">当剧集因更名导致源站季号与 TMDB 季号不一致时，设置剧名对应的偏移量。源季号 + 偏移 = TMDB 季号。</string>
-    <string name="tmdb_season_offset_empty">尚未设置任何剧名偏移。点击"新增"添加。</string>
-    <string name="add">新增</string>
-    <string name="delete">删除</string>
-    <string name="tmdb_season_offset_add_title">添加剧名偏移</string>
-    <string name="tmdb_season_offset_name_hint">TMDB 剧名（如：奔跑吧）</string>
-    <string name="tmdb_season_offset_value_hint">偏移量（整数，如：4）</string>
-    <string name="tmdb_season_offset_name_required">请输入剧名</string>
-    <string name="tmdb_season_offset_value_invalid">请输入有效的整数偏移量</string>
-    <string name="tmdb_season_offset_current">当前剧集：%s</string>
 </resources>

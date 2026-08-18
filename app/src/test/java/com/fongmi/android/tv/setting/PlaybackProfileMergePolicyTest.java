@@ -100,15 +100,13 @@ public class PlaybackProfileMergePolicyTest {
                         PlaybackPerformanceSetting.PROFILE_AUTO,
                         PlaybackPerformanceSetting.PROFILE_RECOMMENDED,
                         PlaybackPerformanceSetting.PROFILE_COMPATIBLE,
-                        PlaybackPerformanceSetting.PROFILE_LIGHTWEIGHT,
-                        PlaybackPerformanceSetting.PROFILE_ORIGINAL},
+                        PlaybackPerformanceSetting.PROFILE_LIGHTWEIGHT},
                 PlaybackProfileMergePolicy.selectableProfiles(true));
         assertArrayEquals(new int[]{
                         PlaybackPerformanceSetting.PROFILE_AUTO,
                         PlaybackPerformanceSetting.PROFILE_RECOMMENDED,
                         PlaybackPerformanceSetting.PROFILE_COMPATIBLE,
-                        PlaybackPerformanceSetting.PROFILE_LIGHTWEIGHT,
-                        PlaybackPerformanceSetting.PROFILE_ORIGINAL},
+                        PlaybackPerformanceSetting.PROFILE_LIGHTWEIGHT},
                 PlaybackProfileMergePolicy.selectableProfiles(false));
         assertEquals(2, PlaybackProfileMergePolicy.positionOf(
                 PlaybackPerformanceSetting.PROFILE_COMPATIBLE, true));

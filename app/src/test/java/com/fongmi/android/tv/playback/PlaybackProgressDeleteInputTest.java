@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.playback;
 
+import com.fongmi.android.tv.bean.History;
+
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -79,5 +81,60 @@ public class PlaybackProgressDeleteInputTest {
         assertEquals("vod", input.vodId);
         assertEquals(456, input.deletedAt);
         assertTrue(input.isDeleteOperation());
+    }
+
+    @Test
+    public void seasonDeletePayloadKeepsExplicitSeasonIdentity() {
+        PlaybackProgressDeleteInput input = PlaybackProgressDeleteInput.listFromJson("""
+                {"scope":"season","mediaType":"TV","tmdbId":88,"seasonNumber":2,
+                 "historyKey":"site@@@vod@@@99","action":"delete","deletedAt":789}
+                """).get(0);
+
+        assertTrue(input.isSeasonScope());
+        assertEquals("tv", input.mediaType);
+        assertEquals(88, input.tmdbId);
+        assertEquals(2, input.seasonNumber);
+    }
+
+    @Test
+    public void identityOnlySeasonDeleteDoesNotRequireSourceRoute() {
+        PlaybackProgressDeleteInput input = PlaybackProgressDeleteInput.listFromJson("""
+                {"scope":"season","cid":7,"mediaType":"tv","tmdbId":88,
+                 "seasonNumber":2,"action":"delete","deletedAt":789}
+                """).get(0);
+
+        assertTrue(input.isSeasonScope());
+        assertFalse(PlaybackProgressWriter.requiresSourceIdentity(input));
+    }
+
+    @Test
+    public void historyCardCreatesSeasonScopedDeleteOnlyForKnownTvSeason() {
+        History known = new History();
+        known.setKey("site@@@vod");
+        known.setCid(7);
+        known.setMediaType("tv");
+        known.setTmdbId(88);
+        known.setTmdbEpisodePosition(2, 5);
+
+        PlaybackProgressDeleteInput input = PlaybackProgressWriter.createDeleteInput(known);
+
+        assertTrue(input.isSeasonScope());
+        assertEquals("tv", input.mediaType);
+        assertEquals(88, input.tmdbId);
+        assertEquals(2, input.seasonNumber);
+    }
+
+    @Test
+    public void restoreAnotherSeasonIsLimitedToSeasonScopedDelete() {
+        PlaybackProgressDeleteInput season = new PlaybackProgressDeleteInput();
+        season.scope = "season";
+        season.mediaType = "tv";
+        season.tmdbId = 88;
+        season.seasonNumber = 2;
+        PlaybackProgressDeleteInput all = new PlaybackProgressDeleteInput();
+        all.scope = "all";
+
+        assertTrue(PlaybackProgressWriter.shouldRestoreAnotherSeason(season));
+        assertFalse(PlaybackProgressWriter.shouldRestoreAnotherSeason(all));
     }
 }

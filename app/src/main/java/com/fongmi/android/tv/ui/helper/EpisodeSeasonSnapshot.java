@@ -46,6 +46,41 @@ public final class EpisodeSeasonSnapshot {
         return hex(digest.digest());
     }
 
+    /** Persistent shape digest; excludes volatile signed playback URLs. */
+    public static String structureFingerprint(List<Episode> episodes) {
+        return structureFingerprint(episodes, null);
+    }
+
+    /** Persistent route digest; includes TMDB season counts used by automatic slicing. */
+    public static String structureFingerprint(List<Episode> episodes, Map<Integer, Integer> seasonCounts) {
+        MessageDigest digest = sha256();
+        update(digest, "episodes");
+        if (episodes == null) {
+            update(digest, "<null>");
+        } else {
+            update(digest, Integer.toString(episodes.size()));
+            for (int index = 0; index < episodes.size(); index++) {
+                Episode episode = episodes.get(index);
+                update(digest, Integer.toString(index));
+                update(digest, episode == null ? "<null>" : episode.getName());
+                update(digest, episode == null ? "-1" : Integer.toString(episode.getNumber()));
+            }
+        }
+        updateSeasonCounts(digest, seasonCounts);
+        return hex(digest.digest());
+    }
+
+    private static void updateSeasonCounts(MessageDigest digest, Map<Integer, Integer> seasonCounts) {
+        update(digest, "seasons");
+        List<Map.Entry<Integer, Integer>> counts = new ArrayList<>();
+        if (seasonCounts != null) counts.addAll(seasonCounts.entrySet());
+        counts.sort(Comparator.comparingInt(entry -> entry.getKey() == null ? Integer.MIN_VALUE : entry.getKey()));
+        for (Map.Entry<Integer, Integer> entry : counts) {
+            update(digest, entry.getKey() == null ? "<null>" : entry.getKey().toString());
+            update(digest, entry.getValue() == null ? "<null>" : entry.getValue().toString());
+        }
+    }
+
     private static MessageDigest sha256() {
         try {
             return MessageDigest.getInstance("SHA-256");
