@@ -88,6 +88,40 @@ public class AdSkipPolicyControllerTest {
     }
 
     @Test
+    public void providerSpecificAutoModeDoesNotAffectOtherProviders() {
+        RecordingSinks sinks = new RecordingSinks();
+        AdSkipPolicyController policy = policy(sinks);
+
+        policy.setProviderMode("speech", AdSkipPolicyController.Mode.AUTO);
+        policy.onCandidate(candidate("speech-rule", 1_000L, 3_000L, true, "speech"));
+        policy.onCandidate(candidate("pcm-rule", 4_000L, 6_000L, true, "pcm"));
+
+        assertEquals(AdSkipPolicyController.Mode.AUTO, policy.modeForProvider("speech"));
+        assertEquals(AdSkipPolicyController.Mode.PROMPT, policy.modeForProvider("pcm"));
+        assertEquals(1, sinks.automated.size());
+        assertEquals("speech", sinks.automated.get(0).providerId());
+        assertEquals(1, sinks.prompted.size());
+        assertEquals("pcm", sinks.prompted.get(0).providerId());
+    }
+
+    @Test
+    public void providerSpecificPromptModeSurvivesGlobalModeChanges() {
+        RecordingSinks sinks = new RecordingSinks();
+        AdSkipPolicyController policy = policy(sinks);
+
+        policy.setProviderMode("speech", AdSkipPolicyController.Mode.PROMPT);
+        policy.setMode(AdSkipPolicyController.Mode.AUTO);
+        policy.onCandidate(candidate("speech-rule", 1_000L, 3_000L, true, "speech"));
+        policy.onCandidate(candidate("probe-rule", 4_000L, 6_000L, true, "probe"));
+
+        assertEquals(AdSkipPolicyController.Mode.PROMPT, policy.modeForProvider("speech"));
+        assertEquals(AdSkipPolicyController.Mode.AUTO, policy.modeForProvider("probe"));
+        assertEquals(1, sinks.prompted.size());
+        assertEquals("speech", sinks.prompted.get(0).providerId());
+        assertEquals(1, sinks.automated.size());
+        assertEquals("probe", sinks.automated.get(0).providerId());
+    }
+    @Test
     public void closeStopsAllFutureDispatch() {
         RecordingSinks sinks = new RecordingSinks();
         AdSkipPolicyController policy = policy(sinks);
@@ -114,6 +148,12 @@ public class AdSkipPolicyControllerTest {
                 fullMatch, 0.95d, "pcm");
     }
 
+    private static AdAudioSignalProvider.AdAudioCandidate candidate(
+            String ruleId, long startMs, long endMs, boolean fullMatch, String providerId) {
+        return new AdAudioSignalProvider.AdAudioCandidate(
+                7L, 2L, ruleId, "rules-v1", startMs, endMs,
+                fullMatch, 0.95d, providerId);
+    }
     private static final class RecordingSinks {
         private final List<AdAudioSignalProvider.AdAudioCandidate> prompted = new ArrayList<>();
         private final List<AdAudioSignalProvider.AdAudioCandidate> automated = new ArrayList<>();

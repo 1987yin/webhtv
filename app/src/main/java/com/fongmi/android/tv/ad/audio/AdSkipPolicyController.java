@@ -28,6 +28,7 @@ public final class AdSkipPolicyController implements AutoCloseable {
     private final CandidateSink autoSink;
     private final LinkedHashMap<CandidateKey, CandidateDecision> decisions =
             new LinkedHashMap<>();
+    private final LinkedHashMap<String, Mode> providerModes = new LinkedHashMap<>();
 
     private AdAudioSignalProvider.SessionContext context;
     private String ruleVersion;
@@ -69,6 +70,19 @@ public final class AdSkipPolicyController implements AutoCloseable {
         modeSwitches++;
     }
 
+    public synchronized Mode modeForProvider(String providerId) {
+        String key = requireProviderId(providerId);
+        return providerModes.getOrDefault(key, mode);
+    }
+
+    public synchronized void setProviderMode(String providerId, Mode mode) {
+        if (closed) return;
+        String key = requireProviderId(providerId);
+        Objects.requireNonNull(mode, "mode");
+        Mode previous = providerModes.put(key, mode);
+        if (previous != mode) modeSwitches++;
+    }
+
     public void onCandidate(AdAudioSignalProvider.AdAudioCandidate candidate) {
         CandidateSink sink = null;
         synchronized (this) {
@@ -91,7 +105,7 @@ public final class AdSkipPolicyController implements AutoCloseable {
                 }
             } else {
                 evictIfFullLocked();
-                Decision decision = mode == Mode.PROMPT
+                Decision decision = modeForProvider(candidate.providerId()) == Mode.PROMPT
                         ? Decision.PROMPTED : Decision.AUTO_APPLIED;
                 decisions.put(key, new CandidateDecision(candidate, decision));
                 if (decision == Decision.PROMPTED) {
@@ -138,6 +152,7 @@ public final class AdSkipPolicyController implements AutoCloseable {
         if (closed) return;
         closed = true;
         decisions.clear();
+        providerModes.clear();
     }
 
     private boolean isCurrent(AdAudioSignalProvider.AdAudioCandidate candidate) {
@@ -171,6 +186,14 @@ public final class AdSkipPolicyController implements AutoCloseable {
                 sinkErrors++;
             }
         }
+    }
+
+    private static String requireProviderId(String value) {
+        if (value == null || value.isEmpty() || value.length() > 64
+                || !value.equals(value.trim())) {
+            throw new IllegalArgumentException("providerId is invalid");
+        }
+        return value;
     }
 
     private static String requireRuleVersion(String value) {
