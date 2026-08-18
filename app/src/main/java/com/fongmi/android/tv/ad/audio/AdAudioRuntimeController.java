@@ -13,7 +13,20 @@ public final class AdAudioRuntimeController implements AutoCloseable {
 
     public interface PlaybackPort extends AdSkipCoordinator.PlaybackPort {
         boolean isEligible(long sessionId, long generation);
+
+        default AdAudioSignalProvider.SessionContext sessionContext(
+                long sessionId, long generation) {
+            return new AdAudioSignalProvider.SessionContext(
+                    sessionId, generation, "session-" + sessionId, "", Map.of());
+        }
     }
+
+    @FunctionalInterface
+    public interface ProbeProviderFactory {
+        AdAudioSignalProvider create(ProbeRuleSidecar sidecar);
+    }
+
+    private static final int RUNTIME_CANDIDATE_CAPACITY = 1_024;
 
     private final PlaybackMediaSignalHub hub;
     private final PlaybackMediaClock clock;
@@ -21,6 +34,7 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     private final PlaybackPort playback;
     private final Executor worker;
     private final Runnable workerShutdown;
+    private final ProbeProviderFactory probeProviderFactory;
     private final AdAudioDiagnostics diagnostics = new AdAudioDiagnostics();
 
     private AdAudioRuleSnapshot snapshot = new AdAudioRuleSnapshot(
@@ -28,6 +42,10 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     private AdSkipCoordinator.UiPort ui;
     private AdSkipCoordinator coordinator;
     private PcmAdAudioSignalProvider pcmProvider;
+    private AdAudioSignalProvider probeProvider;
+    private AdAudioDetectionMultiplexer multiplexer;
+    private AdSkipPolicyController policy;
+    private AdSkipPolicyController.Mode skipMode = AdSkipPolicyController.Mode.PROMPT;
     private boolean enabled;
     private boolean closed;
 
@@ -39,18 +57,30 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     private AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
                                      AdAudioRuleSource ruleSource, PlaybackPort playback,
                                      Worker worker) {
-        this(hub, clock, ruleSource, playback, worker.executor, worker.executor::shutdownNow);
+        this(hub, clock, ruleSource, playback, worker.executor,
+                worker.executor::shutdownNow, ignored ->
+                        new NoopAdAudioSignalProvider("probe"));
     }
 
     AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
                              AdAudioRuleSource ruleSource, PlaybackPort playback,
                              Executor worker, Runnable workerShutdown) {
+        this(hub, clock, ruleSource, playback, worker, workerShutdown,
+                ignored -> new NoopAdAudioSignalProvider("probe"));
+    }
+
+    AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
+                             AdAudioRuleSource ruleSource, PlaybackPort playback,
+                             Executor worker, Runnable workerShutdown,
+                             ProbeProviderFactory probeProviderFactory) {
         this.hub = Objects.requireNonNull(hub, "hub");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.ruleSource = Objects.requireNonNull(ruleSource, "ruleSource");
         this.playback = Objects.requireNonNull(playback, "playback");
         this.worker = Objects.requireNonNull(worker, "worker");
         this.workerShutdown = workerShutdown;
+        this.probeProviderFactory = Objects.requireNonNull(
+                probeProviderFactory, "probeProviderFactory");
     }
 
     public synchronized void start(boolean enabled) {
@@ -106,12 +136,21 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     }
 
     public synchronized boolean isActive() {
-        return pcmProvider != null
-                && pcmProvider.state() == AdAudioSignalProvider.ProviderState.RUNNING;
+        return isActiveLocked();
     }
 
     public synchronized AdAudioRuleSnapshot snapshot() {
         return snapshot;
+    }
+
+    public synchronized AdSkipPolicyController.Mode skipMode() {
+        return skipMode;
+    }
+
+    public synchronized void setSkipMode(AdSkipPolicyController.Mode mode) {
+        if (closed) return;
+        skipMode = Objects.requireNonNull(mode, "mode");
+        if (policy != null) policy.setMode(mode);
     }
 
     public AdAudioDiagnostics.Snapshot diagnostics() {
@@ -166,25 +205,43 @@ public final class AdAudioRuntimeController implements AutoCloseable {
             deactivateLocked();
             return;
         }
-        if (pcmProvider != null
-                && pcmProvider.state() == AdAudioSignalProvider.ProviderState.RUNNING) return;
+        if (multiplexer != null && isActiveLocked()) {
+            publishHostPositionLocked(session);
+            return;
+        }
         activateLocked(session);
+        publishHostPositionLocked(session);
     }
 
     private void activateLocked(PlaybackMediaSignalHub.Session session) {
         AdSkipCoordinator currentCoordinator = coordinator;
         if (currentCoordinator == null) return;
-        PcmAdAudioSignalProvider[] holder = new PcmAdAudioSignalProvider[1];
-        PcmAdAudioSignalProvider nextProvider = new PcmAdAudioSignalProvider(
-                hub, worker, diagnostics);
-        holder[0] = nextProvider;
-        AdAudioSignalProvider.Listener listener = new AdAudioSignalProvider.Listener() {
+        AdAudioSignalProvider.SessionContext context;
+        try {
+            context = playback.sessionContext(session.id(), session.generation());
+        } catch (RuntimeException e) {
+            context = null;
+        }
+        if (context == null || context.sessionId() != session.id()
+                || context.generation() != session.generation()) {
+            diagnostics.record(AdAudioDiagnostics.Code.MATCHER_ERROR);
+            return;
+        }
+
+        AdSkipPolicyController nextPolicy = new AdSkipPolicyController(
+                context, snapshot.version(), RUNTIME_CANDIDATE_CAPACITY,
+                currentCoordinator::onCandidate,
+                currentCoordinator::onAutoCandidate);
+        nextPolicy.setMode(skipMode);
+        AdAudioDetectionMultiplexer[] muxHolder = new AdAudioDetectionMultiplexer[1];
+        AdAudioSignalProvider.Listener output = new AdAudioSignalProvider.Listener() {
             @Override
             public void onCandidate(AdAudioSignalProvider.AdAudioCandidate candidate) {
                 synchronized (AdAudioRuntimeController.this) {
-                    if (pcmProvider != holder[0] || coordinator != currentCoordinator) return;
+                    if (multiplexer != muxHolder[0] || policy != nextPolicy
+                            || coordinator != currentCoordinator) return;
                 }
-                currentCoordinator.onCandidate(toLegacyCandidate(candidate));
+                nextPolicy.onCandidate(candidate);
             }
 
             @Override
@@ -194,38 +251,136 @@ public final class AdAudioRuntimeController implements AutoCloseable {
 
             @Override
             public void onTimelineReset(AdAudioSignalProvider.TimelineReset reset) {
+                AdAudioSignalProvider currentProbe;
+                synchronized (AdAudioRuntimeController.this) {
+                    if (multiplexer != muxHolder[0] || policy != nextPolicy
+                            || coordinator != currentCoordinator) return;
+                    currentProbe = probeProvider;
+                }
+                nextPolicy.onTimelineReset(reset);
                 currentCoordinator.onTimelineReset(new PlaybackMediaSignalHub.Lifecycle(
                         reset.sessionId(), reset.generation(),
                         PlaybackMediaSignalHub.ResetReason.valueOf(reset.reason().name()),
                         reset.mediaAnchorMs()));
+                notifyTimelineReset(currentProbe, reset);
             }
         };
-        nextProvider.setEnabled(true);
-        nextProvider.start(new AdAudioSignalProvider.SessionContext(
-                session.id(), session.generation(),
-                "session-" + session.id(), "", Map.of()), snapshot, listener);
-        if (nextProvider.state() == AdAudioSignalProvider.ProviderState.RUNNING) {
-            pcmProvider = nextProvider;
-        } else {
-            nextProvider.close();
+        AdAudioDetectionMultiplexer nextMux = new AdAudioDetectionMultiplexer(
+                context, snapshot.version(), RUNTIME_CANDIDATE_CAPACITY, output);
+        muxHolder[0] = nextMux;
+        PcmAdAudioSignalProvider nextPcm = new PcmAdAudioSignalProvider(
+                hub, worker, diagnostics);
+        AdAudioSignalProvider nextProbe = createProbeProviderLocked();
+
+        policy = nextPolicy;
+        multiplexer = nextMux;
+        pcmProvider = nextPcm;
+        probeProvider = nextProbe;
+
+        startProvider(nextPcm, true, context, nextMux);
+        startProvider(nextProbe, snapshot.probeAvailable(), context, nextMux);
+        if (nextPcm.state() != AdAudioSignalProvider.ProviderState.RUNNING) {
+            closeProvider(nextPcm);
+            if (pcmProvider == nextPcm) pcmProvider = null;
         }
     }
 
     private void deactivateLocked() {
-        if (pcmProvider != null) {
-            pcmProvider.close();
-            pcmProvider = null;
+        PcmAdAudioSignalProvider oldPcm = pcmProvider;
+        AdAudioSignalProvider oldProbe = probeProvider;
+        AdAudioDetectionMultiplexer oldMux = multiplexer;
+        AdSkipPolicyController oldPolicy = policy;
+        pcmProvider = null;
+        probeProvider = null;
+        multiplexer = null;
+        policy = null;
+        closeProvider(oldProbe);
+        closeProvider(oldPcm);
+        if (oldMux != null) oldMux.close();
+        if (oldPolicy != null) oldPolicy.close();
+    }
+
+    private boolean isActiveLocked() {
+        return isRunning(pcmProvider) || isRunning(probeProvider);
+    }
+
+    private void publishHostPositionLocked(PlaybackMediaSignalHub.Session session) {
+        if (multiplexer == null) return;
+        AdSkipCoordinator.PlaybackSnapshot playbackSnapshot;
+        try {
+            playbackSnapshot = playback.snapshot(session.id(), session.generation());
+        } catch (RuntimeException e) {
+            return;
+        }
+        if (playbackSnapshot == null
+                || playbackSnapshot.sessionId() != session.id()
+                || playbackSnapshot.generation() != session.generation()) return;
+        AdAudioSignalProvider.HostPosition position =
+                new AdAudioSignalProvider.HostPosition(
+                        session.id(), session.generation(),
+                        Math.max(0L, playbackSnapshot.positionMs()),
+                        Math.max(-1L, playbackSnapshot.durationMs()),
+                        playbackSnapshot.seekable(), playbackSnapshot.live());
+        multiplexer.onHostPosition(position);
+        notifyHostPosition(pcmProvider, position);
+        notifyHostPosition(probeProvider, position);
+    }
+
+    private AdAudioSignalProvider createProbeProviderLocked() {
+        if (!snapshot.probeAvailable()) return new NoopAdAudioSignalProvider("probe");
+        try {
+            AdAudioSignalProvider provider =
+                    probeProviderFactory.create(snapshot.probeSidecar());
+            return provider == null ? new NoopAdAudioSignalProvider("probe") : provider;
+        } catch (RuntimeException e) {
+            diagnostics.record(AdAudioDiagnostics.Code.MATCHER_ERROR);
+            return new NoopAdAudioSignalProvider("probe");
         }
     }
 
-    private static AdAudioConsumer.Candidate toLegacyCandidate(
-            AdAudioSignalProvider.AdAudioCandidate candidate) {
-        AudioFingerprintMatcher.MatchEvent event = new AudioFingerprintMatcher.MatchEvent(
-                candidate.fullMatch() ? AudioFingerprintMatcher.Type.FULL_MATCHED
-                        : AudioFingerprintMatcher.Type.START_MATCHED,
-                candidate.ruleId(), candidate.startMs(), candidate.endMs(),
-                (float) candidate.similarity(), 0);
-        return new AdAudioConsumer.Candidate(candidate.sessionId(), candidate.generation(), event);
+    private void startProvider(AdAudioSignalProvider provider, boolean providerEnabled,
+                               AdAudioSignalProvider.SessionContext context,
+                               AdAudioSignalProvider.Listener listener) {
+        try {
+            provider.setEnabled(providerEnabled);
+            provider.start(context, snapshot, listener);
+        } catch (RuntimeException e) {
+            diagnostics.record(AdAudioDiagnostics.Code.MATCHER_ERROR);
+            closeProvider(provider);
+        }
+    }
+
+    private static boolean isRunning(AdAudioSignalProvider provider) {
+        return provider != null
+                && provider.state() == AdAudioSignalProvider.ProviderState.RUNNING;
+    }
+
+    private static void notifyTimelineReset(
+            AdAudioSignalProvider provider,
+            AdAudioSignalProvider.TimelineReset reset) {
+        if (provider == null) return;
+        try {
+            provider.onTimelineReset(reset);
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    private static void notifyHostPosition(
+            AdAudioSignalProvider provider,
+            AdAudioSignalProvider.HostPosition position) {
+        if (provider == null) return;
+        try {
+            provider.onHostPosition(position);
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    private static void closeProvider(AdAudioSignalProvider provider) {
+        if (provider == null) return;
+        try {
+            provider.close();
+        } catch (RuntimeException ignored) {
+        }
     }
 
     private static Worker createWorker() {

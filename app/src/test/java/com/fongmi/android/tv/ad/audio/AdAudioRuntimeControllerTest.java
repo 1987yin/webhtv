@@ -10,6 +10,9 @@ import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 import org.junit.Test;
 
 import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class AdAudioRuntimeControllerTest {
 
@@ -158,11 +161,124 @@ public class AdAudioRuntimeControllerTest {
         runtime.close();
     }
 
+    @Test
+    public void probeProviderStartsOnlyWhenSnapshotHasVerifiedSidecar() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSignalProvider probe = new FakeSignalProvider("probe");
+        AtomicInteger factoryCalls = new AtomicInteger();
+        AdAudioRuntimeController runtime = runtimeWithProbe(
+                hub, playback, snapshotForRuleWithSidecar("ad"), sidecar -> {
+                    factoryCalls.incrementAndGet();
+                    return probe;
+                });
+
+        runtime.start(true);
+        runtime.bindUi(new FakeUiPort());
+
+        assertEquals(1, factoryCalls.get());
+        assertEquals(1, probe.starts);
+        assertEquals(AdAudioSignalProvider.ProviderState.RUNNING, probe.state());
+        runtime.close();
+
+        PlaybackMediaSignalHub noSidecarHub = new PlaybackMediaSignalHub(8);
+        noSidecarHub.beginSession(0L);
+        AdAudioRuntimeController noSidecar = runtimeWithProbe(
+                noSidecarHub, new FakePlaybackPort(noSidecarHub, true),
+                snapshotForRule("ad"), sidecar -> {
+                    factoryCalls.incrementAndGet();
+                    return new FakeSignalProvider("unexpected");
+                });
+        noSidecar.start(true);
+        noSidecar.bindUi(new FakeUiPort());
+
+        assertEquals(1, factoryCalls.get());
+        noSidecar.close();
+    }
+
+    @Test
+    public void duplicateProbeCandidatesReachThePromptOnlyOnce() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        PlaybackMediaSignalHub.Session session = hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSignalProvider probe = new FakeSignalProvider("probe");
+        AdAudioRuntimeController runtime = runtimeWithProbe(
+                hub, playback, snapshotForRuleWithSidecar("ad"), sidecar -> probe);
+        FakeUiPort ui = new FakeUiPort();
+        runtime.start(true);
+        runtime.bindUi(ui);
+        AdAudioSignalProvider.AdAudioCandidate candidate = providerCandidate(
+                session, "ad", 0L, 10_000L);
+
+        probe.emit(candidate);
+        probe.emit(candidate);
+
+        assertEquals(1, ui.candidateShows);
+        assertEquals(AdSkipPolicyController.Mode.PROMPT, runtime.skipMode());
+        runtime.close();
+    }
+
+    @Test
+    public void switchingToAutoDuringPlaybackAppliesOnlyLaterProbeCandidates() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        PlaybackMediaSignalHub.Session session = hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSignalProvider probe = new FakeSignalProvider("probe");
+        AdAudioRuntimeController runtime = runtimeWithProbe(
+                hub, playback, snapshotForRuleWithSidecar("ad"), sidecar -> probe);
+        FakeUiPort ui = new FakeUiPort();
+        runtime.start(true);
+        runtime.bindUi(ui);
+
+        probe.emit(providerCandidate(session, "prompt-ad", 0L, 8_000L));
+        ui.actions.ignore();
+        runtime.setSkipMode(AdSkipPolicyController.Mode.AUTO);
+        probe.emit(providerCandidate(session, "auto-ad", 0L, 10_000L));
+
+        assertEquals(1, ui.candidateShows);
+        assertEquals(AdSkipPolicyController.Mode.AUTO, runtime.skipMode());
+        assertEquals(1, playback.seekTargets.size());
+        runtime.close();
+    }
+
+    @Test
+    public void probeFailureAndSuspendDoNotLeakOrDisablePcmFallback() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSignalProvider probe = new FakeSignalProvider("probe");
+        AdAudioRuntimeController runtime = runtimeWithProbe(
+                hub, playback, snapshotForRuleWithSidecar("ad"), sidecar -> probe);
+        runtime.start(true);
+        runtime.bindUi(new FakeUiPort());
+
+        probe.fail(AdAudioSignalProvider.ErrorCode.ANALYSIS_FAILED);
+
+        assertTrue(runtime.isActive());
+        assertTrue(hub.isCaptureRequested(PlaybackMediaSignalHub.ConsumerKind.AD_AUDIO));
+
+        runtime.suspend();
+
+        assertEquals(1, probe.closes);
+        assertFalse(hub.isCaptureRequested(PlaybackMediaSignalHub.ConsumerKind.AD_AUDIO));
+        runtime.close();
+    }
+
     private static AdAudioRuntimeController runtime(
             PlaybackMediaSignalHub hub, FakePlaybackPort playback, AdAudioRuleSnapshot snapshot) {
         return new AdAudioRuntimeController(
                 hub, new PlaybackMediaClock(500L), () -> snapshot, playback,
                 Runnable::run, () -> { });
+    }
+
+    private static AdAudioRuntimeController runtimeWithProbe(
+            PlaybackMediaSignalHub hub, FakePlaybackPort playback,
+            AdAudioRuleSnapshot snapshot,
+            AdAudioRuntimeController.ProbeProviderFactory factory) {
+        return new AdAudioRuntimeController(
+                hub, new PlaybackMediaClock(500L), () -> snapshot, playback,
+                Runnable::run, () -> { }, factory);
     }
 
     private static AdAudioRuleSnapshot goodSnapshot() {
@@ -178,6 +294,34 @@ public class AdAudioRuntimeControllerTest {
                 + "\"anchorOffsetMs\":0,\"anchorDurationMs\":3000,"
                 + "\"fingerprint\":[\"32f0007c\",\"35c100e0\",\"3b8b01c0\",\"d30a0380\"]}]}" );
         return new AdAudioRuleSnapshot("test", "v1", rules, List.of(), "");
+    }
+
+    private static AdAudioRuleSnapshot snapshotForRuleWithSidecar(String ruleId) {
+        AdAudioRuleSnapshot base = snapshotForRule(ruleId);
+        byte[] canonical = "{\"format\":\"ad-audio-probe-rules\"}"
+                .getBytes(StandardCharsets.UTF_8);
+        ProbeRuleSidecar sidecar = ProbeRuleSidecar.verified(
+                "test", 1L, new byte[32], ProbeRuleSidecar.ALGORITHM_ID,
+                "converter-1", canonical, sha256(canonical));
+        return new AdAudioRuleSnapshot(
+                base.sourceId(), base.version(), base.ruleSet(),
+                base.warnings(), base.lastError(), sidecar);
+    }
+
+    private static AdAudioSignalProvider.AdAudioCandidate providerCandidate(
+            PlaybackMediaSignalHub.Session session, String ruleId,
+            long startMs, long endMs) {
+        return new AdAudioSignalProvider.AdAudioCandidate(
+                session.id(), session.generation(), ruleId, "v1",
+                startMs, endMs, true, 0.95d, "probe");
+    }
+
+    private static byte[] sha256(byte[] value) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(value);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
     }
 
     private static AdAudioRuleSnapshot emptySnapshot() {
@@ -221,6 +365,7 @@ public class AdAudioRuntimeControllerTest {
 
     private static final class FakePlaybackPort implements AdAudioRuntimeController.PlaybackPort {
         private final PlaybackMediaSignalHub hub;
+        private final List<Long> seekTargets = new java.util.ArrayList<>();
         private boolean eligible;
 
         FakePlaybackPort(PlaybackMediaSignalHub hub, boolean eligible) {
@@ -244,24 +389,87 @@ public class AdAudioRuntimeControllerTest {
         public AdSkipCoordinator.SeekResult seekTo(long sessionId, long generation, long positionMs) {
             PlaybackMediaSignalHub.Session session = hub.session();
             boolean applied = eligible && session.id() == sessionId && session.generation() == generation;
+            if (applied) seekTargets.add(positionMs);
             return new AdSkipCoordinator.SeekResult(applied, session.id(), session.generation());
         }
     }
 
     private static final class FakeUiPort implements AdSkipCoordinator.UiPort {
+        private int candidateShows;
         private AdSkipCoordinator.Prompt lastPrompt;
+        private AdSkipCoordinator.Actions actions;
 
         @Override
         public void showCandidate(AdSkipCoordinator.Prompt prompt, AdSkipCoordinator.Actions actions) {
+            candidateShows++;
             lastPrompt = prompt;
+            this.actions = actions;
         }
 
         @Override
         public void showUndo(AdSkipCoordinator.UndoPrompt prompt, AdSkipCoordinator.Actions actions) {
+            this.actions = actions;
         }
 
         @Override
         public void dismiss(long sessionId) {
+        }
+    }
+
+    private static final class FakeSignalProvider implements AdAudioSignalProvider {
+        private final String id;
+        private Listener listener;
+        private ProviderState state = ProviderState.DISABLED;
+        private int starts;
+        private int closes;
+
+        private FakeSignalProvider(String id) {
+            this.id = id;
+        }
+
+        @Override
+        public String id() {
+            return id;
+        }
+
+        @Override
+        public void start(SessionContext context, AdAudioRuleSnapshot rules, Listener listener) {
+            this.listener = listener;
+            starts++;
+            state = ProviderState.RUNNING;
+        }
+
+        @Override
+        public void onHostPosition(HostPosition position) {
+        }
+
+        @Override
+        public void onTimelineReset(TimelineReset reset) {
+        }
+
+        @Override
+        public void setEnabled(boolean enabled) {
+            state = enabled ? ProviderState.IDLE : ProviderState.DISABLED;
+        }
+
+        @Override
+        public ProviderState state() {
+            return state;
+        }
+
+        @Override
+        public void close() {
+            if (state == ProviderState.CLOSED) return;
+            state = ProviderState.CLOSED;
+            closes++;
+        }
+
+        private void emit(AdAudioCandidate candidate) {
+            listener.onCandidate(candidate);
+        }
+
+        private void fail(ErrorCode code) {
+            listener.onProviderError(new ProviderError(id, code, "test failure"));
         }
     }
 }

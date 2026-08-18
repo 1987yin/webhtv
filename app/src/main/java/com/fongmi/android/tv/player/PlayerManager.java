@@ -40,6 +40,7 @@ import com.fongmi.android.tv.ad.audio.AdAudioDiagnostics;
 import com.fongmi.android.tv.ad.audio.AdAudioRuntimeController;
 import com.fongmi.android.tv.ad.audio.AdAudioSetting;
 import com.fongmi.android.tv.ad.audio.AdSkipCoordinator;
+import com.fongmi.android.tv.ad.audio.AdSkipPolicyController;
 import com.fongmi.android.tv.bean.Danmaku;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Sub;
@@ -365,6 +366,7 @@ public class PlayerManager implements ParseCallback {
         this.adAudioRuntime = new AdAudioRuntimeController(
                 mediaSignals, mediaClock, AdAudioRuleStore.get()::load,
                 new AdAudioPlaybackPort());
+        syncAdAudioSkipMode();
         this.adAudioRuntime.start(AdAudioSetting.isEnabled());
         mediaSession.begin(0L);
         this.engine = buildEngine(playerType, PlayerEngine.HARD);
@@ -672,6 +674,7 @@ public class PlayerManager implements ParseCallback {
 
     public void bindAdAudioUi(AdSkipCoordinator.UiPort ui) {
         if (isReleased()) return;
+        syncAdAudioSkipMode();
         adAudioRuntime.start(AdAudioSetting.isEnabled());
         adAudioRuntime.bindUi(ui);
         refreshAdAudioRuntime();
@@ -683,12 +686,29 @@ public class PlayerManager implements ParseCallback {
 
     public void reloadAdAudioRules() {
         if (isReleased()) return;
+        syncAdAudioSkipMode();
         adAudioRuntime.start(AdAudioSetting.isEnabled());
         refreshAdAudioRuntime();
     }
 
+    public void setAdAudioAutoSkipEnabled(boolean enabled) {
+        if (isReleased()) return;
+        AdAudioSetting.setAutoSkipEnabled(enabled);
+        syncAdAudioSkipMode();
+    }
+
+    public boolean isAdAudioAutoSkipEnabled() {
+        return AdAudioSetting.isAutoSkipEnabled();
+    }
+
     public AdAudioDiagnostics.Snapshot adAudioDiagnostics() {
         return adAudioRuntime.diagnostics();
+    }
+
+    private void syncAdAudioSkipMode() {
+        adAudioRuntime.setSkipMode(AdAudioSetting.isAutoSkipEnabled()
+                ? AdSkipPolicyController.Mode.AUTO
+                : AdSkipPolicyController.Mode.PROMPT);
     }
 
     public long getBufferedDuration() {
