@@ -7,6 +7,8 @@ import java.util.List;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 public class HistoryPlaybackTest {
@@ -69,6 +71,14 @@ public class HistoryPlaybackTest {
         Episode refreshed = Episode.create("第9集", "new-url");
 
         assertTrue(refreshed.matchesPlayback(saved));
+    }
+
+    @Test
+    public void queuedSaveCannotReviveADeletionAtTheSameOrNewerTime() {
+        assertFalse(History.writeSurvivesDeletion(100, 100));
+        assertFalse(History.writeSurvivesDeletion(100, 200));
+        assertTrue(History.writeSurvivesDeletion(201, 200));
+        assertTrue(History.writeSurvivesDeletion(0, 0));
     }
 
     @Test
@@ -467,6 +477,133 @@ public class HistoryPlaybackTest {
                 "site-b@@vod@@season2", List.of(legacy), List.of(flag(current)), 2);
 
         assertEquals(null, result);
+    }
+
+    @Test
+    public void findPlaybackCandidateDoesNotCrossSourceWhenTvSeasonIsUnknown() {
+        History legacy = history("site-a@@vod@@legacy", "Series", "Episode 5", "old-url", 90_000, 300_000);
+        legacy.setTmdbId(88);
+        legacy.setMediaType("tv");
+        Episode current = Episode.create("Episode 5", "new-url");
+
+        History result = History.findPlaybackCandidate(
+                "site-b@@vod@@unknown", List.of(legacy), List.of(flag(current)), -1);
+
+        assertNull(result);
+    }
+
+    @Test
+    public void seasonProgressSnapshotOverridesAHistoryRowNowPointingAtAnotherSeason() {
+        History source = new History();
+        source.setKey("site@@@vod");
+        source.setVodName("Series");
+        source.setVodRemarks("S2E3");
+        source.setTmdbId(10);
+        source.setMediaType("tv");
+        source.setTmdbEpisodePosition(2, 3);
+        source.setPosition(300);
+        source.setDuration(1000);
+        TmdbSeasonProgress progress = TmdbSeasonProgress.of(
+                0, "tv", 10, 1, 5, 500, 1200, source.getKey());
+        progress.sourceFlag = "line-s1";
+        progress.sourceEpisodeName = "S1E5";
+        progress.sourceEpisodeUrl = "s1e5-url";
+        progress.updatedAt = 900;
+
+        List<History> overlaid = History.overlaySeasonProgress(List.of(source), progress);
+
+        assertEquals(2, overlaid.size());
+        assertEquals(1, overlaid.get(0).getTmdbSeasonNumber());
+        assertEquals(5, overlaid.get(0).getTmdbEpisodeNumber());
+        assertEquals(500, overlaid.get(0).getPosition());
+        assertEquals(900, overlaid.get(0).getCreateTime());
+        assertEquals("line-s1", overlaid.get(0).getVodFlag());
+        assertEquals("S1E5", overlaid.get(0).getVodRemarks());
+        assertEquals("s1e5-url", overlaid.get(0).getEpisodeUrl());
+        assertSame(source, overlaid.get(1));
+    }
+
+    @Test
+    public void currentMultiSeasonRouteRestoresItsStableFlagKeyWithoutExpectedSeason() {
+        History source = new History();
+        source.setKey("site@@@vod");
+        source.setCid(7);
+        source.setTmdbId(10);
+        source.setMediaType("tv");
+        source.setTmdbEpisodePosition(2, 3);
+        source.setPosition(300);
+        source.setDuration(1000);
+        TmdbSeasonProgress progress = TmdbSeasonProgress.of(
+                7, "tv", 10, 2, 3, 300, 1000, source.getKey());
+        progress.sourceBindingKey = "duplicate#1";
+
+        List<History> overlaid = History.overlayLocalSeasonProgress(
+                source.getKey(), List.of(source), progress);
+
+        assertEquals("duplicate#1", overlaid.get(0).getSourceBindingKey());
+        assertEquals(2, overlaid.get(0).getTmdbSeasonNumber());
+        assertSame(source, overlaid.get(1));
+    }
+
+    @Test
+    public void crossSourceRebindReplacesTheOriginStableFlagKey() {
+        History sourceA = new History();
+        sourceA.setKey("site-a@@@vod-a");
+        sourceA.setVodFlag("duplicate");
+        sourceA.setEpisodeUrl("shared-url");
+        sourceA.setTmdbEpisodePosition(2, 3);
+        sourceA.setSourceBindingKey("duplicate#1");
+        Flag targetFirst = Flag.create("duplicate", "E3$shared-url");
+        Flag targetSecond = Flag.create("duplicate", "E3$shared-url");
+
+        History rebound = History.findPlaybackCandidate(
+                "site-b@@@vod-b", List.of(sourceA),
+                List.of(targetFirst, targetSecond), 2);
+
+        assertEquals("duplicate#0", rebound.getSourceBindingKey());
+    }
+
+    @Test
+    public void sameRouteRebindKeepsTheSnapshotStableFlagKey() {
+        History snapshot = new History();
+        snapshot.setKey("site@@@vod");
+        snapshot.setVodFlag("duplicate");
+        snapshot.setEpisodeUrl("shared-url");
+        snapshot.setTmdbEpisodePosition(2, 3);
+        snapshot.setSourceBindingKey("duplicate#1");
+        Flag first = Flag.create("duplicate", "E3$shared-url");
+        Flag second = Flag.create("duplicate", "E3$shared-url");
+
+        History rebound = History.findPlaybackCandidate(
+                snapshot.getKey(), List.of(snapshot), List.of(first, second), 2);
+
+        assertEquals("duplicate#1", rebound.getSourceBindingKey());
+    }
+
+    @Test
+    public void sameRouteRebindNormalizesBlankStableFlagKey() {
+        assertSameRouteStableFlagKey("", "flag#1");
+    }
+
+    @Test
+    public void sameRouteRebindTrimsStableFlagKey() {
+        assertSameRouteStableFlagKey(" line ", "line#1");
+    }
+
+    private static void assertSameRouteStableFlagKey(String flagName, String stableKey) {
+        History snapshot = new History();
+        snapshot.setKey("site@@@vod");
+        snapshot.setVodFlag(flagName);
+        snapshot.setEpisodeUrl("shared-url");
+        snapshot.setTmdbEpisodePosition(2, 3);
+        snapshot.setSourceBindingKey(stableKey);
+        Flag first = Flag.create(flagName, "E3$shared-url");
+        Flag second = Flag.create(flagName, "E3$shared-url");
+
+        History rebound = History.findPlaybackCandidate(
+                snapshot.getKey(), List.of(snapshot), List.of(first, second), 2);
+
+        assertEquals(stableKey, rebound.getSourceBindingKey());
     }
 
     @Test

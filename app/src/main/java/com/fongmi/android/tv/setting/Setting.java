@@ -881,11 +881,11 @@ public class Setting {
         AppCache.put(AppCache.KEY_TMDB_MATCH, App.gson().toJson(cache));
     }
 
-    public static TmdbSeasonMatchCache getTmdbSeasonMatchCache() {
+    public static synchronized TmdbSeasonMatchCache getTmdbSeasonMatchCache() {
         return TmdbSeasonMatchCache.objectFrom(AppCache.get(AppCache.KEY_TMDB_SEASON_MATCH));
     }
 
-    public static void putTmdbSeasonMatchCache(TmdbSeasonMatchCache cache) {
+    public static synchronized void putTmdbSeasonMatchCache(TmdbSeasonMatchCache cache) {
         AppCache.put(AppCache.KEY_TMDB_SEASON_MATCH, App.gson().toJson(cache));
     }
     public static DanmakuMatchCache getDanmakuMatchCache() {

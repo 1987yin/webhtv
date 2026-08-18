@@ -25,7 +25,7 @@ public final class TmdbEpisodeSorter {
         for (Flag flag : vod.getFlags()) sort(flag);
     }
 
-    private static void sort(Flag flag) {
+    public static void sort(Flag flag) {
         if (flag == null || flag.getEpisodes() == null || flag.getEpisodes().size() < 2) return;
         List<IndexedEpisode> indexed = new ArrayList<>();
         int recognized = 0;
