@@ -36,6 +36,10 @@ public class SpeechAdSettingSourceTest {
         assertTrue(xml.contains("@+id/speechAdKeywords"));
         assertTrue(xml.contains("@+id/speechAdSkipSeconds"));
         assertTrue(xml.contains("@+id/speechAdSkipMode"));
+        assertTrue(xml.contains("@string/speech_ad_enabled"));
+        assertTrue(xml.contains("@string/speech_ad_keywords"));
+        assertTrue(xml.contains("@string/speech_ad_skip_seconds"));
+        assertTrue(xml.contains("@string/speech_ad_skip_mode"));
         assertTrue(java.contains("SpeechAdSetting.setEnabled"));
         assertTrue(java.contains("SpeechAdSetting.setKeywords"));
         assertTrue(java.contains("SpeechAdSetting.setSkipSeconds"));
