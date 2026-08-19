@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.history;
 
+import android.text.TextUtils;
+
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.config.VodConfig;
@@ -11,16 +13,20 @@ import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.TmdbItem;
 import com.fongmi.android.tv.bean.TmdbMatchCache;
 import com.fongmi.android.tv.bean.Vod;
+import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
+import com.fongmi.android.tv.ui.helper.EpisodeSeasonPolicy;
 import com.fongmi.android.tv.utils.SearchResultFilter;
 import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.Util;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -113,7 +119,7 @@ public final class HistorySourceResolver {
                 if (vod == null || vod.isFolder() || vod.isAction()) continue;
                 vod.setSite(site);
                 TmdbItem tmdb = cachedTmdb(vod);
-                int score = scoreCandidate(history, vod, tmdb);
+                int score = scoreCandidate(history, vod, tmdb, true);
                 if (isAutomaticScore(score)) candidates.add(new Candidate(vod, score, siteOrder, tmdb));
             }
             candidates.sort(Comparator.comparingInt(Candidate::score).reversed());
@@ -138,9 +144,18 @@ public final class HistorySourceResolver {
             detail.checkName(candidate.getName());
             detail.checkPic(candidate.getPic());
             TmdbItem detailTmdb = cachedTmdb(detail);
-            int score = scoreCandidate(history, detail, detailTmdb == null ? candidateTmdb : detailTmdb);
+            TmdbItem resolvedTmdb = detailTmdb == null ? candidateTmdb : detailTmdb;
+            int candidateSeason = EpisodeSeasonPolicy.resolveSourceSeason(candidate.getName(), candidate.getRemarks());
+            int detailSeason = EpisodeSeasonPolicy.resolveSourceSeason(detail.getName(), detail.getRemarks());
+            if (candidateSeason >= 0 && detailSeason >= 0 && candidateSeason != detailSeason) return null;
+            int resolvedSeason = detailSeason >= 0 ? detailSeason : candidateSeason;
+            if (automatic && !canAutoReuseSeason(
+                    history, resolvedSeason, candidateKey(detail), isSameIdentity(history, resolvedTmdb))) return null;
+            int score = scoreCandidate(history, detail.getName(), detail.getYear(), resolvedTmdb);
             if (score == REJECTED || (automatic && !isAutomaticScore(score))) return null;
-            EpisodeMatch match = findEpisode(detail.getFlags(), history);
+            EpisodeMatch match = automatic
+                    ? findAutomaticEpisode(detail.getFlags(), history, candidateKey(detail), resolvedSeason)
+                    : findEpisode(detail.getFlags(), history);
             return match == null ? null : new Resolved(detail, match.flag(), match.episode());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -157,8 +172,60 @@ public final class HistorySourceResolver {
     }
 
     public static int scoreCandidate(History history, Vod candidate, TmdbItem candidateTmdb) {
+        return scoreCandidate(history, candidate, candidateTmdb, false);
+    }
+
+    private static int scoreCandidate(History history, Vod candidate, TmdbItem candidateTmdb, boolean automatic) {
         if (candidate == null) return REJECTED;
+        if (automatic) {
+            int candidateSeason = EpisodeSeasonPolicy.resolveSourceSeason(candidate.getName(), candidate.getRemarks());
+            if (!canAutoReuseSeason(history, candidateSeason, candidateKey(candidate),
+                    isSameIdentity(history, candidateTmdb))) return REJECTED;
+        }
         return scoreCandidate(history, candidate.getName(), candidate.getYear(), candidateTmdb);
+    }
+
+    static int scoreAutomaticCandidate(
+            History history,
+            String candidateKey,
+            String candidateTitle,
+            String candidateYear,
+            TmdbItem candidateTmdb) {
+        int candidateSeason = EpisodeSeasonPolicy.resolveSourceSeason(candidateTitle);
+        if (!canAutoReuseSeason(history, candidateSeason, candidateKey,
+                isSameIdentity(history, candidateTmdb))) return REJECTED;
+        return scoreCandidate(history, candidateTitle, candidateYear, candidateTmdb);
+    }
+
+    static boolean canAutoReuseSeason(History history, int candidateSeason, String candidateKey) {
+        return canAutoReuseSeason(history, candidateSeason, candidateKey, false);
+    }
+
+    private static boolean canAutoReuseSeason(
+            History history,
+            int candidateSeason,
+            String candidateKey,
+            boolean sameTmdbIdentity) {
+        if (history == null) return false;
+        if (!"tv".equals(normalizeMediaType(history.getMediaType()))) return true;
+        int savedSeason = history.getTmdbSeasonNumber();
+        boolean savedKnown = savedSeason > 0 || (savedSeason == 0 && history.getTmdbEpisodeNumber() > 0);
+        if (!savedKnown) return sameSource(history, candidateKey);
+        if (candidateSeason < 0) return sameTmdbIdentity || sameSource(history, candidateKey);
+        return savedSeason == candidateSeason;
+    }
+
+    private static boolean sameSource(History history, String candidateKey) {
+        if (history == null || TextUtils.isEmpty(candidateKey)) return false;
+        String sourceKey = history.getSiteKey() + AppDatabase.SYMBOL + history.getVodId();
+        return TextUtils.equals(history.getKey(), candidateKey)
+                || TextUtils.equals(sourceKey, candidateKey)
+                || candidateKey.startsWith(sourceKey + AppDatabase.SYMBOL);
+    }
+
+    private static String candidateKey(Vod candidate) {
+        if (candidate == null) return "";
+        return candidate.getSiteKey() + AppDatabase.SYMBOL + candidate.getId();
     }
 
     static int scoreCandidate(History history, String candidateTitle, String candidateYearValue, TmdbItem candidateTmdb) {
@@ -189,16 +256,51 @@ public final class HistorySourceResolver {
     }
 
     public static EpisodeMatch findEpisode(List<Flag> flags, History history) {
+        return findEpisode(flags, history, false, "");
+    }
+
+    static EpisodeMatch findAutomaticEpisode(List<Flag> flags, History history, String candidateKey) {
+        return findAutomaticEpisode(flags, history, candidateKey, -1);
+    }
+
+    static EpisodeMatch findAutomaticEpisode(
+            List<Flag> flags, History history, String candidateKey, int candidateSeason) {
+        return findEpisode(flags, history, true, candidateKey, candidateSeason);
+    }
+
+    private static EpisodeMatch findEpisode(
+            List<Flag> flags,
+            History history,
+            boolean automatic,
+            String candidateKey) {
+        return findEpisode(flags, history, automatic, candidateKey, -1);
+    }
+
+    private static EpisodeMatch findEpisode(
+            List<Flag> flags,
+            History history,
+            boolean automatic,
+            String candidateKey,
+            int candidateSeason) {
         if (flags == null || flags.isEmpty() || history == null) return null;
-        List<Flag> ordered = new ArrayList<>(flags.size());
-        for (Flag flag : flags) if (flag != null && flag.getFlag().equals(history.getVodFlag())) ordered.add(flag);
-        for (Flag flag : flags) if (flag != null && !ordered.contains(flag)) ordered.add(flag);
+        List<Flag> compatible = compatibleSeasonFlags(flags, history, automatic, candidateKey, candidateSeason);
+        if (compatible.isEmpty()) return null;
+        List<Flag> ordered = new ArrayList<>(compatible.size());
+        for (Flag flag : compatible) if (flag.getFlag().equals(history.getVodFlag())) ordered.add(flag);
+        for (Flag flag : compatible) if (!containsIdentity(ordered, flag)) ordered.add(flag);
 
         Episode saved = history.getEpisode();
         int episodeNumber = history.getTmdbEpisodeNumber();
         if (episodeNumber <= 0) episodeNumber = Util.getEpisodeNumber(history.getVodRemarks());
         for (Flag flag : ordered) {
-            Episode episode = flag.find(saved, true);
+            List<Episode> episodes = seasonCompatibleEpisodes(flag, history);
+            if (episodes.isEmpty()) continue;
+            Flag scoped = flag;
+            if (episodes.size() != flag.getEpisodes().size()) {
+                scoped = new Flag(flag.getFlag());
+                scoped.getEpisodes().addAll(episodes);
+            }
+            Episode episode = scoped.find(saved, true);
             if (episode != null && episode.matchesPlayback(saved)) return new EpisodeMatch(flag, episode);
         }
         if (episodeNumber > 0) return null;
@@ -206,6 +308,72 @@ public final class HistorySourceResolver {
             if (!flag.getEpisodes().isEmpty()) return new EpisodeMatch(flag, flag.getEpisodes().get(0));
         }
         return null;
+    }
+
+    private static boolean containsIdentity(List<Flag> flags, Flag target) {
+        for (Flag flag : flags) if (flag == target) return true;
+        return false;
+    }
+
+    private static List<Episode> seasonCompatibleEpisodes(Flag flag, History history) {
+        if (flag == null || flag.getEpisodes() == null) {
+            return flag == null || flag.getEpisodes() == null ? List.of() : flag.getEpisodes();
+        }
+        int savedSeason = history == null ? -1 : history.getTmdbSeasonNumber();
+        boolean savedKnown = history != null && "tv".equals(normalizeMediaType(history.getMediaType()))
+                && (savedSeason > 0 || savedSeason == 0 && history.getTmdbEpisodeNumber() > 0);
+        Set<Integer> flagSeasons = explicitFlagSeasons(flag);
+        if (!savedKnown || flagSeasons.size() <= 1) return flag.getEpisodes();
+        List<Episode> result = new ArrayList<>();
+        for (Episode episode : flag.getEpisodes()) {
+            if (episode != null && EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode.getName()) == savedSeason) {
+                result.add(episode);
+            }
+        }
+        return result;
+    }
+
+    private static List<Flag> compatibleSeasonFlags(
+            List<Flag> flags,
+            History history,
+            boolean automatic,
+            String candidateKey,
+            int candidateSeason) {
+        int savedSeason = history.getTmdbSeasonNumber();
+        boolean savedKnown = "tv".equals(normalizeMediaType(history.getMediaType()))
+                && (savedSeason > 0 || savedSeason == 0 && history.getTmdbEpisodeNumber() > 0);
+        List<Flag> usable = new ArrayList<>();
+        List<Flag> exact = new ArrayList<>();
+        List<Flag> unknown = new ArrayList<>();
+        for (Flag flag : flags) {
+            if (flag == null) continue;
+            usable.add(flag);
+            if (!savedKnown) continue;
+            Set<Integer> flagSeasons = explicitFlagSeasons(flag);
+            if (flagSeasons.contains(savedSeason)) exact.add(flag);
+            else if (flagSeasons.isEmpty()) unknown.add(flag);
+        }
+        if (!savedKnown) return usable;
+        if (!exact.isEmpty()) return exact;
+        return !automatic || sameSource(history, candidateKey) || candidateSeason == savedSeason
+                ? unknown : List.of();
+    }
+
+    private static Set<Integer> explicitFlagSeasons(Flag flag) {
+        Set<Integer> seasons = new LinkedHashSet<>();
+        addExplicitSeason(seasons, EpisodeSeasonPolicy.resolveExplicitSourceSeason(flag.getFlag()));
+        addExplicitSeason(seasons, EpisodeSeasonPolicy.resolveExplicitSourceSeason(flag.getShow()));
+        if (flag.getEpisodes() != null) {
+            for (Episode episode : flag.getEpisodes()) {
+                if (episode != null) addExplicitSeason(seasons,
+                        EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode.getName()));
+            }
+        }
+        return seasons;
+    }
+
+    private static void addExplicitSeason(Set<Integer> seasons, int season) {
+        if (season >= 0) seasons.add(season);
     }
 
     private static boolean hasYearConflict(History history, Vod candidate) {

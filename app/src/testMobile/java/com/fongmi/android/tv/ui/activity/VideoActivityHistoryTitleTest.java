@@ -16,7 +16,7 @@ public class VideoActivityHistoryTitleTest {
         for (Path sourcePath : List.of(videoActivity("mobile"), videoActivity("leanback"))) {
             String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
             String intentSelection = methodBody(source, "private void applyIntentPlaybackSelection(Vod item)");
-            String directTmdbLaunch = methodBody(source, "public static void startDirectTmdb(Activity activity, String key, String id, String name, String pic, String mark, ArrayList<String> episodeTitles, TmdbItem item, Vod tmdbVod, Vod detailVod, String tmdbDetailCacheKey, String playFlag, String playEpisodeName, String playEpisodeUrl, int playSeasonNumber, int playEpisodeNumber, History resumeHistory)");
+            String directTmdbLaunch = methodBody(source, "public static void startDirectTmdb(Activity activity, String key, String id, String name, String pic, String mark, ArrayList<String> episodeTitles, TmdbItem item, Vod tmdbVod, Vod detailVod, String tmdbDetailCacheKey, String playFlag, String playFlagKey, String playEpisodeName, String playEpisodeUrl, int playSeasonNumber, int playEpisodeNumber, History resumeHistory)");
             String saveHistory = methodBody(source, "private void saveHistory(boolean exit)");
             String updateHistory = methodBody(source, "private void updateHistory(Episode item)");
             String updateVod = methodBody(source, "private void updateVod(Vod item)");
@@ -179,23 +179,26 @@ public class VideoActivityHistoryTitleTest {
         String detailSync = methodBody(source,
                 "private void loadDetailSync(Vod vod, TmdbItem item, JsonObject cachedDetail, List<TmdbPerson> cachedCast, int generation)");
         String captureSeason = methodBody(source, "private void captureSourceSeason(Vod sourceVod, String sourceTitle)");
+        String captureActiveFlag = methodBody(source, "private void captureActiveFlagSeasonEvidence(Vod sourceVod)");
         assertTrue("TMDB source-season capture must preserve explicit season zero for specials",
                 captureSeason.contains("boolean pushSource = SiteApi.PUSH.equals(cacheSiteKey(sourceVod));")
                         && captureSeason.contains("? EpisodeSeasonPolicy.resolveExplicitSourceSeason(")
                         && captureSeason.contains(": EpisodeSeasonPolicy.resolveSourceSeason(")
-                        && captureSeason.contains("addExplicitSeason(explicit, EpisodeSeasonPolicy.resolveExplicitSourceSeason(")
+                        && source.contains("addExplicitSeason(seasons, EpisodeSeasonPolicy.resolveExplicitSourceSeason(")
+                        && captureActiveFlag.contains("explicitSourceSeasons(sourceFlag)")
                         && source.contains("if (season >= 0 && !seasons.contains(season))"));
         assertTrue("TMDB source-season capture must not treat source-line ordinals as seasons",
-                captureSeason.contains("EpisodeSeasonPolicy.resolveExplicitSourceSeason(flag == null ? \"\" : flag.getShow())"));
+                source.contains("EpisodeSeasonPolicy.resolveExplicitSourceSeason(flag.getShow())"));
         assertTrue("TMDB source-season capture must prefer source episode names over bound metadata",
-                captureSeason.indexOf("EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode == null ? \"\" : episode.getName())") >= 0
-                        && captureSeason.indexOf("EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode == null ? \"\" : episode.getName())")
-                        < captureSeason.indexOf("TmdbEpisode tmdbEpisode ="));
+                source.contains("episode == null ? \"\" : episode.getName()")
+                        && captureActiveFlag.contains("List<Integer> explicit = explicitSourceSeasons(sourceFlag);")
+                        && captureActiveFlag.indexOf("List<Integer> explicit = explicitSourceSeasons(sourceFlag);")
+                        < captureActiveFlag.indexOf("TmdbEpisode tmdbEpisode ="));
         assertTrue("bound TMDB metadata must remain a history fallback instead of becoming explicit source-season evidence",
-                captureSeason.contains("List<Integer> metadata = new ArrayList<>();")
-                        && captureSeason.contains("addExplicitSeason(metadata, tmdbEpisode.getSeasonNumber());")
-                        && captureSeason.contains("explicitSourceSeasons = List.copyOf(explicit);")
-                        && captureSeason.contains("metadata.size() == 1 ? metadata.get(0) : -1"));
+                captureActiveFlag.contains("List<Integer> metadata = new ArrayList<>();")
+                        && captureActiveFlag.contains("addExplicitSeason(metadata, tmdbEpisode.getSeasonNumber());")
+                        && captureActiveFlag.contains("explicitSourceSeasons = List.copyOf(explicit);")
+                        && captureActiveFlag.contains("metadata.size() == 1 ? metadata.get(0) : -1"));
         Path detailPath = mainJava().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String detailSource = Files.readString(detailPath, StandardCharsets.UTF_8);
         String detailExplicitSeason = methodBody(detailSource, "private int explicitSourceSeasonNumber(Episode episode)");
