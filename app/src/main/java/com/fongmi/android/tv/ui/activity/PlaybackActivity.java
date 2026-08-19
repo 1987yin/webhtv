@@ -5,9 +5,11 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Log;
+import android.view.Display;
 import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
@@ -16,6 +18,7 @@ import android.view.WindowManager;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
+import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Format;
@@ -42,6 +45,7 @@ import com.fongmi.android.tv.setting.PlaybackPerformanceSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.subtitle.RealtimeSubtitleController;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.dialog.AdSkipPromptPresenter;
 import com.fongmi.android.tv.ui.dialog.VideoAspectModeDialog;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -67,6 +71,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private int render = -1;
     private int requestedAspectMode = VideoAspectMode.ORIGINAL;
     private ExoOutputModeManager exoOutputModeManager;
+    private AdSkipPromptPresenter adSkipPromptPresenter;
 
     protected MediaController controller() {
         return mController;
@@ -82,6 +87,16 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     protected boolean isServiceReady() {
         return mService != null && mService.player() != null && !mService.player().isReleased();
+    }
+
+    private void bindAdAudioPrompt() {
+        if (!isServiceReady() || !isOwner()) return;
+        if (adSkipPromptPresenter == null) adSkipPromptPresenter = new AdSkipPromptPresenter(this);
+        player().bindAdAudioUi(adSkipPromptPresenter);
+    }
+
+    private void unbindAdAudioPrompt() {
+        if (isServiceReady() && isOwner()) player().unbindAdAudioUi();
     }
 
     protected View.OnClickListener guarded(Runnable action) {
@@ -323,6 +338,11 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     protected void startPlayer(String key, Result result, boolean useParse, long timeout, MediaMetadata metadata) {
+        startPlayer(key, result, useParse, timeout, metadata, C.TIME_UNSET);
+    }
+
+    protected void startPlayer(String key, Result result, boolean useParse, long timeout,
+                               MediaMetadata metadata, long startPositionMs) {
         if (rejectUnsupportedDrm(key, result)) {
             return;
         } else if (result.getDrm() != null && !FrameworkMediaDrm.isCryptoSchemeSupported(result.getDrm().getUUID())) {
@@ -334,11 +354,11 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         } else if (result.needParse() || useParse) {
             preparedPlaybackKey = null;
             attachSurface();
-            player().parse(key, result, useParse, metadata, PlayerSetting.isAutoPlay());
+            player().parse(key, result, useParse, metadata, PlayerSetting.isAutoPlay(), startPositionMs);
         } else {
             preparedPlaybackKey = null;
             attachSurface();
-            player().start(PlaySpec.from(result, key, metadata), timeout, PlayerSetting.isAutoPlay());
+            player().start(PlaySpec.from(result, key, metadata), timeout, PlayerSetting.isAutoPlay(), startPositionMs);
         }
         syncKeepScreenOn();
     }
@@ -519,7 +539,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         String playerText = mService == null ? "none" : player().getPlayerText();
         boolean nativePlayer = mService != null && player().isNativePlayer();
         int targetRender = mService == null ? -1 : getRender();
-        Log.d(SIZE_TAG, "playback " + step
+        String message = "playback " + step
                 + " key=" + getPlaybackKey()
                 + " player=" + playerText
                 + " native=" + nativePlayer
@@ -528,7 +548,20 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
                 + " resize=" + view.getResizeMode()
                 + " playerView=" + viewSize(view)
                 + " content=" + viewSize(content)
-                + " surface=" + surfaceName(surface) + ":" + viewSize(surface));
+                + " surface=" + surfaceName(surface) + ":" + viewSize(surface)
+                + " holder=" + surfaceHolderSize(surface)
+                + " rotation=" + displayRotation()
+                + " orientation=" + getResources().getConfiguration().orientation;
+        Log.d(SIZE_TAG, message);
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("surface-size", "%s", message);
+    }
+
+
+    @SuppressWarnings("deprecation")
+    private int displayRotation() {
+        Display display = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                ? getDisplay() : getWindowManager().getDefaultDisplay();
+        return display == null ? -1 : display.getRotation();
     }
 
     private static String viewSize(View view) {
@@ -538,6 +571,12 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     private static String surfaceName(View view) {
         return view == null ? "null" : view.getClass().getSimpleName();
+    }
+
+    private static String surfaceHolderSize(View view) {
+        if (!(view instanceof SurfaceView surfaceView)) return "n/a";
+        android.graphics.Rect frame = surfaceView.getHolder().getSurfaceFrame();
+        return frame.width() + "x" + frame.height() + "/valid=" + surfaceView.getHolder().getSurface().isValid();
     }
 
     private void syncShutter() {
@@ -599,6 +638,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     private int getRender() {
         if (mService != null && player().isNativePlayer()) return 0;
+        if (mService != null && player().requiresTextureRenderForLut()) return PlayerSetting.RENDER_TEXTURE;
         return PlayerSetting.getRender();
     }
 
@@ -715,6 +755,16 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         @Override
         public void onReload(String msg) {
             if (isOwner()) PlaybackActivity.this.onReload(msg);
+        }
+
+        @Override
+        public void onPlayerRenderRequired() {
+            if (!isOwner()) return;
+            int targetRender = getRender();
+            if (render == targetRender) return;
+            if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "LUT switch render from=%d to=%d", render, targetRender);
+            setRender();
+            applyResizeMode(requestedAspectMode);
         }
 
         @Override
@@ -887,6 +937,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         mService.addPlayerCallback(mPlayerCallback);
         getSeekView().setProgressPlayer(player().getPlayer());
         player().setLutAllowed(isLutAllowed());
+        bindAdAudioPrompt();
         syncKeepScreenOn();
         player().setDanmakuForeground(true);
         publishRenderTarget(getExoView().getVideoSurfaceView());
@@ -899,6 +950,9 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
     @Override
     public void onServiceDisconnected(ComponentName name) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service disconnected name=%s %s", name, lifecycleState());
+        unbindAdAudioPrompt();
+        if (adSkipPromptPresenter != null) adSkipPromptPresenter.close();
+        adSkipPromptPresenter = null;
         releaseController();
         getSeekView().setProgressPlayer(null);
         mService = null;
@@ -915,6 +969,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity resume %s", lifecycleState());
         playbackExiting = false;
         setRedirect(false);
+        bindAdAudioPrompt();
         applyExoOutputMode();
         if (shouldReclaim()) {
             detachSurface();
@@ -932,6 +987,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
 
     @Override
     protected void onStop() {
+        unbindAdAudioPrompt();
         if (mService != null) {
             mService.setPlaybackForeground(false);
             if (isOwner()) player().setDanmakuForeground(false);
@@ -951,6 +1007,9 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
     @Override
     protected void onDestroy() {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity destroy beforeRelease %s", lifecycleState());
+        unbindAdAudioPrompt();
+        if (adSkipPromptPresenter != null) adSkipPromptPresenter.close();
+        adSkipPromptPresenter = null;
         RealtimeSubtitleController.get().unbind(getExoView());
         restoreExoOutputMode();
         super.onDestroy();

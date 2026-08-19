@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Flag;
 import com.fongmi.android.tv.bean.TmdbConfig;
@@ -394,6 +395,11 @@ public class TmdbUIAdapter {
         captureSourceSeason(vod, videoName);
         cancelActivePrefetch();
         detailPrefetch.cancel();
+        if (SiteApi.PUSH.equals(cacheSiteKey(vod)) && !TmdbMatchPolicy.shouldAutoMatchPushTitle(videoName)) {
+            SpiderDebug.log("tmdb", "skip push auto match: generic title=%s", videoName);
+            notifyLoadComplete(vod, generation);
+            return;
+        }
         if (!isReady()) {
             SpiderDebug.log("tmdb", "skip auto match: config not ready");
             notifyLoadComplete(vod, generation);
@@ -560,7 +566,14 @@ public class TmdbUIAdapter {
                 ? -1 : activity.getIntent().getIntExtra("tmdb_play_season_number", -1);
         String vodTitle = sourceVod == null ? "" : sourceVod.getName();
         sourceCacheTitle = selectSourceCacheTitle(sourceTitle, activityIntentTitle(), vodTitle);
-        titleSeasonNumber = EpisodeSeasonPolicy.resolveSourceSeason(
+        boolean pushSource = SiteApi.PUSH.equals(cacheSiteKey(sourceVod));
+        titleSeasonNumber = pushSource
+                ? EpisodeSeasonPolicy.resolveExplicitSourceSeason(
+                sourceTitle,
+                activityIntentTitle(),
+                vodTitle,
+                sourceVod == null ? "" : sourceVod.getRemarks())
+                : EpisodeSeasonPolicy.resolveSourceSeason(
                 sourceTitle,
                 activityIntentTitle(),
                 vodTitle,
@@ -649,7 +662,8 @@ public class TmdbUIAdapter {
                 tmdbSeasons,
                 seasonCounts,
                 sourceEpisodeCount(sourceVod),
-                sourceEpisodeNumbers(sourceVod));
+                sourceEpisodeNumbers(sourceVod),
+                !SiteApi.PUSH.equals(cacheSiteKey(sourceVod)));
         Integer selected = seasonResolution.getSelectedSeason();
         sourceSeasonNumber = selected == null ? -1 : selected;
         SpiderDebug.log("tmdb", "season resolve status=%s source=%s season=%d reason=%s",
