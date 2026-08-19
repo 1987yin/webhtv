@@ -61,7 +61,6 @@ public class SettingTmdbActivity extends BaseActivity {
         mBinding.detailThemeMode.setVisibility(Setting.isTmdbMode(Setting.getDetailOpenMode()) ? View.VISIBLE : View.GONE);
         mBinding.detailThemeModeText.setText(getDetailThemeModeText());
         mBinding.tmdbMatchModeText.setText((tmdbMatchMode = getResources().getStringArray(R.array.select_tmdb_match_mode))[Setting.getTmdbMatchMode()]);
-        mBinding.tmdbModelText.setText(R.string.setting_tmdb_model_native);
         mBinding.tmdbEpisodeFileSizeText.setText(getSwitch(Setting.isTmdbEpisodeFileSize()));
         mBinding.historyAggregation.setVisibility(Setting.isTmdbReady() ? View.VISIBLE : View.GONE);
         mBinding.historyAggregationText.setText(getSwitch(Setting.isHistoryAggregationByTmdb()));
