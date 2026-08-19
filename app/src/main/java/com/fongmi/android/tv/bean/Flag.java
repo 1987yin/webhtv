@@ -73,6 +73,11 @@ public class Flag implements Parcelable, Diffable<Flag> {
         return item;
     }
 
+    public static String stableKey(Flag flag, int index) {
+        String value = flag == null || TextUtils.isEmpty(flag.getFlag()) ? "flag" : flag.getFlag().trim();
+        return value + "#" + Math.max(0, index);
+    }
+
     public String getShow() {
         return TextUtils.isEmpty(show) ? getFlag() : show;
     }
@@ -136,6 +141,10 @@ public class Flag implements Parcelable, Diffable<Flag> {
     public void setSelected(Flag item) {
         this.selected = item.equals(this);
         if (selected) item.episodes = episodes;
+    }
+
+    public void setSelected(boolean selected) {
+        this.selected = selected;
     }
 
     private void setSelected(Episode episode) {

@@ -90,6 +90,7 @@ import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.impl.CustomTarget;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.playback.PlaybackEventCollector;
+import com.fongmi.android.tv.playback.HistoryResumePayload;
 import com.fongmi.android.tv.playback.PlaybackOrientation;
 import com.fongmi.android.tv.player.IntroSkipPlayback;
 import com.fongmi.android.tv.player.PlayerHelper;
@@ -318,6 +319,7 @@ private int mAudioBackgroundRandomNonce;
     private static final int EPISODE_CARD_HEIGHT_DP = 190;
     private static final int EPISODE_CARD_VERTICAL_MARGIN_DP = 12;
     private static final String EXTRA_TMDB_PLAY_FLAG = "tmdb_play_flag";
+    private static final String EXTRA_TMDB_PLAY_FLAG_KEY = "tmdb_play_flag_key";
     private static final String EXTRA_TMDB_PLAY_EPISODE_NAME = "tmdb_play_episode_name";
     private static final String EXTRA_TMDB_PLAY_EPISODE_URL = "tmdb_play_episode_url";
     private static final String EXTRA_TMDB_PLAY_SEASON_NUMBER = "tmdb_play_season_number";
@@ -652,8 +654,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         intent.putExtra("id", target.getId());
         intent.putExtra(EXTRA_RESUME_FROM_HISTORY, true);
         intent.putExtra(EXTRA_RESUME_HISTORY_CID, source.getCid());
-        intent.putExtra(EXTRA_RESUME_HISTORY_KEY, source.getKey());
-        putIntentPlaybackSelection(intent, flag.getFlag(), episode.getName(), episode.getUrl());
+        intent.putExtra(EXTRA_RESUME_HISTORY_KEY, HistoryResumePayload.encode(source));
+        int flagIndex = com.fongmi.android.tv.ui.helper.TmdbUIAdapter.flagIndex(target.getFlags(), flag);
+        String flagKey = flagIndex < 0 ? ""
+                : com.fongmi.android.tv.ui.helper.TmdbUIAdapter.flagKey(flag, flagIndex);
+        putIntentPlaybackSelection(intent, flag.getFlag(), flagKey, episode.getName(), episode.getUrl());
         putDetailVodCache(intent, target);
         activity.startActivity(intent);
     }
@@ -709,16 +714,25 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     public static void startDirect(Activity activity, String key, String id, String name, String pic, String mark,
             String playFlag, String playEpisodeName, String playEpisodeUrl, boolean resumeFromHistory) {
-        startDirect(activity, key, id, name, pic, mark, playFlag, playEpisodeName, playEpisodeUrl, resumeFromHistory, null);
+        startDirect(activity, key, id, name, pic, mark, playFlag, "", playEpisodeName, playEpisodeUrl, resumeFromHistory, null);
     }
 
     public static void startDirect(Activity activity, String key, String id, String name, String pic, String mark,
             String playFlag, String playEpisodeName, String playEpisodeUrl, History resumeHistory) {
-        startDirect(activity, key, id, name, pic, mark, playFlag, playEpisodeName, playEpisodeUrl, true, resumeHistory);
+        startDirect(activity, key, id, name, pic, mark, playFlag,
+                resumeHistory == null ? "" : resumeHistory.getSourceBindingKey(),
+                playEpisodeName, playEpisodeUrl, true, resumeHistory);
+    }
+
+    public static void startDirect(Activity activity, String key, String id, String name, String pic, String mark,
+            String playFlag, String playFlagKey, String playEpisodeName, String playEpisodeUrl, History resumeHistory) {
+        startDirect(activity, key, id, name, pic, mark, playFlag, playFlagKey,
+                playEpisodeName, playEpisodeUrl, true, resumeHistory);
     }
 
     private static void startDirect(Activity activity, String key, String id, String name, String pic, String mark,
-            String playFlag, String playEpisodeName, String playEpisodeUrl, boolean resumeFromHistory, History resumeHistory) {
+            String playFlag, String playFlagKey, String playEpisodeName, String playEpisodeUrl,
+            boolean resumeFromHistory, History resumeHistory) {
         if (AudioActivity.startSite(activity, key, id, name, pic, mark)) return;
         Intent intent = new Intent(activity, VideoActivity.class);
         intent.putExtra("collect", false);
@@ -730,9 +744,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         intent.putExtra(EXTRA_RESUME_FROM_HISTORY, resumeFromHistory);
         if (resumeHistory != null) {
             intent.putExtra(EXTRA_RESUME_HISTORY_CID, resumeHistory.getCid());
-            intent.putExtra(EXTRA_RESUME_HISTORY_KEY, resumeHistory.getKey());
+            intent.putExtra(EXTRA_RESUME_HISTORY_KEY, HistoryResumePayload.encode(resumeHistory));
         }
-        putIntentPlaybackSelection(intent, playFlag, playEpisodeName, playEpisodeUrl);
+        putIntentPlaybackSelection(intent, playFlag, playFlagKey, playEpisodeName, playEpisodeUrl);
         activity.startActivity(intent);
     }
 
@@ -757,6 +771,13 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     public static void startDirectTmdb(Activity activity, String key, String id, String name, String pic, String mark, ArrayList<String> episodeTitles, TmdbItem item, Vod tmdbVod, Vod detailVod, String tmdbDetailCacheKey, String playFlag, String playEpisodeName, String playEpisodeUrl, int playSeasonNumber, int playEpisodeNumber, History resumeHistory) {
+        startDirectTmdb(activity, key, id, name, pic, mark, episodeTitles, item, tmdbVod, detailVod,
+                tmdbDetailCacheKey, playFlag,
+                resumeHistory == null ? "" : resumeHistory.getSourceBindingKey(),
+                playEpisodeName, playEpisodeUrl, playSeasonNumber, playEpisodeNumber, resumeHistory);
+    }
+
+    public static void startDirectTmdb(Activity activity, String key, String id, String name, String pic, String mark, ArrayList<String> episodeTitles, TmdbItem item, Vod tmdbVod, Vod detailVod, String tmdbDetailCacheKey, String playFlag, String playFlagKey, String playEpisodeName, String playEpisodeUrl, int playSeasonNumber, int playEpisodeNumber, History resumeHistory) {
         if (AudioActivity.startSite(activity, key, id, name, pic, mark)) return;
         Intent intent = new Intent(activity, VideoActivity.class);
         intent.putExtra("tmdbMode", item != null);
@@ -771,10 +792,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         intent.putExtra(EXTRA_RESUME_FROM_HISTORY, resumeHistory != null);
         if (resumeHistory != null) {
             intent.putExtra(EXTRA_RESUME_HISTORY_CID, resumeHistory.getCid());
-            intent.putExtra(EXTRA_RESUME_HISTORY_KEY, resumeHistory.getKey());
+            intent.putExtra(EXTRA_RESUME_HISTORY_KEY, HistoryResumePayload.encode(resumeHistory));
         }
         intent.putStringArrayListExtra("tmdb_episode_titles", episodeTitles);
-        putIntentPlaybackSelection(intent, playFlag, playEpisodeName, playEpisodeUrl);
+        putIntentPlaybackSelection(intent, playFlag, playFlagKey, playEpisodeName, playEpisodeUrl);
         if (playEpisodeNumber > 0) {
             intent.putExtra(EXTRA_TMDB_PLAY_SEASON_NUMBER, Math.max(-1, playSeasonNumber));
             intent.putExtra(EXTRA_TMDB_PLAY_EPISODE_NUMBER, playEpisodeNumber);
@@ -786,7 +807,13 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private static void putIntentPlaybackSelection(Intent intent, String playFlag, String playEpisodeName, String playEpisodeUrl) {
+        putIntentPlaybackSelection(intent, playFlag, "", playEpisodeName, playEpisodeUrl);
+    }
+
+    private static void putIntentPlaybackSelection(Intent intent, String playFlag, String playFlagKey,
+                                                   String playEpisodeName, String playEpisodeUrl) {
         if (!TextUtils.isEmpty(playFlag)) intent.putExtra(EXTRA_TMDB_PLAY_FLAG, playFlag);
+        if (!TextUtils.isEmpty(playFlagKey)) intent.putExtra(EXTRA_TMDB_PLAY_FLAG_KEY, playFlagKey);
         if (!TextUtils.isEmpty(playEpisodeName)) intent.putExtra(EXTRA_TMDB_PLAY_EPISODE_NAME, playEpisodeName);
         if (!TextUtils.isEmpty(playEpisodeUrl)) intent.putExtra(EXTRA_TMDB_PLAY_EPISODE_URL, playEpisodeUrl);
     }
@@ -874,6 +901,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private String getIntentPlaybackFlag() {
         return Objects.toString(getIntent().getStringExtra(EXTRA_TMDB_PLAY_FLAG), "");
+    }
+
+    private String getIntentPlaybackFlagKey() {
+        return Objects.toString(getIntent().getStringExtra(EXTRA_TMDB_PLAY_FLAG_KEY), "");
     }
 
     private String getIntentPlaybackEpisodeName() {
@@ -969,7 +1000,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     private History getIntentResumeHistory() {
         String key = Objects.toString(getIntent().getStringExtra(EXTRA_RESUME_HISTORY_KEY), "");
         if (key.isEmpty()) return null;
-        return History.find(getIntent().getIntExtra(EXTRA_RESUME_HISTORY_CID, VodConfig.getCid()), key);
+        return HistoryResumePayload.restore(
+                getIntent().getIntExtra(EXTRA_RESUME_HISTORY_CID, VodConfig.getCid()), key);
     }
 
     private boolean hasIntentResumeHistory() {
@@ -998,6 +1030,27 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private Flag getFlag() {
         return mFlagAdapter == null || mFlagAdapter.isEmpty() ? null : mFlagAdapter.getActivated();
+    }
+
+    private void setHistoryFlag(Flag flag) {
+        if (mHistory == null || flag == null) return;
+        mHistory.setVodFlag(flag.getFlag());
+        int index = mFlagAdapter == null ? -1 : mFlagAdapter.indexOf(flag);
+        if (index < 0 && mVod != null) index = com.fongmi.android.tv.ui.helper.TmdbUIAdapter.flagIndex(mVod.getFlags(), flag);
+        String flagKey = index >= 0
+                ? com.fongmi.android.tv.ui.helper.TmdbUIAdapter.flagKey(flag, index)
+                : mTmdbUIAdapter == null ? "" : mTmdbUIAdapter.activeFlagKey(flag);
+        mHistory.setSourceBindingKey(flagKey);
+    }
+
+    private Flag resolveHistoryPlaybackFlag(List<Flag> flags) {
+        if (flags == null || flags.isEmpty()) return null;
+        String flagKey = mHistory == null ? "" : mHistory.getSourceBindingKey();
+        String flagName = mHistory == null ? "" : mHistory.getVodFlag();
+        String episodeUrl = mHistory == null ? "" : mHistory.getEpisodeUrl();
+        Flag selected = com.fongmi.android.tv.ui.helper.TmdbUIAdapter.selectPlaybackFlag(
+                flags, flagKey, episodeUrl, flagName);
+        return selected == null ? flags.get(0) : selected;
     }
 
     private Episode getEpisode() {
@@ -1078,15 +1131,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void resumeHistoryAfterTmdbMatch() {
         if (mHistory == null || mFlagAdapter == null || mFlagAdapter.isEmpty()) return;
-        Flag requested = mHistory.getFlag();
-        Flag targetFlag = null;
-        for (Flag candidate : mFlagAdapter.getItems()) {
-            if (candidate.equals(requested)) {
-                targetFlag = candidate;
-                break;
-            }
-        }
-        if (targetFlag == null) targetFlag = mFlagAdapter.getItems().get(0);
+        Flag targetFlag = resolveHistoryPlaybackFlag(mFlagAdapter.getItems());
         Episode targetEpisode = targetFlag.find(mHistory.getEpisode(), true);
         if (targetEpisode == null) return;
 
@@ -1096,7 +1141,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             tmdbHistoryResumePending = true;
         }
         if (!targetFlag.isSelected() || !targetEpisode.isSelected()) {
-            onItemClick(requested);
+            onItemClick(targetFlag);
             return;
         }
 
@@ -1109,7 +1154,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void alignHistoryWithSelectedEpisode(Flag flag, Episode episode) {
         Episode identity = withSourceSeasonEpisodeIdentity(episode);
-        mHistory.setVodFlag(flag.getFlag());
+        setHistoryFlag(flag);
         mHistory.setVodRemarks(getHistoryEpisodeName(episode));
         mHistory.setEpisodeUrl(episode.getUrl());
         if (identity.getTmdbEpisode() != null) mHistory.setTmdbEpisodePosition(identity);
@@ -1243,6 +1288,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.swipeLayout.setRefreshing(true);
         saveHistory();
         getIntent().removeExtra(EXTRA_TMDB_PLAY_FLAG);
+        getIntent().removeExtra(EXTRA_TMDB_PLAY_FLAG_KEY);
         getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_NAME);
         getIntent().removeExtra(EXTRA_TMDB_PLAY_EPISODE_URL);
         getIntent().removeExtra(EXTRA_TMDB_PLAY_SEASON_NUMBER);
@@ -1965,6 +2011,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
         // TMDB 增强：全局开关启用或 Intent 传入 TmdbItem 时触发
         if (shouldLoadTmdbDetail()) {
+            mTmdbUIAdapter.setActiveFlag(getFlag());
             com.fongmi.android.tv.bean.TmdbItem tmdbItem = getTmdbItem();
             if (tmdbItem != null) {
                 // 直接使用传入的 TmdbItem
@@ -2269,13 +2316,17 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     @Override
     public void onItemClick(Flag item) {
-        if (item.isSelected()) return;
+        if (item == null || mFlagAdapter.isEmpty()) return;
+        int position = mFlagAdapter.indexOf(item);
+        Flag resolved = mFlagAdapter.get(position < 0 ? 0 : position);
+        if (resolved.isSelected()) return;
         Flag previous = getFlag();
-        SpiderDebug.log("playback-action", "flag switch ui=mobile site=%s from=%s to=%s fullscreen=%s", getKey(), previous == null ? "" : previous.getFlag(), item.getFlag(), isFullscreen());
-        mFlagAdapter.setSelected(item);
+        SpiderDebug.log("playback-action", "flag switch ui=mobile site=%s from=%s to=%s fullscreen=%s", getKey(), previous == null ? "" : previous.getFlag(), resolved.getFlag(), isFullscreen());
+        mFlagAdapter.setSelected(resolved);
+        if (mTmdbUIAdapter != null) mTmdbUIAdapter.setActiveFlag(resolved);
         scrollToPosition(mBinding.flag, mFlagAdapter.getPosition());
-        boolean episodeChanged = seamless(item);
-        if (!episodeChanged) setEpisodeAdapter(item.getEpisodes());
+        boolean episodeChanged = seamless(resolved);
+        if (!episodeChanged) setEpisodeAdapter(resolved.getEpisodes());
         scrollEpisodeToSelected();
         setQualityVisible(false);
         loadTmdbRelatedVideosForCurrentEpisode();
@@ -4736,7 +4787,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             applyImmersiveAudioSelection(mImmersiveAudioResolved);
             if (mHistory.isRevSort()) reverseEpisode(true);
         } else {
-            onItemClick(mHistory.getFlag());
+            onItemClick(resolveHistoryPlaybackFlag(item.getFlags()));
             if (mHistory.isRevSort()) reverseEpisode(true);
         }
         if (preservePlayback) SpiderDebug.log("karaoke-result", "configuration restore preserved playback key=%s episode=%s", player().getKey(), mHistory.getVodRemarks());
@@ -4847,10 +4898,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void applyIntentPlaybackSelection(Vod item) {
         String playFlag = getIntentPlaybackFlag();
+        String playFlagKey = getIntentPlaybackFlagKey();
         String playName = getIntentPlaybackEpisodeName();
         String playUrl = getIntentPlaybackEpisodeUrl();
-        if (TextUtils.isEmpty(playFlag) && TextUtils.isEmpty(playName) && TextUtils.isEmpty(playUrl)) return;
-        Flag flag = findIntentPlaybackFlag(item.getFlags(), playFlag, playUrl);
+        if (TextUtils.isEmpty(playFlag) && TextUtils.isEmpty(playFlagKey)
+                && TextUtils.isEmpty(playName) && TextUtils.isEmpty(playUrl)) return;
+        Flag flag = findIntentPlaybackFlag(item.getFlags(), playFlagKey, playFlag, playUrl);
         if (flag == null) return;
         Episode episode = findIntentPlaybackEpisode(flag, playName, playUrl);
         Episode historyEpisode = withSourceSeasonEpisodeIdentity(withIntentTmdbEpisodeIdentity(episode));
@@ -4865,20 +4918,16 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             mHistory.setPosition(C.TIME_UNSET);
             mHistory.setDuration(C.TIME_UNSET);
         }
-        mHistory.setVodFlag(flag.getFlag());
+        setHistoryFlag(flag);
         if (episode == null) return;
         mHistory.setVodRemarks(getHistoryEpisodeName(historyEpisode));
         mHistory.setEpisodeUrl(episode.getUrl());
         if (historyEpisode.getTmdbEpisode() != null || !sameEpisode) mHistory.setTmdbEpisodePosition(historyEpisode);
     }
 
-    private Flag findIntentPlaybackFlag(List<Flag> flags, String playFlag, String playUrl) {
-        if (flags == null || flags.isEmpty()) return null;
-        for (Flag flag : flags) if (!TextUtils.isEmpty(playFlag) && TextUtils.equals(playFlag, flag.getFlag())) return flag;
-        if (!TextUtils.isEmpty(playUrl)) {
-            for (Flag flag : flags) for (Episode episode : flag.getEpisodes()) if (TextUtils.equals(playUrl, episode.getUrl())) return flag;
-        }
-        return null;
+    private Flag findIntentPlaybackFlag(List<Flag> flags, String playFlagKey, String playFlag, String playUrl) {
+        return com.fongmi.android.tv.ui.helper.TmdbUIAdapter.selectPlaybackFlag(
+                flags, playFlagKey, playUrl, playFlag);
     }
 
     private Episode findIntentPlaybackEpisode(Flag flag, String playName, String playUrl) {
@@ -4974,7 +5023,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             }
         }
 
-        mHistory.setVodFlag(getFlag().getFlag());
+        setHistoryFlag(getFlag());
         mHistory.setVodRemarks(getHistoryEpisodeName(item));
         mHistory.setEpisodeUrl(item.getUrl());
         if (historyEpisode.getTmdbEpisode() != null || !sameEpisode) mHistory.setTmdbEpisodePosition(historyEpisode);
@@ -9718,7 +9767,7 @@ private boolean isCurrentArtworkRequest(String url, String owner) {
     }
 
 private void restoreFlagSelectionWithoutPlayback() {
-        mFlagAdapter.setSelected(mHistory.getFlag());
+        mFlagAdapter.setSelected(resolveHistoryPlaybackFlag(mFlagAdapter.getItems()));
         Flag flag = getFlag();
         if (flag == null) return;
         syncSelectedEpisode(flag);

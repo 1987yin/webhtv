@@ -1,6 +1,8 @@
 package com.fongmi.android.tv.ui.helper;
 
 import com.fongmi.android.tv.bean.TmdbSeasonMatchCache;
+import com.fongmi.android.tv.bean.TmdbSeasonSegment;
+import com.fongmi.android.tv.bean.TmdbSeasonScope;
 
 import org.junit.Test;
 
@@ -90,9 +92,28 @@ public class TmdbSeasonResolverTest {
     }
 
     @Test
-    public void conflictingExplicitSourceSeasonsStayAmbiguous() {
-        TmdbSeasonResolver.Resolution result = resolve(-1, null, List.of(1, 2), -1,
-                List.of(1, 2), Map.of(1, 10, 2, 8), 18);
+    public void explicitEpisodesAcrossCompleteSeasonsResolveMultiSlice() {
+        TmdbSeasonResolver.Resolution result = TmdbSeasonResolver.resolve(
+                -1, null, List.of(2, 1), -1,
+                List.of(1, 2), Map.of(1, 3, 2, 2), 5,
+                List.of(1, 2, 3, 1, 2),
+                List.of(1, 1, 1, 2, 2));
+
+        assertEquals(TmdbSeasonResolver.Status.MULTI_SLICE, result.getStatus());
+        assertEquals(TmdbSeasonResolver.Source.EXPLICIT_MULTI, result.getSource());
+        assertEquals(List.of(1, 2), result.getAvailableSeasons());
+        assertEquals(List.of(
+                new TmdbSeasonSegment(1, 0, 2, 1),
+                new TmdbSeasonSegment(2, 3, 4, 1)), result.getSegments());
+    }
+
+    @Test
+    public void reverseExplicitEpisodeSeasonRunsStayAmbiguous() {
+        TmdbSeasonResolver.Resolution result = TmdbSeasonResolver.resolve(
+                -1, null, List.of(2, 1), -1,
+                List.of(1, 2), Map.of(1, 2, 2, 2), 4,
+                List.of(1, 2, 1, 2),
+                List.of(2, 2, 1, 1));
 
         assertEquals(TmdbSeasonResolver.Status.AMBIGUOUS, result.getStatus());
         assertEquals(TmdbSeasonResolver.Source.EXPLICIT_CONFLICT, result.getSource());
@@ -250,6 +271,64 @@ public class TmdbSeasonResolverTest {
     }
 
     @Test
+    public void persistedMultiSliceSegmentsSurviveLaterTmdbCountChanges() {
+        TmdbSeasonMatchCache.Entry binding = TmdbSeasonMatchCache.Entry.create(
+                100, "tv", null, TmdbSeasonMatchCache.Mode.MANUAL_MULTI_SLICE,
+                "fingerprint", 18, 0,
+                List.of(new TmdbSeasonSegment(1, 0, 9, 1),
+                        new TmdbSeasonSegment(2, 10, 17, 1)));
+
+        TmdbSeasonResolver.Resolution result = resolve(-1, binding, List.of(), -1,
+                List.of(1, 2), Map.of(1, 11, 2, 9), 18);
+
+        assertEquals(TmdbSeasonResolver.Status.MULTI_SLICE, result.getStatus());
+        assertEquals(List.of(1, 2), result.getAvailableSeasons());
+        assertEquals(TmdbSeasonResolver.Source.MANUAL_MULTI_SLICE, result.getSource());
+    }
+
+    @Test
+    public void persistedSegmentsRejectOutOfBoundsAndOverlap() {
+        TmdbSeasonMatchCache.Entry outOfBounds = TmdbSeasonMatchCache.Entry.create(
+                100, "tv", null, TmdbSeasonMatchCache.Mode.MANUAL_MULTI_SLICE,
+                "fingerprint", 4, 0,
+                List.of(new TmdbSeasonSegment(1, 0, 1, 1),
+                        new TmdbSeasonSegment(2, 2, 4, 1)));
+        TmdbSeasonMatchCache.Entry overlap = TmdbSeasonMatchCache.Entry.create(
+                100, "tv", null, TmdbSeasonMatchCache.Mode.MANUAL_MULTI_SLICE,
+                "fingerprint", 4, 0,
+                List.of(new TmdbSeasonSegment(1, 0, 2, 1),
+                        new TmdbSeasonSegment(2, 2, 3, 1)));
+
+        assertEquals(false, TmdbSeasonResolver.hasValidPersistedSegments(
+                outOfBounds, List.of(1, 2), Map.of(1, 2, 2, 2), 4));
+        assertEquals(false, TmdbSeasonResolver.hasValidPersistedSegments(
+                overlap, List.of(1, 2), Map.of(1, 3, 2, 2), 4));
+    }
+
+    @Test
+    public void flatSeasonSegmentsTruncatePartialLatestSeasonToSourceLength() {
+        List<TmdbSeasonSegment> segments = TmdbSeasonResolver.flatSeasonSegments(
+                java.util.stream.IntStream.rangeClosed(1, 15).boxed().toList(),
+                List.of(1, 2), Map.of(1, 10, 2, 10));
+
+        assertEquals(2, segments.size());
+        assertEquals(9, segments.get(0).getSourceEpisodeEndIndex());
+        assertEquals(10, segments.get(1).getSourceEpisodeStartIndex());
+        assertEquals(14, segments.get(1).getSourceEpisodeEndIndex());
+        assertEquals(true, TmdbSeasonResolver.hasValidPersistedSegments(
+                TmdbSeasonMatchCache.Entry.create(100, "tv", null,
+                        TmdbSeasonMatchCache.Mode.MANUAL_MULTI_SLICE,
+                        "fingerprint", 15, 0, segments),
+                List.of(1, 2), Map.of(1, 10, 2, 10), 15));
+    }
+
+    @Test
+    public void flatSeasonSegmentsDoNotPretendIrregularKeysAreContiguous() {
+        assertEquals(List.of(), TmdbSeasonResolver.flatSeasonSegments(
+                List.of(1, 2, 4, 3), List.of(1, 2), Map.of(1, 2, 2, 2)));
+    }
+
+    @Test
     public void manualMultiSliceUsesExtractedEpisodeNumbersAsKeys() {
         TmdbSeasonResolver.Resolution result = TmdbSeasonResolver.resolve(
                 -1, multiSliceBinding(), List.of(), 6,
@@ -269,6 +348,27 @@ public class TmdbSeasonResolverTest {
         assertEquals(TmdbSeasonResolver.Status.AMBIGUOUS, result.getStatus());
         assertEquals(TmdbSeasonResolver.Source.MANUAL_MULTI_SLICE, result.getSource());
     }
+    @Test
+    public void multiSliceConvertsToCoveredSeasonScope() {
+        TmdbSeasonResolver.Resolution result = TmdbSeasonResolver.resolve(
+                -1, null, List.of(), -1,
+                List.of(1, 2), Map.of(1, 2, 2, 2), 4);
+
+        TmdbSeasonScope scope = result.toScope();
+
+        assertEquals(TmdbSeasonScope.Kind.MULTI, scope.getKind());
+        assertEquals(List.of(1, 2), scope.getSeasons());
+    }
+
+    @Test
+    public void ambiguousResolutionConvertsToUnknownScope() {
+        TmdbSeasonResolver.Resolution result = TmdbSeasonResolver.resolve(
+                -1, null, List.of(), -1,
+                List.of(1, 2), Map.of(1, 2, 2, 2), 3);
+
+        assertEquals(TmdbSeasonScope.Kind.UNKNOWN, result.toScope().getKind());
+    }
+
     private static TmdbSeasonResolver.Resolution resolve(
             int requestSeason,
             TmdbSeasonMatchCache.Entry manual,
