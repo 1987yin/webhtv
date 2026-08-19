@@ -1630,8 +1630,6 @@
 
     <string name="setting_tmdb_source">TMDB 數據配置</string>
     <string name="setting_ai_recommendation">AI 通用配置</string>
-    <string name="setting_tmdb_model">TMDB 交互模型</string>
-    <string name="setting_tmdb_model_native">原生增強</string>
     <string name="setting_tmdb_match_mode">TMDB 匹配模式</string>
     <string name="setting_detail_open_mode">詳情頁模式</string>
     <string name="setting_detail_open_original">原始詳情</string>
