@@ -2,9 +2,12 @@ package com.fongmi.android.tv.ui.fragment;
 
 import android.content.Intent;
 import android.net.Uri;
+import android.text.InputType;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -13,6 +16,9 @@ import androidx.annotation.Nullable;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.ad.audio.AdSkipPolicyController;
+import com.fongmi.android.tv.ad.audio.SpeechAdConfig;
+import com.fongmi.android.tv.ad.audio.SpeechAdSetting;
 import com.fongmi.android.tv.bean.AiConfig;
 import com.fongmi.android.tv.bean.AudioConfig;
 import com.fongmi.android.tv.bean.ShortDramaConfig;
@@ -20,12 +26,15 @@ import com.fongmi.android.tv.bean.TmdbConfig;
 import com.fongmi.android.tv.gitcloud.GitCloudAccountStore;
 import com.fongmi.android.tv.playback.ViewingRecordSyncStore;
 import com.fongmi.android.tv.remote.RemoteStore;
+import com.fongmi.android.tv.server.Server;
+import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.databinding.FragmentSettingEnhanceBinding;
 import com.fongmi.android.tv.setting.CustomCspSetting;
 import com.fongmi.android.tv.setting.ProxySetting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.setting.SiteNameStore;
+import com.fongmi.android.tv.subtitle.RealtimeSubtitleSpeechRecognitionFactory;
 import com.fongmi.android.tv.ui.activity.HomeActivity;
 import com.fongmi.android.tv.ui.base.BaseFragment;
 import com.fongmi.android.tv.ui.dialog.AdRuleManageDialog;
@@ -106,6 +115,10 @@ public class SettingEnhanceFragment extends BaseFragment {
         mBinding.aiRecommendation.setOnClickListener(this::setAiRecommendation);
         mBinding.aiAdDetection.setOnClickListener(this::setAiAdDetection);
         mBinding.adRuleManage.setOnClickListener(view -> AdRuleManageDialog.create().show(requireActivity(), this::setText));
+        mBinding.speechAdEnabled.setOnClickListener(this::toggleSpeechAdEnabled);
+        mBinding.speechAdKeywords.setOnClickListener(this::editSpeechAdKeywords);
+        mBinding.speechAdSkipSeconds.setOnClickListener(this::editSpeechAdSkipSeconds);
+        mBinding.speechAdSkipMode.setOnClickListener(this::selectSpeechAdSkipMode);
         mBinding.detailInteractionMode.setOnClickListener(this::setDetailOpenMode);
         mBinding.detailThemeMode.setOnClickListener(this::setDetailThemeMode);
         mBinding.debugLog.setOnClickListener(this::setDebugLog);
@@ -155,6 +168,10 @@ public class SettingEnhanceFragment extends BaseFragment {
                 mBinding.shortDramaSource,
                 mBinding.tmdbSource,
                 mBinding.aiRecommendation,
+                mBinding.speechAdEnabled,
+                mBinding.speechAdKeywords,
+                mBinding.speechAdSkipSeconds,
+                mBinding.speechAdSkipMode,
                 mBinding.tmdbModel,
                 mBinding.detailInteractionMode,
                 mBinding.detailThemeMode,
@@ -182,6 +199,23 @@ public class SettingEnhanceFragment extends BaseFragment {
         safeSet("adRuleManage", mBinding.adRuleManageText, () -> getString(R.string.ad_rule_count_with_pending,
                 com.fongmi.android.tv.api.config.UserAdRuleStore.load().size() + com.fongmi.android.tv.api.config.RuleConfig.get().getDefaultRules().size(),
                 com.fongmi.android.tv.api.config.ImportedAdRuleCandidateStore.pending().size()));
+        safeRun("speechAd", () -> {
+            SpeechAdConfig speech = SpeechAdSetting.snapshot();
+            String enabled = getSwitch(speech.enabled());
+            if (speech.enabled() && !RealtimeSubtitleSpeechRecognitionFactory.isSelectedModelReady()) {
+                enabled += " · " + getString(R.string.speech_ad_model_unavailable);
+            }
+            mBinding.speechAdEnabledText.setText(enabled);
+            mBinding.speechAdKeywordsText.setText(getString(R.string.speech_ad_keyword_count, speech.keywords().values().size()));
+            mBinding.speechAdSkipSecondsText.setText(getString(R.string.speech_ad_skip_seconds_value, speech.skipSeconds()));
+            mBinding.speechAdSkipModeText.setText(speech.mode() == AdSkipPolicyController.Mode.AUTO
+                    ? R.string.speech_ad_skip_mode_auto : R.string.speech_ad_skip_mode_prompt);
+        }, () -> {
+            setError(mBinding.speechAdEnabledText);
+            setError(mBinding.speechAdKeywordsText);
+            setError(mBinding.speechAdSkipSecondsText);
+            setError(mBinding.speechAdSkipModeText);
+        });
         safeSet("detailInteractionMode", mBinding.detailInteractionModeText, this::getDetailOpenModeText);
         safeRun("detailThemeModeVisibility", () -> mBinding.detailThemeMode.setVisibility(Setting.isTmdbMode(Setting.getDetailOpenMode()) ? View.VISIBLE : View.GONE), null);
         safeSet("detailThemeMode", mBinding.detailThemeModeText, this::getDetailThemeModeText);
@@ -258,6 +292,85 @@ public class SettingEnhanceFragment extends BaseFragment {
 
     private interface TextSupplier {
         CharSequence get();
+    }
+
+    private void toggleSpeechAdEnabled(View view) {
+        SpeechAdSetting.setEnabled(!SpeechAdSetting.snapshot().enabled());
+        notifyAdAudioRuntime();
+        setText();
+    }
+
+    private void editSpeechAdKeywords(View view) {
+        SpeechAdConfig speech = SpeechAdSetting.snapshot();
+        EditText input = new EditText(requireContext());
+        input.setSingleLine(false);
+        input.setMinLines(3);
+        input.setGravity(Gravity.TOP);
+        input.setText(String.join(",", speech.keywords().values()));
+        input.setSelection(input.length());
+        AlertDialog alert = new MaterialAlertDialogBuilder(requireActivity(), R.style.Theme_WebHTV_LightDialog)
+                .setTitle(R.string.setting_speech_ad_keywords)
+                .setView(input)
+                .setNegativeButton(R.string.dialog_negative, null)
+                .setPositiveButton(R.string.dialog_positive, null)
+                .create();
+        alert.setOnShowListener(dialog -> alert.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            SpeechAdSetting.setKeywords(input.getText().toString());
+            notifyAdAudioRuntime();
+            setText();
+            alert.dismiss();
+        }));
+        alert.show();
+    }
+
+    private void editSpeechAdSkipSeconds(View view) {
+        SpeechAdConfig speech = SpeechAdSetting.snapshot();
+        EditText input = new EditText(requireContext());
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setText(String.valueOf(speech.skipSeconds()));
+        input.setSelectAllOnFocus(true);
+        AlertDialog alert = new MaterialAlertDialogBuilder(requireActivity(), R.style.Theme_WebHTV_LightDialog)
+                .setTitle(R.string.setting_speech_ad_skip_seconds)
+                .setView(input)
+                .setNegativeButton(R.string.dialog_negative, null)
+                .setPositiveButton(R.string.dialog_positive, null)
+                .create();
+        alert.setOnShowListener(dialog -> alert.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            final int value;
+            try {
+                value = Integer.parseInt(input.getText().toString().trim());
+            } catch (RuntimeException e) {
+                input.setError(getString(R.string.speech_ad_skip_seconds_invalid));
+                input.requestFocus();
+                return;
+            }
+            int normalized = SpeechAdConfig.create(false, "", value, AdSkipPolicyController.Mode.PROMPT.name()).skipSeconds();
+            if (normalized != value) {
+                input.setError(getString(R.string.speech_ad_skip_seconds_invalid));
+                input.requestFocus();
+                return;
+            }
+            SpeechAdSetting.setSkipSeconds(value);
+            notifyAdAudioRuntime();
+            setText();
+            alert.dismiss();
+        }));
+        alert.show();
+    }
+
+    private void selectSpeechAdSkipMode(View view) {
+        SpeechAdConfig speech = SpeechAdSetting.snapshot();
+        String[] modes = {getString(R.string.speech_ad_skip_mode_prompt), getString(R.string.speech_ad_skip_mode_auto)};
+        int checked = speech.mode() == AdSkipPolicyController.Mode.AUTO ? 1 : 0;
+        new MaterialAlertDialogBuilder(requireActivity(), R.style.Theme_WebHTV_LightDialog)
+                .setTitle(R.string.setting_speech_ad_skip_mode)
+                .setNegativeButton(R.string.dialog_negative, null)
+                .setSingleChoiceItems(modes, checked, (dialog, which) -> {
+                    SpeechAdSetting.setMode(which == 1 ? AdSkipPolicyController.Mode.AUTO : AdSkipPolicyController.Mode.PROMPT);
+                    notifyAdAudioRuntime();
+                    setText();
+                    dialog.dismiss();
+                }).show();
     }
 
     private void setDriveCheck(View view) {
@@ -411,6 +524,12 @@ public class SettingEnhanceFragment extends BaseFragment {
         WebHomeExtensionRegistry.get().clear();
         Notify.show(R.string.web_home_extension_clear_done);
         return true;
+    }
+
+    private void notifyAdAudioRuntime() {
+        PlaybackService service = Server.get().getService();
+        if (service == null || service.player() == null || service.player().isReleased()) return;
+        service.player().reloadAdAudioSettings();
     }
 
     private void openRepo(String url) {
