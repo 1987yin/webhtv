@@ -2441,4 +2441,15 @@
     <string name="setting_ad_audio_imported">已匯入 %1$d 條規則 · %2$s</string>
     <string name="setting_ad_audio_import_failed">規則匯入失敗，已保留原規則。</string>
     <string name="setting_ad_audio_clear_done">已清除音訊指紋規則</string>
-</resources>
+    <string name="speech_ad_enabled">語音廣告識別</string>
+    <string name="speech_ad_keywords">廣告關鍵詞</string>
+    <string name="speech_ad_keyword_count">%1 個關鍵詞</string>
+    <string name="speech_ad_skip_seconds">跳過時長</string>
+    <string name="speech_ad_skip_seconds_value">%1 秒</string>
+    <string name="speech_ad_skip_mode">跳過模式</string>
+    <string name="speech_ad_skip_mode_prompt">彈窗確認後跳過</string>
+    <string name="speech_ad_skip_mode_auto">自動跳過</string>
+    <string name="speech_ad_skip_seconds_invalid">請輸入 1 到 120 之間的整數。</string>
+    <string name="speech_ad_model_not_ready">模型未就緒</string>
+    <string name="ad_audio_speech_candidate_title">偵測到語音廣告</string>
+    <string name="ad_audio_speech_candidate_message">命中廣告關鍵詞，跳過約 %1 秒？</string></resources>

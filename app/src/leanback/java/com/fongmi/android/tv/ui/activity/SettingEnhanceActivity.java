@@ -4,8 +4,11 @@ import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.InputType;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -17,6 +20,10 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.ad.audio.AdAudioRuleStore;
 import com.fongmi.android.tv.ad.audio.AdAudioRuleSnapshot;
 import com.fongmi.android.tv.ad.audio.AdAudioSetting;
+import com.fongmi.android.tv.ad.audio.AdSkipPolicyController;
+import com.fongmi.android.tv.ad.audio.SpeechAdConfig;
+import com.fongmi.android.tv.ad.audio.SpeechAdSetting;
+import com.fongmi.android.tv.subtitle.RealtimeSubtitleSpeechRecognitionFactory;
 import com.fongmi.android.tv.bean.AiConfig;
 import com.fongmi.android.tv.bean.AudioConfig;
 import com.fongmi.android.tv.bean.ShortDramaConfig;
@@ -110,6 +117,10 @@ public class SettingEnhanceActivity extends BaseActivity {
         mBinding.aiRecommendation.setOnClickListener(this::setAiRecommendation);
         mBinding.aiAdDetection.setOnClickListener(this::setAiAdDetection);
         mBinding.adRuleManage.setOnClickListener(view -> AdRuleManageDialog.create().show(this, this::setText));
+        mBinding.speechAdEnabled.setOnClickListener(this::toggleSpeechAdEnabled);
+        mBinding.speechAdKeywords.setOnClickListener(this::editSpeechAdKeywords);
+        mBinding.speechAdSkipSeconds.setOnClickListener(this::editSpeechAdSkipSeconds);
+        mBinding.speechAdSkipMode.setOnClickListener(this::selectSpeechAdSkipMode);
         mBinding.adAudioFingerprint.setOnClickListener(this::toggleAdAudioFingerprint);
         mBinding.adAudioFingerprint.setOnLongClickListener(this::manageAdAudioRules);
         mBinding.detailInteractionMode.setOnClickListener(this::setDetailOpenMode);
@@ -163,6 +174,10 @@ public class SettingEnhanceActivity extends BaseActivity {
                 mBinding.aiRecommendation,
                 mBinding.aiAdDetection,
                 mBinding.adRuleManage,
+                mBinding.speechAdEnabled,
+                mBinding.speechAdKeywords,
+                mBinding.speechAdSkipSeconds,
+                mBinding.speechAdSkipMode,
                 mBinding.adAudioFingerprint,
                 mBinding.tmdbModel,
                 mBinding.detailInteractionMode,
@@ -191,6 +206,12 @@ public class SettingEnhanceActivity extends BaseActivity {
         safeSet("adRuleManage", mBinding.adRuleManageText, () -> getString(R.string.ad_rule_count_with_pending,
                 com.fongmi.android.tv.api.config.UserAdRuleStore.load().size() + com.fongmi.android.tv.api.config.RuleConfig.get().getDefaultRules().size(),
                 com.fongmi.android.tv.api.config.ImportedAdRuleCandidateStore.pending().size()));
+        SpeechAdConfig speech = SpeechAdSetting.snapshot();
+        safeSet("speechAdEnabled", mBinding.speechAdEnabledText, () -> getSpeechAdEnabledText(speech));
+        safeSet("speechAdKeywords", mBinding.speechAdKeywordsText, () -> getString(R.string.speech_ad_keyword_count, speech.keywords().values().size()));
+        safeSet("speechAdSkipSeconds", mBinding.speechAdSkipSecondsText, () -> getString(R.string.speech_ad_skip_seconds_value, speech.skipSeconds()));
+        safeSet("speechAdSkipMode", mBinding.speechAdSkipModeText, () -> speech.mode() == AdSkipPolicyController.Mode.AUTO
+                ? getString(R.string.speech_ad_skip_mode_auto) : getString(R.string.speech_ad_skip_mode_prompt));
         safeSet("adAudioFingerprint", mBinding.adAudioFingerprintText, this::getAdAudioFingerprintText);
         safeSet("detailInteractionMode", mBinding.detailInteractionModeText, this::getDetailOpenModeText);
         safeRun("detailThemeModeVisibility", () -> mBinding.detailThemeMode.setVisibility(Setting.isTmdbMode(Setting.getDetailOpenMode()) ? View.VISIBLE : View.GONE), null);
@@ -409,6 +430,97 @@ public class SettingEnhanceActivity extends BaseActivity {
         return true;
     }
 
+    private String getSpeechAdEnabledText(SpeechAdConfig speech) {
+        String text = getSwitch(speech.enabled());
+        if (speech.enabled() && !RealtimeSubtitleSpeechRecognitionFactory.isSelectedModelReady()) {
+            text += " · " + getString(R.string.speech_ad_model_not_ready);
+        }
+        return text;
+    }
+
+    private void toggleSpeechAdEnabled(View view) {
+        SpeechAdSetting.setEnabled(!SpeechAdSetting.snapshot().enabled());
+        notifyAdAudioRuntime();
+        setText();
+    }
+
+    private void editSpeechAdKeywords(View view) {
+        SpeechAdConfig speech = SpeechAdSetting.snapshot();
+        EditText input = new EditText(this);
+        input.setGravity(Gravity.TOP | Gravity.START);
+        input.setMinLines(4);
+        input.setMaxLines(8);
+        input.setSingleLine(false);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        input.setText(String.join("\n", speech.keywords().values()));
+        input.setSelectAllOnFocus(false);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this, R.style.Theme_WebHTV_LightDialog)
+                .setTitle(R.string.speech_ad_keywords)
+                .setView(input)
+                .setNegativeButton(R.string.dialog_negative, null)
+                .setPositiveButton(R.string.dialog_positive, null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
+            SpeechAdSetting.setKeywords(input.getText().toString());
+            notifyAdAudioRuntime();
+            setText();
+            dialog.dismiss();
+        }));
+        dialog.show();
+        LightDialog.apply(dialog);
+    }
+
+    private void editSpeechAdSkipSeconds(View view) {
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setSelectAllOnFocus(true);
+        input.setText(String.valueOf(SpeechAdSetting.snapshot().skipSeconds()));
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this, R.style.Theme_WebHTV_LightDialog)
+                .setTitle(R.string.speech_ad_skip_seconds)
+                .setView(input)
+                .setNegativeButton(R.string.dialog_negative, null)
+                .setPositiveButton(R.string.dialog_positive, null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
+            String value = input.getText().toString().trim();
+            try {
+                int seconds = Integer.parseInt(value);
+                if (seconds < 1 || seconds > 120) throw new NumberFormatException();
+                SpeechAdSetting.setSkipSeconds(seconds);
+                notifyAdAudioRuntime();
+                setText();
+                dialog.dismiss();
+            } catch (NumberFormatException error) {
+                input.setError(getString(R.string.speech_ad_skip_seconds_invalid));
+                input.requestFocus();
+            }
+        }));
+        dialog.show();
+        LightDialog.apply(dialog);
+    }
+
+    private void selectSpeechAdSkipMode(View view) {
+        SpeechAdConfig speech = SpeechAdSetting.snapshot();
+        String[] modes = {
+                getString(R.string.speech_ad_skip_mode_prompt),
+                getString(R.string.speech_ad_skip_mode_auto)
+        };
+        int checked = speech.mode() == AdSkipPolicyController.Mode.AUTO ? 1 : 0;
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this, R.style.Theme_WebHTV_LightDialog)
+                .setTitle(R.string.speech_ad_skip_mode)
+                .setNegativeButton(R.string.dialog_negative, null)
+                .setSingleChoiceItems(modes, checked, (shown, which) -> {
+                    SpeechAdSetting.setMode(which == 1
+                            ? AdSkipPolicyController.Mode.AUTO
+                            : AdSkipPolicyController.Mode.PROMPT);
+                    notifyAdAudioRuntime();
+                    setText();
+                    shown.dismiss();
+                })
+                .create();
+        dialog.show();
+        LightDialog.apply(dialog);
+    }
     private String getAdAudioFingerprintText() {
         String enabled = getSwitch(AdAudioSetting.isEnabled());
         AdAudioRuleSnapshot snapshot = adAudioSnapshot;
@@ -489,7 +601,7 @@ public class SettingEnhanceActivity extends BaseActivity {
     private void notifyAdAudioRuntime() {
         PlaybackService service = Server.get().getService();
         if (service == null || service.player() == null || service.player().isReleased()) return;
-        service.player().reloadAdAudioRules();
+        service.player().reloadAdAudioSettings();
     }
 
     private boolean clearWebHomeExtension(View view) {

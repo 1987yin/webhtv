@@ -2470,4 +2470,15 @@
     <string name="setting_ad_audio_imported">已导入 %1$d 条规则 · %2$s</string>
     <string name="setting_ad_audio_import_failed">规则导入失败，已保留原规则。</string>
     <string name="setting_ad_audio_clear_done">已清除音频指纹规则</string>
-</resources>
+    <string name="speech_ad_enabled">语音广告识别</string>
+    <string name="speech_ad_keywords">广告关键词</string>
+    <string name="speech_ad_keyword_count">%1 个关键词</string>
+    <string name="speech_ad_skip_seconds">跳过时长</string>
+    <string name="speech_ad_skip_seconds_value">%1 秒</string>
+    <string name="speech_ad_skip_mode">跳过模式</string>
+    <string name="speech_ad_skip_mode_prompt">弹窗确认后跳过</string>
+    <string name="speech_ad_skip_mode_auto">自动跳过</string>
+    <string name="speech_ad_skip_seconds_invalid">请输入 1 到 120 之间的整数。</string>
+    <string name="speech_ad_model_not_ready">模型未就绪</string>
+    <string name="ad_audio_speech_candidate_title">检测到语音广告</string>
+    <string name="ad_audio_speech_candidate_message">命中广告关键词，跳过约 %1 秒？</string></resources>
