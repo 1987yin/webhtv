@@ -22,11 +22,12 @@ TMDB 与 AI 仍然保持两个独立设置页。两者都是能力配置，但�
 | detailInteractionMode | TMDB | 详情页模式虽然包含直连选项，但其余模式均为 TMDB 详情模式，且会直接控制 tmdb_enabled 与 TMDB Key 配置；属于 TMDB 的核心开关，不应留在增强页。 |
 | detailThemeMode | TMDB | 详情页主体/样式只服务于 TMDB 详情页展示，和 TMDB 详情模式绑定；与通用主题不是同一层概念。 |
 | tmdbMatchMode | TMDB | 控制媒体与 TMDB 条目的匹配方式，纯 TMDB 数据语义。 |
-| tmdbModel | TMDB | 当前是 TMDB 原生模型/实现选择，后续若扩展 TMDB 数据模型也仍属于此页。 |
 | tmdbEpisodeFileSize | TMDB | 按 TMDB 识别的剧集文件大小处理规则，只有 TMDB 识别链路才会使用。 |
 | historyAggregation | TMDB | 该开关按 TMDB 条目聚合观看历史，并且只有 TMDB 配置 ready 时生效；移动到 TMDB 页最准确。 |
 
 **关于详情页模式和主体**：是的，这两项都应放在 TMDB 页。详情页模式是 TMDB 能力的入口，详情页主体/样式是 TMDB 详情页的表现层配置；直连只是同一个模式选择器里的非 TMDB 分支，不足以改变整体归属。
+
+**关于 TMDB 交互模型**：当前实现只有一个固定的原生模型，且没有可选项或交互行为。`tmdb_model` 配置键保留用于历史备份兼容和未来扩展，但不应作为用户可见设置展示。
 
 ### AI 设置页
 
@@ -102,7 +103,7 @@ TMDB 与 AI 仍然保持两个独立设置页。两者都是能力配置，但�
 ## 最终页面结构
 
 - 设置首页：TMDB、AI、增强、个性化、字幕，以及播放器/弹幕等现有独立入口。
-- TMDB：TMDB 配置 + 详情页模式/主体 + 匹配/模型 + TMDB 剧集文件大小 + TMDB 历史聚合。
+- TMDB：TMDB 配置 + 详情页模式/主体 + 匹配 + TMDB 剧集文件大小 + TMDB 历史聚合。
 - AI：推荐、反馈、AI 广告检测、实时字幕模型及 AI 字幕参数。
 - 增强：通用增强能力 + 广告规则管理 + 音频指纹规则。
 - 个性化：首页、搜索、播放历史和用户体验偏好。
