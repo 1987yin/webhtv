@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ad.audio;
 
 import com.fongmi.android.tv.player.audio.PlaybackMediaClock;
 import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
+import com.fongmi.android.tv.subtitle.SpeechRecognitionFactory;
 
 import java.util.HashSet;
 import java.util.Map;
@@ -43,6 +44,7 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     private final Runnable workerShutdown;
     private final ProbeProviderFactory probeProviderFactory;
     private final SpeechProviderFactory speechProviderFactory;
+    private final SpeechRecognitionFactory recognitionFactory;
     private final AdAudioDiagnostics diagnostics = new AdAudioDiagnostics();
 
     private AdAudioRuleSnapshot snapshot = new AdAudioRuleSnapshot(
@@ -64,13 +66,28 @@ public final class AdAudioRuntimeController implements AutoCloseable {
         this(hub, clock, ruleSource, playback, createWorker());
     }
 
+    public AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
+                                    AdAudioRuleSource ruleSource, PlaybackPort playback,
+                                    SpeechRecognitionFactory recognitionFactory) {
+        this(hub, clock, ruleSource, playback, createWorker(), recognitionFactory);
+    }
+
+    private AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
+                                     AdAudioRuleSource ruleSource, PlaybackPort playback,
+                                     Worker worker,
+                                     SpeechRecognitionFactory recognitionFactory) {
+        this(hub, clock, ruleSource, playback, worker.executor,
+                worker.executor::shutdownNow,
+                ignored -> new NoopAdAudioSignalProvider("probe"),
+                null, Objects.requireNonNull(recognitionFactory, "recognitionFactory"));
+    }
     private AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
                                      AdAudioRuleSource ruleSource, PlaybackPort playback,
                                      Worker worker) {
         this(hub, clock, ruleSource, playback, worker.executor,
                 worker.executor::shutdownNow,
                 ignored -> new NoopAdAudioSignalProvider("probe"),
-                () -> new NoopAdAudioSignalProvider(SpeechAdSignalProvider.ID));
+                () -> new NoopAdAudioSignalProvider(SpeechAdSignalProvider.ID), null);
     }
 
     AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
@@ -78,7 +95,7 @@ public final class AdAudioRuntimeController implements AutoCloseable {
                              Executor worker, Runnable workerShutdown) {
         this(hub, clock, ruleSource, playback, worker, workerShutdown,
                 ignored -> new NoopAdAudioSignalProvider("probe"),
-                () -> new NoopAdAudioSignalProvider(SpeechAdSignalProvider.ID));
+                () -> new NoopAdAudioSignalProvider(SpeechAdSignalProvider.ID), null);
     }
 
     AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
@@ -87,7 +104,7 @@ public final class AdAudioRuntimeController implements AutoCloseable {
                              ProbeProviderFactory probeProviderFactory) {
         this(hub, clock, ruleSource, playback, worker, workerShutdown,
                 probeProviderFactory,
-                () -> new NoopAdAudioSignalProvider(SpeechAdSignalProvider.ID));
+                () -> new NoopAdAudioSignalProvider(SpeechAdSignalProvider.ID), null);
     }
 
     AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
@@ -95,6 +112,16 @@ public final class AdAudioRuntimeController implements AutoCloseable {
                              Executor worker, Runnable workerShutdown,
                              ProbeProviderFactory probeProviderFactory,
                              SpeechProviderFactory speechProviderFactory) {
+        this(hub, clock, ruleSource, playback, worker, workerShutdown,
+                probeProviderFactory, speechProviderFactory, null);
+    }
+
+    private AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
+                                     AdAudioRuleSource ruleSource, PlaybackPort playback,
+                                     Executor worker, Runnable workerShutdown,
+                                     ProbeProviderFactory probeProviderFactory,
+                                     SpeechProviderFactory speechProviderFactory,
+                                     SpeechRecognitionFactory recognitionFactory) {
         this.hub = Objects.requireNonNull(hub, "hub");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.ruleSource = Objects.requireNonNull(ruleSource, "ruleSource");
@@ -103,8 +130,11 @@ public final class AdAudioRuntimeController implements AutoCloseable {
         this.workerShutdown = workerShutdown;
         this.probeProviderFactory = Objects.requireNonNull(
                 probeProviderFactory, "probeProviderFactory");
-        this.speechProviderFactory = Objects.requireNonNull(
-                speechProviderFactory, "speechProviderFactory");
+        if (speechProviderFactory == null && recognitionFactory == null) {
+            throw new NullPointerException("speech provider source");
+        }
+        this.speechProviderFactory = speechProviderFactory;
+        this.recognitionFactory = recognitionFactory;
     }
 
     public synchronized void start(boolean enabled) {
@@ -347,7 +377,7 @@ public final class AdAudioRuntimeController implements AutoCloseable {
             closeProvider(nextProbe);
             if (probeProvider == nextProbe) probeProvider = null;
         }
-        if (nextSpeech != null && !isRunning(nextSpeech)) {
+        if (nextSpeech != null && !isReadyForHostPosition(nextSpeech)) {
             closeProvider(nextSpeech);
             if (speechProvider == nextSpeech) speechProvider = null;
         }
@@ -426,6 +456,11 @@ public final class AdAudioRuntimeController implements AutoCloseable {
 
     private AdAudioSignalProvider createSpeechProviderLocked() {
         try {
+            if (recognitionFactory != null) {
+                return new SpeechAdSignalProvider(
+                        hub, recognitionFactory, () -> speechConfig,
+                        worker, diagnostics);
+            }
             AdAudioSignalProvider provider = speechProviderFactory.create();
             return provider == null
                     ? new NoopAdAudioSignalProvider(SpeechAdSignalProvider.ID)
@@ -447,6 +482,12 @@ public final class AdAudioRuntimeController implements AutoCloseable {
         target.setMode(skipMode);
         target.setModeResolver(providerId -> SpeechAdSignalProvider.ID.equals(providerId)
                 ? speechConfig.mode() : skipMode);
+    }
+    private static boolean isReadyForHostPosition(AdAudioSignalProvider provider) {
+        if (provider == null) return false;
+        AdAudioSignalProvider.ProviderState state = provider.state();
+        return state == AdAudioSignalProvider.ProviderState.IDLE
+                || state == AdAudioSignalProvider.ProviderState.RUNNING;
     }
     private static boolean isRunning(AdAudioSignalProvider provider) {
         return provider != null

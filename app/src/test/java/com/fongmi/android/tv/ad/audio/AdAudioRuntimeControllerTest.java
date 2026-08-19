@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.fongmi.android.tv.player.audio.PlaybackMediaClock;
 import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
+import com.fongmi.android.tv.subtitle.SpeechRecognitionFactory;
 
 import org.junit.Test;
 
@@ -346,6 +347,33 @@ public class AdAudioRuntimeControllerTest {
                 speeches.get(0).state());
         runtime.close();
     }
+    @Test
+    public void replacingSpeechConfigClosesProductionSessionAndDropsOldCallbacks() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSpeechRecognitionFactory recognition = new FakeSpeechRecognitionFactory();
+        AdAudioRuntimeController runtime = new AdAudioRuntimeController(
+                hub, new PlaybackMediaClock(500L),
+                AdAudioRuntimeControllerTest::emptySnapshot, playback, recognition);
+        FakeUiPort ui = new FakeUiPort();
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "\u8d4c\u573a", 15, "PROMPT"));
+        runtime.start(false);
+        runtime.bindUi(ui);
+        FakeSpeechSession first = recognition.sessions.get(0);
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "\u9996\u5145", 30, "AUTO"));
+
+        assertEquals(1, first.closeCalls);
+        assertEquals(2, recognition.sessions.size());
+        first.listener.onResult("\u8d4c\u573a", 1L, 2L, 1);
+        assertTrue(playback.seekTargets.isEmpty());
+        assertEquals(0, ui.candidateShows);
+        runtime.close();
+    }
     private static AdAudioRuntimeController runtime(
             PlaybackMediaSignalHub hub, FakePlaybackPort playback, AdAudioRuleSnapshot snapshot) {
         return new AdAudioRuntimeController(
@@ -520,6 +548,46 @@ public class AdAudioRuntimeControllerTest {
         }
     }
 
+    private static final class FakeSpeechRecognitionFactory
+            implements SpeechRecognitionFactory {
+        private final List<FakeSpeechSession> sessions = new ArrayList<>();
+
+        @Override
+        public boolean isReady() {
+            return true;
+        }
+
+        @Override
+        public Session create(Listener listener) {
+            FakeSpeechSession session = new FakeSpeechSession(listener);
+            sessions.add(session);
+            return session;
+        }
+    }
+
+    private static final class FakeSpeechSession
+            implements SpeechRecognitionFactory.Session {
+        private final SpeechRecognitionFactory.Listener listener;
+        private int closeCalls;
+
+        private FakeSpeechSession(SpeechRecognitionFactory.Listener listener) {
+            this.listener = listener;
+        }
+
+        @Override
+        public void accept(float[] samples, long startUs, long endUs,
+                           int timelineToken) {
+        }
+
+        @Override
+        public void reset() {
+        }
+
+        @Override
+        public void close() {
+            closeCalls++;
+        }
+    }
     private static final class FakeSignalProvider implements AdAudioSignalProvider {
         private final String id;
         private Listener listener;

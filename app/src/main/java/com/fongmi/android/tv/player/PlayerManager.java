@@ -39,6 +39,7 @@ import com.fongmi.android.tv.ad.audio.AdAudioRuleStore;
 import com.fongmi.android.tv.ad.audio.AdAudioDiagnostics;
 import com.fongmi.android.tv.ad.audio.AdAudioRuntimeController;
 import com.fongmi.android.tv.ad.audio.AdAudioSetting;
+import com.fongmi.android.tv.ad.audio.SpeechAdSetting;
 import com.fongmi.android.tv.ad.audio.AdSkipCoordinator;
 import com.fongmi.android.tv.ad.audio.AdSkipPolicyController;
 import com.fongmi.android.tv.bean.Danmaku;
@@ -119,6 +120,7 @@ import com.fongmi.android.tv.setting.PlaybackPerformanceSetting;
 import com.fongmi.android.tv.setting.PlaybackProfileAbSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.subtitle.RealtimeSubtitleController;
+import com.fongmi.android.tv.subtitle.RealtimeSubtitleSpeechRecognitionFactory;
 import com.fongmi.android.tv.utils.LocalProxyDebug;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -365,9 +367,9 @@ public class PlayerManager implements ParseCallback {
         clearFfmpegModeFallbackState();
         this.adAudioRuntime = new AdAudioRuntimeController(
                 mediaSignals, mediaClock, AdAudioRuleStore.get()::load,
-                new AdAudioPlaybackPort());
-        syncAdAudioSkipMode();
-        this.adAudioRuntime.start(AdAudioSetting.isEnabled());
+                new AdAudioPlaybackPort(),
+                new RealtimeSubtitleSpeechRecognitionFactory());
+        configureAdAudioRuntime();
         mediaSession.begin(0L);
         this.engine = buildEngine(playerType, PlayerEngine.HARD);
         this.player = engine.getPlayer();
@@ -674,8 +676,7 @@ public class PlayerManager implements ParseCallback {
 
     public void bindAdAudioUi(AdSkipCoordinator.UiPort ui) {
         if (isReleased()) return;
-        syncAdAudioSkipMode();
-        adAudioRuntime.start(AdAudioSetting.isEnabled());
+        configureAdAudioRuntime();
         adAudioRuntime.bindUi(ui);
         refreshAdAudioRuntime();
     }
@@ -685,16 +686,19 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void reloadAdAudioRules() {
+        reloadAdAudioSettings();
+    }
+
+    public void reloadAdAudioSettings() {
         if (isReleased()) return;
-        syncAdAudioSkipMode();
-        adAudioRuntime.start(AdAudioSetting.isEnabled());
+        configureAdAudioRuntime();
         refreshAdAudioRuntime();
     }
 
     public void setAdAudioAutoSkipEnabled(boolean enabled) {
         if (isReleased()) return;
         AdAudioSetting.setAutoSkipEnabled(enabled);
-        syncAdAudioSkipMode();
+        reloadAdAudioSettings();
     }
 
     public boolean isAdAudioAutoSkipEnabled() {
@@ -705,10 +709,12 @@ public class PlayerManager implements ParseCallback {
         return adAudioRuntime.diagnostics();
     }
 
-    private void syncAdAudioSkipMode() {
+    private void configureAdAudioRuntime() {
         adAudioRuntime.setSkipMode(AdAudioSetting.isAutoSkipEnabled()
                 ? AdSkipPolicyController.Mode.AUTO
                 : AdSkipPolicyController.Mode.PROMPT);
+        adAudioRuntime.setSpeechConfig(SpeechAdSetting.snapshot());
+        adAudioRuntime.start(AdAudioSetting.isEnabled());
     }
 
     public long getBufferedDuration() {
