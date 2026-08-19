@@ -280,6 +280,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private final Set<Integer> refreshedSingleSeasonProbes = new HashSet<>();
     private final Set<String> brokenSources = new HashSet<>();
     private final List<String> detailTmdbPhotos = new ArrayList<>();
+    private final List<String> detailTmdbPosters = new ArrayList<>();
+    private final List<String> detailBackdropSlides = new ArrayList<>();
     private final List<String> tmdbEpisodePhotos = new ArrayList<>();
     private Map<Episode, Integer> episodeIndexCache = new IdentityHashMap<>();
     private List<Episode> episodeIndexSource;
@@ -326,6 +328,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private TmdbPersonAdapter castAdapter;
     private TmdbPersonAdapter creatorAdapter;
     private TmdbPhotoAdapter episodePhotoAdapter;
+    private TmdbPhotoAdapter posterAdapter;
     private TmdbRailAdapter relatedAdapter;
     private TmdbVideoAdapter relatedVideoAdapter;
     private TmdbRailAdapter personalTmdbAdapter;
@@ -665,6 +668,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         activeTmdbBundle = null;
         useParse = false;
         detailTmdbPhotos.clear();
+        detailTmdbPosters.clear();
+        detailBackdropSlides.clear();
         tmdbEpisodePhotos.clear();
         relatedVideoItems.clear();
         relatedVideoLoading = false;
@@ -777,6 +782,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         castAdapter = new TmdbPersonAdapter(this::loadPersonDetail);
         creatorAdapter = new TmdbPersonAdapter(this::loadPersonDetail);
         episodePhotoAdapter = new TmdbPhotoAdapter(this::showPhotoDialog);
+        posterAdapter = new TmdbPhotoAdapter((position, url) -> showPhotoDialog(position, url, detailTmdbPosters), true);
         relatedAdapter = new TmdbRailAdapter(this::openRelatedItem);
         relatedVideoAdapter = new TmdbVideoAdapter();
         relatedVideoAdapter.setOnItemClickListener(item -> TmdbVideoPlayback.play(this, item));
@@ -803,6 +809,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.episodePhotoList.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         binding.episodePhotoList.setNestedScrollingEnabled(false);
         binding.episodePhotoList.setAdapter(episodePhotoAdapter);
+        binding.posterList.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+        binding.posterList.setNestedScrollingEnabled(false);
+        binding.posterList.setAdapter(posterAdapter);
         binding.castList.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         binding.castList.setNestedScrollingEnabled(false);
         binding.castList.setAdapter(castAdapter);
@@ -1716,6 +1725,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             episodeAdapter.setTheme(lightTheme, colors.accent);
         }
         if (episodePhotoAdapter != null) episodePhotoAdapter.setLight(lightTheme);
+        if (posterAdapter != null) posterAdapter.setLight(lightTheme);
         setDetailAdaptersLight(lightTheme);
         if (isCinemaMode()) scheduleBackdropSlide(BACKDROP_SLIDE_DELAY_MS);
     }
@@ -1743,6 +1753,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 binding.flagTitle,
                 binding.episodeLabel,
                 binding.episodePhotoTitle,
+                binding.posterTitle,
                 binding.castTitle,
                 binding.creatorTitle,
                 binding.relatedTitle,
@@ -2526,7 +2537,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         detailTasks.submit(Task.recommendationExecutor(), () -> {
             List<TmdbPerson> cast = new ArrayList<>();
             List<TmdbPerson> creators = new ArrayList<>();
-            List<String> photos = new ArrayList<>();
+            List<String> backdrops = new ArrayList<>();
+            List<String> posters = new ArrayList<>();
+            List<String> backgroundSlides = new ArrayList<>();
             List<TmdbItem> related = new ArrayList<>();
             List<TmdbItem> personalTmdb = new ArrayList<>();
             List<TmdbItem> personalDouban = new ArrayList<>();
@@ -2540,7 +2553,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             } catch (Throwable ignored) {
             }
             try {
-                photos = tmdbService.photos(bundle.detail(), tmdbConfig, preferLandscapeBackground());
+                backdrops = tmdbService.backdrops(bundle.detail(), tmdbConfig);
+                posters = tmdbService.posters(bundle.detail(), tmdbConfig);
+                backgroundSlides = tmdbService.photos(bundle.detail(), tmdbConfig, preferLandscapeBackground());
             } catch (Throwable ignored) {
             }
             try {
@@ -2559,7 +2574,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             }
             List<TmdbPerson> finalCast = cast;
             List<TmdbPerson> finalCreators = creators;
-            List<String> finalPhotos = photos;
+            List<String> finalBackdrops = backdrops;
+            List<String> finalPosters = posters;
+            List<String> finalBackgroundSlides = backgroundSlides;
             List<TmdbItem> finalRelated = related;
             List<TmdbItem> finalPersonalTmdb = personalTmdb;
             List<TmdbItem> finalPersonalDouban = personalDouban;
@@ -2577,7 +2594,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 personalDoubanItems.clear();
                 personalDoubanItems.addAll(finalPersonalDouban);
                 detailTmdbPhotos.clear();
-                detailTmdbPhotos.addAll(finalPhotos);
+                detailTmdbPhotos.addAll(finalBackdrops);
+                detailTmdbPosters.clear();
+                detailTmdbPosters.addAll(finalPosters);
+                detailBackdropSlides.clear();
+                detailBackdropSlides.addAll(finalBackgroundSlides);
                 refreshBackdropSlideshow();
                 bindSeasonTmdbMedia(tmdbEpisodeDataSeason(selectedFlag == null ? null : selectedFlag.getEpisodes()));
                 bindTmdbSection();
@@ -2676,7 +2697,16 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         creatorItems.clear();
         if (bundle != null) creatorItems.addAll(bundle.creators());
         detailTmdbPhotos.clear();
-        if (bundle != null) detailTmdbPhotos.addAll(bundle.photos());
+        detailTmdbPosters.clear();
+        detailBackdropSlides.clear();
+        if (bundle != null && bundle.detail() != null) {
+            detailTmdbPhotos.addAll(tmdbService.backdrops(bundle.detail(), tmdbConfig));
+            detailTmdbPosters.addAll(tmdbService.posters(bundle.detail(), tmdbConfig));
+            detailBackdropSlides.addAll(bundle.photos());
+            if (detailBackdropSlides.isEmpty()) {
+                detailBackdropSlides.addAll(tmdbService.photos(bundle.detail(), tmdbConfig, preferLandscapeBackground()));
+            }
+        }
         tmdbEpisodePhotos.clear();
         tmdbEpisodePhotos.addAll(detailTmdbPhotos);
         relatedItems.clear();
@@ -3515,13 +3545,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         cancelBackdropSlideRequest();
         backdropSlideItems.clear();
         backdropSlideFailures.clear();
-        addBackdropSlideItem(backdropSlidePrimary);
-        for (String photo : detailTmdbPhotos) addBackdropSlideItem(photo);
-        if (TextUtils.isEmpty(backdropSlidePrimary) && !backdropSlideItems.isEmpty()) {
-            backdropSlidePrimary = backdropSlideItems.get(0);
-            current = backdropSlidePrimary;
+        for (String photo : detailBackdropSlides) addBackdropSlideItem(photo);
+        if (backdropSlideItems.isEmpty()) addBackdropSlideItem(backdropSlidePrimary);
+        if (!backdropSlideItems.isEmpty() && !backdropSlideItems.contains(current)) {
+            current = backdropSlideItems.get(0);
+            backdropSlidePrimary = current;
             binding.hero.setVisibility(View.VISIBLE);
-            showStaticBackdropImage(backdropSlideTitle, backdropSlidePrimary);
+            showStaticBackdropImage(backdropSlideTitle, current);
         }
         backdropSlideIndex = Math.max(0, backdropSlideItems.indexOf(current));
         scheduleBackdropSlide(BACKDROP_SLIDE_DELAY_MS);
@@ -3682,7 +3712,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private boolean preferLandscapeBackground() {
-        return !Util.isMobile() || ResUtil.isPad() || ResUtil.getScreenWidth(this) >= ResUtil.getScreenHeight(this);
+        return ResUtil.getScreenWidth(this) >= ResUtil.getScreenHeight(this);
     }
 
     private boolean shouldCropBackdrop() {
@@ -4371,6 +4401,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void recoverTmdbSectionListsIfDetached() {
         if (binding == null) return;
         recoverRecyclerViewIfDetached(binding.episodePhotoList);
+        recoverRecyclerViewIfDetached(binding.posterList);
         recoverRecyclerViewIfDetached(binding.castList);
         recoverRecyclerViewIfDetached(binding.creatorList);
         recoverRecyclerViewIfDetached(binding.relatedList);
@@ -5549,56 +5580,63 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         boolean hasCast = !castItems.isEmpty();
         boolean hasCreators = !creatorItems.isEmpty();
         boolean hasPhotos = !tmdbEpisodePhotos.isEmpty();
+        boolean hasPosters = !detailTmdbPosters.isEmpty();
         boolean hasRelated = !relatedItems.isEmpty();
         boolean hasRelatedVideos = !relatedVideoItems.isEmpty();
         boolean hasPersonalTmdb = !personalTmdbItems.isEmpty();
         boolean hasPersonalDouban = !personalDoubanItems.isEmpty();
         boolean hasPersonalAi = !personalAiItems.isEmpty();
         boolean hasExternalLinks = binding.externalLinksContainer.getChildCount() > 0;
-        binding.tmdbSection.setVisibility(hasPhotos || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb || hasPersonalDouban || hasPersonalAi || hasExternalLinks || matchedTmdbDetail != null || canMatchTmdb() ? View.VISIBLE : View.GONE);
+        binding.tmdbSection.setVisibility(hasPhotos || hasPosters || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb || hasPersonalDouban || hasPersonalAi || hasExternalLinks || matchedTmdbDetail != null || canMatchTmdb() ? View.VISIBLE : View.GONE);
 
         binding.episodePhotoTitle.setVisibility(hasPhotos ? View.VISIBLE : View.GONE);
         binding.episodePhotoList.setVisibility(hasPhotos ? View.VISIBLE : View.GONE);
         episodePhotoAdapter.setItems(tmdbEpisodePhotos);
         episodePhotoAdapter.rebindAttached(binding.episodePhotoList);
 
-        setTopMargin(binding.castTitle, hasPhotos ? 20 : 0);
+        setTopMargin(binding.posterTitle, hasPhotos ? 20 : 0);
+        binding.posterTitle.setVisibility(hasPosters ? View.VISIBLE : View.GONE);
+        binding.posterList.setVisibility(hasPosters ? View.VISIBLE : View.GONE);
+        posterAdapter.setItems(detailTmdbPosters);
+        posterAdapter.rebindAttached(binding.posterList);
+
+        setTopMargin(binding.castTitle, hasPhotos || hasPosters ? 20 : 0);
         binding.castTitle.setVisibility(hasCast ? View.VISIBLE : View.GONE);
         binding.castList.setVisibility(hasCast ? View.VISIBLE : View.GONE);
         castAdapter.setItems(castItems);
         castAdapter.rebindAttached(binding.castList);
 
-        setTopMargin(binding.creatorTitle, hasCast ? 20 : hasPhotos ? 20 : 0);
+        setTopMargin(binding.creatorTitle, hasPhotos || hasPosters || hasCast ? 20 : 0);
         binding.creatorTitle.setVisibility(hasCreators ? View.VISIBLE : View.GONE);
         binding.creatorList.setVisibility(hasCreators ? View.VISIBLE : View.GONE);
         creatorAdapter.setItems(creatorItems);
         creatorAdapter.rebindAttached(binding.creatorList);
 
-        setTopMargin(binding.relatedTitle, hasPhotos || hasCast || hasCreators ? 20 : 0);
+        setTopMargin(binding.relatedTitle, hasPhotos || hasPosters || hasCast || hasCreators ? 20 : 0);
         binding.relatedTitle.setVisibility(hasRelated ? View.VISIBLE : View.GONE);
         binding.relatedList.setVisibility(hasRelated ? View.VISIBLE : View.GONE);
         relatedAdapter.setItems(relatedItems);
         relatedAdapter.rebindAttached(binding.relatedList);
 
-        setTopMargin(binding.relatedVideoTitle, hasPhotos || hasCast || hasCreators || hasRelated ? 20 : 0);
+        setTopMargin(binding.relatedVideoTitle, hasPhotos || hasPosters || hasCast || hasCreators || hasRelated ? 20 : 0);
         binding.relatedVideoTitle.setVisibility(hasRelatedVideos ? View.VISIBLE : View.GONE);
         binding.relatedVideoList.setVisibility(hasRelatedVideos ? View.VISIBLE : View.GONE);
         relatedVideoAdapter.setItems(relatedVideoItems);
         relatedVideoAdapter.rebindAttached(binding.relatedVideoList);
 
-        setTopMargin(binding.personalTmdbTitle, hasPhotos || hasCast || hasCreators || hasRelated || hasRelatedVideos ? 20 : 0);
+        setTopMargin(binding.personalTmdbTitle, hasPhotos || hasPosters || hasCast || hasCreators || hasRelated || hasRelatedVideos ? 20 : 0);
         binding.personalTmdbTitle.setVisibility(hasPersonalTmdb ? View.VISIBLE : View.GONE);
         binding.personalTmdbList.setVisibility(hasPersonalTmdb ? View.VISIBLE : View.GONE);
         personalTmdbAdapter.setItems(personalTmdbItems);
         personalTmdbAdapter.rebindAttached(binding.personalTmdbList);
 
-        setTopMargin(binding.personalDoubanTitle, hasPhotos || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb ? 20 : 0);
+        setTopMargin(binding.personalDoubanTitle, hasPhotos || hasPosters || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb ? 20 : 0);
         binding.personalDoubanTitle.setVisibility(hasPersonalDouban ? View.VISIBLE : View.GONE);
         binding.personalDoubanList.setVisibility(hasPersonalDouban ? View.VISIBLE : View.GONE);
         personalDoubanAdapter.setItems(personalDoubanItems);
         personalDoubanAdapter.rebindAttached(binding.personalDoubanList);
 
-        setTopMargin(binding.personalAiTitle, hasPhotos || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb || hasPersonalDouban ? 20 : 0);
+        setTopMargin(binding.personalAiTitle, hasPhotos || hasPosters || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb || hasPersonalDouban ? 20 : 0);
         binding.personalAiTitle.setVisibility(hasPersonalAi ? View.VISIBLE : View.GONE);
         binding.personalAiList.setVisibility(hasPersonalAi ? View.VISIBLE : View.GONE);
         personalAiAdapter.setItems(personalAiItems);
@@ -5610,7 +5648,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         // 条件苛刻得多）。下一帧统一检测并恢复，成因与破法见 recoverRecyclerViewIfDetached。
         binding.episodePhotoList.post(this::recoverTmdbSectionListsIfDetached);
 
-        setTopMargin(binding.externalLinksTitle, hasPhotos || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb || hasPersonalDouban || hasPersonalAi ? 20 : 0);
+        setTopMargin(binding.externalLinksTitle, hasPhotos || hasPosters || hasCast || hasCreators || hasRelated || hasRelatedVideos || hasPersonalTmdb || hasPersonalDouban || hasPersonalAi ? 20 : 0);
         binding.externalLinksTitle.setVisibility(hasExternalLinks ? View.VISIBLE : View.GONE);
         binding.externalLinksContainer.setVisibility(hasExternalLinks ? View.VISIBLE : View.GONE);
 
@@ -5620,7 +5658,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         } else if (!isTmdbAllowedForCurrentSite()) {
             binding.tmdbStatus.setVisibility(View.VISIBLE);
             binding.tmdbStatus.setText(R.string.detail_tmdb_site_disabled);
-        } else if (!hasPhotos && !hasCast && !hasCreators && !hasRelated && !hasRelatedVideos && !hasPersonalTmdb && !hasPersonalDouban && !hasPersonalAi && !hasExternalLinks) {
+        } else if (!hasPhotos && !hasPosters && !hasCast && !hasCreators && !hasRelated && !hasRelatedVideos && !hasPersonalTmdb && !hasPersonalDouban && !hasPersonalAi && !hasExternalLinks) {
             binding.tmdbStatus.setVisibility(View.VISIBLE);
             binding.tmdbStatus.setText(R.string.detail_tmdb_empty);
         } else {

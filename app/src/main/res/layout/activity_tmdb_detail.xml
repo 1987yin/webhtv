@@ -733,6 +733,26 @@
                             android:visibility="gone" />
 
                         <TextView
+                            android:id="@+id/posterTitle"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="20dp"
+                            android:text="@string/detail_tmdb_posters"
+                            android:textColor="@android:color/white"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:visibility="gone" />
+
+                        <androidx.recyclerview.widget.RecyclerView
+                            android:id="@+id/posterList"
+                            android:layout_width="match_parent"
+                            android:layout_height="222dp"
+                            android:layout_marginTop="12dp"
+                            android:clipToPadding="false"
+                            android:paddingEnd="8dp"
+                            android:visibility="gone" />
+
+                        <TextView
                             android:id="@+id/castTitle"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"

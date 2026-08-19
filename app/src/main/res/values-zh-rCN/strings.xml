@@ -1827,6 +1827,7 @@
     <string name="tmdb_loading_episodes">正在加载剧集信息...</string>
     <string name="tmdb_powered_by">数据来源：TMDB</string>
     <string name="tmdb_photos_label">剧照</string>
+    <string name="tmdb_posters_label">海报</string>
     <string name="tmdb_crew_label">主创团队</string>
     <string name="tmdb_recommendations_label">猜你喜欢</string>
     <string name="tmdb_personal_recommendations_tmdb_label">个性推荐 · TMDB</string>
@@ -1903,6 +1904,7 @@
     <string name="detail_image_permission_denied">存储权限被拒绝</string>
 
     <string name="detail_tmdb_photos">剧照</string>
+    <string name="detail_tmdb_posters">海报</string>
     <string name="detail_no_overview">暂无简介</string>
     <string name="detail_image_rotate">旋转</string>
     <string name="tmdb_external_links_label">外部链接</string>
