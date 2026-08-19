@@ -7,11 +7,19 @@ import com.fongmi.android.tv.bean.Vod;
 public final class VodEventGuard {
 
     public static boolean matches(Vod item, String currentSiteKey, String currentId) {
+        return matches(item, currentSiteKey, currentId, "");
+    }
+
+    public static boolean matches(Vod item, String currentSiteKey, String currentId, String loadedId) {
         if (item == null) return false;
         String id = item.getId();
         String siteKey = item.getSiteKey();
-        if (!TextUtils.isEmpty(id) && !TextUtils.equals(stripPageSuffix(id), stripPageSuffix(currentId))) return false;
+        if (!TextUtils.isEmpty(id) && !matchesId(id, currentId) && !matchesId(id, loadedId)) return false;
         return TextUtils.isEmpty(siteKey) || TextUtils.equals(siteKey, currentSiteKey);
+    }
+
+    private static boolean matchesId(String eventId, String currentId) {
+        return TextUtils.equals(stripPageSuffix(eventId), stripPageSuffix(currentId));
     }
 
     static String stripPageSuffix(String id) {
