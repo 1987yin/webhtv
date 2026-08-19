@@ -40,7 +40,7 @@ public class SettingPlaybackDefaultsTest {
 
         assertTrue(mobileHome.contains("@+id/tmdb"));
         assertTrue(leanbackHome.contains("@+id/tmdb"));
-        for (String id : new String[]{"tmdbSource", "detailInteractionMode", "detailThemeMode", "tmdbMatchMode", "tmdbModel", "tmdbEpisodeFileSize", "historyAggregation"}) {
+        for (String id : new String[]{"tmdbSource", "detailInteractionMode", "detailThemeMode", "tmdbMatchMode", "tmdbEpisodeFileSize", "historyAggregation"}) {
             assertTrue(mobileLayout.contains("@+id/" + id));
             assertTrue(leanbackLayout.contains("@+id/" + id));
             assertFalse(mobilePersonal.contains("@+id/" + id));
@@ -48,6 +48,8 @@ public class SettingPlaybackDefaultsTest {
             assertFalse(mobileEnhance.contains("@+id/" + id));
             assertFalse(leanbackEnhance.contains("@+id/" + id));
         }
+        assertFalse(mobileLayout.contains("@+id/tmdbModel"));
+        assertFalse(leanbackLayout.contains("@+id/tmdbModel"));
     }
 
     @Test

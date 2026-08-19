@@ -1866,6 +1866,38 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void tmdbArtworkRowsSeparateBackdropsAndPostersWhileSlidesRemainResponsive() throws Exception {
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        Path headerPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "custom", "TmdbHeaderView.java"));
+        Path adapterPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "TmdbPhotoAdapter.java"));
+        Path layoutPath = findMainResPath().resolve(Path.of("layout", "activity_tmdb_detail.xml"));
+        String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
+        String header = new String(Files.readAllBytes(headerPath), StandardCharsets.UTF_8);
+        String adapter = new String(Files.readAllBytes(adapterPath), StandardCharsets.UTF_8);
+        String layout = new String(Files.readAllBytes(layoutPath), StandardCharsets.UTF_8);
+
+        assertTrue("detail artwork panel should render a dedicated poster row directly below backdrops",
+                layout.contains("android:id=\"@+id/posterTitle\"")
+                        && layout.contains("android:id=\"@+id/posterList\"")
+                        && layout.indexOf("@+id/posterTitle") > layout.indexOf("@+id/episodePhotoList"));
+        assertTrue("detail activity should keep card rows separate from responsive backdrop slides",
+                activity.contains("private final List<String> detailTmdbPosters")
+                        && activity.contains("private final List<String> detailBackdropSlides")
+                        && activity.contains("tmdbService.backdrops(")
+                        && activity.contains("tmdbService.posters(")
+                        && activity.contains("tmdbService.photos(")
+                        && activity.contains("posterAdapter = new TmdbPhotoAdapter(")
+                        && activity.contains("detailBackdropSlides) addBackdropSlideItem"));
+        assertTrue("shared header should bind posters separately and use the responsive list only for its slideshow",
+                header.contains("adapter.getPosters()")
+                        && header.contains("adapter.getBackgroundPhotos()")
+                        && header.contains("posterAdapter = new com.fongmi.android.tv.ui.adapter.TmdbPhotoAdapter(true)"));
+        assertTrue("poster row should use portrait dimensions without changing the shared backdrop card layout",
+                adapter.contains("params.width = ResUtil.dp2px(148);")
+                        && adapter.contains("params.height = ResUtil.dp2px(222);")
+                        && adapter.contains("R.layout.adapter_tmdb_photo"));
+    }
+    @Test
     public void mobileLegacyDetailPhotoCardsOpenOnFirstTapAcrossDetailFlows() throws Exception {
         Path adapterPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "TmdbPhotoAdapter.java"));
         Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));

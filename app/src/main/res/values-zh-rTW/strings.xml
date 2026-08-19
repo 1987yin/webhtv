@@ -1630,8 +1630,6 @@
 
     <string name="setting_tmdb_source">TMDB 數據配置</string>
     <string name="setting_ai_recommendation">AI 通用配置</string>
-    <string name="setting_tmdb_model">TMDB 交互模型</string>
-    <string name="setting_tmdb_model_native">原生增強</string>
     <string name="setting_tmdb_match_mode">TMDB 匹配模式</string>
     <string name="setting_detail_open_mode">詳情頁模式</string>
     <string name="setting_detail_open_original">原始詳情</string>
@@ -1710,6 +1708,7 @@
     <string name="tmdb_loading_episodes">正在載入劇集資訊...</string>
     <string name="tmdb_powered_by">數據來源：TMDB</string>
     <string name="tmdb_photos_label">劇照</string>
+    <string name="tmdb_posters_label">海報</string>
     <string name="tmdb_crew_label">主創團隊</string>
     <string name="tmdb_recommendations_label">猜你喜歡</string>
     <string name="tmdb_personal_recommendations_tmdb_label">個性推薦 · TMDB</string>
@@ -1764,6 +1763,7 @@
     <string name="detail_image_permission_denied">儲存權限被拒絕</string>
 
     <string name="detail_tmdb_photos">劇照</string>
+    <string name="detail_tmdb_posters">海報</string>
     <string name="detail_no_overview">暫無簡介</string>
     <string name="detail_image_rotate">旋轉</string>
     <string name="tmdb_external_links_label">外部連結</string>

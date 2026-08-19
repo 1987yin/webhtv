@@ -1765,8 +1765,6 @@
 
     <string name="setting_tmdb_source">TMDB data config</string>
     <string name="setting_ai_recommendation">AI configuration</string>
-    <string name="setting_tmdb_model">TMDB interaction model</string>
-    <string name="setting_tmdb_model_native">Native enhancement</string>
     <string name="setting_tmdb_match_mode">TMDB match mode</string>
     <string name="setting_detail_open_mode">Detail page mode</string>
     <string name="setting_detail_open_original">Original detail</string>
@@ -1845,6 +1843,7 @@
     <string name="tmdb_loading_episodes">Loading episodes...</string>
     <string name="tmdb_powered_by">Powered by TMDB</string>
     <string name="tmdb_photos_label">Backdrops</string>
+    <string name="tmdb_posters_label">Posters</string>
     <string name="tmdb_crew_label">Crew</string>
     <string name="tmdb_recommendations_label">You May Like</string>
     <string name="tmdb_related_videos_label">Related Videos</string>
@@ -1922,6 +1921,7 @@
     <string name="detail_image_permission_denied">Storage permission denied</string>
 
     <string name="detail_tmdb_photos">剧照</string>
+    <string name="detail_tmdb_posters">海报</string>
     <string name="detail_no_overview">暂无简介</string>
     <string name="detail_image_rotate">旋转</string>
     <string name="tmdb_external_links_label">外部链接</string>
