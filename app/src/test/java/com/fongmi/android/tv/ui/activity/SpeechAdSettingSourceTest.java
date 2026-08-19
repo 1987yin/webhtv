@@ -28,6 +28,20 @@ public class SpeechAdSettingSourceTest {
         assertTrue(!presenter.contains("prompt.ruleId(), prompt.skipDurationSeconds()"));
     }
 
+    @Test
+    public void mobileExposesAllSpeechAdControls() throws Exception {
+        String java = read("app/src/mobile/java/com/fongmi/android/tv/ui/fragment/SettingEnhanceFragment.java");
+        String xml = read("app/src/mobile/res/layout/fragment_setting_enhance.xml");
+        assertTrue(xml.contains("@+id/speechAdEnabled"));
+        assertTrue(xml.contains("@+id/speechAdKeywords"));
+        assertTrue(xml.contains("@+id/speechAdSkipSeconds"));
+        assertTrue(xml.contains("@+id/speechAdSkipMode"));
+        assertTrue(java.contains("SpeechAdSetting.setEnabled"));
+        assertTrue(java.contains("SpeechAdSetting.setKeywords"));
+        assertTrue(java.contains("SpeechAdSetting.setSkipSeconds"));
+        assertTrue(java.contains("SpeechAdSetting.setMode"));
+        assertTrue(java.contains("reloadAdAudioSettings"));
+    }
     private static String read(String path) throws Exception {
         Path direct = Path.of(path);
         if (Files.exists(direct)) return Files.readString(direct, StandardCharsets.UTF_8);

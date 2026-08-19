@@ -203,7 +203,7 @@ public class SettingEnhanceFragment extends BaseFragment {
             SpeechAdConfig speech = SpeechAdSetting.snapshot();
             String enabled = getSwitch(speech.enabled());
             if (speech.enabled() && !RealtimeSubtitleSpeechRecognitionFactory.isSelectedModelReady()) {
-                enabled += " · " + getString(R.string.speech_ad_model_unavailable);
+                enabled += " · " + getString(R.string.speech_ad_model_not_ready);
             }
             mBinding.speechAdEnabledText.setText(enabled);
             mBinding.speechAdKeywordsText.setText(getString(R.string.speech_ad_keyword_count, speech.keywords().values().size()));
@@ -309,7 +309,7 @@ public class SettingEnhanceFragment extends BaseFragment {
         input.setText(String.join(",", speech.keywords().values()));
         input.setSelection(input.length());
         AlertDialog alert = new MaterialAlertDialogBuilder(requireActivity(), R.style.Theme_WebHTV_LightDialog)
-                .setTitle(R.string.setting_speech_ad_keywords)
+                .setTitle(R.string.speech_ad_keywords)
                 .setView(input)
                 .setNegativeButton(R.string.dialog_negative, null)
                 .setPositiveButton(R.string.dialog_positive, null)
@@ -330,7 +330,7 @@ public class SettingEnhanceFragment extends BaseFragment {
         input.setText(String.valueOf(speech.skipSeconds()));
         input.setSelectAllOnFocus(true);
         AlertDialog alert = new MaterialAlertDialogBuilder(requireActivity(), R.style.Theme_WebHTV_LightDialog)
-                .setTitle(R.string.setting_speech_ad_skip_seconds)
+                .setTitle(R.string.speech_ad_skip_seconds)
                 .setView(input)
                 .setNegativeButton(R.string.dialog_negative, null)
                 .setPositiveButton(R.string.dialog_positive, null)
@@ -363,7 +363,7 @@ public class SettingEnhanceFragment extends BaseFragment {
         String[] modes = {getString(R.string.speech_ad_skip_mode_prompt), getString(R.string.speech_ad_skip_mode_auto)};
         int checked = speech.mode() == AdSkipPolicyController.Mode.AUTO ? 1 : 0;
         new MaterialAlertDialogBuilder(requireActivity(), R.style.Theme_WebHTV_LightDialog)
-                .setTitle(R.string.setting_speech_ad_skip_mode)
+                .setTitle(R.string.speech_ad_skip_mode)
                 .setNegativeButton(R.string.dialog_negative, null)
                 .setSingleChoiceItems(modes, checked, (dialog, which) -> {
                     SpeechAdSetting.setMode(which == 1 ? AdSkipPolicyController.Mode.AUTO : AdSkipPolicyController.Mode.PROMPT);
