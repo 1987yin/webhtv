@@ -1747,8 +1747,6 @@
 
     <string name="setting_tmdb_source">TMDB 数据配置</string>
     <string name="setting_ai_recommendation">AI 通用配置</string>
-    <string name="setting_tmdb_model">TMDB 交互模型</string>
-    <string name="setting_tmdb_model_native">原生增强</string>
     <string name="setting_tmdb_match_mode">TMDB 匹配模式</string>
     <string name="setting_detail_open_mode">详情页模式</string>
     <string name="setting_detail_open_original">原始详情</string>
