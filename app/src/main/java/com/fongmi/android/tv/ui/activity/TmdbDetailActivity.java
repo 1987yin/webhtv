@@ -6791,6 +6791,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         updateInlineButtons(false);
         player().stop();
         player().clear();
+        if (resumePosition == C.TIME_UNSET) resetInlineHistoryIfNearEnding();
         inlineStartPosition = resumePosition == C.TIME_UNSET ? getInlineResumePosition() : Math.max(0, resumePosition);
         inlineStartPositionApplied = false;
         player().switchPlayer(PlayerSetting.getPlayer());
@@ -9889,14 +9890,22 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private long getInlineResumePosition() {
         if (history == null) return C.TIME_UNSET;
-        // 与 mobile/leanback 两条链路对齐：进度已贴近片尾时视为该集看完，从头开始，
-        // 否则续播会把用户直接送到结尾并立刻触发下一集。
-        if (history.isNearEnding()) {
-            SpiderDebug.log("tmdb-inline", "reset near-end history position=%d duration=%d key=%s", history.getPosition(), history.getDuration(), getHistoryKey());
-            history.resetPlaybackPosition();
-            if (!Setting.isIncognito()) Task.execute(() -> history.save());
-        }
         return Math.max(history.getOpening(), history.getPosition());
+    }
+
+    /**
+     * 与 mobile/leanback 两条链路对齐：进度已贴近片尾时视为该集看完，重置为从头开始，
+     * 否则续播会把用户直接送到结尾并立刻触发下一集。
+     *
+     * 只能在真正准备起播时调用一次。不可并入 getInlineResumePosition()——后者经
+     * getInlineStartPosition() 被 onTimeChanged 每秒调用（见 canUpdateProgress），
+     * 在查询路径上重置进度并写库会造成反复清进度和重复 IO。
+     */
+    private void resetInlineHistoryIfNearEnding() {
+        if (history == null || !history.isNearEnding()) return;
+        SpiderDebug.log("tmdb-inline", "reset near-end history position=%d duration=%d key=%s", history.getPosition(), history.getDuration(), getHistoryKey());
+        history.resetPlaybackPosition();
+        if (!Setting.isIncognito()) Task.execute(() -> history.save());
     }
 
     private long getInlineStartPosition() {
