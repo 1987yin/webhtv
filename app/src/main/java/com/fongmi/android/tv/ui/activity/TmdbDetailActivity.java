@@ -6097,13 +6097,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
         Dialog dialog = new Dialog(this);
         int[] request = new int[]{0};
-        int[] photoOrientation = new int[]{ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED};
         FrameLayout content = new FrameLayout(this);
         content.setBackgroundColor(0xFF000000);
         content.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         content.addView(image);
         content.addView(progress);
-        View photoActions = createPhotoActions(dialog, image, progress, photos, current, request, photoOrientation);
+        View photoActions = createPhotoActions(dialog, image, progress, photos, current, request);
         content.addView(photoActions);
         int originalOrientation = getRequestedOrientation();
         boolean wasFullscreen = Util.isFullscreen(this);
@@ -6129,9 +6128,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 float x = event.getX();
                 int width = image.getWidth();
                 if (x < width * 0.33f) {
-                    showPhotoAt(image, progress, photos, current, request, photoOrientation, -1);
+                    showPhotoAt(image, progress, photos, current, request, -1);
                 } else if (x > width * 0.67f) {
-                    showPhotoAt(image, progress, photos, current, request, photoOrientation, 1);
+                    showPhotoAt(image, progress, photos, current, request, 1);
                 } else {
                     dialog.dismiss();
                 }
@@ -6143,7 +6142,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 if (photos.size() <= 1 || down == null || up == null) return false;
                 float distanceX = up.getX() - down.getX();
                 if (Math.abs(distanceX) < ResUtil.dp2px(48) || Math.abs(velocityX) < 120f) return false;
-                showPhotoAt(image, progress, photos, current, request, photoOrientation, distanceX < 0 ? 1 : -1);
+                showPhotoAt(image, progress, photos, current, request, distanceX < 0 ? 1 : -1);
                 return true;
             }
 
@@ -6161,11 +6160,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 return true;
             }
             if (KeyUtil.isLeftKey(event)) {
-                showPhotoAt(image, progress, photos, current, request, photoOrientation, -1);
+                showPhotoAt(image, progress, photos, current, request, -1);
                 return true;
             }
             if (KeyUtil.isRightKey(event)) {
-                showPhotoAt(image, progress, photos, current, request, photoOrientation, 1);
+                showPhotoAt(image, progress, photos, current, request, 1);
                 return true;
             }
             if (KeyUtil.isEnterKey(event)) {
@@ -6183,16 +6182,16 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             Util.hideSystemUI(window);
         }
         image.requestFocus();
-        loadPhotoImage(image, progress, photos.get(current[0]), request, photoOrientation);
+        loadPhotoImage(image, progress, photos.get(current[0]), request);
         preloadPhotoNeighbors(photos, current[0]);
     }
 
-    private View createPhotoActions(Dialog dialog, ImageView image, ProgressBar progress, List<String> photos, int[] current, int[] request, int[] photoOrientation) {
-        if (Util.isLeanback()) return createPhotoRemoteActions(dialog, image, progress, photos, current, request, photoOrientation);
-        return createPhotoMobileActions(photos, current, photoOrientation);
+    private View createPhotoActions(Dialog dialog, ImageView image, ProgressBar progress, List<String> photos, int[] current, int[] request) {
+        if (Util.isLeanback()) return createPhotoRemoteActions(dialog, image, progress, photos, current, request);
+        return createPhotoMobileActions(photos, current);
     }
 
-    private View createPhotoMobileActions(List<String> photos, int[] current, int[] photoOrientation) {
+    private View createPhotoMobileActions(List<String> photos, int[] current) {
         FrameLayout actions = new FrameLayout(this);
         actions.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -6200,7 +6199,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         FrameLayout.LayoutParams rotateParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ResUtil.dp2px(44), Gravity.TOP | Gravity.START);
         rotateParams.setMargins(ResUtil.dp2px(24), ResUtil.dp2px(28), 0, 0);
         rotate.setLayoutParams(rotateParams);
-        rotate.setOnClickListener(view -> togglePhotoOrientation(photoOrientation));
+        rotate.setOnClickListener(view -> togglePhotoOrientation());
         actions.addView(rotate);
 
         MaterialButton save = createPhotoButton(R.string.detail_image_save, R.drawable.ic_tmdb_download);
@@ -6213,7 +6212,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return actions;
     }
 
-    private View createPhotoRemoteActions(Dialog dialog, ImageView image, ProgressBar progress, List<String> photos, int[] current, int[] request, int[] photoOrientation) {
+    private View createPhotoRemoteActions(Dialog dialog, ImageView image, ProgressBar progress, List<String> photos, int[] current, int[] request) {
         if (image.getId() == View.NO_ID) image.setId(View.generateViewId());
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
@@ -6229,9 +6228,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         MaterialButton save = createPhotoButton(R.string.detail_image_save, R.drawable.ic_tmdb_download);
         MaterialButton next = createPhotoButton(R.string.detail_image_next, 0);
         MaterialButton close = createPhotoButton(R.string.detail_image_close, 0);
-        previous.setOnClickListener(view -> showPhotoAt(image, progress, photos, current, request, photoOrientation, -1));
+        previous.setOnClickListener(view -> showPhotoAt(image, progress, photos, current, request, -1));
         save.setOnClickListener(view -> savePhoto(photos.get(current[0]), save));
-        next.setOnClickListener(view -> showPhotoAt(image, progress, photos, current, request, photoOrientation, 1));
+        next.setOnClickListener(view -> showPhotoAt(image, progress, photos, current, request, 1));
         close.setOnClickListener(view -> dialog.dismiss());
         addPhotoBarButton(bar, previous, image);
         addPhotoBarButton(bar, save, image);
@@ -6327,16 +6326,16 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return true;
     }
 
-    private void showPhotoAt(ImageView image, ProgressBar progress, List<String> photos, int[] current, int[] request, int[] photoOrientation, int direction) {
+    private void showPhotoAt(ImageView image, ProgressBar progress, List<String> photos, int[] current, int[] request, int direction) {
         if (photos.isEmpty()) return;
         int next = (current[0] + direction + photos.size()) % photos.size();
         if (next == current[0]) return;
         current[0] = next;
-        loadPhotoImage(image, progress, photos.get(current[0]), request, photoOrientation);
+        loadPhotoImage(image, progress, photos.get(current[0]), request);
         preloadPhotoNeighbors(photos, current[0]);
     }
 
-    private void loadPhotoImage(ImageView image, ProgressBar progress, String url, int[] request, int[] photoOrientation) {
+    private void loadPhotoImage(ImageView image, ProgressBar progress, String url, int[] request) {
         int token = ++request[0];
         progress.setVisibility(View.VISIBLE);
         try {
@@ -6350,7 +6349,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                             if (token != request[0]) return;
                             image.setImageDrawable(resource);
                             progress.setVisibility(View.GONE);
-                            applyPhotoOrientation(resource, photoOrientation);
                         }
 
                         @Override
@@ -6386,28 +6384,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         }
     }
 
-    private void applyPhotoOrientation(Drawable resource, int[] photoOrientation) {
-        if (!Util.isMobile() || resource == null) return;
-        int width = resource.getIntrinsicWidth();
-        int height = resource.getIntrinsicHeight();
-        if (width <= 0 || height <= 0) return;
-        int target = width >= height ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE : ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT;
-        if (photoOrientation[0] == target) return;
-        photoOrientation[0] = target;
-        setRequestedOrientation(target);
-    }
-
-    private void togglePhotoOrientation(int[] photoOrientation) {
+    private void togglePhotoOrientation() {
         if (!Util.isMobile()) return;
-        int current = getRequestedOrientation();
         int actual = getResources().getConfiguration().orientation;
-        int target = actual == Configuration.ORIENTATION_PORTRAIT
-                || current == ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                || current == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                || current == ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-                ? ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
-        photoOrientation[0] = target;
+        int target = actual == Configuration.ORIENTATION_LANDSCAPE
+                ? ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                : ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
         setRequestedOrientation(target);
     }
 
