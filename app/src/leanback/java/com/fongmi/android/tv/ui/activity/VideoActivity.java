@@ -2032,7 +2032,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         boolean compatibleFlag = shareEpisodeProgress || TextUtils.equals(mHistory.getVodFlag(), flag.getFlag());
         if (!sameEpisode || !compatibleFlag) mIntroSkipPlayback.reset();
         if (!sameEpisode || !compatibleFlag) {
-            EpisodePositionCache.EpisodePosition cached = EpisodePositionCache.get().get(getKey(), getId(), flag.getFlag(), episodePositionCacheName(episode, currentSourceSeasonNumber()));
+            EpisodePositionCache.EpisodePosition cached = skipEpisodePositionCache(flag) ? null : EpisodePositionCache.get().get(getKey(), getId(), flag.getFlag(), episodePositionCacheName(episode, currentSourceSeasonNumber()));
             if (cached != null) {
                 mHistory.setPosition(cached.position);
                 mHistory.setDuration(cached.duration);
@@ -4408,7 +4408,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             if (!tmdbHistoryResumePending) {
                 // 播放位置缓存继续使用源站集名，避免刮削展示名变化后无法恢复。
                 String cacheName = getCurrentHistoryEpisodeCacheName();
-                if (!TextUtils.isEmpty(cacheName)) {
+                if (!TextUtils.isEmpty(cacheName) && !skipEpisodePositionCache()) {
                     EpisodePositionCache.get().put(
                         getKey(),
                         getId(),
@@ -4451,7 +4451,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             if (!tmdbHistoryResumePending) {
                 // 播放位置缓存继续使用源站集名，History 仅负责展示刮削后的标题。
                 String cacheName = getCurrentHistoryEpisodeCacheName();
-                if (!TextUtils.isEmpty(cacheName)) {
+                if (!TextUtils.isEmpty(cacheName) && !skipEpisodePositionCache()) {
                     EpisodePositionCache.get().put(
                         getKey(),
                         getId(),
@@ -4468,7 +4468,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
         if (!sameEpisode && !tmdbHistoryResumePending) {
             // 从缓存中恢复新集的播放位置
-            EpisodePositionCache.EpisodePosition cached = EpisodePositionCache.get().get(
+            EpisodePositionCache.EpisodePosition cached = skipEpisodePositionCache() ? null : EpisodePositionCache.get().get(
                 getKey(),
                 getId(),
                 getFlag().getFlag(),
@@ -4660,6 +4660,19 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             }
         }
         return "";
+    }
+
+    /**
+     * 季号不可靠且该线路混排多季时，放弃集数播放位置缓存。
+     * 这种线路里两季都有"第01集"，裸集名会让没看过的一集读到另一季已看完的进度、直接跳到结尾。
+     * 从头开始播比跳到错误位置好。写入侧一并跳过，避免继续污染这些有歧义的槽位。
+     */
+    private boolean skipEpisodePositionCache() {
+        return skipEpisodePositionCache(getFlag());
+    }
+
+    private boolean skipEpisodePositionCache(Flag flag) {
+        return currentSourceSeasonNumber() < 0 && mSourceEpisodeSeasonCache.hasMixedSeasons(flag);
     }
 
     private String episodePositionCacheName(Episode episode, int preferredSeason) {
@@ -4893,7 +4906,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         PlaybackEventCollector.get().onProgress(mHistory, player());
         if (mHistory.canSave() && mHistory.canSync()) syncHistory();
         if (applyAutoIntroSkip()) return;
-        if (mHistory.getEnding() > 0 && duration > 0 && mHistory.getEnding() + position >= duration) {
+        if (mHistory.isEndingReached(position, duration)) {
             checkEnded(false);
         }
     }
