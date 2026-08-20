@@ -645,6 +645,50 @@ public class HistoryPlaybackTest {
     }
 
 
+    @Test
+    public void endingIsReachedOnceTheEpisodeHasActuallyPlayedPastIt() {
+        History history = new History();
+        history.setEnding(120_000);
+
+        // 45 分钟正片，片尾 2 分钟：播到 43 分钟时判定播完。
+        assertTrue(history.isEndingReached(2_580_000, 2_700_000));
+        // 同一集播到一半，还没进片尾区间。
+        assertFalse(history.isEndingReached(1_350_000, 2_700_000));
+    }
+
+    @Test
+    public void sharedEndingDoesNotInstantlyFinishAShorterEpisode() {
+        History history = new History();
+        // ending 存在 History 上（主键不含集数），整剧共享；用户在 45 分钟正片上设了 10 分钟片尾。
+        history.setEnding(600_000);
+
+        // 切到 3 分钟的预告片：裸判定 600000 + 0 >= 180000 会立刻成立，把没看过的一集判为播完。
+        assertFalse(history.isEndingReached(0, 180_000));
+        // 即使播了一会儿，ending 相对本集时长仍然离谱，不该判完。
+        assertFalse(history.isEndingReached(60_000, 180_000));
+    }
+
+    @Test
+    public void endingNeverFiresAtTheVeryStartOfAnEpisode() {
+        History history = new History();
+        history.setEnding(120_000);
+
+        // 源站给了错误的短时长（2 分 10 秒）时，开播瞬间不得判完。
+        assertFalse(history.isEndingReached(0, 130_000));
+    }
+
+    @Test
+    public void endingRequiresAPositiveDurationAndConfiguredValue() {
+        History configured = new History();
+        configured.setEnding(120_000);
+        // 时长未就绪时不做任何判定。
+        assertFalse(configured.isEndingReached(2_580_000, 0));
+
+        History unset = new History();
+        // 用户没设过片尾，永不触发。
+        assertFalse(unset.isEndingReached(2_580_000, 2_700_000));
+    }
+
     private static History history(String key, String name, String remarks, String episodeUrl, long position, long duration) {
         History history = new History();
         history.setKey(key);

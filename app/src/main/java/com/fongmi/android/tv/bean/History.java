@@ -47,6 +47,7 @@ public class History implements Diffable<History> {
     private static final Runnable HISTORY_REFRESH = RefreshEvent::history;
     private static final long NEAR_END_MIN_MS = TimeUnit.SECONDS.toMillis(5);
     private static final long NEAR_END_MAX_MS = TimeUnit.SECONDS.toMillis(30);
+    private static final long ENDING_MIN_PLAYED_MS = TimeUnit.MINUTES.toMillis(1);
 
     @NonNull
     @PrimaryKey
@@ -1012,6 +1013,22 @@ public class History implements Diffable<History> {
         long threshold = Math.min(NEAR_END_MAX_MS, Math.max(NEAR_END_MIN_MS, getDuration() / 100));
         long remaining = getDuration() - getPosition();
         return remaining >= 0 && remaining <= threshold;
+    }
+
+    /**
+     * 片尾时间是否已到，可判定本集播完。
+     * ending 存在 History 上，主键不含集数（siteKey##vodId），因此整剧共享同一个值；
+     * 而 duration 来自当前集。若某集明显更短（预告/彩蛋/番外，或源站给了错误时长），
+     * 裸用 ending + position >= duration 会在刚开播、position 还很小时就成立，
+     * 把用户从未看过的一集直接判为播完并跳走。这里要求：
+     * 1) ending 相对本集时长必须合理（不超过一半），排除跨集错配的极端值；
+     * 2) 至少已播过 ENDING_MIN_PLAYED_MS，排除开播瞬间误判。
+     */
+    public boolean isEndingReached(long position, long duration) {
+        if (getEnding() <= 0 || duration <= 0 || position < 0) return false;
+        if (getEnding() >= duration / 2) return false;
+        if (position < ENDING_MIN_PLAYED_MS) return false;
+        return getEnding() + position >= duration;
     }
 
     public void resetPlaybackPosition() {
