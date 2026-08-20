@@ -692,6 +692,24 @@ public class HistoryPlaybackTest {
     }
 
     @Test
+    public void anyEndingSettableOnThisEpisodeIsAlsoAcceptedWhenJudging() {
+        // 判定端与设置端必须自洽：凡 canSetEnding 允许设出的 ending，
+        // 在同一集上都不得被 isEndingReached 以「跨集错配」为由拒绝。
+        // canSetEnding 用 duration - position <= getOpEdLimit(duration)，
+        // 设出的 ending 恰为 duration - position，即上界就是 getOpEdLimit(duration)。
+        for (long duration : new long[]{40_000, 480_000, 900_000, 1_200_000, 1_800_000, 2_700_000}) {
+            long maxSettable = com.fongmi.android.tv.Constant.getOpEdLimit(duration);
+            History history = new History();
+            history.setEnding(maxSettable);
+            // 播到片尾起点时必须判定播完（position 已满足已播门槛的前提下）。
+            long position = duration - maxSettable;
+            if (position < Math.min(60_000, duration / 4)) continue;
+            assertTrue("duration=" + duration + " ending=" + maxSettable,
+                    history.isEndingReached(position, duration));
+        }
+    }
+
+    @Test
     public void aPlausibleSharedEndingOnlyFiresAfterRealPlayback() {
         History history = new History();
         // 45 分钟正片设 10 分钟片尾，切到 35 分钟的集：10 分钟未超 getOpEdLimit(35min)=10min，
