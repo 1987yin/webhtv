@@ -13,15 +13,18 @@ import static org.junit.Assert.assertTrue;
 public class HomeWebMediaLifecycleTest {
 
     @Test
-    public void controllerPausesPageMediaAtLifecycleBoundaries() throws Exception {
+    public void controllerKeepsBackgroundAudioAndSilencesExplicitHtmlHandoffs() throws Exception {
         String source = readMainSource("HomeWebController.java");
         String onPause = methodBody(source, "public void onPause()", "public boolean beginInlineEvaluation()");
         String endInlineEvaluation = methodBody(source, "public void endInlineEvaluation(boolean active)", "public void destroy()");
+        String prepareNativePlayback = methodBody(source, "public void prepareNativePlayback(Runnable launch)", "public void destroy()");
 
-        assertTrue("Activity pause must pause HTML media before pausing WebView",
-                ordered(onPause, "pausePageMedia();", "webView.onPause();"));
+        assertFalse("Background pause must not silence HTML media",
+                onPause.contains("pausePageMedia();"));
         assertTrue("Inline resolver cleanup must pause HTML media before pausing WebView",
                 ordered(endInlineEvaluation, "pausePageMedia();", "webView.onPause();"));
+        assertTrue("Native playback handoff must pause HTML media before launch",
+                prepareNativePlayback.contains("PAUSE_PAGE_MEDIA_SCRIPT"));
         assertTrue("Page media cleanup must cover video and audio elements",
                 source.contains("video,audio") && source.contains("media.pause()"));
     }
