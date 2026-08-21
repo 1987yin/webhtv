@@ -6850,7 +6850,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void hideInlineLoading() {
         binding.playerProgress.setVisibility(View.GONE);
         binding.playerProgressTraffic.setVisibility(View.GONE);
-        Traffic.reset();
+        Traffic.reset(binding.playerProgressTraffic);
     }
 
     private void updateInlineLoadingTraffic() {

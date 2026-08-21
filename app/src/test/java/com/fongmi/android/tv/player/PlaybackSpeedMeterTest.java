@@ -12,6 +12,12 @@ import org.junit.Test;
  * derived speed from that counter alone. The fix counts bytes in-process (OkHttp) and
  * from the playback kernel instead, so the readout no longer depends on kernel
  * accounting that some ROMs never compiled in.
+ *
+ * <p>The follow-up regression: ranking the kernel's own estimate first froze the
+ * readout at a constant, because every engine reports a smoothed estimate that holds
+ * its last reading once transfers stop rather than decaying to zero. The measured
+ * deltas now rank first and the kernel is consulted only when neither counter can see
+ * the transfer at all.
  */
 public class PlaybackSpeedMeterTest {
 
@@ -23,6 +29,10 @@ public class PlaybackSpeedMeterTest {
         fake.trafficBytes = UNSUPPORTED;
         PlaybackSpeedMeter meter = fake.meter();
 
+        // Baseline first: a kernel reading only stands in for an interval, never for
+        // the startup sample that has no interval behind it.
+        meter.observe(0);
+        fake.advance(1000);
         meter.observe(8_000_000);
 
         assertEquals(PlaybackSpeedMeter.Source.KERNEL, meter.getSource());
@@ -37,12 +47,55 @@ public class PlaybackSpeedMeterTest {
         fake.trafficBytes = 4096;
         PlaybackSpeedMeter meter = fake.meter();
 
-        // A ROM that reports a constant never advances the delta.
+        // A ROM that reports a constant never advances the delta. That is
+        // indistinguishable from an idle network, so the zero must stand.
+        meter.observe(0);
         fake.advance(1000);
         meter.observe(16_000_000);
 
+        assertEquals(0, meter.getBytesPerSecond());
+    }
+
+    @Test
+    public void frozenKernelEstimateDoesNotPinReadoutWhileNetworkIsIdle() {
+        Fake fake = new Fake();
+        fake.trafficBytes = 1_000_000;
+        fake.okHttpBytes = 1_000_000;
+        PlaybackSpeedMeter meter = fake.meter();
+
+        meter.observe(0);
+        fake.trafficBytes = 1_512_000;
+        fake.okHttpBytes = 1_512_000;
+        fake.advance(1000);
+        meter.observe(8_000_000);
+        assertEquals(512_000, meter.getBytesPerSecond());
+
+        // Buffer full: nothing more arrives, but the kernel keeps reporting the
+        // estimate it last computed. The readout must follow the bytes, not the
+        // estimate, or it stays pinned at 512 KB/s for the rest of playback.
+        fake.advance(1000);
+        meter.observe(8_000_000);
+        assertEquals(0, meter.getBytesPerSecond());
+
+        fake.advance(1000);
+        meter.observe(8_000_000);
+        assertEquals(0, meter.getBytesPerSecond());
+    }
+
+    @Test
+    public void kernelCoversNativeSocketOnlyWhileTrafficStatsIsBlind() {
+        Fake fake = new Fake();
+        fake.trafficBytes = UNSUPPORTED;
+        fake.okHttpBytes = 0;
+        PlaybackSpeedMeter meter = fake.meter();
+
+        // A native engine socket on a ROM with no per-UID accounting: neither counter
+        // can ever observe the transfer, so the kernel is the only witness left.
+        meter.observe(0);
+        fake.advance(1000);
+        meter.observe(8_000_000);
         assertEquals(PlaybackSpeedMeter.Source.KERNEL, meter.getSource());
-        assertEquals(2_000_000, meter.getBytesPerSecond());
+        assertEquals(1_000_000, meter.getBytesPerSecond());
     }
 
     @Test
@@ -106,8 +159,11 @@ public class PlaybackSpeedMeterTest {
         fake.advance(1000);
         meter.observe(0);
 
-        assertEquals(PlaybackSpeedMeter.Source.OK_HTTP, meter.getSource());
+        // TrafficStats is readable here, so it owns the idle verdict: it is the counter
+        // that would have seen a native socket had one been transferring.
+        assertEquals(PlaybackSpeedMeter.Source.TRAFFIC_STATS, meter.getSource());
         assertEquals(0, meter.getBytesPerSecond());
+        assertFalse(meter.isUnavailable());
     }
 
     @Test

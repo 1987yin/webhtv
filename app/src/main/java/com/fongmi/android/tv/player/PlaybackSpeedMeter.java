@@ -24,13 +24,20 @@ import java.util.function.LongSupplier;
  * <p>Three sources are tried in order, so something usable is available at every stage
  * of playback:
  * <ol>
- *   <li>the active playback kernel's own throughput, the most accurate view of the
- *       stream actually being played;
  *   <li>{@link OkTrafficCounter}, which covers scraping and manifest fetches before a
  *       kernel exists, plus the kernels whose transfers pass through Java;
  *   <li>{@code TrafficStats}, which alone can still see traffic from native engine
- *       sockets that never reach Java.
+ *       sockets that never reach Java;
+ *   <li>the active playback kernel's own throughput, for a native engine socket on a
+ *       ROM where neither counter above can observe anything.
  * </ol>
+ *
+ * <p>The measured deltas rank above the kernel because every engine reports a
+ * <em>smoothed estimate</em> that freezes rather than decays when transfers stop: a
+ * filled buffer leaves media3's sliding percentile, ffmpeg's {@code tcp_speed} and
+ * mpv's {@code raw-input-rate} all holding their last reading indefinitely. Trusting
+ * that first pinned the readout to a constant for the rest of playback, so the kernel
+ * is consulted only when neither counter can observe the transfer at all.
  */
 public final class PlaybackSpeedMeter {
 
@@ -91,11 +98,6 @@ public final class PlaybackSpeedMeter {
         long trafficDelta = advanceTrafficStatsBaseline();
         lastTimeStamp = now;
 
-        if (kernelBitsPerSecond > 0) {
-            bytesPerSecond = kernelBitsPerSecond / 8L;
-            source = Source.KERNEL;
-            return;
-        }
         if (elapsedMs <= 0) {
             // No measurable interval yet; keep the previous readout rather than show 0.
             return;
@@ -103,13 +105,33 @@ public final class PlaybackSpeedMeter {
         // Each counter undercounts what the other sees: OkHttp misses native engine
         // sockets, TrafficStats misses nothing but may be unsupported or frozen. The
         // larger delta is the better lower bound on what actually arrived.
+        long delta = Math.max(okHttpDelta, trafficDelta);
+        if (delta > 0) {
+            source = trafficDelta > okHttpDelta ? Source.TRAFFIC_STATS : Source.OK_HTTP;
+            bytesPerSecond = delta * 1000L / elapsedMs;
+            return;
+        }
+        // Nothing was measured. When TrafficStats works it sees native sockets too, so
+        // its zero is the truth — a filled buffer fetches nothing — and the readout must
+        // fall to zero instead of holding the last value. Only when TrafficStats is blind
+        // *and* nothing came through Java is a transfer possibly invisible to both, which
+        // is the single case the kernel tier exists to cover: a native engine socket on a
+        // ROM with no per-UID accounting.
+        boolean invisible = trafficDelta < 0 && okHttpDelta <= 0;
+        if (invisible && kernelBitsPerSecond > 0) {
+            bytesPerSecond = kernelBitsPerSecond / 8L;
+            source = Source.KERNEL;
+            return;
+        }
         if (okHttpDelta < 0 && trafficDelta < 0) {
             bytesPerSecond = 0;
             source = Source.NONE;
             return;
         }
-        source = trafficDelta > okHttpDelta ? Source.TRAFFIC_STATS : Source.OK_HTTP;
-        bytesPerSecond = Math.max(okHttpDelta, trafficDelta) * 1000L / elapsedMs;
+        // A counter is readable and reported nothing: an idle interval, not a missing
+        // source. Attribute it to whichever counter could see it, and show zero.
+        source = trafficDelta >= 0 ? Source.TRAFFIC_STATS : Source.OK_HTTP;
+        bytesPerSecond = 0;
     }
 
     public long getBytesPerSecond() {

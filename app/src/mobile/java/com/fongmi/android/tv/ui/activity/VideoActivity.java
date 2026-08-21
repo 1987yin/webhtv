@@ -4460,7 +4460,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (mSeekProgressFallback != null) App.removeCallbacks(mSeekProgressFallback);
         mBinding.progress.getRoot().setVisibility(View.GONE);
         App.removeCallbacks(mR2);
-        Traffic.reset();
+        Traffic.reset(mBinding.progress.traffic);
     }
 
     private void showDetailContent() {
