@@ -5600,29 +5600,29 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         posterAdapter.setItems(detailTmdbPosters);
         posterAdapter.rebindAttached(binding.posterList);
 
-        setTopMargin(binding.castTitle, hasPhotos || hasPosters ? 20 : 0);
+        setTopMargin(binding.relatedVideoTitle, hasPhotos || hasPosters ? 20 : 0);
+        binding.relatedVideoTitle.setVisibility(hasRelatedVideos ? View.VISIBLE : View.GONE);
+        binding.relatedVideoList.setVisibility(hasRelatedVideos ? View.VISIBLE : View.GONE);
+        relatedVideoAdapter.setItems(relatedVideoItems);
+        relatedVideoAdapter.rebindAttached(binding.relatedVideoList);
+
+        setTopMargin(binding.castTitle, hasPhotos || hasPosters || hasRelatedVideos ? 20 : 0);
         binding.castTitle.setVisibility(hasCast ? View.VISIBLE : View.GONE);
         binding.castList.setVisibility(hasCast ? View.VISIBLE : View.GONE);
         castAdapter.setItems(castItems);
         castAdapter.rebindAttached(binding.castList);
 
-        setTopMargin(binding.creatorTitle, hasPhotos || hasPosters || hasCast ? 20 : 0);
+        setTopMargin(binding.creatorTitle, hasPhotos || hasPosters || hasRelatedVideos || hasCast ? 20 : 0);
         binding.creatorTitle.setVisibility(hasCreators ? View.VISIBLE : View.GONE);
         binding.creatorList.setVisibility(hasCreators ? View.VISIBLE : View.GONE);
         creatorAdapter.setItems(creatorItems);
         creatorAdapter.rebindAttached(binding.creatorList);
 
-        setTopMargin(binding.relatedTitle, hasPhotos || hasPosters || hasCast || hasCreators ? 20 : 0);
+        setTopMargin(binding.relatedTitle, hasPhotos || hasPosters || hasRelatedVideos || hasCast || hasCreators ? 20 : 0);
         binding.relatedTitle.setVisibility(hasRelated ? View.VISIBLE : View.GONE);
         binding.relatedList.setVisibility(hasRelated ? View.VISIBLE : View.GONE);
         relatedAdapter.setItems(relatedItems);
         relatedAdapter.rebindAttached(binding.relatedList);
-
-        setTopMargin(binding.relatedVideoTitle, hasPhotos || hasPosters || hasCast || hasCreators || hasRelated ? 20 : 0);
-        binding.relatedVideoTitle.setVisibility(hasRelatedVideos ? View.VISIBLE : View.GONE);
-        binding.relatedVideoList.setVisibility(hasRelatedVideos ? View.VISIBLE : View.GONE);
-        relatedVideoAdapter.setItems(relatedVideoItems);
-        relatedVideoAdapter.rebindAttached(binding.relatedVideoList);
 
         setTopMargin(binding.personalTmdbTitle, hasPhotos || hasPosters || hasCast || hasCreators || hasRelated || hasRelatedVideos ? 20 : 0);
         binding.personalTmdbTitle.setVisibility(hasPersonalTmdb ? View.VISIBLE : View.GONE);

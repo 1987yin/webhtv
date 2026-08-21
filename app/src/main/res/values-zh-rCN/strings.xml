@@ -1828,6 +1828,7 @@
     <string name="tmdb_posters_label">海报</string>
     <string name="tmdb_crew_label">主创团队</string>
     <string name="tmdb_recommendations_label">猜你喜欢</string>
+    <string name="tmdb_related_videos_label">相关视频</string>
     <string name="tmdb_personal_recommendations_tmdb_label">个性推荐 · TMDB</string>
     <string name="tmdb_personal_recommendations_douban_label">个性推荐 · 豆瓣</string>
     <string name="tmdb_personal_recommendations_ai_label">个性推荐 · 智能</string>
