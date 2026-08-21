@@ -6112,13 +6112,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
         Dialog dialog = new Dialog(this);
         int[] request = new int[]{0};
-        int[] photoOrientation = new int[]{ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED};
         FrameLayout content = new FrameLayout(this);
         content.setBackgroundColor(0xFF000000);
         content.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         content.addView(image);
         content.addView(progress);
-        View photoActions = createPhotoActions(dialog, image, progress, photos, current, request, photoOrientation);
+        View photoActions = createPhotoActions(dialog, image, progress, photos, current, request);
         content.addView(photoActions);
         int originalOrientation = getRequestedOrientation();
         boolean wasFullscreen = Util.isFullscreen(this);
@@ -6144,9 +6143,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 float x = event.getX();
                 int width = image.getWidth();
                 if (x < width * 0.33f) {
-                    showPhotoAt(image, progress, photos, current, request, photoOrientation, -1);
+                    showPhotoAt(image, progress, photos, current, request, -1);
                 } else if (x > width * 0.67f) {
-                    showPhotoAt(image, progress, photos, current, request, photoOrientation, 1);
+                    showPhotoAt(image, progress, photos, current, request, 1);
                 } else {
                     dialog.dismiss();
                 }
@@ -6158,7 +6157,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 if (photos.size() <= 1 || down == null || up == null) return false;
                 float distanceX = up.getX() - down.getX();
                 if (Math.abs(distanceX) < ResUtil.dp2px(48) || Math.abs(velocityX) < 120f) return false;
-                showPhotoAt(image, progress, photos, current, request, photoOrientation, distanceX < 0 ? 1 : -1);
+                showPhotoAt(image, progress, photos, current, request, distanceX < 0 ? 1 : -1);
                 return true;
             }
 
@@ -6176,11 +6175,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 return true;
             }
             if (KeyUtil.isLeftKey(event)) {
-                showPhotoAt(image, progress, photos, current, request, photoOrientation, -1);
+                showPhotoAt(image, progress, photos, current, request, -1);
                 return true;
             }
             if (KeyUtil.isRightKey(event)) {
-                showPhotoAt(image, progress, photos, current, request, photoOrientation, 1);
+                showPhotoAt(image, progress, photos, current, request, 1);
                 return true;
             }
             if (KeyUtil.isEnterKey(event)) {
@@ -6198,16 +6197,16 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             Util.hideSystemUI(window);
         }
         image.requestFocus();
-        loadPhotoImage(image, progress, photos.get(current[0]), request, photoOrientation);
+        loadPhotoImage(image, progress, photos.get(current[0]), request);
         preloadPhotoNeighbors(photos, current[0]);
     }
 
-    private View createPhotoActions(Dialog dialog, ImageView image, ProgressBar progress, List<String> photos, int[] current, int[] request, int[] photoOrientation) {
-        if (Util.isLeanback()) return createPhotoRemoteActions(dialog, image, progress, photos, current, request, photoOrientation);
-        return createPhotoMobileActions(photos, current, photoOrientation);
+    private View createPhotoActions(Dialog dialog, ImageView image, ProgressBar progress, List<String> photos, int[] current, int[] request) {
+        if (Util.isLeanback()) return createPhotoRemoteActions(dialog, image, progress, photos, current, request);
+        return createPhotoMobileActions(photos, current);
     }
 
-    private View createPhotoMobileActions(List<String> photos, int[] current, int[] photoOrientation) {
+    private View createPhotoMobileActions(List<String> photos, int[] current) {
         FrameLayout actions = new FrameLayout(this);
         actions.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -6215,7 +6214,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         FrameLayout.LayoutParams rotateParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ResUtil.dp2px(44), Gravity.TOP | Gravity.START);
         rotateParams.setMargins(ResUtil.dp2px(24), ResUtil.dp2px(28), 0, 0);
         rotate.setLayoutParams(rotateParams);
-        rotate.setOnClickListener(view -> togglePhotoOrientation(photoOrientation));
+        rotate.setOnClickListener(view -> togglePhotoOrientation());
         actions.addView(rotate);
 
         MaterialButton save = createPhotoButton(R.string.detail_image_save, R.drawable.ic_tmdb_download);
@@ -6228,7 +6227,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return actions;
     }
 
-    private View createPhotoRemoteActions(Dialog dialog, ImageView image, ProgressBar progress, List<String> photos, int[] current, int[] request, int[] photoOrientation) {
+    private View createPhotoRemoteActions(Dialog dialog, ImageView image, ProgressBar progress, List<String> photos, int[] current, int[] request) {
         if (image.getId() == View.NO_ID) image.setId(View.generateViewId());
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
@@ -6244,9 +6243,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         MaterialButton save = createPhotoButton(R.string.detail_image_save, R.drawable.ic_tmdb_download);
         MaterialButton next = createPhotoButton(R.string.detail_image_next, 0);
         MaterialButton close = createPhotoButton(R.string.detail_image_close, 0);
-        previous.setOnClickListener(view -> showPhotoAt(image, progress, photos, current, request, photoOrientation, -1));
+        previous.setOnClickListener(view -> showPhotoAt(image, progress, photos, current, request, -1));
         save.setOnClickListener(view -> savePhoto(photos.get(current[0]), save));
-        next.setOnClickListener(view -> showPhotoAt(image, progress, photos, current, request, photoOrientation, 1));
+        next.setOnClickListener(view -> showPhotoAt(image, progress, photos, current, request, 1));
         close.setOnClickListener(view -> dialog.dismiss());
         addPhotoBarButton(bar, previous, image);
         addPhotoBarButton(bar, save, image);
@@ -6342,16 +6341,16 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return true;
     }
 
-    private void showPhotoAt(ImageView image, ProgressBar progress, List<String> photos, int[] current, int[] request, int[] photoOrientation, int direction) {
+    private void showPhotoAt(ImageView image, ProgressBar progress, List<String> photos, int[] current, int[] request, int direction) {
         if (photos.isEmpty()) return;
         int next = (current[0] + direction + photos.size()) % photos.size();
         if (next == current[0]) return;
         current[0] = next;
-        loadPhotoImage(image, progress, photos.get(current[0]), request, photoOrientation);
+        loadPhotoImage(image, progress, photos.get(current[0]), request);
         preloadPhotoNeighbors(photos, current[0]);
     }
 
-    private void loadPhotoImage(ImageView image, ProgressBar progress, String url, int[] request, int[] photoOrientation) {
+    private void loadPhotoImage(ImageView image, ProgressBar progress, String url, int[] request) {
         int token = ++request[0];
         progress.setVisibility(View.VISIBLE);
         try {
@@ -6365,7 +6364,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                             if (token != request[0]) return;
                             image.setImageDrawable(resource);
                             progress.setVisibility(View.GONE);
-                            applyPhotoOrientation(resource, photoOrientation);
                         }
 
                         @Override
@@ -6401,28 +6399,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         }
     }
 
-    private void applyPhotoOrientation(Drawable resource, int[] photoOrientation) {
-        if (!Util.isMobile() || resource == null) return;
-        int width = resource.getIntrinsicWidth();
-        int height = resource.getIntrinsicHeight();
-        if (width <= 0 || height <= 0) return;
-        int target = width >= height ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE : ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT;
-        if (photoOrientation[0] == target) return;
-        photoOrientation[0] = target;
-        setRequestedOrientation(target);
-    }
-
-    private void togglePhotoOrientation(int[] photoOrientation) {
+    private void togglePhotoOrientation() {
         if (!Util.isMobile()) return;
-        int current = getRequestedOrientation();
         int actual = getResources().getConfiguration().orientation;
-        int target = actual == Configuration.ORIENTATION_PORTRAIT
-                || current == ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                || current == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                || current == ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-                ? ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
-        photoOrientation[0] = target;
+        int target = actual == Configuration.ORIENTATION_LANDSCAPE
+                ? ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                : ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
         setRequestedOrientation(target);
     }
 
@@ -6579,18 +6561,53 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return episodePosition(episode, selectedFlag.getEpisodes());
     }
 
+    /**
+     * 播放位置缓存统一使用源站集名，与 mobile 链路的约定一致。
+     * 不能用 historyEpisodeTitle()：它依赖异步加载的 TMDB 元数据，元数据未到位时退化成纯集号、
+     * 到位后变成正式剧集名，同一集在不同时刻会算出不同 key —— 既读不回自己的进度，
+     * 退化后的裸集号还可能命中另一季已看完的槽位，把没看过的集直接送到结尾。
+     */
     private String inlineEpisodeCacheKey(Episode episode) {
         if (episode == null) return "";
         EpisodePosition position = historyEpisodePosition(episode);
         int season = position.season() >= 0 ? position.season() : sourceTitleSeasonNumber();
-        return EpisodeSeasonPolicy.episodePositionCacheKey(season, historyEpisodeTitle(episode));
+        return EpisodeSeasonPolicy.episodePositionCacheKey(season, episode.getName());
+    }
+
+    /**
+     * 季号不可靠且当前线路混排多季时，放弃集数播放位置缓存。
+     * 这种线路里两季都有"第01集"，裸集名会让没看过的一集读到另一季已看完的进度、直接跳到结尾。
+     * 从头开始播比跳到错误位置好。写入侧一并跳过，避免继续污染这些有歧义的槽位。
+     */
+    private boolean skipEpisodePositionCache() {
+        if (selectedFlag == null || selectedFlag.getEpisodes() == null) return false;
+        if (sourceTitleSeasonNumber() >= 0) return false;
+        Set<Integer> distinct = new HashSet<>();
+        for (Integer season : sourceSeasonNumbers(selectedFlag.getEpisodes())) {
+            if (season != null && season >= 0) distinct.add(season);
+        }
+        return distinct.size() > 1;
     }
 
 
     private String currentInlineHistoryCacheKey() {
-        if (history == null) return "";
+        if (history == null || selectedFlag == null) return "";
+        // season 必须取自 history 自身的持久化身份，而不是当前选中状态：切季时 selectedFlag/
+        // selectedSeasonNumber 已指向新季，用它们会把上一集的进度写进新季的槽位。
         int season = history.getTmdbEpisodeNumber() > 0 ? history.getTmdbSeasonNumber() : sourceTitleSeasonNumber();
-        return EpisodeSeasonPolicy.episodePositionCacheKey(season, history.getVodRemarks());
+        // 集名沿用源站名（与 inlineEpisodeCacheKey 一致），不用 getVodRemarks()——后者存的是
+        // 刮削标题，会随 TMDB 元数据加载状态变化，导致读写 key 对不上。
+        Episode episode = selectedFlag.find(history.getEpisode(), true);
+        // find() 在 strict 模式下可能返回 null（换线路后集名/编号对不上），按 URL 兜底，避免静默丢进度。
+        if (episode == null && !TextUtils.isEmpty(history.getEpisodeUrl())) {
+            for (Episode item : selectedFlag.getEpisodes()) {
+                if (TextUtils.equals(item.getUrl(), history.getEpisodeUrl())) {
+                    episode = item;
+                    break;
+                }
+            }
+        }
+        return episode == null ? "" : EpisodeSeasonPolicy.episodePositionCacheKey(season, episode.getName());
     }
     private int episodeNumberForHistory(Episode episode) {
         return historyEpisodePosition(episode).number();
@@ -6789,6 +6806,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         updateInlineButtons(false);
         player().stop();
         player().clear();
+        if (resumePosition == C.TIME_UNSET) resetInlineHistoryIfNearEnding();
         inlineStartPosition = resumePosition == C.TIME_UNSET ? getInlineResumePosition() : Math.max(0, resumePosition);
         inlineStartPositionApplied = false;
         player().switchPlayer(PlayerSetting.getPlayer());
@@ -9921,7 +9939,23 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private long getInlineResumePosition() {
-        return history == null ? C.TIME_UNSET : Math.max(history.getOpening(), history.getPosition());
+        if (history == null) return C.TIME_UNSET;
+        return Math.max(history.getOpening(), history.getPosition());
+    }
+
+    /**
+     * 与 mobile/leanback 两条链路对齐：进度已贴近片尾时视为该集看完，重置为从头开始，
+     * 否则续播会把用户直接送到结尾并立刻触发下一集。
+     *
+     * 只能在真正准备起播时调用一次。不可并入 getInlineResumePosition()——后者经
+     * getInlineStartPosition() 被 onTimeChanged 每秒调用（见 canUpdateProgress），
+     * 在查询路径上重置进度并写库会造成反复清进度和重复 IO。
+     */
+    private void resetInlineHistoryIfNearEnding() {
+        if (history == null || !history.isNearEnding()) return;
+        SpiderDebug.log("tmdb-inline", "reset near-end history position=%d duration=%d key=%s", history.getPosition(), history.getDuration(), getHistoryKey());
+        history.resetPlaybackPosition();
+        if (!Setting.isIncognito()) Task.execute(() -> history.save());
     }
 
     private long getInlineStartPosition() {
@@ -10251,7 +10285,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (!isInlinePlayerMode() || !inlineStarted || !isOwner() || history == null) return;
 
         // 保存当前集的播放位置到缓存
-        if (!TextUtils.isEmpty(history.getVodRemarks()) && service() != null && player() != null && !player().isReleased()) {
+        if (!TextUtils.isEmpty(history.getVodRemarks()) && !skipEpisodePositionCache() && service() != null && player() != null && !player().isReleased()) {
             EpisodePositionCache.get().put(
                 getKeyText(),
                 getIdText(),
@@ -10354,7 +10388,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (canUpdateProgress) PlaybackEventCollector.get().onProgress(history, player());
         if (canUpdateProgress && history.canSave() && history.canSync()) syncInlineHistory();
         if (canUpdateProgress && applyAutoIntroSkip()) return;
-        if (canUpdateProgress && history.getEnding() > 0 && duration > 0 && history.getEnding() + position >= duration) checkInlineEnded(false);
+        if (canUpdateProgress && history.isEndingReached(position, duration)) checkInlineEnded(false);
         if (isInlineControlsVisible()) updateMobileInlineControlTime();
         updateInlineDisplayPanel();
     }
@@ -10395,7 +10429,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
         if (!sameEpisode) {
             // 保存当前集的播放位置到缓存
-            if (!TextUtils.isEmpty(history.getVodRemarks()) && service() != null && player() != null && !player().isReleased()) {
+            boolean skipCache = skipEpisodePositionCache();
+            if (!TextUtils.isEmpty(history.getVodRemarks()) && !skipCache && service() != null && player() != null && !player().isReleased()) {
                 EpisodePositionCache.get().put(
                     getKeyText(),
                     getIdText(),
@@ -10407,7 +10442,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             }
 
             // 从缓存中恢复新集的播放位置
-            EpisodePositionCache.EpisodePosition cached = EpisodePositionCache.get().get(
+            EpisodePositionCache.EpisodePosition cached = skipCache ? null : EpisodePositionCache.get().get(
                 getKeyText(),
                 getIdText(),
                 selectedFlag.getFlag(),
@@ -10416,8 +10451,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
             if (cached != null) {
                 history.setPosition(cached.position);
+                // duration 必须与 position 成对恢复：isNearEnding() 要求 duration>0 才生效，
+                // 漏设会让上一集的脏 duration 留在 history 上，接近片尾的自愈保护随之失效。
+                history.setDuration(cached.duration);
             } else {
                 history.setPosition(C.TIME_UNSET);
+                history.setDuration(C.TIME_UNSET);
             }
         }
 
