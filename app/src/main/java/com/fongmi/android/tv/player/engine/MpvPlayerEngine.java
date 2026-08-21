@@ -25,6 +25,7 @@ import com.fongmi.android.tv.player.PlaybackTrace;
 import com.fongmi.android.tv.player.exo.ExoUtil;
 import com.fongmi.android.tv.player.exo.TrackUtil;
 import com.fongmi.android.tv.player.lut.MpvLutShader;
+import com.fongmi.android.tv.player.lut.LutSetting;
 import com.fongmi.android.tv.player.mpv.MpvConfigStore;
 import com.fongmi.android.tv.player.mpv.MpvAutoControlPolicy;
 import com.fongmi.android.tv.player.mpv.MpvAutoOutputPolicy;
@@ -383,6 +384,19 @@ public class MpvPlayerEngine implements PlayerEngine {
     public VideoPlaybackDetails getVideoPlaybackDetails() {
         MpvPlayer.VideoTrackDiagnostics details =
                 player.getSelectedVideoTrackDiagnostics();
+        // A failed direct MediaCodec attempt can make mpv report vid=no while
+        // retaining the actual video track in track-list. Preserve that source
+        // metadata so automatic output can move to GPU instead of treating a
+        // failed Dolby Vision stream as ordinary video.
+        if (details == null || (details.dolbyVisionProfile() <= 0
+                && details.sourceCodecs().isEmpty())) {
+            MpvPlayer.VideoTrackDiagnostics available =
+                    player.getAvailableVideoTrackDiagnostics();
+            if (available != null && (!available.sourceCodecs().isEmpty()
+                    || available.dolbyVisionProfile() > 0)) {
+                details = available;
+            }
+        }
         String currentVo = player.getObservedCurrentVideoOutput();
         boolean fallbackConfigured = isConfiguredDv7Hdr10Fallback(
                 details, isHard(),
@@ -706,7 +720,7 @@ public class MpvPlayerEngine implements PlayerEngine {
         boolean autoDirectEligible = !zeroCopyBlocked && MpvAutoOutputPolicy.canStartSurfaceDirect(
                 decode == HARD,
                 Util.isLeanback(),
-                MpvPerformanceSetting.isInterpolation(),
+                MpvPerformanceSetting.isInterpolation() || LutSetting.isEnabled(),
                 MpvConfigStore.hasGpuVideoProcessing());
         surfaceDirect = surfaceDirectOverride == null
                 ? MpvPerformanceSetting.shouldUseSurfaceDirect(autoDirectEligible, Util.isLeanback(), decode == HARD)
