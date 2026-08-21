@@ -54,6 +54,7 @@ public class MpvPlayerEngine implements PlayerEngine {
     private boolean retriedFormat;
     private boolean surfaceDirect;
     private Boolean surfaceDirectOverride;
+    private boolean lutAllowed = true;
     private String vulkanBackendOverride;
     private String vulkanBackend = MpvVulkanBackendPolicy.AUTO;
     private boolean vulkanRenderer;
@@ -62,8 +63,9 @@ public class MpvPlayerEngine implements PlayerEngine {
     private final BiConsumer<Integer, Integer> videoSizeProbeListener;
     private int decode;
 
-    public MpvPlayerEngine(int decode, Player.Listener listener, BiConsumer<Integer, Integer> videoSizeProbeListener) {
+    public MpvPlayerEngine(int decode, boolean lutAllowed, Player.Listener listener, BiConsumer<Integer, Integer> videoSizeProbeListener) {
         this.decode = decode;
+        this.lutAllowed = lutAllowed;
         this.videoSizeProbeListener = videoSizeProbeListener;
         this.player = buildPlayer(listener);
     }
@@ -269,6 +271,13 @@ public class MpvPlayerEngine implements PlayerEngine {
 
     public void setSurfaceDirectOverride(@Nullable Boolean value) {
         surfaceDirectOverride = value;
+    }
+
+    // 直播等场景会禁用 LUT，此时不能因为全局 LUT 开关而放弃电视直出，
+    // 否则与 PlayerManager 的 lutAllowed && LutSetting.isEnabled() 判断相反，
+    // 会在启播后多触发一次播放器重建。仅影响下一次 buildConfig()。
+    public void setLutAllowed(boolean allowed) {
+        lutAllowed = allowed;
     }
 
     public void setVulkanBackendOverride(@Nullable String value) {
@@ -720,7 +729,7 @@ public class MpvPlayerEngine implements PlayerEngine {
         boolean autoDirectEligible = !zeroCopyBlocked && MpvAutoOutputPolicy.canStartSurfaceDirect(
                 decode == HARD,
                 Util.isLeanback(),
-                MpvPerformanceSetting.isInterpolation() || LutSetting.isEnabled(),
+                MpvPerformanceSetting.isInterpolation() || lutAllowed && LutSetting.isEnabled(),
                 MpvConfigStore.hasGpuVideoProcessing());
         surfaceDirect = surfaceDirectOverride == null
                 ? MpvPerformanceSetting.shouldUseSurfaceDirect(autoDirectEligible, Util.isLeanback(), decode == HARD)

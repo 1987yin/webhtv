@@ -873,6 +873,7 @@ public class PlayerManager implements ParseCallback {
     public void setLutAllowed(boolean allowed) {
         if (lutAllowed == allowed) return;
         lutAllowed = allowed;
+        if (engine instanceof MpvPlayerEngine mpv) mpv.setLutAllowed(allowed);
         if (!allowed) resetLutRuntimeState("lut_disallowed", true);
     }
 
@@ -5430,7 +5431,7 @@ public void resetTrack(int type) {
         PlayerEngine next = switch (type) {
             case PlayerSetting.IJK -> new IjkPlayerEngine(decode, listener);
             case PlayerSetting.SYSTEM -> new SystemPlayerEngine(decode, listener);
-            case PlayerSetting.MPV -> new MpvPlayerEngine(decode, listener, this::onMpvVideoSizeProbed);
+            case PlayerSetting.MPV -> new MpvPlayerEngine(decode, lutAllowed, listener, this::onMpvVideoSizeProbed);
             default -> new ExoPlayerEngine(decode, listener, new ExoPlayerEngine.PrepareListener() {
                 @Override
                 public void onPrepareStarted(int generation) {
