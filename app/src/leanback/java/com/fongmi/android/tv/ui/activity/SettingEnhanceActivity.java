@@ -17,6 +17,7 @@ import com.fongmi.android.tv.api.config.ImportedAdRuleCandidateStore;
 import com.fongmi.android.tv.api.config.RuleConfig;
 import com.fongmi.android.tv.api.config.UserAdRuleStore;
 import com.fongmi.android.tv.ad.audio.AdAudioRuleStore;
+import com.fongmi.android.tv.ad.audio.AdAudioRuleSnapshot;
 import com.fongmi.android.tv.ad.audio.AdAudioSetting;
 import com.fongmi.android.tv.bean.AudioConfig;
 import com.fongmi.android.tv.bean.ShortDramaConfig;
@@ -63,7 +64,7 @@ public class SettingEnhanceActivity extends BaseActivity {
     private static final String URL_CNB = "https://cnb.cool/fish2018/ext";
 
     private ActivitySettingEnhanceBinding mBinding;
-    private volatile AdAudioRuleStore.Snapshot adAudioSnapshot = AdAudioRuleStore.get().current();
+    private volatile AdAudioRuleSnapshot adAudioSnapshot = AdAudioRuleStore.get().current();
     private final ActivityResultLauncher<String[]> adAudioRulePicker =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::importAdAudioRules);
 
@@ -301,7 +302,7 @@ public class SettingEnhanceActivity extends BaseActivity {
 
     private String getAdAudioFingerprintText() {
         String enabled = getSwitch(AdAudioSetting.isEnabled());
-        AdAudioRuleStore.Snapshot snapshot = adAudioSnapshot;
+        AdAudioRuleSnapshot snapshot = adAudioSnapshot;
         if (snapshot == null || snapshot.hasError()) {
             return enabled + " · " + getString(R.string.setting_ad_audio_rule_error);
         }
