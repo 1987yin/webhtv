@@ -69,6 +69,7 @@ import com.fongmi.android.tv.player.ijk.IjkBufferController;
 import com.fongmi.android.tv.player.ijk.IjkBufferPolicy;
 import com.fongmi.android.tv.player.ijk.IjkDecodePressureController;
 import com.fongmi.android.tv.player.ijk.IjkDecodePressurePolicy;
+import com.fongmi.android.tv.player.ijk.IjkFirstFrameWatchdog;
 import com.fongmi.android.tv.player.ijk.IjkRealtimeRecoveryController;
 import com.fongmi.android.tv.player.ijk.IjkRealtimeRecoveryPolicy;
 import com.fongmi.android.tv.player.ijk.IjkRuntimeProfileController;
@@ -215,6 +216,7 @@ public class PlayerManager implements ParseCallback {
     private final IjkDecodePressureController ijkDecodePressureController;
     private final IjkRealtimeRecoveryController ijkRealtimeRecoveryController;
     private final IjkRuntimeProfileController ijkRuntimeProfileController;
+    private final IjkFirstFrameWatchdog ijkFirstFrameWatchdog;
     private final ForwardBufferTrend networkProtectionTrend;
     private final LiveDanmakuBatcher liveDanmakuBatcher;
     private final LiveDanmakuBuffer liveDanmakuBuffer;
@@ -347,6 +349,7 @@ public class PlayerManager implements ParseCallback {
                 new IjkRealtimeRecoveryController();
         this.ijkRuntimeProfileController =
                 IjkRuntimeProfiles.process().newController();
+        this.ijkFirstFrameWatchdog = new IjkFirstFrameWatchdog();
         this.mpvResourceMemoryRegistration = PlaybackMemoryCoordinator.process().addListener(update ->
                 App.post(() -> onMpvResourceMemoryUpdate(update)));
         this.ijkBufferMemoryRegistration = PlaybackMemoryCoordinator.process().addListener(update ->
@@ -3566,19 +3569,116 @@ public void resetTrack(int type) {
         publishIjkRuntimeObservation(observation, now);
     }
 
-    private void evaluateIjkRuntimeProfile(
+    private boolean evaluateIjkRuntimeProfile(
             PlaybackTelemetry.RuntimeObservation runtime,
             long nowElapsedMs) {
-        if (!playbackAutoSession.active()) return;
+        if (!playbackAutoSession.active()) return false;
         long now = Math.max(0, nowElapsedMs);
+        IjkRuntimeProfileController.Facts facts = currentIjkRuntimeFacts(now);
+        IjkRuntimeProfileController.RuntimeSample sample =
+                currentIjkRuntimeSample(runtime, now);
         IjkRuntimeProfileController.Observation observation =
                 ijkRuntimeProfileController.observe(
                         playbackAutoSession,
-                        currentIjkRuntimeFacts(now),
-                        currentIjkRuntimeSample(runtime, now),
+                        facts,
+                        sample,
                         now,
                         System.currentTimeMillis());
         publishIjkRuntimeObservation(observation, now);
+        if (experimentAllowed(
+                PlaybackExperimentPolicy.Action.IJK_RUNTIME_KERNEL_FALLBACK)) {
+            IjkRuntimeProfileController.Decision decision =
+                    ijkRuntimeProfileController.handleFirstFrameTimeout(
+                            playbackAutoSession,
+                            facts,
+                            sample,
+                            now,
+                            System.currentTimeMillis());
+            if (decision != null) {
+                publishIjkRuntimeFailureDecision(decision, now);
+                if (decision.requestsSwitch()) {
+                    boolean switched = switchIjkRuntimeFallback(decision);
+                    if (!switched) {
+                        ijkRuntimeProfileController.onSwitchStartFailed(
+                                playbackAutoSession,
+                                System.currentTimeMillis());
+                        publishIjkRuntimeSwitchStartFailure(
+                                "switch-start-failed");
+                    }
+                    if (switched) return true;
+                }
+            }
+        }
+        return evaluateIjkFirstFrameWatchdog(facts, sample, now);
+    }
+
+
+    private boolean evaluateIjkFirstFrameWatchdog(
+            IjkRuntimeProfileController.Facts facts,
+            IjkRuntimeProfileController.RuntimeSample sample,
+            long nowElapsedMs) {
+        IjkFirstFrameWatchdog.Decision decision =
+                ijkFirstFrameWatchdog.evaluate(
+                        playbackAutoSession,
+                        new IjkFirstFrameWatchdog.RuntimeSample(
+                                sample.active(),
+                                hasVideoTrackForFirstFrame(facts),
+                                sample.outputFrameRateUsable()),
+                        nowElapsedMs);
+        if (!decision.timedOut()) return false;
+        int fallbackMode = PlayerSetting.getFailureFallback();
+        int decode = engine == null ? PlayerEngine.HARD : engine.getDecode();
+        int fallbackAction = nextFallbackAction(fallbackMode, decode);
+        PlaybackTrace.log(
+                "ijk-first-frame-watchdog",
+                playbackTrace.current(),
+                "action=timeout activeMs=%d decode=%d fallbackMode=%d fallbackAction=%d",
+                decision.activeDurationMs(),
+                decode,
+                fallbackMode,
+                fallbackAction);
+        App.removeCallbacks(runnable);
+        completeIjkBufferManagedReload(
+                false, "first-frame-timeout", nowElapsedMs, true);
+        ijkRealtimeRecoveryController.onPlaybackError(playbackAutoSession);
+        ijkDecodePressureController.onPlaybackError(playbackAutoSession);
+        PlaybackException error = new PlaybackException(
+                ResUtil.getString(R.string.error_play_stage_output),
+                null,
+                PlaybackException.ERROR_CODE_DECODING_FAILED);
+        if (fallbackPlayback(error)) {
+            PlaybackTrace.log(
+                    "ijk-first-frame-watchdog",
+                    playbackTrace.current(),
+                    "action=fallback result=started fallbackAction=%d",
+                    fallbackAction);
+            return true;
+        }
+        PlaybackTrace.log(
+                "ijk-first-frame-watchdog",
+                playbackTrace.current(),
+                "action=fallback result=unavailable fallbackAction=%d",
+                fallbackAction);
+        finishPlaybackProfileAbSession(
+                "first-frame-timeout", nowElapsedMs);
+        callback.onError(ResUtil.getString(R.string.error_play_stage_output));
+        return true;
+    }
+
+    // 首帧看门狗的视频轨证据：轨道列表在 prepared 后即可得，不依赖
+    // onVideoSizeChanged，因此黑屏且从未回调尺寸的场景也能被判定。
+    private boolean hasVideoTrackForFirstFrame(
+            IjkRuntimeProfileController.Facts facts) {
+        if (engine != null) {
+            try {
+                Tracks tracks = engine.getCurrentTracks();
+                if (tracks != null && tracks.containsType(C.TRACK_TYPE_VIDEO)) {
+                    return true;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return facts.hasVideoTrackEvidence();
     }
 
     private void finishIjkRuntimeProfileSession(
@@ -5621,10 +5721,26 @@ public void resetTrack(int type) {
         runWithProxy(source, playbackSpec -> engine.restart(playbackSpec, position, playWhenReady));
     }
 
+    private void beginPlaybackAttempt() {
+        if (!playbackAutoSession.active()) return;
+        long now = SystemClock.elapsedRealtime();
+        // 自动档位只有在实验开关允许时才会走 handleFirstFrameTimeout；
+        // 否则由独立看门狗接管，避免两条路径都不生效留下无保护缺口。
+        boolean ijkRuntimeCoversFirstFrame =
+                ijkRuntimeProfileController.snapshot().managed()
+                        && experimentAllowed(PlaybackExperimentPolicy.Action
+                        .IJK_RUNTIME_KERNEL_FALLBACK);
+        ijkRuntimeProfileController.onPlaybackAttemptStarted(
+                playbackAutoSession, currentIjkRuntimeSample(null, now));
+        ijkFirstFrameWatchdog.beginAttempt(
+                playbackAutoSession, isIjk() && !ijkRuntimeCoversFirstFrame);
+    }
+
     private void runWithProxy(PlaySpec source, ProxyPlaybackAction action) {
         ProxyStreamRegistration previousProxyRegistration = multiThreadProxyRegistration;
         PreparedProxyPlayback prepared = prepareProxyPlayback(source);
         try {
+            beginPlaybackAttempt();
             action.run(prepared.spec());
             commitProxyPlayback(previousProxyRegistration, prepared.registration());
         } catch (RuntimeException | Error failure) {
@@ -6551,6 +6667,7 @@ public void resetTrack(int type) {
         ijkDecodePressureController.beginSession(playbackAutoSession);
         ijkRealtimeRecoveryController.beginSession(playbackAutoSession);
         ijkRuntimeProfileController.beginSession(playbackAutoSession);
+        ijkFirstFrameWatchdog.beginSession(playbackAutoSession);
         ijkBufferManagedReload = false;
         pendingIjkBufferDecision = null;
         pendingIjkDecodePressureDecision = null;
@@ -6774,7 +6891,7 @@ public void resetTrack(int type) {
         playbackTelemetryCoordinator.publishRuntime(
                 playbackAutoSession, observation, now);
         observePlaybackProfileAb(observation, now);
-        evaluateIjkRuntimeProfile(observation, now);
+        if (evaluateIjkRuntimeProfile(observation, now)) return;
         evaluateExoRtspLiveLag(observation, now);
         if (phaseOverride != PlaybackAutoContext.PlaybackPhase.ERROR) {
             evaluateIjkBuffer(IjkBufferController.Trigger.RUNTIME, now);
@@ -7488,6 +7605,7 @@ public void resetTrack(int type) {
         ijkDecodePressureController.endSession(playbackAutoSession);
         ijkRealtimeRecoveryController.endSession(playbackAutoSession);
         ijkRuntimeProfileController.endSession(playbackAutoSession);
+        ijkFirstFrameWatchdog.endSession(playbackAutoSession);
         ijkBufferManagedReload = false;
         pendingIjkBufferDecision = null;
         pendingIjkDecodePressureDecision = null;
@@ -7795,7 +7913,10 @@ public void resetTrack(int type) {
             if (state == Player.STATE_READY) {
                 manualPlayerSwitchPending = false;
                 App.post(PlayerManager.this::refreshAdAudioRuntime);
-                ijkRuntimeProfileController.onPrepared(playbackAutoSession);
+                ijkRuntimeProfileController.onPrepared(
+                        playbackAutoSession, SystemClock.elapsedRealtime());
+                ijkFirstFrameWatchdog.onPrepared(
+                        playbackAutoSession, SystemClock.elapsedRealtime());
                 onMpvHlsPlaybackReady(SystemClock.elapsedRealtime());
                 if (isIjk()) {
                     completeIjkBufferManagedReload(
@@ -7912,6 +8033,7 @@ public void resetTrack(int type) {
             playbackTrace.mark(PlaybackTrace.Stage.FIRST_FRAME, "source=media3 player=" + playerType);
             publishPlaybackAutoContext(true);
             onIjkRuntimeFirstFrame(SystemClock.elapsedRealtime());
+            ijkFirstFrameWatchdog.onFirstFrame(playbackAutoSession);
             publishPlaybackTelemetry();
         }
 
