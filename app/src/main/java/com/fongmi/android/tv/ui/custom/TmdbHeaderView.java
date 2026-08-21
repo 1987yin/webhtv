@@ -1758,8 +1758,11 @@ public class TmdbHeaderView {
         setTopMargin(R.id.tmdbCrewLabel, 24);
         setTopMargin(R.id.tmdbCrew, 12);
         setTopMargin(R.id.tmdbPhotosLabel, 24);
-        setTopMargin(R.id.tmdbPostersLabel, 24);
         setTopMargin(R.id.tmdbPhotos, 12);
+        setTopMargin(R.id.tmdbPostersLabel, 24);
+        setTopMargin(R.id.tmdbPosters, 12);
+        setTopMargin(R.id.tmdbRelatedVideosLabel, 24);
+        setTopMargin(R.id.tmdbRelatedVideos, 12);
         setTopMargin(R.id.tmdbExternalLinksLabel, 24);
         setTopMargin(R.id.tmdbExternalLinks, 12);
         setTopMargin(R.id.tmdbRecommendationsLabel, 24);
