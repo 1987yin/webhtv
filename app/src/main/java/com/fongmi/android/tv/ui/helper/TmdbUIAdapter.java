@@ -13,6 +13,8 @@ import com.fongmi.android.tv.bean.TmdbItem;
 import com.fongmi.android.tv.bean.TmdbVideo;
 import com.fongmi.android.tv.bean.TmdbMatchCache;
 import com.fongmi.android.tv.bean.TmdbSeasonMatchCache;
+import com.fongmi.android.tv.bean.TmdbSeasonSegment;
+import com.fongmi.android.tv.bean.TmdbSeasonScope;
 import com.fongmi.android.tv.bean.TmdbPerson;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.event.RefreshEvent;
@@ -45,6 +47,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -88,6 +91,7 @@ public class TmdbUIAdapter {
     private PersonalRecommendationService.RecommendationPage personalDoubanPage;
     private PersonalRecommendationService.RecommendationPage personalAiPage;
     private Vod vod;
+    private Flag activeFlag;
     private volatile int sourceSeasonNumber = -1;
     private volatile TmdbSeasonResolver.Resolution seasonResolution;
     private List<SeasonOption> seasonOptions = List.of();
@@ -95,6 +99,7 @@ public class TmdbUIAdapter {
     private int requestSeasonNumber = -1;
     private int titleSeasonNumber = -1;
     private String sourceCacheTitle = "";
+    private String activeFlagKey = "";
     private TmdbEpisodeInfo episodeInfo;
     private int recommendationPage;
     private boolean recommendationHasMore;
@@ -151,6 +156,107 @@ public class TmdbUIAdapter {
         this.personalAiUpdateListener = listener;
     }
 
+    public void setActiveFlag(Flag flag) {
+        activeFlag = flag;
+        int index = flagIndex(vod == null ? null : vod.getFlags(), flag);
+        String nextKey = flagKey(flag, index);
+        if (vod != null) captureActiveFlagSeasonEvidence(vod);
+        if (!nextKey.equals(activeFlagKey)) {
+            activeFlagKey = nextKey;
+            if (loaded && vod != null && tmdbItem != null && tmdbDetail != null) refreshEpisodeMetadataAfterBinding();
+        }
+    }
+
+    public static String flagKey(Flag flag, int index) {
+        return Flag.stableKey(flag, index);
+    }
+
+    public static boolean isFlagKey(String value) {
+        if (TextUtils.isEmpty(value)) return false;
+        int separator = value.lastIndexOf('#');
+        if (separator <= 0 || separator == value.length() - 1) return false;
+        try {
+            return Integer.parseInt(value.substring(separator + 1)) >= 0;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    public String activeFlagKey(Flag flag) {
+        return flag != null && flag == activeFlag ? activeFlagKey : "";
+    }
+
+    public static int flagIndex(List<Flag> flags, Flag target) {
+        if (flags == null || target == null) return -1;
+        for (int i = 0; i < flags.size(); i++) if (flags.get(i) == target) return i;
+        return flags.indexOf(target);
+    }
+
+    public static Flag selectPlaybackFlag(List<Flag> flags, String requestedFlagKey,
+                                          String requestedEpisodeUrl, String requestedFlagName) {
+        if (flags == null || flags.isEmpty()) return null;
+        if (isFlagKey(requestedFlagKey)) {
+            Flag keyed = null;
+            for (int i = 0; i < flags.size(); i++) {
+                if (TextUtils.equals(requestedFlagKey, flagKey(flags.get(i), i))) {
+                    keyed = flags.get(i);
+                    break;
+                }
+            }
+            if (keyed != null && (TextUtils.isEmpty(requestedEpisodeUrl)
+                    || containsEpisodeUrl(keyed, requestedEpisodeUrl))) return keyed;
+            return uniqueFlagForEpisodeUrl(flags, requestedEpisodeUrl);
+        }
+        if (!TextUtils.isEmpty(requestedEpisodeUrl)) {
+            for (Flag flag : flags) {
+                for (Episode episode : flag.getEpisodes()) {
+                    if (TextUtils.equals(requestedEpisodeUrl, episode.getUrl())) return flag;
+                }
+            }
+        }
+        for (Flag flag : flags) {
+            if (!TextUtils.isEmpty(requestedFlagName)
+                    && TextUtils.equals(requestedFlagName, flag.getFlag())) return flag;
+        }
+        return null;
+    }
+
+    private static Flag uniqueFlagForEpisodeUrl(List<Flag> flags, String episodeUrl) {
+        if (TextUtils.isEmpty(episodeUrl)) return null;
+        Flag match = null;
+        for (Flag flag : flags) {
+            if (!containsEpisodeUrl(flag, episodeUrl)) continue;
+            if (match != null) return null;
+            match = flag;
+        }
+        return match;
+    }
+
+    private static boolean containsEpisodeUrl(Flag flag, String episodeUrl) {
+        if (flag == null || TextUtils.isEmpty(episodeUrl)) return false;
+        for (Episode episode : flag.getEpisodes()) {
+            if (TextUtils.equals(episodeUrl, episode.getUrl())) return true;
+        }
+        return false;
+    }
+
+    public record FlagSeasonBinding(String flagKey, TmdbSeasonScope scope) {
+    }
+
+    public static Map<Integer, List<String>> projectSourceFlags(List<FlagSeasonBinding> bindings) {
+        Map<Integer, List<String>> result = new LinkedHashMap<>();
+        if (bindings == null) return result;
+        for (FlagSeasonBinding binding : bindings) {
+            if (binding == null || TextUtils.isEmpty(binding.flagKey()) || binding.scope() == null
+                    || !binding.scope().isKnown()) continue;
+            for (Integer season : binding.scope().getSeasons()) {
+                if (season == null || season < 0) continue;
+                result.computeIfAbsent(season, ignored -> new ArrayList<>()).add(binding.flagKey());
+            }
+        }
+        return result;
+    }
+
     public TmdbItem getTmdbItem() {
         return tmdbItem;
     }
@@ -187,23 +293,15 @@ public class TmdbUIAdapter {
     }
 
     public boolean applyValidatedFlatSeasonMapping() {
-        if (vod == null || tmdbItem == null || !tmdbItem.isTv() || seasonOptions == null || seasonOptions.size() <= 1 || vod.getFlags() == null) return false;
+        if (vod == null || tmdbItem == null || !tmdbItem.isTv() || seasonOptions == null || seasonOptions.size() <= 1 || activeFlag == null) return false;
         List<Integer> seasons = new ArrayList<>();
         Map<Integer, Integer> counts = new java.util.LinkedHashMap<>();
         for (SeasonOption option : seasonOptions) {
             seasons.add(option.getSeasonNumber());
             counts.put(option.getSeasonNumber(), option.getEpisodeCount());
         }
-        boolean applicable = false;
-        for (Flag flag : vod.getFlags()) {
-            if (flag == null || flag.getEpisodes() == null) continue;
-            List<Integer> sourceNumbers = new ArrayList<>();
-            for (Episode episode : flag.getEpisodes()) sourceNumbers.add(episode == null ? -1 : episode.getNumber());
-            if (EpisodeSeasonPolicy.canMapFlatEpisodeKeys(sourceNumbers, seasons, counts)) {
-                applicable = true;
-                break;
-            }
-        }
+        boolean applicable = EpisodeSeasonPolicy.mappedSeasonsByEpisodeNumbers(
+                sourceEpisodeNumbers(activeFlag), seasons, counts).size() > 1;
         return applicable && updateSeasonBinding(null, TmdbSeasonMatchCache.Mode.MANUAL_MULTI_SLICE);
     }
     public String getPosterUrl() {
@@ -579,16 +677,18 @@ public class TmdbUIAdapter {
                 vodTitle,
                 sourceVod == null ? "" : sourceVod.getRemarks());
 
-        List<Integer> explicit = new ArrayList<>();
+        captureActiveFlagSeasonEvidence(sourceVod);
+    }
+
+    private void captureActiveFlagSeasonEvidence(Vod sourceVod) {
+        Flag sourceFlag = activeFlagFor(sourceVod);
+        List<Integer> explicit = explicitSourceSeasons(sourceFlag);
         List<Integer> metadata = new ArrayList<>();
-        if (sourceVod != null && sourceVod.getFlags() != null) {
-            for (Flag flag : sourceVod.getFlags()) {
-                addExplicitSeason(explicit, EpisodeSeasonPolicy.resolveExplicitSourceSeason(flag == null ? "" : flag.getShow()));
-                if (flag == null || flag.getEpisodes() == null) continue;
-                for (Episode episode : flag.getEpisodes()) {
-                    addExplicitSeason(explicit, EpisodeSeasonPolicy.resolveExplicitSourceSeason(episode == null ? "" : episode.getName()));
-                    TmdbEpisode tmdbEpisode = episode == null ? null : episode.getTmdbEpisode();
-                    if (tmdbEpisode != null && tmdbEpisode.getNumber() > 0) addExplicitSeason(metadata, tmdbEpisode.getSeasonNumber());
+        if (sourceFlag != null && sourceFlag.getEpisodes() != null) {
+            for (Episode episode : sourceFlag.getEpisodes()) {
+                TmdbEpisode tmdbEpisode = episode == null ? null : episode.getTmdbEpisode();
+                if (tmdbEpisode != null && tmdbEpisode.getNumber() > 0) {
+                    addExplicitSeason(metadata, tmdbEpisode.getSeasonNumber());
                 }
             }
         }
@@ -600,6 +700,36 @@ public class TmdbUIAdapter {
                 : explicit.size() == 1
                 ? explicit.get(0)
                 : explicit.isEmpty() && metadata.size() == 1 ? metadata.get(0) : -1;
+    }
+
+    private Flag activeFlagFor(Vod sourceVod) {
+        if (sourceVod == null || sourceVod.getFlags() == null || sourceVod.getFlags().isEmpty()) return null;
+        return resolveActiveFlag(sourceVod.getFlags(), activeFlag, activeFlagKey);
+    }
+
+    static Flag resolveActiveFlag(List<Flag> flags, Flag activeFlag, String activeFlagKey) {
+        if (flags == null || flags.isEmpty()) return null;
+        if (activeFlag != null) for (Flag flag : flags) if (flag == activeFlag) return flag;
+        if (!TextUtils.isEmpty(activeFlagKey)) {
+            for (int i = 0; i < flags.size(); i++) {
+                if (TextUtils.equals(activeFlagKey, flagKey(flags.get(i), i))) return flags.get(i);
+            }
+        }
+        return flags.size() == 1 ? flags.get(0) : null;
+    }
+
+    static List<Integer> explicitSourceSeasons(Flag flag) {
+        List<Integer> seasons = new ArrayList<>();
+        if (flag == null) return seasons;
+        addExplicitSeason(seasons, EpisodeSeasonPolicy.resolveExplicitSourceSeason(flag.getFlag()));
+        addExplicitSeason(seasons, EpisodeSeasonPolicy.resolveExplicitSourceSeason(flag.getShow()));
+        if (flag.getEpisodes() != null) {
+            for (Episode episode : flag.getEpisodes()) {
+                addExplicitSeason(seasons, EpisodeSeasonPolicy.resolveExplicitSourceSeason(
+                        episode == null ? "" : episode.getName()));
+            }
+        }
+        return seasons;
     }
 
     static String selectSourceCacheTitle(String sourceTitle, String intentTitle, String vodTitle) {
@@ -614,9 +744,19 @@ public class TmdbUIAdapter {
             String vodId,
             String sourceTitle,
             TmdbItem item) {
+        return removeStaleSeasonBinding(cache, siteKey, vodId, sourceTitle, "", item);
+    }
+
+    static boolean removeStaleSeasonBinding(
+            TmdbSeasonMatchCache cache,
+            String siteKey,
+            String vodId,
+            String sourceTitle,
+            String flagKey,
+            TmdbItem item) {
         return cache != null
                 && item != null
-                && cache.removeIfMediaChanged(siteKey, vodId, sourceTitle, item.getTmdbId(), item.getMediaType());
+                && cache.removeIfMediaChanged(siteKey, vodId, sourceTitle, flagKey, item.getTmdbId(), item.getMediaType());
     }
 
     private static void addExplicitSeason(List<Integer> seasons, int season) {
@@ -624,6 +764,7 @@ public class TmdbUIAdapter {
     }
 
     private void resolveSeason(Vod sourceVod, TmdbItem item, JsonObject detail) {
+        synchronized (Setting.class) {
         seasonOptions = parseSeasonOptions(detail);
         List<Integer> tmdbSeasons = new ArrayList<>();
         Map<Integer, Integer> seasonCounts = new HashMap<>();
@@ -632,23 +773,51 @@ public class TmdbUIAdapter {
             seasonCounts.put(option.getSeasonNumber(), option.getEpisodeCount());
         }
         TmdbSeasonMatchCache cache = Setting.getTmdbSeasonMatchCache();
+        Map<String, String> routeFingerprints = new LinkedHashMap<>();
+        if (sourceVod != null && sourceVod.getFlags() != null) {
+            for (int i = 0; i < sourceVod.getFlags().size(); i++) {
+                Flag flag = sourceVod.getFlags().get(i);
+                String key = flagKey(flag, i);
+                routeFingerprints.put(key, sourceFingerprint(flag, key, seasonCounts));
+            }
+        }
+        if (cache.pruneRouteBindings(cacheSiteKey(sourceVod), cacheVodId(sourceVod), routeFingerprints)) {
+            Setting.putTmdbSeasonMatchCache(cache);
+        }
         TmdbSeasonMatchCache.Entry manual = cache.find(
                 cacheSiteKey(sourceVod),
                 cacheVodId(sourceVod),
                 sourceCacheTitle,
-                item == null ? -1 : item.getTmdbId());
+                activeFlagKey,
+                item == null ? -1 : item.getTmdbId(),
+                allowLegacyVodBinding(sourceVod));
+        int manualTmdbEpisodeCount = manual == null || manual.getSeasonNumber() == null
+                ? 0 : seasonCounts.getOrDefault(manual.getSeasonNumber(), 0);
+        if (manual != null && !manual.isFresh(sourceFingerprint(sourceVod),
+                sourceEpisodeCount(activeFlagFor(sourceVod)), manualTmdbEpisodeCount)) {
+            cache.remove(cacheSiteKey(sourceVod), cacheVodId(sourceVod), sourceCacheTitle, activeFlagKey);
+            Setting.putTmdbSeasonMatchCache(cache);
+            SpiderDebug.log("tmdb", "discard stale source shape source=%s tmdb=%d",
+                    sourceCacheTitle, item == null ? -1 : item.getTmdbId());
+            manual = null;
+        }
         if (manual != null
                 && manual.getMode() == TmdbSeasonMatchCache.Mode.MANUAL_SEASON
                 && (manual.getSeasonNumber() == null || !containsSeasonOption(manual.getSeasonNumber()))) {
-            cache.remove(cacheSiteKey(sourceVod), cacheVodId(sourceVod), sourceCacheTitle);
+            cache.remove(cacheSiteKey(sourceVod), cacheVodId(sourceVod), sourceCacheTitle, activeFlagKey);
             Setting.putTmdbSeasonMatchCache(cache);
             SpiderDebug.log("tmdb", "discard removed season source=%s tmdb=%d season=%s",
                     sourceCacheTitle, item == null ? -1 : item.getTmdbId(), manual.getSeasonNumber());
             manual = null;
         }
+        boolean validManualMulti = manual == null || manual.getMode() != TmdbSeasonMatchCache.Mode.MANUAL_MULTI_SLICE
+                || manual.getSegments().isEmpty()
+                ? hasSafeFlatSeasonMapping(activeFlagFor(sourceVod), tmdbSeasons, seasonCounts)
+                : TmdbSeasonResolver.hasValidPersistedSegments(manual, tmdbSeasons, seasonCounts,
+                sourceEpisodeCount(activeFlagFor(sourceVod)));
         if (manual != null && manual.getMode() == TmdbSeasonMatchCache.Mode.MANUAL_MULTI_SLICE
-                && !hasSafeFlatSeasonMapping(sourceVod, tmdbSeasons, seasonCounts)) {
-            cache.remove(cacheSiteKey(sourceVod), cacheVodId(sourceVod), sourceCacheTitle);
+                && !validManualMulti) {
+            cache.remove(cacheSiteKey(sourceVod), cacheVodId(sourceVod), sourceCacheTitle, activeFlagKey);
             Setting.putTmdbSeasonMatchCache(cache);
             SpiderDebug.log("tmdb", "discard unsafe multi-slice source=%s tmdb=%d",
                     sourceCacheTitle, item == null ? -1 : item.getTmdbId());
@@ -661,24 +830,36 @@ public class TmdbUIAdapter {
                 titleSeasonNumber,
                 tmdbSeasons,
                 seasonCounts,
-                sourceEpisodeCount(sourceVod),
-                sourceEpisodeNumbers(sourceVod),
+                sourceEpisodeCount(activeFlagFor(sourceVod)),
+                sourceEpisodeNumbers(activeFlagFor(sourceVod)),
+                explicitEpisodeSeasons(activeFlagFor(sourceVod)),
                 !SiteApi.PUSH.equals(cacheSiteKey(sourceVod)));
         Integer selected = seasonResolution.getSelectedSeason();
         sourceSeasonNumber = selected == null ? -1 : selected;
+        TmdbSeasonScope routeScope = seasonResolution.toScope();
+        if (seasonResolution.getSource() == TmdbSeasonResolver.Source.REQUEST) {
+            routeScope = TmdbSeasonResolver.resolve(
+                    -1, manual, explicitSourceSeasons, titleSeasonNumber, tmdbSeasons, seasonCounts,
+                    sourceEpisodeCount(activeFlagFor(sourceVod)), sourceEpisodeNumbers(activeFlagFor(sourceVod)),
+                    explicitEpisodeSeasons(activeFlagFor(sourceVod)),
+                    !SiteApi.PUSH.equals(cacheSiteKey(sourceVod)))
+                    .toScope();
+        }
+        Flag resolvedFlag = activeFlagFor(sourceVod);
+        if (cache.recordRouteBinding(cacheSiteKey(sourceVod), cacheVodId(sourceVod), activeFlagKey,
+                resolvedFlag == null ? "" : resolvedFlag.getFlag(),
+                sourceFingerprint(resolvedFlag, activeFlagKey, seasonCounts), item == null ? -1 : item.getTmdbId(),
+                item == null ? "" : item.getMediaType(), routeScope)) {
+            Setting.putTmdbSeasonMatchCache(cache);
+        }
         SpiderDebug.log("tmdb", "season resolve status=%s source=%s season=%d reason=%s",
                 seasonResolution.getStatus(), seasonResolution.getSource(), sourceSeasonNumber, seasonResolution.getReason());
+        }
     }
 
-    private static boolean hasSafeFlatSeasonMapping(Vod sourceVod, List<Integer> seasons, Map<Integer, Integer> seasonCounts) {
-        if (sourceVod == null || sourceVod.getFlags() == null) return false;
-        for (Flag flag : sourceVod.getFlags()) {
-            if (flag == null || flag.getEpisodes() == null) continue;
-            List<Integer> sourceNumbers = new ArrayList<>();
-            for (Episode episode : flag.getEpisodes()) sourceNumbers.add(episode == null ? -1 : episode.getNumber());
-            if (EpisodeSeasonPolicy.canMapFlatEpisodeKeys(sourceNumbers, seasons, seasonCounts)) return true;
-        }
-        return false;
+    private static boolean hasSafeFlatSeasonMapping(Flag flag, List<Integer> seasons, Map<Integer, Integer> seasonCounts) {
+        return flag != null && EpisodeSeasonPolicy.mappedSeasonsByEpisodeNumbers(
+                sourceEpisodeNumbers(flag), seasons, seasonCounts).size() > 1;
     }
 
     public boolean applyManualSeason(int seasonNumber) {
@@ -692,9 +873,11 @@ public class TmdbUIAdapter {
 
     public boolean clearManualSeasonBinding() {
         if (vod == null || tmdbItem == null) return false;
-        TmdbSeasonMatchCache cache = Setting.getTmdbSeasonMatchCache();
-        cache.remove(cacheSiteKey(vod), cacheVodId(vod), sourceCacheTitle);
-        Setting.putTmdbSeasonMatchCache(cache);
+        synchronized (Setting.class) {
+            TmdbSeasonMatchCache cache = Setting.getTmdbSeasonMatchCache();
+            cache.remove(cacheSiteKey(vod), cacheVodId(vod), sourceCacheTitle, activeFlagKey);
+            Setting.putTmdbSeasonMatchCache(cache);
+        }
         refreshEpisodeMetadataAfterBinding();
         return true;
     }
@@ -702,19 +885,23 @@ public class TmdbUIAdapter {
     private boolean updateSeasonBinding(Integer seasonNumber, TmdbSeasonMatchCache.Mode mode) {
         if (vod == null || tmdbItem == null || !tmdbItem.isTv() || TextUtils.isEmpty(sourceCacheTitle)) return false;
         if (mode == TmdbSeasonMatchCache.Mode.MANUAL_SEASON && (seasonNumber == null || !containsSeasonOption(seasonNumber))) return false;
-        TmdbSeasonMatchCache cache = Setting.getTmdbSeasonMatchCache();
-        cache.put(
+        synchronized (Setting.class) {
+            TmdbSeasonMatchCache cache = Setting.getTmdbSeasonMatchCache();
+            cache.put(
                 cacheSiteKey(vod),
                 cacheVodId(vod),
                 sourceCacheTitle,
+                activeFlagKey,
                 tmdbItem.getTmdbId(),
                 tmdbItem.getMediaType(),
                 seasonNumber,
                 mode,
                 sourceFingerprint(vod),
-                sourceEpisodeCount(vod),
-                seasonEpisodeCount(seasonNumber));
-        Setting.putTmdbSeasonMatchCache(cache);
+                sourceEpisodeCount(activeFlagFor(vod)),
+                seasonEpisodeCount(seasonNumber),
+                    mode == TmdbSeasonMatchCache.Mode.MANUAL_MULTI_SLICE ? multiSliceSegments() : List.of());
+            Setting.putTmdbSeasonMatchCache(cache);
+        }
         refreshEpisodeMetadataAfterBinding();
         return true;
     }
@@ -725,7 +912,7 @@ public class TmdbUIAdapter {
         int metadataGeneration = ++episodeMetadataGeneration;
         Integer selectedSeason;
         synchronized (episodeMetadataLock) {
-            clearEpisodeMetadata(vod);
+            clearEpisodeMetadata(activeFlagFor(vod));
             resolveSeason(vod, tmdbItem, tmdbDetail);
             episodeInfo = TmdbEpisodeInfo.from(tmdbItem.getMediaType(), tmdbDetail, sourceSeasonNumber);
             selectedSeason = currentEpisodeMetadataSeason();
@@ -752,41 +939,69 @@ public class TmdbUIAdapter {
         return 0;
     }
 
-    private static int sourceEpisodeCount(Vod sourceVod) {
-        int count = 0;
-        if (sourceVod == null || sourceVod.getFlags() == null) return count;
-        for (Flag flag : sourceVod.getFlags()) {
-            if (flag != null && flag.getEpisodes() != null) count = Math.max(count, flag.getEpisodes().size());
-        }
-        return count;
+    private List<TmdbSeasonSegment> multiSliceSegments() {
+        if (seasonOptions == null || seasonOptions.isEmpty()) return List.of();
+        List<Integer> seasons = new ArrayList<>();
+        Map<Integer, Integer> counts = new java.util.LinkedHashMap<>();
+        for (SeasonOption option : seasonOptions) seasons.add(option.getSeasonNumber());
+        for (SeasonOption option : seasonOptions) counts.put(option.getSeasonNumber(), option.getEpisodeCount());
+        return TmdbSeasonResolver.flatSeasonSegments(sourceEpisodeNumbers(activeFlagFor(vod)), seasons, counts);
     }
 
-    private static List<Integer> sourceEpisodeNumbers(Vod sourceVod) {
+    private static boolean allowLegacyVodBinding(Vod sourceVod) {
+        return sourceVod != null && sourceVod.getFlags() != null && sourceVod.getFlags().size() <= 1;
+    }
+
+    static int sourceEpisodeCount(Flag flag) {
+        return flag == null || flag.getEpisodes() == null ? 0 : flag.getEpisodes().size();
+    }
+
+    static List<Integer> sourceEpisodeNumbers(Flag flag) {
         List<Integer> numbers = new ArrayList<>();
-        if (sourceVod == null || sourceVod.getFlags() == null) return numbers;
-        for (Flag flag : sourceVod.getFlags()) {
-            if (flag == null || flag.getEpisodes() == null) continue;
-            for (Episode episode : flag.getEpisodes()) numbers.add(episode == null ? -1 : episode.getNumber());
-        }
+        if (flag == null || flag.getEpisodes() == null) return numbers;
+        for (Episode episode : flag.getEpisodes()) numbers.add(episode == null ? -1 : episode.getNumber());
         return numbers;
+    }
+
+    static List<Integer> explicitEpisodeSeasons(Flag flag) {
+        List<Integer> seasons = new ArrayList<>();
+        if (flag == null || flag.getEpisodes() == null) return seasons;
+        for (Episode episode : flag.getEpisodes()) {
+            seasons.add(EpisodeSeasonPolicy.resolveExplicitSourceSeason(
+                    episode == null ? "" : episode.getName()));
+        }
+        return seasons;
     }
 
     private String sourceFingerprint(Vod sourceVod) {
         if (sourceVod == null) return "";
-        int flagCount = sourceVod.getFlags() == null ? 0 : sourceVod.getFlags().size();
         String title = TextUtils.isEmpty(sourceCacheTitle) ? sourceVod.getName() : sourceCacheTitle;
-        return title + "|" + flagCount + "|" + sourceEpisodeCount(sourceVod);
+        return manualBindingFingerprint(title, activeFlagFor(sourceVod), activeFlagKey);
     }
 
-    private static void clearEpisodeMetadata(Vod sourceVod) {
-        if (sourceVod == null || sourceVod.getFlags() == null) return;
-        for (Flag flag : sourceVod.getFlags()) {
-            if (flag == null || flag.getEpisodes() == null) continue;
-            for (Episode episode : flag.getEpisodes()) {
-                if (episode == null) continue;
-                episode.setTmdbEpisode(null);
-                episode.setDisplayName("");
-            }
+    public static String manualBindingFingerprint(String sourceTitle, Flag flag, String flagKey) {
+        return (sourceTitle == null ? "" : sourceTitle) + "|"
+                + (flagKey == null ? "" : flagKey) + "|"
+                + EpisodeSeasonSnapshot.structureFingerprint(flag == null ? null : flag.getEpisodes());
+    }
+
+    public static String sourceFingerprint(Flag flag, String flagKey, Map<Integer, Integer> seasonCounts) {
+        return (flagKey == null ? "" : flagKey) + "|"
+                + EpisodeSeasonSnapshot.structureFingerprint(flag == null ? null : flag.getEpisodes(), seasonCounts);
+    }
+
+    private Map<Integer, Integer> currentSeasonCounts() {
+        Map<Integer, Integer> counts = new HashMap<>();
+        for (SeasonOption option : seasonOptions) counts.put(option.getSeasonNumber(), option.getEpisodeCount());
+        return counts;
+    }
+
+    static void clearEpisodeMetadata(Flag flag) {
+        if (flag == null || flag.getEpisodes() == null) return;
+        for (Episode episode : flag.getEpisodes()) {
+            if (episode == null) continue;
+            episode.setTmdbEpisode(null);
+            episode.setDisplayName("");
         }
     }
 
@@ -874,11 +1089,19 @@ public class TmdbUIAdapter {
             SpiderDebug.log("tmdb", "detail core castParse source=%s cost=%dms count=%d title=%s", cachedCast == null || cachedCast.isEmpty() ? "service" : "memory-cache", System.currentTimeMillis() - castStart, cast.size(), item.getTitle());
             if (!isCurrentGeneration(generation)) return;
             this.vod = vod;
+            if (activeFlag != null) {
+                int activeIndex = flagIndex(vod == null ? null : vod.getFlags(), activeFlag);
+                activeFlagKey = flagKey(activeFlag, activeIndex);
+            }
+            captureActiveFlagSeasonEvidence(vod);
             tmdbItem = item;
             tmdbDetail = detail;
-            TmdbSeasonMatchCache seasonCache = Setting.getTmdbSeasonMatchCache();
-            if (removeStaleSeasonBinding(seasonCache, cacheSiteKey(vod), cacheVodId(vod), sourceCacheTitle, item)) {
-                Setting.putTmdbSeasonMatchCache(seasonCache);
+            synchronized (Setting.class) {
+                TmdbSeasonMatchCache seasonCache = Setting.getTmdbSeasonMatchCache();
+                if (seasonCache.removeIfMediaChanged(cacheSiteKey(vod), cacheVodId(vod), sourceCacheTitle,
+                        activeFlagKey, item.getTmdbId(), item.getMediaType(), allowLegacyVodBinding(vod))) {
+                    Setting.putTmdbSeasonMatchCache(seasonCache);
+                }
             }
             if (item.isTv()) {
                 resolveSeason(vod, item, detail);
@@ -1333,8 +1556,13 @@ public class TmdbUIAdapter {
         if (vod == null || item == null) return false;
         String title = item.getTitle();
         if (title == null || title.length() == 0) return false;
-        vod.setName(title);
+        vod.setName(sourceAwareTitle(vod.getName(), item, title));
         return true;
+    }
+
+    public static String sourceAwareTitle(String sourceTitle, TmdbItem item, String tmdbTitle) {
+        if (item != null && item.isTv() && EpisodeSeasonPolicy.resolveSourceSeason(sourceTitle) >= 0) return sourceTitle;
+        return tmdbTitle;
     }
 
     /**
@@ -1354,8 +1582,9 @@ public class TmdbUIAdapter {
             // 线路集号可靠时按显式集号匹配；出现重复、缺失或越界时按原始顺序匹配。
             synchronized (episodeMetadataLock) {
                 if (!isCurrentEpisodeMetadataRequest(generation, metadataGeneration, selectedSeason)) return false;
-                boolean changed = applyEpisodeMetadataFlags(vod.getFlags(), episodesByNumber, selectedSeason);
-                com.fongmi.android.tv.utils.TmdbEpisodeSorter.sort(vod);
+                Flag target = activeFlagFor(vod);
+                boolean changed = applyEpisodeMetadata(target == null ? null : target.getEpisodes(), episodesByNumber, selectedSeason);
+                com.fongmi.android.tv.utils.TmdbEpisodeSorter.sort(target);
                 SpiderDebug.log("tmdb", "应用第 %d 季集数标题: %d 集", selectedSeason, episodes.size());
                 return changed;
             }
@@ -1370,6 +1599,7 @@ public class TmdbUIAdapter {
         List<Integer> seasons = seasonResolution.getAvailableSeasons();
         Map<Integer, Integer> seasonCounts = new HashMap<>();
         for (SeasonOption option : seasonOptions) seasonCounts.put(option.getSeasonNumber(), option.getEpisodeCount());
+        List<TmdbSeasonSegment> persistedSegments = seasonResolution.getSegments();
         Map<Integer, Map<Integer, TmdbEpisode>> episodesBySeason = new HashMap<>();
         try {
             for (Integer season : seasons) {
@@ -1381,15 +1611,18 @@ public class TmdbUIAdapter {
             synchronized (episodeMetadataLock) {
                 if (!isCurrentEpisodeMetadataRequest(generation, metadataGeneration, null)) return false;
                 boolean changed = false;
-                for (Flag flag : vod.getFlags()) {
-                    List<Episode> sourceEpisodes = flag.getEpisodes();
-                    if (sourceEpisodes == null) continue;
+                Flag target = activeFlagFor(vod);
+                List<Episode> sourceEpisodes = target == null ? null : target.getEpisodes();
+                if (sourceEpisodes != null) {
                     List<Integer> sourceNumbers = new ArrayList<>();
                     for (Episode episode : sourceEpisodes) sourceNumbers.add(episode == null ? -1 : episode.getNumber());
-                    if (!EpisodeSeasonPolicy.canMapFlatEpisodeKeys(sourceNumbers, seasons, seasonCounts)) continue;
-                    changed |= applyMappedEpisodeMetadata(sourceEpisodes, episodesBySeason, seasons, seasonCounts);
+                    if (!persistedSegments.isEmpty()) {
+                        changed |= applySegmentedEpisodeMetadata(sourceEpisodes, episodesBySeason, persistedSegments);
+                    } else if (EpisodeSeasonPolicy.canMapFlatEpisodeKeys(sourceNumbers, seasons, seasonCounts)) {
+                        changed |= applyMappedEpisodeMetadata(sourceEpisodes, episodesBySeason, seasons, seasonCounts);
+                    }
                 }
-                com.fongmi.android.tv.utils.TmdbEpisodeSorter.sort(vod);
+                com.fongmi.android.tv.utils.TmdbEpisodeSorter.sort(target);
                 SpiderDebug.log("tmdb", "应用多季切片元数据: %s", seasons);
                 return changed;
             }
@@ -1397,15 +1630,6 @@ public class TmdbUIAdapter {
             SpiderDebug.log("tmdb", "获取多季切片信息失败: %s", e.getMessage());
             return false;
         }
-    }
-
-    private boolean applyEpisodeMetadataFlags(List<Flag> flags, Map<Integer, TmdbEpisode> episodesByNumber, int selectedSeason) {
-        boolean changed = false;
-        if (flags == null) return false;
-        for (Flag flag : flags) {
-            if (flag != null && flag.getEpisodes() != null) changed |= applyEpisodeMetadata(flag.getEpisodes(), episodesByNumber, selectedSeason);
-        }
-        return changed;
     }
 
     private boolean applyEpisodeMetadata(List<Episode> sourceEpisodes, Map<Integer, TmdbEpisode> episodesByNumber, int selectedSeason) {
@@ -1452,6 +1676,47 @@ public class TmdbUIAdapter {
                 if (!TextUtils.equals(episode.getDisplayName(), displayName)) {
                     episode.setDisplayName(displayName);
                     changed = true;
+                }
+            }
+        }
+        return changed;
+    }
+
+    static boolean applySegmentedEpisodeMetadata(
+            List<Episode> sourceEpisodes,
+            Map<Integer, Map<Integer, TmdbEpisode>> episodesBySeason,
+            List<TmdbSeasonSegment> segments) {
+        for (TmdbSeasonSegment segment : segments) {
+            Map<Integer, TmdbEpisode> seasonEpisodes = episodesBySeason.get(segment.getSeasonNumber());
+            int length = segment.getSourceEpisodeEndIndex() - segment.getSourceEpisodeStartIndex() + 1;
+            if (segment.getSourceEpisodeStartIndex() < 0
+                    || segment.getSourceEpisodeEndIndex() >= sourceEpisodes.size()
+                    || length <= 0 || seasonEpisodes == null
+                    || segment.getTmdbEpisodeStartNumber() + length - 1 > seasonEpisodes.size()) return false;
+        }
+        boolean changed = false;
+        for (TmdbSeasonSegment segment : segments) {
+            Map<Integer, TmdbEpisode> seasonEpisodes = episodesBySeason.get(segment.getSeasonNumber());
+            if (seasonEpisodes == null) continue;
+            int end = segment.getSourceEpisodeEndIndex();
+            for (int index = segment.getSourceEpisodeStartIndex(); index <= end; index++) {
+                Episode episode = sourceEpisodes.get(index);
+                int tmdbNumber = segment.getTmdbEpisodeStartNumber()
+                        + index - segment.getSourceEpisodeStartIndex();
+                TmdbEpisode tmdbEpisode = seasonEpisodes.get(tmdbNumber);
+                if (!TmdbEpisodeMatcher.shouldApplyMapped(
+                        episode, tmdbEpisode, segment.getSeasonNumber(), tmdbNumber)) continue;
+                if (hasEpisodeMetadataChanged(episode.getTmdbEpisode(), tmdbEpisode)) changed = true;
+                episode.setTmdbEpisode(tmdbEpisode);
+                if (!tmdbEpisode.getTitle().isEmpty()) {
+                    String displayName = EpisodeTitleFormatter.withSourceFileSize(
+                            episode.getName(),
+                            EpisodeTitleFormatter.formatTmdbTitle(tmdbEpisode.getNumber(), tmdbEpisode.getTitle()),
+                            Setting.isTmdbEpisodeFileSize());
+                    if (!TextUtils.equals(episode.getDisplayName(), displayName)) {
+                        episode.setDisplayName(displayName);
+                        changed = true;
+                    }
                 }
             }
         }
@@ -1595,11 +1860,22 @@ public class TmdbUIAdapter {
      */
     public List<String> getPhotos() {
         if (tmdbDetail == null) return new ArrayList<>();
+        return tmdbService.backdrops(tmdbDetail, tmdbConfig);
+    }
+
+
+    public List<String> getPosters() {
+        if (tmdbDetail == null) return new ArrayList<>();
+        return tmdbService.posters(tmdbDetail, tmdbConfig);
+    }
+
+    public List<String> getBackgroundPhotos() {
+        if (tmdbDetail == null) return new ArrayList<>();
         return tmdbService.photos(tmdbDetail, tmdbConfig, preferLandscapeBackground());
     }
 
     private boolean preferLandscapeBackground() {
-        return !Util.isMobile() || ResUtil.isPad() || ResUtil.getScreenWidth(activity) >= ResUtil.getScreenHeight(activity);
+        return ResUtil.getScreenWidth(activity) >= ResUtil.getScreenHeight(activity);
     }
 
     /**

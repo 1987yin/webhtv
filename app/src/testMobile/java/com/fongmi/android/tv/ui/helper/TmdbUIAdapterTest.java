@@ -1,9 +1,11 @@
 package com.fongmi.android.tv.ui.helper;
 
 import com.fongmi.android.tv.bean.Episode;
+import com.fongmi.android.tv.bean.Flag;
 import com.fongmi.android.tv.bean.TmdbEpisode;
 import com.fongmi.android.tv.bean.TmdbItem;
 import com.fongmi.android.tv.bean.TmdbSeasonMatchCache;
+import com.fongmi.android.tv.bean.TmdbSeasonScope;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.utils.Task;
 
@@ -14,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -24,6 +27,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 public class TmdbUIAdapterTest {
@@ -37,6 +42,178 @@ public class TmdbUIAdapterTest {
         assertTrue(TmdbUIAdapter.applyTmdbTitle(vod, item));
 
         assertEquals("刮削后的标题", vod.getName());
+    }
+
+    @Test
+    public void applyTmdbTitle_keepsExplicitSourceSeason() {
+        Vod vod = new FakeVod();
+        vod.setName("乐高幻影忍者：神龙崛起第三季");
+        TmdbItem item = new TmdbItem(123, "tv", "乐高幻影忍者：神龙崛起", "", "", "", "");
+
+        assertTrue(TmdbUIAdapter.applyTmdbTitle(vod, item));
+
+        assertEquals("乐高幻影忍者：神龙崛起第三季", vod.getName());
+    }
+
+    @Test
+    public void stableFlagKeyIncludesIndexForDuplicateDisplayNames() {
+        Flag first = new Flag("全集");
+        Flag second = new Flag("全集");
+
+        assertEquals("全集#0", TmdbUIAdapter.flagKey(first, 0));
+        assertEquals("全集#1", TmdbUIAdapter.flagKey(second, 1));
+        assertEquals(1, TmdbUIAdapter.flagIndex(List.of(first, second), second));
+    }
+
+    @Test
+    public void stableFlagKeyDisambiguatesDuplicateNameAndEpisodeUrl() {
+        Flag first = Flag.create("same", "E1$same-url");
+        Flag second = Flag.create("same", "E1$same-url");
+
+        assertSame(second, TmdbUIAdapter.selectPlaybackFlag(
+                List.of(first, second), "same#1", "same-url", "same"));
+    }
+
+    @Test
+    public void staleStableFlagKeyDoesNotFallBackToAmbiguousEpisodeUrl() {
+        Flag first = Flag.create("same", "E1$same-url");
+        Flag second = Flag.create("same", "E1$same-url");
+
+        assertNull(TmdbUIAdapter.selectPlaybackFlag(
+                List.of(first, second), "same#9", "same-url", "same"));
+    }
+
+    @Test
+    public void reorderedStableFlagKeyFallsBackToUniqueEpisodeUrl() {
+        Flag movedTarget = Flag.create("same", "E1$target-url");
+        Flag oldIndexNowPointsElsewhere = Flag.create("same", "E1$other-url");
+
+        assertSame(movedTarget, TmdbUIAdapter.selectPlaybackFlag(
+                List.of(movedTarget, oldIndexNowPointsElsewhere),
+                "same#1", "target-url", "same"));
+    }
+
+    @Test
+    public void explicitMultiSeasonSegmentsApplySecondSeasonMetadata() {
+        List<Episode> source = List.of(
+                Episode.create("S01E01", "s1e1"),
+                Episode.create("S01E02", "s1e2"),
+                Episode.create("S01E03", "s1e3"),
+                Episode.create("S02E01", "s2e1"),
+                Episode.create("S02E02", "s2e2"));
+        TmdbSeasonResolver.Resolution resolution = TmdbSeasonResolver.resolve(
+                -1, null, List.of(1, 2), -1,
+                List.of(1, 2), Map.of(1, 3, 2, 2), 5,
+                List.of(1, 2, 3, 1, 2),
+                List.of(1, 1, 1, 2, 2));
+        Map<Integer, Map<Integer, TmdbEpisode>> metadata = Map.of(
+                1, Map.of(
+                        1, new TmdbEpisode(1, "", "", "", "", 0, 0, 101, 1),
+                        2, new TmdbEpisode(2, "", "", "", "", 0, 0, 102, 1),
+                        3, new TmdbEpisode(3, "", "", "", "", 0, 0, 103, 1)),
+                2, Map.of(
+                        1, new TmdbEpisode(1, "", "", "", "", 0, 0, 201, 2),
+                        2, new TmdbEpisode(2, "", "", "", "", 0, 0, 202, 2)));
+
+        assertTrue(TmdbUIAdapter.applySegmentedEpisodeMetadata(source, metadata, resolution.getSegments()));
+        assertEquals(1, source.get(0).getTmdbEpisode().getSeasonNumber());
+        assertEquals(2, source.get(3).getTmdbEpisode().getSeasonNumber());
+        assertEquals(1, source.get(3).getTmdbEpisode().getNumber());
+    }
+
+    @Test
+    public void staleDuplicateFlagReferenceResolvesByStableIdentityKey() {
+        Flag staleSecond = new Flag("same");
+        Flag first = new Flag("same");
+        Flag second = new Flag("same");
+
+        assertSame(second, TmdbUIAdapter.resolveActiveFlag(
+                List.of(first, second), staleSecond, TmdbUIAdapter.flagKey(staleSecond, 1)));
+    }
+
+    @Test
+    public void clearingActiveMetadataLeavesInactiveFlagUntouched() {
+        Flag active = Flag.create("same", "E1$a1");
+        Flag inactive = Flag.create("same", "E1$b1");
+        TmdbEpisode activeMetadata = new TmdbEpisode(1, "Active", "", "", "", 0, 0);
+        TmdbEpisode inactiveMetadata = new TmdbEpisode(1, "Inactive", "", "", "", 0, 0);
+        active.getEpisodes().get(0).setTmdbEpisode(activeMetadata);
+        inactive.getEpisodes().get(0).setTmdbEpisode(inactiveMetadata);
+        inactive.getEpisodes().get(0).setDisplayName("keep");
+
+        TmdbUIAdapter.clearEpisodeMetadata(active);
+
+        assertNull(active.getEpisodes().get(0).getTmdbEpisode());
+        assertSame(inactiveMetadata, inactive.getEpisodes().get(0).getTmdbEpisode());
+        assertEquals("keep", inactive.getEpisodes().get(0).getDisplayName());
+    }
+
+    @Test
+    public void seasonEvidenceAndEpisodeShapeAreScopedToActiveFlag() {
+        Flag seasonOne = Flag.create("Season 1", "Episode 1$s1e1#Episode 2$s1e2");
+        Flag seasonTwo = Flag.create("Season 2", "Episode 1$s2e1");
+
+        assertEquals(List.of(1), TmdbUIAdapter.explicitSourceSeasons(seasonOne));
+        assertEquals(List.of(2), TmdbUIAdapter.explicitSourceSeasons(seasonTwo));
+        assertEquals(2, TmdbUIAdapter.sourceEpisodeCount(seasonOne));
+        assertEquals(1, TmdbUIAdapter.sourceEpisodeCount(seasonTwo));
+        assertEquals(List.of(1), TmdbUIAdapter.sourceEpisodeNumbers(seasonTwo));
+    }
+
+    @Test
+    public void sourceFingerprintChangesWhenSameSizeEpisodeLineChanges() {
+        Flag before = Flag.create("line", "E1$a1#E2$a2");
+        Flag after = Flag.create("line", "E2$a2#E1$a1");
+
+        assertNotSame(before, after);
+        assertFalse(TmdbUIAdapter.sourceFingerprint(before, "line#0", Map.of(1, 2))
+                .equals(TmdbUIAdapter.sourceFingerprint(after, "line#0", Map.of(1, 2))));
+    }
+
+    @Test
+    public void sourceFingerprintIgnoresVolatilePlaybackUrlTokens() {
+        Flag before = Flag.create("line", "E1$https://source.test/e1?token=old");
+        Flag after = Flag.create("line", "E1$https://source.test/e1?token=new");
+
+        assertEquals(TmdbUIAdapter.sourceFingerprint(before, "line#0", Map.of(1, 1)),
+                TmdbUIAdapter.sourceFingerprint(after, "line#0", Map.of(1, 1)));
+    }
+
+    @Test
+    public void manualBindingFingerprintIgnoresUnrelatedTmdbSeasonCountChanges() {
+        Flag flag = Flag.create("line", "E1$a1#E2$a2");
+        String manual = TmdbUIAdapter.manualBindingFingerprint("show", flag, "line#0");
+        TmdbSeasonMatchCache.Entry binding = TmdbSeasonMatchCache.Entry.create(
+                88, "tv", null, TmdbSeasonMatchCache.Mode.MANUAL_MULTI_SLICE,
+                manual, 2, 0);
+
+        assertTrue(binding.isFresh(
+                TmdbUIAdapter.manualBindingFingerprint("show", flag, "line#0"), 2, 0));
+        assertFalse(TmdbUIAdapter.sourceFingerprint(flag, "line#0", Map.of(1, 2, 2, 10))
+                .equals(TmdbUIAdapter.sourceFingerprint(flag, "line#0", Map.of(1, 2, 2, 11))));
+    }
+
+    @Test
+    public void projectSourceFlagsSeparatesKnownAndMultiSeasonLines() {
+        Map<Integer, List<String>> result = TmdbUIAdapter.projectSourceFlags(List.of(
+                new TmdbUIAdapter.FlagSeasonBinding("全集#0", TmdbSeasonScope.multi(List.of(1, 2))),
+                new TmdbUIAdapter.FlagSeasonBinding("第三季#1", TmdbSeasonScope.known(3))));
+
+        assertEquals(List.of("全集#0"), result.get(1));
+        assertEquals(List.of("全集#0"), result.get(2));
+        assertEquals(List.of("第三季#1"), result.get(3));
+    }
+
+    @Test
+    public void tmdbDetailPlaybackHistoryUsesSourceAwareTitle() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
+        int method = source.indexOf("private String playbackHistoryName()");
+        int end = source.indexOf("private String matchedTmdbTitle()", method);
+        String body = method >= 0 && end > method ? source.substring(method, end) : "";
+
+        assertTrue("TMDB detail playback history must preserve an explicit source season",
+                body.contains("TmdbUIAdapter.sourceAwareTitle(sourceVodName, matchedTmdbItem, matchedTmdbTitle())"));
     }
 
     @Test
@@ -343,7 +520,7 @@ public class TmdbUIAdapterTest {
         int checkFlag = source.indexOf("private void checkFlag(Vod item)");
         int fastCheckFlag = source.indexOf("mFastTmdbPlaybackStarted && mFastPlaybackFlag != null && mFastPlaybackEpisode != null", checkFlag);
         int bindEpisodes = source.indexOf("setEpisodeAdapter(mFastPlaybackFlag.getEpisodes(), false);", fastCheckFlag);
-        int normalClick = source.indexOf("onItemClick(mHistory.getFlag());", bindEpisodes);
+        int normalClick = source.indexOf("onItemClick(resolveHistoryPlaybackFlag(item.getFlags()));", bindEpisodes);
 
         assertTrue(sourcePath + " is missing direct TMDB fast playback cache branch", method >= 0 && fastBranch > method && fastReturn > fastBranch);
         assertTrue("cached direct TMDB playback should wait for the playback service instead of falling back to full detail binding",

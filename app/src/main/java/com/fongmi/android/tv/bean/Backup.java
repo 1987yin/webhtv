@@ -23,7 +23,9 @@ import com.google.gson.ToNumberPolicy;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -45,6 +47,8 @@ public class Backup {
     private List<Config> config;
     @SerializedName("history")
     private List<History> history;
+    @SerializedName("tmdbSeasonProgress")
+    private List<TmdbSeasonProgress> tmdbSeasonProgress;
     @SerializedName("track")
     private List<Track> track;
     @SerializedName("device")
@@ -60,6 +64,7 @@ public class Backup {
         backup.setKeep(AppDatabase.get().getKeepDao().findAll());
         backup.setConfig(AppDatabase.get().getConfigDao().findAll());
         backup.setHistory(AppDatabase.get().getHistoryDao().findAll());
+        backup.setTmdbSeasonProgress(AppDatabase.get().getTmdbSeasonProgressDao().findAll());
         backup.setTrack(AppDatabase.get().getTrackDao().findAll());
         backup.setDevice(AppDatabase.get().getDeviceDao().findAll());
         return backup;
@@ -73,7 +78,10 @@ public class Backup {
             backup.setConfig(AppDatabase.get().getConfigDao().findAll());
         }
         if (options.isKeep()) backup.setKeep(AppDatabase.get().getKeepDao().findAll());
-        if (options.isHistory()) backup.setHistory(AppDatabase.get().getHistoryDao().findAll());
+        if (options.isHistory()) {
+            backup.setHistory(AppDatabase.get().getHistoryDao().findAll());
+            backup.setTmdbSeasonProgress(AppDatabase.get().getTmdbSeasonProgressDao().findAll());
+        }
         backup.setPrefers(filter(Prefers.getPrefers().getAll(), options));
         return backup;
     }
@@ -99,6 +107,7 @@ public class Backup {
         AppDatabase.get().getKeepDao().insertOrUpdate(getKeep());
         AppDatabase.get().getConfigDao().insertOrUpdate(getConfig());
         AppDatabase.get().getHistoryDao().insertOrUpdate(getHistory());
+        restoreTmdbSeasonProgress(Collections.emptyMap());
         AppDatabase.get().getTrackDao().insertOrUpdate(getTrack());
         AppDatabase.get().getDeviceDao().insertOrUpdate(getDevice());
         restorePrefers(getPrefers(), true, preserveMissingWebHomePrefs);
@@ -123,8 +132,10 @@ public class Backup {
         }
         if (options.isHistory()) {
             if (force) AppDatabase.get().getHistoryDao().delete();
+            if (force) AppDatabase.get().getTmdbSeasonProgressDao().deleteAll();
             for (History item : getHistory()) if (cids.containsKey(item.getCid())) item.setCid(cids.get(item.getCid()));
             AppDatabase.get().getHistoryDao().insertOrUpdate(getHistory());
+            restoreTmdbSeasonProgress(cids);
         }
         restorePrefers(filter(getPrefers(), options), false, false);
         if (options.isConfig() || options.isSpider() || options.isWebHome() || options.isLoginState()) reloadConfig();
@@ -153,6 +164,56 @@ public class Backup {
             if (source > 0) cids.put(source, item.getId());
         }
         return cids;
+    }
+
+    private void restoreTmdbSeasonProgress(Map<Integer, Integer> cids) {
+        List<TmdbSeasonProgress> items = sanitizeTmdbSeasonProgress(getTmdbSeasonProgress());
+        if (!items.isEmpty()) {
+            for (TmdbSeasonProgress item : items) {
+                if (cids.containsKey(item.cid)) item.cid = cids.get(item.cid);
+            }
+            AppDatabase.get().getTmdbSeasonProgressDao().insertOrUpdate(items);
+            return;
+        }
+        AppDatabase.get().getTmdbSeasonProgressDao().insertOrUpdate(
+                latestTmdbSeasonProgress(getHistory()));
+    }
+
+    static List<TmdbSeasonProgress> latestTmdbSeasonProgress(List<History> histories) {
+        Map<String, TmdbSeasonProgress> latest = new LinkedHashMap<>();
+        if (histories == null) return List.of();
+        for (History history : histories) {
+            TmdbSeasonProgress progress = com.fongmi.android.tv.playback.TmdbSeasonProgressStore.fromHistory(history);
+            if (progress == null) continue;
+            TmdbSeasonProgress previous = latest.get(progress.identityKey());
+            if (previous == null || progress.updatedAt > previous.updatedAt) {
+                latest.put(progress.identityKey(), progress);
+            }
+        }
+        return new ArrayList<>(latest.values());
+    }
+
+    private static void normalize(TmdbSeasonProgress item) {
+        if (item == null) return;
+        item.mediaType = TmdbSeasonProgress.normalizeMediaType(item.mediaType);
+        if (item.sourceFlag == null) item.sourceFlag = "";
+        if (item.sourceEpisodeName == null) item.sourceEpisodeName = "";
+        if (item.sourceEpisodeUrl == null) item.sourceEpisodeUrl = "";
+        if (item.sourceHistoryKey == null) item.sourceHistoryKey = "";
+        if (item.sourceBindingKey == null) item.sourceBindingKey = "";
+    }
+
+    static List<TmdbSeasonProgress> sanitizeTmdbSeasonProgress(List<TmdbSeasonProgress> source) {
+        List<TmdbSeasonProgress> result = new ArrayList<>();
+        if (source == null) return result;
+        for (TmdbSeasonProgress item : source) {
+            if (item == null) continue;
+            normalize(item);
+            if (!"tv".equals(item.mediaType) || item.tmdbId <= 0 || item.seasonNumber < 0
+                    || item.episodeNumber <= 0 || item.sourceHistoryKey.isEmpty()) continue;
+            result.add(item);
+        }
+        return result;
     }
 
     private static Map<String, ?> filter(Map<String, ?> source, SyncOptions options) {
@@ -296,6 +357,14 @@ public class Backup {
 
     public void setHistory(List<History> history) {
         this.history = history;
+    }
+
+    public List<TmdbSeasonProgress> getTmdbSeasonProgress() {
+        return tmdbSeasonProgress == null ? Collections.emptyList() : tmdbSeasonProgress;
+    }
+
+    public void setTmdbSeasonProgress(List<TmdbSeasonProgress> progress) {
+        this.tmdbSeasonProgress = progress;
     }
 
     public List<Track> getTrack() {

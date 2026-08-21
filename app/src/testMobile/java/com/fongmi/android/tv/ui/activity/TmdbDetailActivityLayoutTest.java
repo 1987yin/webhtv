@@ -13,6 +13,35 @@ import static org.junit.Assert.assertTrue;
 public class TmdbDetailActivityLayoutTest {
 
     @Test
+    public void seasonSourceRoutesRefreshAndCarrySnapshotSelection() throws Exception {
+        Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = Files.readString(sourcePath, StandardCharsets.UTF_8);
+
+        assertTrue(source.contains("refreshSeasonSourceRoutes();"));
+        assertTrue(source.contains("switchSourceDetail(source, item)"));
+        assertTrue(source.contains("source.seasonNumber()"));
+        assertTrue(source.contains("source.sourceFlag()"));
+        assertTrue(source.contains("source.episodeUrl()"));
+        assertTrue(source.contains("source.resumeHistoryPayload()"));
+    }
+
+    @Test
+    public void seasonSourceSwitchReplacesThePreviousSeasonResumePayload() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int sourceOverload = source.indexOf("private void switchSourceDetail(SourceMatch");
+        int switchStart = source.indexOf("private void switchSourceDetail(", sourceOverload + 1);
+        String switchBody = source.substring(switchStart, source.indexOf("private String sourceSwitchMark"));
+
+        assertTrue("source switching must remove the previous season resume marker",
+                switchBody.contains("intent.removeExtra(EXTRA_RESUME_FROM_HISTORY);")
+                        && switchBody.contains("intent.removeExtra(EXTRA_RESUME_HISTORY_CID);")
+                        && switchBody.contains("intent.removeExtra(EXTRA_RESUME_HISTORY_KEY);"));
+        assertTrue("a season source may install only a currently restorable target payload",
+                switchBody.contains("HistoryResumePayload.restore(resumeHistoryCid, resumeHistoryPayload)")
+                        && switchBody.contains("intent.putExtra(EXTRA_RESUME_HISTORY_KEY, resumeHistoryPayload);"));
+    }
+
+    @Test
     public void automaticTmdbMatchUsesResolvedMediaTitleBeforeSearching() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -1837,6 +1866,73 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void tmdbArtworkRowsSeparateBackdropsAndPostersWhileSlidesRemainResponsive() throws Exception {
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        Path headerPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "custom", "TmdbHeaderView.java"));
+        Path adapterPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "TmdbPhotoAdapter.java"));
+        Path layoutPath = findMainResPath().resolve(Path.of("layout", "activity_tmdb_detail.xml"));
+        String activity = new String(Files.readAllBytes(activityPath), StandardCharsets.UTF_8);
+        String header = new String(Files.readAllBytes(headerPath), StandardCharsets.UTF_8);
+        String adapter = new String(Files.readAllBytes(adapterPath), StandardCharsets.UTF_8);
+        String layout = new String(Files.readAllBytes(layoutPath), StandardCharsets.UTF_8);
+
+        assertTrue("detail artwork panel should render a dedicated poster row directly below backdrops",
+                layout.contains("android:id=\"@+id/posterTitle\"")
+                        && layout.contains("android:id=\"@+id/posterList\"")
+                        && layout.indexOf("@+id/posterTitle") > layout.indexOf("@+id/episodePhotoList"));
+        assertTrue("detail activity should keep card rows separate from responsive backdrop slides",
+                activity.contains("private final List<String> detailTmdbPosters")
+                        && activity.contains("private final List<String> detailBackdropSlides")
+                        && activity.contains("tmdbService.backdrops(")
+                        && activity.contains("tmdbService.posters(")
+                        && activity.contains("tmdbService.photos(")
+                        && activity.contains("posterAdapter = new TmdbPhotoAdapter(")
+                        && activity.contains("detailBackdropSlides) addBackdropSlideItem"));
+        assertTrue("shared header should bind posters separately and use the responsive list only for its slideshow",
+                header.contains("adapter.getPosters()")
+                        && header.contains("adapter.getBackgroundPhotos()")
+                        && header.contains("posterAdapter = new com.fongmi.android.tv.ui.adapter.TmdbPhotoAdapter(true)"));
+        assertTrue("poster row should use portrait dimensions without changing the shared backdrop card layout",
+                adapter.contains("params.width = ResUtil.dp2px(148);")
+                        && adapter.contains("params.height = ResUtil.dp2px(222);")
+                        && adapter.contains("R.layout.adapter_tmdb_photo"));
+    }
+
+    @Test
+    public void mobileTmdbPhotoViewersKeepCurrentOrientationUntilUserRotates() throws Exception {
+        String detail = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String person = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbPersonActivity.java");
+
+        assertPhotoViewerKeepsCurrentOrientation(detail, "detail artwork viewer");
+        assertPhotoViewerKeepsCurrentOrientation(person, "person photo viewer");
+    }
+
+    private static void assertPhotoViewerKeepsCurrentOrientation(String source, String label) {
+        String load = javaBlockAt(source, "private void loadPhotoImage(");
+        assertTrue(label + " must keep FIT_CENTER rendering", load.contains(".fitCenter()"));
+        assertFalse(label + " must not rotate the activity after an image loads", load.contains("applyPhotoOrientation("));
+        assertFalse(label + " must not call setRequestedOrientation while loading an image", load.contains("setRequestedOrientation("));
+        assertFalse(label + " must not inspect image dimensions to choose orientation", load.contains("getIntrinsicWidth()") || load.contains("getIntrinsicHeight()"));
+        assertFalse(label + " must not keep an automatic orientation helper", source.contains("private void applyPhotoOrientation("));
+
+        String actionMarker = source.contains("private View createPhotoMobileActions(")
+                ? "private View createPhotoMobileActions("
+                : "private View createPhotoActions(";
+        String actions = javaBlockAt(source, actionMarker);
+        String toggle = javaBlockAt(source, "private void togglePhotoOrientation(");
+        assertTrue(label + " must keep the explicit rotate control", actions.contains("R.string.detail_image_rotate")
+                && (actions.contains("togglePhotoOrientation(photoOrientation)") || actions.contains("togglePhotoOrientation()")));
+        assertTrue(label + " must rotate only from the explicit control", toggle.contains("setRequestedOrientation(target);")
+                && countOccurrences(source, "togglePhotoOrientation(") == 2);
+        assertFalse(label + " must rotate from the actual orientation, not a stale request", toggle.contains("getRequestedOrientation()"));
+        assertTrue(label + " must toggle the current visible orientation",
+                toggle.contains("actual == Configuration.ORIENTATION_LANDSCAPE")
+                        && toggle.contains("? ActivityInfo.SCREEN_ORIENTATION_PORTRAIT")
+                        && toggle.contains(": ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE"));
+        assertTrue(label + " must restore the entry orientation when closed", source.contains("setRequestedOrientation(originalOrientation);"));
+    }
+
+    @Test
     public void mobileLegacyDetailPhotoCardsOpenOnFirstTapAcrossDetailFlows() throws Exception {
         Path adapterPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "TmdbPhotoAdapter.java"));
         Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
@@ -2935,6 +3031,116 @@ public class TmdbDetailActivityLayoutTest {
                         && playWhenReadyBody.contains("syncInlinePauseInfo(playWhenReady);"));
     }
 
+    @Test
+    public void duplicateNamedFlagsUseUrlThenStableKeyAndObjectIdentity() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String standalone = source.substring(source.indexOf("private Flag initialStandaloneFlag"),
+                source.indexOf("private Episode initialStandaloneEpisode"));
+        String initial = source.substring(source.indexOf("private Flag findInitialFlag"),
+                source.indexOf("private Episode findIntentPlaybackEpisode"));
+        String episode = source.substring(source.indexOf("private Episode findIntentPlaybackEpisode"),
+                source.indexOf("private MaterialButton createChipButton"));
+
+        assertTrue("standalone preload must resolve duplicate flags with the stable key and exact episode URL",
+                standalone.contains("getIntentPlaybackEpisodeUrl()")
+                        && standalone.contains("getIntentPlaybackFlagKey()")
+                        && standalone.contains("TmdbUIAdapter.selectPlaybackFlag("));
+        assertTrue("detail binding must resolve duplicate flags with the stable key and exact episode URL",
+                initial.contains("getIntentPlaybackEpisodeUrl()")
+                        && initial.contains("getIntentPlaybackFlagKey()")
+                        && initial.contains("TmdbUIAdapter.selectPlaybackFlag("));
+        assertTrue("standalone preload must reuse the stable key restored from seasonal history",
+                standalone.contains("saved.getSourceBindingKey()")
+                        && standalone.contains("saved.getEpisodeUrl()")
+                        && standalone.contains("saved.getVodFlag()"));
+        assertTrue("detail binding must reuse the stable key restored from seasonal history",
+                initial.contains("history.getSourceBindingKey()")
+                        && initial.contains("history.getEpisodeUrl()")
+                        && initial.contains("history.getVodFlag()"));
+        assertTrue("episode lookup must allow its exact URL to override a stale duplicate flag key",
+                episode.indexOf("findEpisodeByUrl(getIntentPlaybackEpisodeUrl()") < episode.indexOf("getIntentPlaybackFlagKey()"));
+        assertFalse("duplicate flag selection and focus must not rely on Flag.equals, which compares names only",
+                source.contains("equals(selectedFlag)"));
+        assertTrue(source.contains("flags.get(i) == selectedFlag")
+                && source.contains("flag == selectedFlag"));
+        String seasonSources = source.substring(source.indexOf("private List<SourceMatch> findSeasonHistorySources"),
+                source.indexOf("private int currentSeasonSourceScope"));
+        assertTrue("persisted duplicate flag keys must win over legacy same-name route binding lookup",
+                seasonSources.indexOf("TmdbUIAdapter.isFlagKey(saved.getSourceBindingKey())")
+                        < seasonSources.indexOf("TextUtils.equals(saved.getVodFlag(), binding.getSourceFlag())"));
+    }
+
+    @Test
+    public void initialStandaloneFlagLoadsSeasonBindingBeforeRoutesAndEpisodes() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String bindFlags = source.substring(source.indexOf("private void bindFlags()"),
+                source.indexOf("private void bindSeasonSourceRoutes"));
+        String applyBundle = source.substring(source.indexOf("private void applyTmdbBundle"),
+                source.indexOf("private void showTmdbMatchDialog"));
+
+        int select = bindFlags.indexOf("selectedFlag = currentFlag;");
+        int loadBinding = bindFlags.indexOf("loadTmdbSeasonBinding();", select);
+        int bindRoutes = bindFlags.indexOf("bindSeasonSourceRoutes(routeGeneration);", loadBinding);
+        int renderEpisodes = bindFlags.indexOf("renderEpisodes();", loadBinding);
+
+        assertTrue("initial flag must load its stable-key season binding before routes and episodes",
+                select >= 0 && loadBinding > select && bindRoutes > loadBinding && renderEpisodes > loadBinding);
+        assertTrue("bundle application must not read a route binding before the initial flag exists",
+                applyBundle.contains("if (selectedFlag != null) loadTmdbSeasonBinding();"));
+    }
+
+    @Test
+    public void knownSeasonAutoFallbackUsesOnlyValidatedSeasonRoutes() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String manual = source.substring(source.indexOf("private void changeSource()"),
+                source.indexOf("private SourceMatch searchAutoChangeSource"));
+        String automatic = source.substring(source.indexOf("private void tryAutoChangeSource()"),
+                source.indexOf("private boolean openGlobalSourceSearch"));
+        String guardedSearch = source.substring(source.indexOf("private SourceMatch searchAutoChangeSource"),
+                source.indexOf("private void tryAutoChangeSource()"));
+        String seasonScope = source.substring(source.indexOf("private int currentSeasonSourceScope"),
+                source.indexOf("private SourceMatch searchChangeSource(Site"));
+
+        assertTrue("manual source changes may retain ordinary search", manual.contains("searchChangeSource(keyword)"));
+        assertTrue("automatic source changes must use the season-aware guard", automatic.contains("searchAutoChangeSource(keyword)"));
+        assertTrue("known TV seasons must only reuse validated season history routes",
+                guardedSearch.contains("currentSeasonSourceScope() >= 0")
+                        && guardedSearch.contains("return findSeasonHistorySource();"));
+        assertTrue("explicit current-line season evidence must beat stale history season state",
+                seasonScope.indexOf("sourceTitleSeasonNumber()") < seasonScope.indexOf("history != null"));
+    }
+
+    @Test
+    public void tmdbSeasonCacheWritesHoldOneLockForTheWholeMutation() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String load = source.substring(source.indexOf("private void loadTmdbSeasonBinding"),
+                source.indexOf("private void updateTmdbSeasonActionVisibility"));
+        String save = source.substring(source.indexOf("private void saveTmdbSeasonBinding"),
+                source.indexOf("private void clearTmdbSeasonBinding"));
+        String clear = source.substring(source.indexOf("private void clearTmdbSeasonBinding"),
+                source.indexOf("private String selectedSeasonFlagKey"));
+
+        assertTrue(save.contains("synchronized (Setting.class)")
+                && save.indexOf("Setting.getTmdbSeasonMatchCache()") < save.indexOf("Setting.putTmdbSeasonMatchCache(cache)"));
+        assertTrue(clear.contains("synchronized (Setting.class)")
+                && clear.indexOf("Setting.getTmdbSeasonMatchCache()") < clear.indexOf("Setting.putTmdbSeasonMatchCache(cache)"));
+        assertTrue("pruning stale sibling routes must persist even when the active binding did not change",
+                load.contains("boolean cacheChanged = cache.pruneRouteBindings")
+                        && load.contains("cacheChanged |= cache.recordRouteBinding")
+                        && load.contains("if (cacheChanged) Setting.putTmdbSeasonMatchCache(cache)"));
+    }
+
+    @Test
+    public void manualSeasonBindingClearsOnlySelectedFlagMetadata() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String clear = source.substring(source.indexOf("private void clearBoundTmdbEpisodeMetadata"),
+                source.indexOf("private void showManualTmdbMatchDialog"));
+
+        assertTrue(clear.contains("selectedFlag.getEpisodes()"));
+        assertFalse("manual remapping must preserve metadata already loaded for sibling flags",
+                clear.contains("vod.getFlags()"));
+    }
+
     private static Path findMainJavaPath() {
         Path moduleRelative = Path.of("src", "main", "java");
         if (Files.exists(moduleRelative)) return moduleRelative;
@@ -3022,6 +3228,16 @@ public class TmdbDetailActivityLayoutTest {
         int tagEnd = layout.indexOf("/>", idIndex);
         if (tagEnd < 0) tagEnd = layout.indexOf(">", idIndex);
         return tagEnd > idIndex && layout.substring(idIndex, tagEnd).contains(attribute);
+    }
+
+    private static int countOccurrences(String source, String needle) {
+        int count = 0;
+        int offset = 0;
+        while ((offset = source.indexOf(needle, offset)) >= 0) {
+            count++;
+            offset += needle.length();
+        }
+        return count;
     }
 
     private static String javaBlockAt(String source, String marker) {

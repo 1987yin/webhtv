@@ -39,6 +39,117 @@ public class HistorySourceResolverTest {
     }
 
     @Test
+    public void automaticCandidateFromAnotherKnownSeasonIsRejected() {
+        History history = history("Lego Ninjago Dragons Rising", "2026", "Episode 5");
+        history.setTmdbId(100);
+        history.setMediaType("tv");
+        history.setTmdbEpisodePosition(1, 5);
+        TmdbItem tmdb = new TmdbItem(100, "tv", "Lego Ninjago Dragons Rising", "", "", "", "");
+
+        int score = HistorySourceResolver.scoreAutomaticCandidate(
+                history,
+                "site-b@@@vod-b",
+                "Lego Ninjago Dragons Rising Season 3",
+                "2026",
+                tmdb);
+
+        assertEquals(HistorySourceResolver.REJECTED, score);
+    }
+
+    @Test
+    public void sameTmdbIdentityAllowsUnknownSeasonUntilDetailFlagsAreChecked() {
+        History history = history("Lego Ninjago Dragons Rising", "2026", "Episode 5");
+        history.setTmdbId(100);
+        history.setMediaType("tv");
+        history.setTmdbEpisodePosition(2, 5);
+        TmdbItem tmdb = new TmdbItem(100, "tv", "Lego Ninjago Dragons Rising", "", "", "", "");
+
+        int score = HistorySourceResolver.scoreAutomaticCandidate(
+                history,
+                "site-b@@@vod-b",
+                "Lego Ninjago Dragons Rising",
+                "2026",
+                tmdb);
+
+        assertTrue(score >= HistorySourceResolver.TMDB_MATCH_SCORE);
+    }
+
+    @Test
+    public void automaticKnownSeasonRejectsUnknownFlagFromAnotherSource() {
+        History history = history("Lego Ninjago Dragons Rising", "2026", "Episode 1");
+        history.setMediaType("tv");
+        history.setTmdbEpisodePosition(2, 1);
+        Flag unknown = Flag.create("Default line", "Episode 1$url");
+
+        assertNull(HistorySourceResolver.findAutomaticEpisode(
+                List.of(unknown), history, "site-b@@@vod-b"));
+        assertEquals("url", HistorySourceResolver.findAutomaticEpisode(
+                List.of(unknown), history, history.getKey()).episode().getUrl());
+    }
+
+    @Test
+    public void automaticKnownSeasonAcceptsFlagWithMatchingSeasonEvidence() {
+        History history = history("Lego Ninjago Dragons Rising", "2026", "Episode 1");
+        history.setMediaType("tv");
+        history.setTmdbEpisodePosition(2, 1);
+        Flag matching = Flag.create("Season 2 line", "Episode 1$url-s2e1");
+
+        HistorySourceResolver.EpisodeMatch match = HistorySourceResolver.findAutomaticEpisode(
+                List.of(matching), history, "site-b@@@vod-b");
+
+        assertEquals("url-s2e1", match.episode().getUrl());
+    }
+
+    @Test
+    public void automaticMultiSeasonFlagMatchesEpisodeInsideSavedSeasonOnly() {
+        History history = history("Lego Ninjago Dragons Rising", "2026", "E05");
+        history.setMediaType("tv");
+        history.setTmdbEpisodePosition(2, 5);
+        Flag multi = Flag.create("All seasons", "S01E05$url-s1e5#S02E05$url-s2e5");
+
+        HistorySourceResolver.EpisodeMatch match = HistorySourceResolver.findAutomaticEpisode(
+                List.of(multi), history, "site-b@@@vod-b", 2);
+
+        assertEquals("url-s2e5", match.episode().getUrl());
+    }
+
+    @Test
+    public void selectedMultiSeasonFlagMatchesEpisodeInsideSavedSeasonOnly() {
+        History history = history("Lego Ninjago Dragons Rising", "2026", "E05");
+        history.setMediaType("tv");
+        history.setTmdbEpisodePosition(2, 5);
+        Flag multi = Flag.create("All seasons", "S01E05$url-s1e5#S02E05$url-s2e5");
+
+        HistorySourceResolver.EpisodeMatch match = HistorySourceResolver.findEpisode(
+                List.of(multi), history);
+
+        assertEquals("url-s2e5", match.episode().getUrl());
+    }
+
+    @Test
+    public void candidateTitleWithMatchingSeasonAllowsUnknownDetailFlag() {
+        History history = history("Lego Ninjago Dragons Rising", "2026", "Episode 1");
+        history.setMediaType("tv");
+        history.setTmdbEpisodePosition(2, 1);
+        Flag unknown = Flag.create("Default line", "Episode 1$url");
+
+        HistorySourceResolver.EpisodeMatch match = HistorySourceResolver.findAutomaticEpisode(
+                List.of(unknown), history, "site-b@@@vod-b", 2);
+
+        assertEquals("url", match.episode().getUrl());
+    }
+
+    @Test
+    public void unknownSeasonDoesNotCrossSourceAutomatically() {
+        History history = history("Lego Ninjago Dragons Rising", "2026", "Episode 5");
+        history.setTmdbId(100);
+        history.setMediaType("tv");
+
+        assertFalse(HistorySourceResolver.canAutoReuseSeason(history, -1, "site-b@@@vod-b"));
+        assertTrue(HistorySourceResolver.canAutoReuseSeason(history, -1, history.getKey()));
+    }
+
+    @Test
     public void yearConflictRejectsAutomaticCandidate() {
         History history = history("同名作品", "2020", "第1集");
 
@@ -87,6 +198,21 @@ public class HistorySourceResolverTest {
         HistorySourceResolver.EpisodeMatch match = HistorySourceResolver.findEpisode(List.of(target), history);
 
         assertEquals("url-20", match.episode().getUrl());
+    }
+
+    @Test
+    public void targetEpisodeSkipsFlagFromAnotherExplicitSeason() {
+        History history = history("Lego Ninjago Dragons Rising", "2026", "Episode 1");
+        history.setMediaType("tv");
+        history.setTmdbEpisodePosition(2, 1);
+        history.setVodFlag("Season 3 line");
+        Flag wrong = Flag.create("Season 3 line", "Episode 1$url-s3e1");
+        Flag expected = Flag.create("Season 2 line", "Episode 1$url-s2e1");
+
+        HistorySourceResolver.EpisodeMatch match = HistorySourceResolver.findEpisode(List.of(wrong, expected), history);
+
+        assertEquals("Season 2 line", match.flag().getFlag());
+        assertEquals("url-s2e1", match.episode().getUrl());
     }
 
     @Test

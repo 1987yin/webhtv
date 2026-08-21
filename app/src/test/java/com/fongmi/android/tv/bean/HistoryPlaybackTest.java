@@ -7,6 +7,8 @@ import java.util.List;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 public class HistoryPlaybackTest {
@@ -69,6 +71,14 @@ public class HistoryPlaybackTest {
         Episode refreshed = Episode.create("第9集", "new-url");
 
         assertTrue(refreshed.matchesPlayback(saved));
+    }
+
+    @Test
+    public void queuedSaveCannotReviveADeletionAtTheSameOrNewerTime() {
+        assertFalse(History.writeSurvivesDeletion(100, 100));
+        assertFalse(History.writeSurvivesDeletion(100, 200));
+        assertTrue(History.writeSurvivesDeletion(201, 200));
+        assertTrue(History.writeSurvivesDeletion(0, 0));
     }
 
     @Test
@@ -470,6 +480,133 @@ public class HistoryPlaybackTest {
     }
 
     @Test
+    public void findPlaybackCandidateDoesNotCrossSourceWhenTvSeasonIsUnknown() {
+        History legacy = history("site-a@@vod@@legacy", "Series", "Episode 5", "old-url", 90_000, 300_000);
+        legacy.setTmdbId(88);
+        legacy.setMediaType("tv");
+        Episode current = Episode.create("Episode 5", "new-url");
+
+        History result = History.findPlaybackCandidate(
+                "site-b@@vod@@unknown", List.of(legacy), List.of(flag(current)), -1);
+
+        assertNull(result);
+    }
+
+    @Test
+    public void seasonProgressSnapshotOverridesAHistoryRowNowPointingAtAnotherSeason() {
+        History source = new History();
+        source.setKey("site@@@vod");
+        source.setVodName("Series");
+        source.setVodRemarks("S2E3");
+        source.setTmdbId(10);
+        source.setMediaType("tv");
+        source.setTmdbEpisodePosition(2, 3);
+        source.setPosition(300);
+        source.setDuration(1000);
+        TmdbSeasonProgress progress = TmdbSeasonProgress.of(
+                0, "tv", 10, 1, 5, 500, 1200, source.getKey());
+        progress.sourceFlag = "line-s1";
+        progress.sourceEpisodeName = "S1E5";
+        progress.sourceEpisodeUrl = "s1e5-url";
+        progress.updatedAt = 900;
+
+        List<History> overlaid = History.overlaySeasonProgress(List.of(source), progress);
+
+        assertEquals(2, overlaid.size());
+        assertEquals(1, overlaid.get(0).getTmdbSeasonNumber());
+        assertEquals(5, overlaid.get(0).getTmdbEpisodeNumber());
+        assertEquals(500, overlaid.get(0).getPosition());
+        assertEquals(900, overlaid.get(0).getCreateTime());
+        assertEquals("line-s1", overlaid.get(0).getVodFlag());
+        assertEquals("S1E5", overlaid.get(0).getVodRemarks());
+        assertEquals("s1e5-url", overlaid.get(0).getEpisodeUrl());
+        assertSame(source, overlaid.get(1));
+    }
+
+    @Test
+    public void currentMultiSeasonRouteRestoresItsStableFlagKeyWithoutExpectedSeason() {
+        History source = new History();
+        source.setKey("site@@@vod");
+        source.setCid(7);
+        source.setTmdbId(10);
+        source.setMediaType("tv");
+        source.setTmdbEpisodePosition(2, 3);
+        source.setPosition(300);
+        source.setDuration(1000);
+        TmdbSeasonProgress progress = TmdbSeasonProgress.of(
+                7, "tv", 10, 2, 3, 300, 1000, source.getKey());
+        progress.sourceBindingKey = "duplicate#1";
+
+        List<History> overlaid = History.overlayLocalSeasonProgress(
+                source.getKey(), List.of(source), progress);
+
+        assertEquals("duplicate#1", overlaid.get(0).getSourceBindingKey());
+        assertEquals(2, overlaid.get(0).getTmdbSeasonNumber());
+        assertSame(source, overlaid.get(1));
+    }
+
+    @Test
+    public void crossSourceRebindReplacesTheOriginStableFlagKey() {
+        History sourceA = new History();
+        sourceA.setKey("site-a@@@vod-a");
+        sourceA.setVodFlag("duplicate");
+        sourceA.setEpisodeUrl("shared-url");
+        sourceA.setTmdbEpisodePosition(2, 3);
+        sourceA.setSourceBindingKey("duplicate#1");
+        Flag targetFirst = Flag.create("duplicate", "E3$shared-url");
+        Flag targetSecond = Flag.create("duplicate", "E3$shared-url");
+
+        History rebound = History.findPlaybackCandidate(
+                "site-b@@@vod-b", List.of(sourceA),
+                List.of(targetFirst, targetSecond), 2);
+
+        assertEquals("duplicate#0", rebound.getSourceBindingKey());
+    }
+
+    @Test
+    public void sameRouteRebindKeepsTheSnapshotStableFlagKey() {
+        History snapshot = new History();
+        snapshot.setKey("site@@@vod");
+        snapshot.setVodFlag("duplicate");
+        snapshot.setEpisodeUrl("shared-url");
+        snapshot.setTmdbEpisodePosition(2, 3);
+        snapshot.setSourceBindingKey("duplicate#1");
+        Flag first = Flag.create("duplicate", "E3$shared-url");
+        Flag second = Flag.create("duplicate", "E3$shared-url");
+
+        History rebound = History.findPlaybackCandidate(
+                snapshot.getKey(), List.of(snapshot), List.of(first, second), 2);
+
+        assertEquals("duplicate#1", rebound.getSourceBindingKey());
+    }
+
+    @Test
+    public void sameRouteRebindNormalizesBlankStableFlagKey() {
+        assertSameRouteStableFlagKey("", "flag#1");
+    }
+
+    @Test
+    public void sameRouteRebindTrimsStableFlagKey() {
+        assertSameRouteStableFlagKey(" line ", "line#1");
+    }
+
+    private static void assertSameRouteStableFlagKey(String flagName, String stableKey) {
+        History snapshot = new History();
+        snapshot.setKey("site@@@vod");
+        snapshot.setVodFlag(flagName);
+        snapshot.setEpisodeUrl("shared-url");
+        snapshot.setTmdbEpisodePosition(2, 3);
+        snapshot.setSourceBindingKey(stableKey);
+        Flag first = Flag.create(flagName, "E3$shared-url");
+        Flag second = Flag.create(flagName, "E3$shared-url");
+
+        History rebound = History.findPlaybackCandidate(
+                snapshot.getKey(), List.of(snapshot), List.of(first, second), 2);
+
+        assertEquals(stableKey, rebound.getSourceBindingKey());
+    }
+
+    @Test
     public void findPlaybackCandidateRejectsRegularSeasonWhenTargetIsSpecials() {
         History regular = history("site-a@@vod@@season1", "示例剧", "第5集", "old-url", 90_000, 300_000);
         regular.setTmdbSeasonNumber(1);
@@ -507,6 +644,103 @@ public class HistoryPlaybackTest {
         assertEquals(90_000, result.getPosition());
     }
 
+
+    @Test
+    public void endingIsReachedOnceTheEpisodeHasActuallyPlayedPastIt() {
+        History history = new History();
+        history.setEnding(120_000);
+
+        // 45 分钟正片，片尾 2 分钟：播到 43 分钟时判定播完。
+        assertTrue(history.isEndingReached(2_580_000, 2_700_000));
+        // 同一集播到一半，还没进片尾区间。
+        assertFalse(history.isEndingReached(1_350_000, 2_700_000));
+    }
+
+    @Test
+    public void sharedEndingDoesNotInstantlyFinishAShorterEpisode() {
+        History history = new History();
+        // ending 存在 History 上（主键不含集数），整剧共享；用户在 45 分钟正片上设了 10 分钟片尾。
+        history.setEnding(600_000);
+
+        // 切到 3 分钟的预告片：裸判定 600000 + 0 >= 180000 会立刻成立，把没看过的一集判为播完。
+        // 3 分钟视频的片尾上限是 3 分钟，10 分钟远超之，属跨集错配。
+        assertFalse(history.isEndingReached(0, 180_000));
+        // 即使播了一会儿，ending 相对本集时长仍然离谱，不该判完。
+        assertFalse(history.isEndingReached(60_000, 180_000));
+    }
+
+    @Test
+    public void shortDramaEndingStillWorksWithinItsAllowedLimit() {
+        History history = new History();
+        // 8 分钟短剧上设 3 分钟片尾：getOpEdLimit(8min) 允许 3 分钟，属合法设置，必须照常生效。
+        history.setEnding(180_000);
+
+        assertTrue(history.isEndingReached(300_000, 480_000));
+        // 还没到片尾区间时不触发。
+        assertFalse(history.isEndingReached(120_000, 480_000));
+    }
+
+    @Test
+    public void veryShortClipsStillReachTheirEnding() {
+        History history = new History();
+        // 40 秒竖屏短剧、片尾 10 秒：固定 1 分钟已播门槛会让片尾永不触发，需按时长缩放。
+        history.setEnding(10_000);
+
+        assertTrue(history.isEndingReached(30_000, 40_000));
+        // 刚开播仍不判完。
+        assertFalse(history.isEndingReached(0, 40_000));
+    }
+
+    @Test
+    public void anyEndingSettableOnThisEpisodeIsAlsoAcceptedWhenJudging() {
+        // 判定端与设置端必须自洽：凡 canSetEnding 允许设出的 ending，
+        // 在同一集上都不得被 isEndingReached 以「跨集错配」为由拒绝。
+        // canSetEnding 用 duration - position <= getOpEdLimit(duration)，
+        // 设出的 ending 恰为 duration - position，即上界就是 getOpEdLimit(duration)。
+        for (long duration : new long[]{40_000, 480_000, 900_000, 1_200_000, 1_800_000, 2_700_000}) {
+            long maxSettable = com.fongmi.android.tv.Constant.getOpEdLimit(duration);
+            History history = new History();
+            history.setEnding(maxSettable);
+            // 播到片尾起点时必须判定播完（position 已满足已播门槛的前提下）。
+            long position = duration - maxSettable;
+            if (position < Math.min(60_000, duration / 4)) continue;
+            assertTrue("duration=" + duration + " ending=" + maxSettable,
+                    history.isEndingReached(position, duration));
+        }
+    }
+
+    @Test
+    public void aPlausibleSharedEndingOnlyFiresAfterRealPlayback() {
+        History history = new History();
+        // 45 分钟正片设 10 分钟片尾，切到 35 分钟的集：10 分钟未超 getOpEdLimit(35min)=10min，
+        // 判定放行，但必须真播到 25 分钟才触发，不会在开播阶段把没看过的一集送走。
+        history.setEnding(600_000);
+
+        assertFalse(history.isEndingReached(0, 2_100_000));
+        assertFalse(history.isEndingReached(600_000, 2_100_000));
+        assertTrue(history.isEndingReached(1_500_000, 2_100_000));
+    }
+
+    @Test
+    public void endingNeverFiresAtTheVeryStartOfAnEpisode() {
+        History history = new History();
+        history.setEnding(120_000);
+
+        // 源站给了错误的短时长（2 分 10 秒）时，开播瞬间不得判完。
+        assertFalse(history.isEndingReached(0, 130_000));
+    }
+
+    @Test
+    public void endingRequiresAPositiveDurationAndConfiguredValue() {
+        History configured = new History();
+        configured.setEnding(120_000);
+        // 时长未就绪时不做任何判定。
+        assertFalse(configured.isEndingReached(2_580_000, 0));
+
+        History unset = new History();
+        // 用户没设过片尾，永不触发。
+        assertFalse(unset.isEndingReached(2_580_000, 2_700_000));
+    }
 
     private static History history(String key, String name, String remarks, String episodeUrl, long position, long duration) {
         History history = new History();
