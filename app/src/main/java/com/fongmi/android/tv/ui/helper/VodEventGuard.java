@@ -2,7 +2,9 @@ package com.fongmi.android.tv.ui.helper;
 
 import android.text.TextUtils;
 
+import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.bean.Vod;
+import com.fongmi.android.tv.utils.PushParser;
 
 public final class VodEventGuard {
 
@@ -10,8 +12,13 @@ public final class VodEventGuard {
         if (item == null) return false;
         String id = item.getId();
         String siteKey = item.getSiteKey();
-        if (!TextUtils.isEmpty(id) && !TextUtils.equals(stripPageSuffix(id), stripPageSuffix(currentId))) return false;
+        if (!TextUtils.isEmpty(id) && !TextUtils.equals(normalizeId(id, currentSiteKey), normalizeId(currentId, currentSiteKey))) return false;
         return TextUtils.isEmpty(siteKey) || TextUtils.equals(siteKey, currentSiteKey);
+    }
+
+    private static String normalizeId(String id, String siteKey) {
+        String value = stripPageSuffix(id);
+        return SiteApi.PUSH.equals(siteKey) ? PushParser.fromId(value).getUrl() : value;
     }
 
     static String stripPageSuffix(String id) {

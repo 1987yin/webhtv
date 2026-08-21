@@ -11,19 +11,11 @@ import static org.junit.Assert.assertEquals;
 public class PlaybackServiceReleasePolicyTest {
 
     @Test
-    public void transientPlaybackNeverSuspendsAServiceWithOtherConsumers() {
-        assertEquals(RESET_SESSION, PlaybackServiceReleasePolicy.decide(true, true, false, true));
-        assertEquals(RESET_SESSION, PlaybackServiceReleasePolicy.decide(true, false, false, true));
-        assertEquals(SHUTDOWN, PlaybackServiceReleasePolicy.decide(true, true, false, false));
-        assertEquals(SHUTDOWN, PlaybackServiceReleasePolicy.decide(true, false, true, false));
-    }
-
-    @Test
-    public void normalPlaybackKeepsTheExistingReleaseMatrix() {
-        assertEquals(RESET_SESSION, PlaybackServiceReleasePolicy.decide(false, true, true, false));
-        assertEquals(SUSPEND_AND_RESET, PlaybackServiceReleasePolicy.decide(false, true, false, true));
-        assertEquals(RESET_SESSION, PlaybackServiceReleasePolicy.decide(false, false, false, true));
-        assertEquals(SHUTDOWN, PlaybackServiceReleasePolicy.decide(false, true, false, false));
-        assertEquals(DETACH, PlaybackServiceReleasePolicy.decide(false, false, false, false));
+    public void keepsTheExistingReleaseMatrix() {
+        assertEquals(RESET_SESSION, PlaybackServiceReleasePolicy.decide(true, true, false));
+        assertEquals(SUSPEND_AND_RESET, PlaybackServiceReleasePolicy.decide(true, false, true));
+        assertEquals(RESET_SESSION, PlaybackServiceReleasePolicy.decide(false, false, true));
+        assertEquals(SHUTDOWN, PlaybackServiceReleasePolicy.decide(true, false, false));
+        assertEquals(DETACH, PlaybackServiceReleasePolicy.decide(false, false, false));
     }
 }

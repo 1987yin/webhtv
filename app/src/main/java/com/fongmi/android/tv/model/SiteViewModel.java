@@ -136,11 +136,7 @@ public class SiteViewModel extends ViewModel {
     }
 
     public void playerContent(String key, String flag, String id) {
-        playerContent(key, flag, id, false);
-    }
-
-    public void playerContent(String key, String flag, String id, boolean isolated) {
-        execute(TaskType.PLAYER, player, () -> isolated ? SiteApi.playerContentIsolated(key, flag, id) : SiteApi.playerContent(key, flag, id));
+        execute(TaskType.PLAYER, player, () -> SiteApi.playerContent(key, flag, id));
     }
 
     public void searchContent(Site site, String keyword, boolean quick, String page) {

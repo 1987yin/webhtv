@@ -12,8 +12,7 @@ public final class PlaybackServiceReleasePolicy {
     private PlaybackServiceReleasePolicy() {
     }
 
-    public static Action decide(boolean transientPlayback, boolean owner, boolean keepAlive, boolean hasConsumer) {
-        if (transientPlayback) return hasConsumer ? Action.RESET_SESSION : Action.SHUTDOWN;
+    public static Action decide(boolean owner, boolean keepAlive, boolean hasConsumer) {
         if (owner && keepAlive) return Action.RESET_SESSION;
         if (hasConsumer) return owner ? Action.SUSPEND_AND_RESET : Action.RESET_SESSION;
         return owner ? Action.SHUTDOWN : Action.DETACH;

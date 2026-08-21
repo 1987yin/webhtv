@@ -586,14 +586,6 @@ public class PlayerManager implements ParseCallback {
         return networkProtectionSupportedSpeed;
     }
 
-    public boolean hasSession() {
-        return hasSession(spec);
-    }
-
-    static boolean hasSession(PlaySpec spec) {
-        return spec != null;
-    }
-
     public boolean isEmpty() {
         return spec == null || TextUtils.isEmpty(spec.getUrl());
     }

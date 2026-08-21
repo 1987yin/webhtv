@@ -16,9 +16,9 @@ import android.view.WindowManager;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
-import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
+import androidx.media3.common.Format;
 import androidx.media3.common.Player;
 import androidx.media3.common.VideoSize;
 import androidx.media3.exoplayer.drm.FrameworkMediaDrm;
@@ -33,8 +33,6 @@ import com.fongmi.android.tv.player.PlaybackAutoContext;
 import com.fongmi.android.tv.player.PlaybackServiceReleasePolicy;
 import com.fongmi.android.tv.player.PlaybackTelemetry;
 import com.fongmi.android.tv.player.PlayerManager;
-import com.fongmi.android.tv.player.TransientPlaybackCoordinator;
-import com.fongmi.android.tv.player.TransientPlaybackSnapshot;
 import com.fongmi.android.tv.player.VideoAspectMode;
 import com.fongmi.android.tv.player.engine.PlaySpec;
 import com.fongmi.android.tv.player.exo.ExoOutputModeManager;
@@ -51,15 +49,11 @@ import com.fongmi.android.tv.utils.ResUtil;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.common.util.concurrent.ListenableFuture;
 
-import java.util.OptionalLong;
 import java.util.function.IntConsumer;
 
 public abstract class PlaybackActivity extends BaseActivity implements MediaController.Listener, Player.Listener, ServiceConnection {
 
-    public static final String EXTRA_TRANSIENT_PLAYBACK = "extra_transient_playback";
-
     private static final String SIZE_TAG = "MPV_SIZE";
-    private static final int REQUEST_TRANSIENT_PLAYBACK = 1098;
 
     private ListenableFuture<MediaController> mControllerFuture;
     private MediaController mController;
@@ -74,7 +68,6 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private int render = -1;
     private int requestedAspectMode = VideoAspectMode.ORIGINAL;
     private ExoOutputModeManager exoOutputModeManager;
-    private final TransientPlaybackCoordinator transientPlayback = new TransientPlaybackCoordinator();
 
     protected MediaController controller() {
         return mController;
@@ -183,68 +176,8 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         return key == null || (manager != null && key.equals(manager.getKey()));
     }
 
-    public final boolean launchTransientPlayback(Intent intent) {
-        if (intent == null || !transientPlayback.canBeginLaunch() || isFinishing() || isDestroyed()) return false;
-        PlayerManager manager = player();
-        boolean hasPlaybackSession = manager != null && !manager.isReleased() && manager.hasSession();
-        TransientPlaybackSnapshot transientSnapshot = captureTransientPlaybackSnapshot();
-        if (!transientPlayback.beginLaunch(transientSnapshot, hasPlaybackSession)) {
-            resumeAfterTransientPlayback(transientSnapshot != null && transientSnapshot.shouldResume());
-            return false;
-        }
-        intent.putExtra(EXTRA_TRANSIENT_PLAYBACK, true);
-        try {
-            startActivityForResult(intent, REQUEST_TRANSIENT_PLAYBACK);
-            syncKeepScreenOn();
-            return true;
-        } catch (RuntimeException e) {
-            SpiderDebug.log("playback-flow", e);
-            TransientPlaybackSnapshot snapshot = transientPlayback.cancelLaunch();
-            resumeAfterTransientPlayback(snapshot != null && snapshot.shouldResume());
-            syncKeepScreenOn();
-            return false;
-        }
-    }
-
-    private TransientPlaybackSnapshot captureTransientPlaybackSnapshot() {
-        if (!isOwner()) return null;
-        PlayerManager manager = player();
-        if (manager == null || manager.isReleased() || manager.isEmpty()) return null;
-        Player active = mController != null ? mController : manager.getPlayer();
-        int state = active.getPlaybackState();
-        boolean shouldResume = active.isPlaying() || (active.getPlayWhenReady() && (state == Player.STATE_BUFFERING || state == Player.STATE_READY));
-        TransientPlaybackSnapshot snapshot = TransientPlaybackSnapshot.create(
-                manager.getKey(), player().getCurrentResult(), manager.getMetadata(), manager.getPosition(), shouldResume);
-        if (!snapshot.isRestorable()) return null;
-        if (mController != null) mController.pause();
-        else manager.pause();
-        return snapshot;
-    }
-
-    private void restoreTransientPlayback() {
-        TransientPlaybackSnapshot snapshot = transientPlayback.beginRestore();
-        if (snapshot == null) return;
-        if (!snapshot.isRestorable()) {
-            transientPlayback.failRestore();
-            return;
-        }
-        if (!isServiceReady()) {
-            transientPlayback.requeueInFlightRestore();
-            return;
-        }
-        PlayerManager manager = player();
-        try {
-            manager.stop();
-            if (!startPlayerInternal(snapshot.key(), snapshot.result(), false, 0, snapshot.metadata(), snapshot.shouldResume())) transientPlayback.failRestore();
-        } catch (RuntimeException e) {
-            SpiderDebug.log("playback-flow", e);
-            transientPlayback.failRestore();
-            PlaybackActivity.this.onError(ResUtil.getString(R.string.error_play_url));
-        }
-    }
-
-    public final boolean pauseForTransientPlayback() {
-        if (!isOwner()) return false;
+    public final boolean pauseForOverlayPlayback() {
+        if (!isOwner() || isFinishing() || isDestroyed()) return false;
         PlayerManager manager = player();
         if (manager == null || manager.isReleased() || manager.isEmpty()) return false;
         Player active = mController != null ? mController : manager.getPlayer();
@@ -257,7 +190,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         return true;
     }
 
-    public final void resumeAfterTransientPlayback(boolean shouldResume) {
+    public final void resumeAfterOverlayPlayback(boolean shouldResume) {
         if (!shouldResume || isFinishing() || isDestroyed() || !isOwner()) return;
         PlayerManager manager = player();
         if (manager == null || manager.isReleased() || manager.isEmpty()) return;
@@ -417,19 +350,9 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     protected void startPlayer(String key, Result result, boolean useParse, long timeout, MediaMetadata metadata) {
-        startPlayerInternal(key, result, useParse, timeout, metadata, PlayerSetting.isAutoPlay());
-    }
-
-    protected void startPlayer(String key, Result result, boolean useParse, long timeout, MediaMetadata metadata, boolean playWhenReady) {
-        startPlayerInternal(key, result, useParse, timeout, metadata, playWhenReady);
-    }
-
-    private boolean startPlayerInternal(String key, Result result, boolean useParse, long timeout, MediaMetadata metadata, boolean playWhenReady) {
         if (rejectUnsupportedDrm(key, result)) {
-            return false;
-        }
-        boolean accepted = false;
-        if (result.getDrm() != null && !FrameworkMediaDrm.isCryptoSchemeSupported(result.getDrm().getUUID())) {
+            return;
+        } else if (result.getDrm() != null && !FrameworkMediaDrm.isCryptoSchemeSupported(result.getDrm().getUUID())) {
             onError(ResUtil.getString(R.string.error_play_drm));
         } else if (result.hasMsg()) {
             onError(result.getMsg());
@@ -438,16 +361,13 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         } else if (result.needParse() || useParse) {
             preparedPlaybackKey = null;
             attachSurface();
-            player().parse(key, result, useParse, metadata, playWhenReady);
-            accepted = true;
+            player().parse(key, result, useParse, metadata, PlayerSetting.isAutoPlay());
         } else {
             preparedPlaybackKey = null;
             attachSurface();
-            player().start(PlaySpec.from(result, key, metadata), timeout, playWhenReady);
-            accepted = true;
+            player().start(PlaySpec.from(result, key, metadata), timeout, PlayerSetting.isAutoPlay());
         }
         syncKeepScreenOn();
-        return accepted;
     }
 
     private boolean rejectUnsupportedDrm(String key, Result result) {
@@ -555,7 +475,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     private boolean shouldReclaim() {
-        return mService != null && !isOwner() && !transientPlayback.isTransientPlaybackActive();
+        return mService != null && !isOwner();
     }
 
     private void closePiP() {
@@ -717,9 +637,8 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private void releaseService(boolean owner) {
         mService.removePlayerCallback(mPlayerCallback);
         mService.clearNavigationCallback(getNavigationCallback());
-        boolean transientPlayback = getIntent() != null && getIntent().getBooleanExtra(EXTRA_TRANSIENT_PLAYBACK, false);
         boolean hasConsumer = mService.hasExternalClient() || mService.hasPlayerCallback();
-        switch (PlaybackServiceReleasePolicy.decide(transientPlayback, owner, mService.isKeepAlive(), hasConsumer)) {
+        switch (PlaybackServiceReleasePolicy.decide(owner, mService.isKeepAlive(), hasConsumer)) {
             case RESET_SESSION -> mService.resetSessionActivity();
             case SUSPEND_AND_RESET -> {
                 mService.suspend();
@@ -799,12 +718,6 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
                 MediaItem item = player().getCurrentMediaItem();
                 preparedPlaybackKey = item == null ? null : item.mediaId;
                 PlaybackActivity.this.onPrepare();
-                PlayerManager manager = player();
-                OptionalLong position = transientPlayback.consumePreparedPosition(manager.getKey(), manager.getUrl());
-                if (position.isPresent()) {
-                    long positionMs = position.getAsLong();
-                    manager.seekTo(positionMs);
-                }
                 reconcileControllerReadyState();
             }
         }
@@ -826,13 +739,11 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
         @Override
         public void onError(String msg) {
-            transientPlayback.failRestore();
             if (isOwner()) PlaybackActivity.this.onError(msg);
         }
 
         @Override
         public void onReload(String msg) {
-            transientPlayback.failRestore();
             if (isOwner()) PlaybackActivity.this.onReload(msg);
         }
 
@@ -1010,7 +921,6 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         player().setDanmakuForeground(true);
         publishRenderTarget(getExoView().getVideoSurfaceView());
         applyExoOutputMode();
-        if (transientPlayback.hasQueuedRestore()) restoreTransientPlayback();
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-flow", "service connected cost=%dms key=%s", System.currentTimeMillis() - start, getPlaybackKey());
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service connected %s", lifecycleState());
         onServiceConnected();
@@ -1021,17 +931,8 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "service disconnected name=%s %s", name, lifecycleState());
         releaseController();
         getSeekView().setProgressPlayer(null);
-        transientPlayback.requeueInFlightRestore();
         mService = null;
         preparedPlaybackKey = null;
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQUEST_TRANSIENT_PLAYBACK) return;
-        transientPlayback.queueRestoreAfterResult();
-        if (isServiceReady() && transientPlayback.hasQueuedRestore()) restoreTransientPlayback();
     }
 
     @Override
@@ -1082,7 +983,6 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity destroy beforeRelease %s", lifecycleState());
         RealtimeSubtitleController.get().unbind(getExoView());
         restoreExoOutputMode();
-        transientPlayback.clear();
         super.onDestroy();
         if (isChangingConfigurations()) {
             if (mService != null) mService.removePlayerCallback(mPlayerCallback);

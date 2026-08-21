@@ -152,7 +152,6 @@ import com.fongmi.android.tv.ui.helper.SourceEpisodeSeasonCache;
 import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
 import com.fongmi.android.tv.ui.helper.PlayerControlFocusHelper;
 import com.fongmi.android.tv.ui.helper.TmdbNavigation;
-import com.fongmi.android.tv.ui.helper.TmdbVideoPlayback;
 import com.fongmi.android.tv.ui.helper.VodEventGuard;
 import com.fongmi.android.tv.ui.player.VodPlayerChrome;
 import com.fongmi.android.tv.ui.player.VodPlayerUiController;
@@ -628,20 +627,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         start(activity, key, id, name, pic, mark, false, tmdbItem);
     }
 
-    public static Intent createTransientIntent(Activity activity, TmdbVideoPlayback.Launch launch) {
-        Intent intent = new Intent(activity, TransientVideoActivity.class);
-        intent.putExtra("collect", false);
-        intent.putExtra("mark", launch.getMark());
-        intent.putExtra("name", launch.getName());
-        intent.putExtra("pic", launch.getPic());
-        intent.putExtra("key", launch.getKey());
-        intent.putExtra("id", launch.getId());
-        intent.putExtra(EXTRA_RESUME_FROM_HISTORY, launch.isResumeFromHistory());
-        intent.putExtra(PlaybackActivity.EXTRA_TRANSIENT_PLAYBACK, true);
-        putIntentPlaybackSelection(intent, launch.getPlayFlag(), launch.getPlayEpisodeName(), launch.getPlayEpisodeUrl());
-        return intent;
-    }
-
     public static void startFromHistory(Activity activity, History item) {
         if (shouldOpenLegacyTmdbDetail(item.getSiteKey(), item.getVodId())) {
             TmdbDetailActivity.startFromHistory(activity, item);
@@ -978,10 +963,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return getIntent().getBooleanExtra(EXTRA_RESUME_FROM_HISTORY, false);
     }
 
-    private boolean isTransientPlayback() {
-        return getIntent().getBooleanExtra(PlaybackActivity.EXTRA_TRANSIENT_PLAYBACK, false);
-    }
-
     private History getIntentResumeHistory() {
         String key = Objects.toString(getIntent().getStringExtra(EXTRA_RESUME_HISTORY_KEY), "");
         if (key.isEmpty()) return null;
@@ -1081,7 +1062,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private boolean reloadHistoryAfterTmdbMatch(TmdbItem matched) {
-        if (isTransientPlayback()) return false;
         Vod item = mVod;
         if (item == null || matched == null || hasIntentResumeHistory()) return false;
         if (mHistory != null && mHistory.isCrossSourcePlayback()
@@ -1230,7 +1210,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         setLut();
         applyDeferredFullscreenOrientation();
         checkLand();
-        enterTransientFullscreen();
         if (consumePendingPlaybackResult()) return;
         if (consumeImmersiveAudioLaunch()) return;
         checkId();
@@ -1666,18 +1645,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void applyActionButtonVisibility() {
         if (mActionButtons != null) PlayerButtonSetting.applyVisibility(mActionButtons);
-        applyTransientPlaybackControls();
-    }
-
-    private void applyTransientPlaybackControls() {
-        if (!isTransientPlayback()) return;
-        mBinding.control.action.next.setVisibility(View.GONE);
-        mBinding.control.action.prev.setVisibility(View.GONE);
-        mBinding.control.action.episodes.setVisibility(View.GONE);
-        mBinding.control.action.fullscreen.setVisibility(View.GONE);
-        mBinding.control.next.setVisibility(View.GONE);
-        mBinding.control.prev.setVisibility(View.GONE);
-        mBinding.control.fullscreen.setVisibility(View.GONE);
     }
 
     private void applyActionButtonSettings() {
@@ -1877,7 +1844,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void getDetail(Vod item) {
-        if (isTransientPlayback()) return;
         revealManualSearch = false;
         if (!isAutoMode()) mViewModel.stopSearch();
         saveHistory();
@@ -2222,8 +2188,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         clearLyrics();
         clearKaraokeState();
         if (shouldUseImmersiveAudio()) setAudioStageVisible(true);
-        if (isTransientPlayback()) mViewModel.playerContent(getKey(), playFlag, episode.getUrl(), true);
-        else mViewModel.playerContent(getKey(), playFlag, episode.getUrl());
+        mViewModel.playerContent(getKey(), playFlag, episode.getUrl());
         mBinding.control.title.setSelected(true);
         updateHistory(episode);
         showProgress();
@@ -2315,7 +2280,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     @Override
     public void onItemClick(Episode item) {
-        if (isTransientPlayback()) return;
         if (shouldEnterFullscreen(item)) return;
         syncCurrentAudioPlaylistMetadata();
         Flag flag = getFlag();
@@ -2349,7 +2313,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     @Override
     public void onItemClick(Vod item) {
-        if (isTransientPlayback()) return;
         setAutoMode(false);
         applySearchArtwork(item);
         getDetail(item);
@@ -2789,30 +2752,15 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onBack() {
-        if (isTransientPlayback()) {
-            finishTransientPlayback();
-            return;
-        }
         if (isFullscreen() && isShortDramaSource()) finishShortDrama();
         else if (isFullscreen()) exitFullscreen();
         else finishVideoPlayback();
     }
 
     private void finishVideoPlayback() {
-        if (isTransientPlayback()) {
-            finishTransientPlayback();
-            return;
-        }
         markPlaybackExiting();
         saveHistory(true);
         finishPlayback();
-    }
-
-    private void finishTransientPlayback() {
-        if (isPlaybackExiting()) return;
-        markPlaybackExiting();
-        setResult(RESULT_OK);
-        finish();
     }
 
     private void onCast() {
@@ -2846,12 +2794,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void checkNext() {
-        if (isTransientPlayback()) return;
         checkNext(true);
     }
 
     private void checkNext(boolean notify) {
-        if (isTransientPlayback()) return;
         setR1Callback();
         Episode item = getAdjacentEpisode(1);
         if (!item.isSelected()) onItemClick(item);
@@ -2859,7 +2805,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void checkPrev() {
-        if (isTransientPlayback()) return;
         setR1Callback();
         Episode item = getAdjacentEpisode(-1);
         if (!item.isSelected()) onItemClick(item);
@@ -2893,10 +2838,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onFullscreen() {
-        if (isTransientPlayback()) {
-            enterTransientFullscreen();
-            return;
-        }
         boolean exit = isFullscreen();
         if (exit) exitFullscreen();
         else enterFullscreen();
@@ -4157,9 +4098,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         SpiderDebug.log("video-flow", "switch decode refresh start key=%s flag=%s episode=%s", key, flag, episode);
         Task.execute(() -> {
             try {
-                Result result = isTransientPlayback()
-                        ? SiteApi.playerContentIsolated(key, flag, episode)
-                        : SiteApi.playerContent(key, flag, episode);
+                Result result = SiteApi.playerContent(key, flag, episode);
                 App.post(() -> switchDecodeWithResult(result, position, speed, repeat, metadata));
             } catch (Throwable e) {
                 App.post(() -> {
@@ -4222,7 +4161,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onEpisodes() {
-        if (isTransientPlayback()) return;
         if (mFlagAdapter == null || mFlagAdapter.isEmpty() || mHistory == null) return;
         Flag flag = getFlag();
         syncSelectedEpisode(flag);
@@ -4278,9 +4216,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         SpiderDebug.log("video-flow", "switch player refresh start type=%d key=%s flag=%s episode=%s", nextType, key, flag, episode);
         Task.execute(() -> {
             try {
-                Result result = isTransientPlayback()
-                        ? SiteApi.playerContentIsolated(key, flag, episode, nextType)
-                        : SiteApi.playerContent(key, flag, episode, nextType);
+                Result result = SiteApi.playerContent(key, flag, episode, nextType);
                 App.post(() -> switchPlayerKernelWithResult(requestId, nextType, result, position, speed, repeat, metadata));
             } catch (Throwable e) {
                 App.post(() -> {
@@ -4365,11 +4301,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     private void showControlIfFullscreen() {
         if (!isFullscreen() || isLock() || isInPictureInPictureMode()) return;
         showControl();
-    }
-
-    private void enterTransientFullscreen() {
-        applyTransientPlaybackControls();
-        if (isTransientPlayback() && !isFullscreen()) enterFullscreen();
     }
 
     private void exitFullscreen() {
@@ -4805,24 +4736,20 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private boolean checkHistory(Vod item) {
         TmdbItem tmdbItem = getHistoryTmdbItem();
-        History resumeHistory = isTransientPlayback() ? null : getIntentResumeHistory();
+        History resumeHistory = getIntentResumeHistory();
         if (hasIntentResumeHistory() && resumeHistory == null) {
             Notify.show(R.string.history_record_missing);
             finish();
             return false;
         }
-        if (isTransientPlayback()) {
-            mHistory = createTransientSessionHistory(item);
-        } else {
-            mHistory = resumeHistory == null
-                    ? History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), tmdbItem, currentSourceSeasonNumber(item))
-                    : resumeHistory.forPlaybackKey(getHistoryKey(), VodConfig.getCid());
-            mHistory = mHistory == null ? createHistory(item) : mHistory;
-        }
+        mHistory = resumeHistory == null
+                ? History.findPlayback(getHistoryKey(), List.of(item.getName(), getName()), item.getFlags(), tmdbItem, currentSourceSeasonNumber(item))
+                : resumeHistory.forPlaybackKey(getHistoryKey(), VodConfig.getCid());
+        mHistory = mHistory == null ? createHistory(item) : mHistory;
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
         applyIntentPlaybackSelection(item);
-        if (!isTransientPlayback() && resumeHistory == null && Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
+        if (resumeHistory == null && Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
         mBinding.control.action.opening.setText(mHistory.getOpening() <= 0 ? getString(R.string.play_op) : Util.timeMs(mHistory.getOpening()));
         mBinding.control.action.ending.setText(mHistory.getEnding() <= 0 ? getString(R.string.play_ed) : Util.timeMs(mHistory.getEnding()));
         // 如果历史记录中已有有效倍速，使用历史倍速；否则使用默认播放倍速
@@ -4831,7 +4758,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mHistory.setVodName(item.getName());
         mHistory.setVodPic(getInitialArtwork(item));
         enrichHistoryMeta(item);
-        publishPlaybackHistory();
+        PlaybackEventCollector.get().updateHistory(mHistory);
         setArtwork(getInitialArtwork(item));
         setScale(getScale());
         return true;
@@ -4909,17 +4836,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return history;
     }
 
-    private History createTransientSessionHistory(Vod item) {
-        History session = new History();
-        session.setKey(getHistoryKey());
-        session.setCid(VodConfig.getCid());
-        session.setVodName(item.getName());
-        session.setVodPic(getInitialArtwork(item));
-        session.setWallPic(getWallPic());
-        session.findEpisode(item.getFlags());
-        return session;
-    }
-
     private void applyIntentPlaybackSelection(Vod item) {
         String playFlag = getIntentPlaybackFlag();
         String playName = getIntentPlaybackEpisodeName();
@@ -4969,7 +4885,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void saveHistory(boolean exit) {
-        if (isTransientPlayback()) return;
         if (mHistory == null || Setting.isIncognito()) return;
         boolean hasPlayback = service() != null && isOwner() && !player().isEmpty();
         if (hasPlayback) {
@@ -5002,14 +4917,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void syncHistory() {
-        if (isTransientPlayback()) return;
         if (mHistory == null || Setting.isIncognito()) return;
         History history = mHistory.copy();
         Task.execute(history::save);
     }
 
     private void updateHistory(Episode item) {
-        if (isTransientPlayback()) return;
         // 换线路或源站刷新时同一集的 URL、集名格式可能变化，统一按播放恢复规则识别。
         Episode historyEpisode = withSourceSeasonEpisodeIdentity(item);
         boolean sameEpisode = historyEpisode.matchesPlayback(mHistory.getEpisode());
@@ -5056,7 +4969,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mHistory.setVodRemarks(getHistoryEpisodeName(item));
         mHistory.setEpisodeUrl(item.getUrl());
         if (historyEpisode.getTmdbEpisode() != null || !sameEpisode) mHistory.setTmdbEpisodePosition(historyEpisode);
-        publishPlaybackHistory();
+        PlaybackEventCollector.get().updateHistory(mHistory);
     }
 
     private void checkControl() {
@@ -5112,8 +5025,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             if (mHistory != null) {
                 String nextKey = getHistoryKey();
                 keyChanged = !TextUtils.equals(mHistory.getKey(), nextKey);
-                if (keyChanged && isTransientPlayback()) mHistory.setKey(nextKey);
-                else if (keyChanged) mHistory.replace(nextKey);
+                if (keyChanged) mHistory.replace(nextKey);
             }
         }
         boolean historyReloaded = reloadHistoryAfterTmdbMatch();
@@ -5135,7 +5047,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (keyChanged || pic || name || episodeTitleChanged || tmdbIdStamped) syncHistory();
         if (pic || name) updateKeep();
         if (id) updateNavigationKey();
-        publishPlaybackHistory();
+        PlaybackEventCollector.get().updateHistory(mHistory);
         setText(item);
 
         // TMDB 模式：数据加载完成后填充头部面板
@@ -5242,7 +5154,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         boolean episodeTitleChanged = refreshCurrentHistoryEpisodeTitle();
         mBinding.control.title.setText(getPlaybackControlTitle());
         if (episodeTitleChanged) syncHistory();
-        publishPlaybackHistory();
+        if (mHistory != null) PlaybackEventCollector.get().updateHistory(mHistory);
         scrollEpisodeToSelected();
         mBinding.episode.post(this::updateEpisodeViewportHeight);
     }
@@ -6620,7 +6532,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     @Override
     public void onTimeChanged(long time) {
-        if (isTransientPlayback()) return;
         android.util.Log.d("VideoActivity", "onTimeChanged: isOwner=" + isOwner() + " mHistory=" + (mHistory != null));
         if (!isOwner() || mHistory == null) return;
         long position, duration;
@@ -6633,7 +6544,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         position = mHistory.getPosition();
         duration = mHistory.getDuration();
         android.util.Log.d("VideoActivity", "onTimeChanged: position=" + position + " duration=" + duration + " canSave=" + mHistory.canSave());
-        if (!isTransientPlayback()) PlaybackEventCollector.get().onProgress(mHistory, player());
+        PlaybackEventCollector.get().onProgress(mHistory, player());
         if (mHistory.canSave() && mHistory.canSync()) syncHistory();
         if (applyAutoIntroSkip()) return;
         if (mHistory.getEnding() > 0 && duration > 0 && mHistory.getEnding() + position >= duration) {
@@ -6648,11 +6559,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (position > 0) mHistory.setPosition(position);
         if (duration > 0) mHistory.setDuration(duration);
         else if (mHistory.getDuration() < 0) mHistory.setDuration(0);
-        publishPlaybackHistory();
-    }
-
-    private void publishPlaybackHistory() {
-        if (isTransientPlayback() || mHistory == null) return;
         PlaybackEventCollector.get().updateHistory(mHistory);
     }
 
@@ -6834,7 +6740,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void checkEnded(boolean notify) {
-        if (isTransientPlayback()) return;
         checkNext(notify);
     }
 
@@ -7507,7 +7412,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onPersonalRecommendationClick(TmdbItem item) {
-        if (isTransientPlayback()) return;
         TmdbNavigation.open(this, item, getSite());
     }
 
@@ -8351,14 +8255,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void syncFullscreenForOrientation(int orientation) {
-        if (isTransientPlayback()) {
-            if (service() == null) deferredFullscreenOrientation = orientation;
-            else {
-                deferredFullscreenOrientation = Configuration.ORIENTATION_UNDEFINED;
-                enterTransientFullscreen();
-            }
-            return;
-        }
         if (!isAutoRotate() || !isPort()) {
             deferredFullscreenOrientation = Configuration.ORIENTATION_UNDEFINED;
             return;
@@ -8418,9 +8314,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     @Override
     protected void onBackInvoked() {
-        if (isTransientPlayback()) {
-            finishTransientPlayback();
-        } else if (hasLutQuick() && mBinding.lutQuick.hideIfVisible()) {
+        if (hasLutQuick() && mBinding.lutQuick.hideIfVisible()) {
             return;
         } else if (isVisible(mBinding.control.getRoot())) {
             hideControl();
@@ -9120,10 +9014,6 @@ private void onAudioLyricsSeek(long positionMs) {
     }
 
 private void finishVideoPlaybackNow() {
-        if (isTransientPlayback()) {
-            finishTransientPlayback();
-            return;
-        }
         markPlaybackExiting();
         saveHistory(true);
         finishPlayback();
@@ -9907,10 +9797,6 @@ private boolean hasNextEpisode() {
     }
 
 private void finishVideoPlaybackFromSystemBack() {
-        if (isTransientPlayback()) {
-            finishTransientPlayback();
-            return;
-        }
         mViewModel.stopSearch();
         markPlaybackExiting();
         saveHistory(true);

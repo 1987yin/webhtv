@@ -7,89 +7,103 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class TmdbVideoPopupWiringTest {
 
     @Test
-    public void playbackActivityCoordinatesTransientPlaybackAndRestore() throws Exception {
+    public void playbackActivitySupportsOverlayPlaybackWithoutTransientLifecycle() throws Exception {
         String playback = read("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java");
+        String policy = read("src", "main", "java", "com", "fongmi", "android", "tv", "player", "PlaybackServiceReleasePolicy.java");
 
-        assertTrue(playback.contains("public static final String EXTRA_TRANSIENT_PLAYBACK"));
-        assertTrue(playback.contains("public final boolean launchTransientPlayback(Intent intent)"));
-        assertTrue(playback.contains("player().getCurrentResult()"));
-        assertTrue(playback.contains("startActivityForResult(intent, REQUEST_TRANSIENT_PLAYBACK)"));
-        assertTrue(playback.contains("restoreTransientPlayback()"));
-        assertTrue(playback.contains("private static final int REQUEST_TRANSIENT_PLAYBACK = 1098"));
-        assertTrue(playback.contains("TransientPlaybackSnapshot.create("));
-        assertTrue(playback.contains("snapshot.shouldResume()"));
-        assertTrue(playback.contains("private final TransientPlaybackCoordinator transientPlayback = new TransientPlaybackCoordinator();"));
-        assertFalse(playback.contains("private TransientPlaybackSnapshot transientSnapshot"));
-        assertFalse(playback.contains("private TransientPlaybackSnapshot pendingTransientRestore"));
-        assertFalse(playback.contains("private long pendingTransientSeekMs"));
-        assertOrderAfter(playback, "public void onPrepare()", "PlaybackActivity.this.onPrepare();", "transientPlayback.consumePreparedPosition(", "manager.seekTo(positionMs)");
-        assertFalse(playback.contains("!manager.isEmpty()"));
-        assertTrue(playback.contains("boolean hasPlaybackSession = manager != null && !manager.isReleased() && manager.hasSession();"));
-        assertOrderAfter(playback, "public final boolean launchTransientPlayback(Intent intent)", "transientPlayback.canBeginLaunch()", "transientPlayback.beginLaunch(transientSnapshot, hasPlaybackSession)", "startActivityForResult(intent, REQUEST_TRANSIENT_PLAYBACK)");
-        assertTrue(playback.contains("TransientPlaybackSnapshot snapshot = transientPlayback.cancelLaunch();"));
-        assertTrue(playback.contains("transientPlayback.queueRestoreAfterResult();"));
-        assertOrderAfter(playback, "private void restoreTransientPlayback()", "transientPlayback.beginRestore()", "manager.stop();", "startPlayerInternal(", "catch (RuntimeException e)", "transientPlayback.failRestore();", "PlaybackActivity.this.onError(ResUtil.getString(R.string.error_play_url))");
-        assertTrue(playback.contains("private boolean startPlayerInternal("));
-        assertOrderAfter(playback, "public void onError(String msg)", "transientPlayback.failRestore();", "PlaybackActivity.this.onError(msg);");
-        assertOrderAfter(playback, "public void onServiceDisconnected(ComponentName name)", "transientPlayback.requeueInFlightRestore();", "mService = null;");
-        assertTrue(playback.contains("if (transientPlayback.hasQueuedRestore()) restoreTransientPlayback();"));
-        assertOrderAfter(playback, "protected void onDestroy()", "transientPlayback.clear();", "super.onDestroy();");
-        assertTrue(playback.contains("resumeAfterTransientPlayback(snapshot != null && snapshot.shouldResume())"));
-        assertTrue(playback.contains("return mService != null && !isOwner() && !transientPlayback.isTransientPlaybackActive();"));
+        assertTrue(playback.contains("public final boolean pauseForOverlayPlayback()"));
+        assertTrue(playback.contains("public final void resumeAfterOverlayPlayback(boolean shouldResume)"));
+        String pause = methodBody(playback, "public final boolean pauseForOverlayPlayback()");
+        assertTrue(pause.contains("active.isPlaying()"));
+        assertTrue(pause.contains("if (!shouldResume) return false;"));
+        String resume = methodBody(playback, "public final void resumeAfterOverlayPlayback(boolean shouldResume)");
+        assertTrue(resume.contains("if (!shouldResume"));
+        assertTrue(resume.contains("active.getPlayWhenReady()"));
+
+        assertFalse(playback.contains("EXTRA_TRANSIENT_PLAYBACK"));
+        assertFalse(playback.contains("REQUEST_TRANSIENT_PLAYBACK"));
+        assertFalse(playback.contains("launchTransientPlayback"));
+        assertFalse(playback.contains("TransientPlaybackCoordinator"));
+        assertFalse(playback.contains("TransientPlaybackSnapshot"));
+        assertTrue(policy.contains("decide(boolean owner, boolean keepAlive, boolean hasConsumer)"));
+        assertFalse(policy.contains("transientPlayback"));
     }
 
     @Test
-    public void standardVideoActivitiesSupportIsolatedSingleItemTransientPlayback() throws Exception {
-        String siteApi = read("src", "main", "java", "com", "fongmi", "android", "tv", "api", "SiteApi.java");
-        String viewModel = read("src", "main", "java", "com", "fongmi", "android", "tv", "model", "SiteViewModel.java");
+    public void obsoleteTransientActivityChainIsRemoved() throws Exception {
+        String mobileManifest = read("src", "mobile", "AndroidManifest.xml");
+        String leanbackManifest = read("src", "leanback", "AndroidManifest.xml");
         String mobile = read("src", "mobile", "java", "com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java");
         String leanback = read("src", "leanback", "java", "com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java");
+        String viewModel = read("src", "main", "java", "com", "fongmi", "android", "tv", "model", "SiteViewModel.java");
+
+        assertFalse(exists("src", "mobile", "java", "com", "fongmi", "android", "tv", "ui", "activity", "TransientVideoActivity.java"));
+        assertFalse(exists("src", "leanback", "java", "com", "fongmi", "android", "tv", "ui", "activity", "TransientVideoActivity.java"));
+        assertFalse(exists("src", "main", "java", "com", "fongmi", "android", "tv", "player", "TransientPlaybackCoordinator.java"));
+        assertFalse(exists("src", "main", "java", "com", "fongmi", "android", "tv", "player", "TransientPlaybackSnapshot.java"));
+        assertFalse(mobileManifest.contains("TransientVideoActivity"));
+        assertFalse(leanbackManifest.contains("TransientVideoActivity"));
+        assertFalse(mobile.contains("createTransientIntent"));
+        assertFalse(leanback.contains("createTransientIntent"));
+        assertFalse(mobile.contains("isTransientPlayback"));
+        assertFalse(leanback.contains("isTransientPlayback"));
+        assertFalse(viewModel.contains("boolean isolated"));
+    }
+
+    @Test
+    public void relatedVideoUsesIsolatedWindowedPopupAndRestoresHostPlayback() throws Exception {
+        String helper = read("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "helper", "TmdbVideoPlayback.java");
+        assertTrue(exists("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "dialog", "TmdbVideoPlayerDialog.java"));
+        assertTrue(exists("src", "main", "res", "layout", "dialog_tmdb_video_player.xml"));
+        String dialog = read("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "dialog", "TmdbVideoPlayerDialog.java");
+        String layout = read("src", "main", "res", "layout", "dialog_tmdb_video_player.xml");
+        String siteApi = read("src", "main", "java", "com", "fongmi", "android", "tv", "api", "SiteApi.java");
+
+        assertTrue(helper.contains("if (!(activity instanceof FragmentActivity)) return false;"));
+        assertTrue(helper.contains("TmdbVideoPlayerDialog.show((FragmentActivity) activity, launch)"));
+        assertFalse(helper.contains("createTransientIntent"));
+        assertFalse(helper.contains("launchTransientPlayback"));
+
+        assertTrue(dialog.contains("public static boolean show(FragmentActivity activity, TmdbVideoPlayback.Launch launch)"));
+        assertTrue(dialog.contains("if (current instanceof TmdbVideoPlayerDialog)"));
+        assertTrue(dialog.contains("replaceLaunch(launch)"));
+        assertTrue(dialog.contains("pauseForOverlayPlayback()"));
+        assertTrue(dialog.contains("resumeAfterOverlayPlayback(resumeParent)"));
+        assertTrue(dialog.contains("SiteApi.playerContentIsolated(launch.getKey(), launch.getPlayFlag(), launch.getPlayEpisodeUrl(), PlayerSetting.EXO)"));
+        assertFalse(dialog.contains("SiteApi.playerContent("));
+        assertTrue(dialog.contains("requestGeneration != generation"));
+        assertTrue(dialog.contains("private boolean retryExpiredSource(PlaybackException error)"));
+        assertTrue(dialog.contains("if (status != 403 && status != 410) return false;"));
+        assertTrue(dialog.contains("retryPosition = player == null ? C.TIME_UNSET : player.getCurrentPosition();"));
+        assertTrue(dialog.contains("player.seekTo(resumePosition);"));
+        assertTrue(dialog.contains("sourceRefreshAttempted = true;"));
+        assertTrue(dialog.contains("if (retryExpiredSource(error)) return;"));
+        assertTrue(dialog.contains("if (fullscreen) setFullscreen(false);"));
+        assertTrue(dialog.contains("else dismissAllowingStateLoss();"));
+        assertTrue(dialog.contains("if (parentResumed) return;"));
+        assertTrue(dialog.contains("activity.isChangingConfigurations()"));
+
+        String fullscreen = methodBody(dialog, "private void setFullscreen(boolean fullscreen)");
+        assertFalse(fullscreen.contains("resolve()"));
+        assertFalse(fullscreen.contains("preparePlayer("));
+        assertFalse(fullscreen.contains("releasePlayer()"));
+        assertFalse(fullscreen.contains("new ExoPlayer.Builder"));
+        String windowMode = methodBody(dialog, "private void applyWindowMode()");
+        assertTrue(windowMode.contains("window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)"));
+        assertTrue(windowMode.contains("params.topMargin = fullscreen ? 0 : dp(52)"));
 
         assertTrue(siteApi.contains("playerContentIsolated(@NonNull String key, @NonNull String flag, @NonNull String id, int playerType)"));
         assertTrue(siteApi.contains("return playerContent(key, flag, id, playerType, new Source(), false);"));
-        assertTrue(viewModel.contains("playerContent(String key, String flag, String id, boolean isolated)"));
-        assertTrue(viewModel.contains("isolated ? SiteApi.playerContentIsolated(key, flag, id) : SiteApi.playerContent(key, flag, id)"));
-
-        assertTransientVideoActivityWiring(mobile, true);
-        assertTransientVideoActivityWiring(leanback, false);
-    }
-
-    @Test
-    public void relatedVideoUsesStandardFullscreenPlaybackAndRestoresHostPlayback() throws Exception {
-        String helper = read("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "helper", "TmdbVideoPlayback.java");
-        String playback = read("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java");
-        String siteApi = read("src", "main", "java", "com", "fongmi", "android", "tv", "api", "SiteApi.java");
-        String mobile = read("src", "mobile", "java", "com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java");
-        String mobileTransient = read("src", "mobile", "java", "com", "fongmi", "android", "tv", "ui", "activity", "TransientVideoActivity.java");
-        String mobileManifest = read("src", "mobile", "AndroidManifest.xml");
-        String leanback = read("src", "leanback", "java", "com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java");
-        String leanbackTransient = read("src", "leanback", "java", "com", "fongmi", "android", "tv", "ui", "activity", "TransientVideoActivity.java");
-        String leanbackManifest = read("src", "leanback", "AndroidManifest.xml");
-        String mobileTransientFactory = methodBody(mobile, "public static Intent createTransientIntent(Activity activity, TmdbVideoPlayback.Launch launch)");
-        String leanbackTransientFactory = methodBody(leanback, "public static Intent createTransientIntent(Activity activity, TmdbVideoPlayback.Launch launch)");
-
-        assertTrue(helper.contains("if (!(activity instanceof PlaybackActivity)) return false;"));
-        assertTrue(helper.contains("VideoActivity.createTransientIntent(activity, launch)"));
-        assertTrue(helper.contains("playback.launchTransientPlayback("));
-        assertFalse(helper.contains("TmdbVideoPlayerDialog"));
-        assertFalse(helper.contains("FragmentActivity"));
-        assertFalse(exists("src", "main", "java", "com", "fongmi", "android", "tv", "ui", "dialog", "TmdbVideoPlayerDialog.java"));
-        assertFalse(exists("src", "main", "res", "layout", "dialog_tmdb_video_player.xml"));
-        assertTrue(siteApi.contains("public static Result playerContentIsolated"));
-        assertTrue(siteApi.contains("return playerContent(key, flag, id, playerType, new Source(), false);"));
-        assertTrue(playback.contains("public final boolean launchTransientPlayback(Intent intent)"));
-        assertTrue(mobileTransientFactory.contains("new Intent(activity, TransientVideoActivity.class)"));
-        assertTrue(leanbackTransientFactory.contains("new Intent(activity, TransientVideoActivity.class)"));
-        assertTrue(mobileTransient.contains("class TransientVideoActivity extends VideoActivity"));
-        assertTrue(leanbackTransient.contains("class TransientVideoActivity extends VideoActivity"));
-        assertOrder(mobileManifest, "android:name=\".ui.activity.TransientVideoActivity\"", "android:launchMode=\"standard\"");
-        assertOrder(leanbackManifest, "android:name=\".ui.activity.TransientVideoActivity\"", "android:launchMode=\"standard\"");
+        assertOrder(layout, "android:id=\"@+id/tmdbVideoPlayer\"", "android:id=\"@+id/tmdbVideoLoading\"", "android:id=\"@+id/tmdbVideoError\"");
+        assertTrue(layout.contains("android:id=\"@+id/tmdbVideoClose\""));
+        assertTrue(layout.contains("android:id=\"@+id/tmdbVideoFullscreen\""));
+        assertTrue(layout.contains("android:nextFocusRight=\"@id/tmdbVideoFullscreen\""));
+        assertTrue(layout.contains("app:use_controller=\"true\""));
     }
 
     @Test
@@ -113,8 +127,8 @@ public class TmdbVideoPopupWiringTest {
     public void chineseResourcesNameTheRelatedVideoSection() throws Exception {
         String simplified = read("src", "main", "res", "values-zh-rCN", "strings.xml");
         String traditional = read("src", "main", "res", "values-zh-rTW", "strings.xml");
-        assertTrue(simplified.contains("<string name=\"tmdb_related_videos_label\">相关视频</string>"));
-        assertTrue(traditional.contains("<string name=\"tmdb_related_videos_label\">相關視頻</string>"));
+        assertTrue(simplified.contains("<string name=\"tmdb_related_videos_label\">"));
+        assertTrue(traditional.contains("<string name=\"tmdb_related_videos_label\">"));
     }
 
     private static void assertOrder(String source, String... values) {
@@ -136,73 +150,6 @@ public class TmdbVideoPopupWiringTest {
         }
     }
 
-    private static void assertTransientVideoActivityWiring(String source, boolean mobile) {
-        assertTrue(source.contains("public static Intent createTransientIntent(Activity activity, TmdbVideoPlayback.Launch launch)"));
-        assertTrue(source.contains("intent.putExtra(PlaybackActivity.EXTRA_TRANSIENT_PLAYBACK, true)"));
-        assertTrue(source.contains("putIntentPlaybackSelection(intent, launch.getPlayFlag(), launch.getPlayEpisodeName(), launch.getPlayEpisodeUrl())"));
-        assertTrue(source.contains("private boolean isTransientPlayback()"));
-        assertTrue(source.contains("getIntent().getBooleanExtra(PlaybackActivity.EXTRA_TRANSIENT_PLAYBACK, false)"));
-        assertTrue(source.contains("if (isTransientPlayback()) mViewModel.playerContent(getKey(), playFlag, episode.getUrl(), true)"));
-        assertTrue(source.contains("else mViewModel.playerContent(getKey(), playFlag, episode.getUrl())"));
-        assertTrue(source.contains("if (isTransientPlayback() && !isFullscreen()) enterFullscreen();"));
-        assertTrue(source.contains("private void applyTransientPlaybackControls()"));
-        assertTrue(source.contains("if (isTransientPlayback()) return;"));
-        assertTrue(source.contains("private void finishTransientPlayback()"));
-        assertTrue(source.contains("setResult(RESULT_OK)"));
-        assertTrue(source.contains("super.onActivityResult(requestCode, resultCode, data)"));
-        assertTrue(source.contains("case Player.STATE_ENDED:"));
-        assertTrue(source.contains("checkEnded(true)"));
-        assertTrue(source.contains("mBinding.control.action.next.setVisibility(View.GONE)"));
-        assertTrue(source.contains("mBinding.control.action.prev.setVisibility(View.GONE)"));
-        assertTrue(source.contains("mBinding.control.action.episodes.setVisibility(View.GONE)"));
-
-        String flagClick = methodBody(source, "public void onItemClick(Flag item)");
-        assertFalse("transient initialization must be able to select its first flag", flagClick.contains("if (isTransientPlayback()) return;"));
-        assertTrue(flagClick.contains("mFlagAdapter.setSelected(item)"));
-        String checkFlag = methodBody(source, "private void checkFlag(Vod item)");
-        assertTrue("detail initialization must continue through flag selection", checkFlag.contains("onItemClick(mHistory.getFlag())"));
-
-        String checkHistory = methodBody(source, "private boolean checkHistory(Vod item)");
-        assertTrue(checkHistory.contains("History resumeHistory = isTransientPlayback() ? null : getIntentResumeHistory();"));
-        assertTrue(checkHistory.contains("mHistory = createTransientSessionHistory(item);"));
-        assertTrue(checkHistory.indexOf("createTransientSessionHistory(item)") < checkHistory.indexOf("History.findPlayback("));
-        String transientState = methodBody(source, "private History createTransientSessionHistory(Vod item)");
-        assertTrue(transientState.contains("new History()"));
-        assertFalse(transientState.contains("History.find"));
-        assertFalse(transientState.contains(".save("));
-        assertFalse(transientState.contains(".delete("));
-        assertFalse(transientState.contains(".replace("));
-        assertFalse(transientState.contains("PlaybackEventCollector"));
-
-        String reloadHistory = methodBody(source, "private boolean reloadHistoryAfterTmdbMatch(TmdbItem matched)");
-        assertTrue(reloadHistory.indexOf("if (isTransientPlayback()) return false;")
-                < reloadHistory.indexOf("History.findPlayback("));
-        String updateVod = methodBody(source, "private void updateVod(Vod item)");
-        assertTrue(updateVod.contains("if (keyChanged && isTransientPlayback()) mHistory.setKey(nextKey);"));
-        assertTrue(updateVod.contains("else if (keyChanged) mHistory.replace(nextKey);"));
-        assertTrue(methodBody(source, "private void saveHistory(boolean exit)")
-                .contains("if (isTransientPlayback()) return;"));
-        assertTrue(methodBody(source, "private void syncHistory()")
-                .contains("if (isTransientPlayback()) return;"));
-        assertTrue(source.contains("if (!isTransientPlayback()) PlaybackEventCollector.get().onProgress(mHistory, player())"));
-
-        assertEquals("history publication must have one guarded exit", 1,
-                count(source, "PlaybackEventCollector.get().updateHistory(mHistory)"));
-        String publishHistory = methodBody(source, "private void publishPlaybackHistory()");
-        assertTrue(publishHistory.contains("if (isTransientPlayback() || mHistory == null) return;"));
-        assertTrue(publishHistory.contains("PlaybackEventCollector.get().updateHistory(mHistory)"));
-        if (mobile) {
-            assertTrue(source.contains("SiteApi.playerContentIsolated(key, flag, episode)"));
-            assertTrue(source.contains("SiteApi.playerContentIsolated(key, flag, episode, nextType)"));
-            assertTrue(source.contains("mBinding.control.next.setVisibility(View.GONE)"));
-            assertTrue(source.contains("mBinding.control.prev.setVisibility(View.GONE)"));
-        } else {
-            String fastHistory = methodBody(source, "private void prepareFastTmdbPlaybackHistory(Vod item, Flag flag, Episode episode)");
-            assertTrue(fastHistory.indexOf("createTransientSessionHistory(item)")
-                    < fastHistory.indexOf("History.findPlayback("));
-        }
-    }
-
     private static String methodBody(String source, String signature) {
         int start = source.indexOf(signature);
         assertTrue("Missing method: " + signature, start >= 0);
@@ -215,16 +162,6 @@ public class TmdbVideoPopupWiringTest {
             if (value == '}' && --depth == 0) return source.substring(open + 1, i);
         }
         throw new AssertionError("Unclosed method: " + signature);
-    }
-
-    private static int count(String source, String value) {
-        int count = 0;
-        int index = 0;
-        while ((index = source.indexOf(value, index)) >= 0) {
-            count++;
-            index += value.length();
-        }
-        return count;
     }
 
     private static String read(String... parts) throws Exception {

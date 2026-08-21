@@ -189,15 +189,6 @@ public class PlayerManagerTest {
     }
 
     @Test
-    public void hasSession_recognizesParsingSpecBeforeResolvedUrlExists() {
-        PlaySpec parsing = PlaySpec.fromParse(Result.empty(), "site|vod|episode", null);
-
-        assertNull(parsing.getUrl());
-        assertTrue(PlayerManager.hasSession(parsing));
-        assertFalse(PlayerManager.hasSession(null));
-    }
-
-    @Test
     public void isCurrentDirectSwitchRefresh_acceptsOnlyMatchingPendingRequest() {
         PlaySpec requested = PlaySpec.from("key", "https://example.com/video.m3u8", null, null);
         PlaySpec replacement = PlaySpec.from("other", "https://example.com/other.m3u8", null, null);
