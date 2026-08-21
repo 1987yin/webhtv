@@ -6870,7 +6870,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void updateInlineLoadingTraffic() {
         if (binding == null || binding.playerProgress.getVisibility() != View.VISIBLE) return;
-        Traffic.setSpeed(binding.playerProgressTraffic);
+        Traffic.setSpeed(binding.playerProgressTraffic, service() == null ? null : player());
         tintInlineLoading();
     }
 
