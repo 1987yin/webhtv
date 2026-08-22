@@ -6865,7 +6865,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void hideInlineLoading() {
         binding.playerProgress.setVisibility(View.GONE);
         binding.playerProgressTraffic.setVisibility(View.GONE);
-        Traffic.reset();
+        Traffic.reset(binding.playerProgressTraffic);
     }
 
     private void updateInlineLoadingTraffic() {
@@ -8037,7 +8037,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (service() == null || player().isEmpty()) return false;
         String[] kernels = ResUtil.getStringArray(R.array.select_player_kernel);
         String[] items = Arrays.copyOf(kernels, kernels.length + 1);
-        items[kernels.length] = "外调";
+        items[kernels.length] = getString(R.string.player_kernel_external);
         new MaterialAlertDialogBuilder(this).setItems(items, (dialog, which) -> onInlinePlayerChoice(kernels, which)).show();
         return true;
     }

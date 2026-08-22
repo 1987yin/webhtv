@@ -28,9 +28,17 @@ public class EpisodeDisplayPolicyTest {
     }
 
     @Test
-    public void tmdbModeWhileLoading_canShowTemporaryLoadingChrome() {
-        assertTrue(EpisodeDisplayPolicy.shouldWaitForTmdbEpisodes(true, true, true, false, Collections.singletonList(nativeEpisode())));
+    public void tmdbModeWhileLoading_showsScrapedEpisodesImmediatelyWithLoadingChrome() {
+        // 站源集数已可渲染时不再等 TMDB：先出纯文本列表，卡片随后原地替换。
+        assertFalse(EpisodeDisplayPolicy.shouldWaitForTmdbEpisodes(true, true, true, false, Collections.singletonList(nativeEpisode())));
         assertTrue(EpisodeDisplayPolicy.shouldShowTmdbEpisodeChrome(true, true, Collections.singletonList(nativeEpisode())));
+    }
+
+    @Test
+    public void tmdbModeWhileLoadingWithoutAnyEpisode_stillShowsPlaceholder() {
+        // 一集都还没有时占位符仍是唯一能显示的东西。
+        assertTrue(EpisodeDisplayPolicy.shouldWaitForTmdbEpisodes(true, true, true, false, Collections.emptyList()));
+        assertTrue(EpisodeDisplayPolicy.shouldWaitForTmdbEpisodes(true, true, true, false, null));
     }
 
     @Test

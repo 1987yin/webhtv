@@ -4268,7 +4268,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         String[] kernel = ResUtil.getStringArray(R.array.select_player_kernel);
         String[] items = new String[kernel.length + 1];
         System.arraycopy(kernel, 0, items, 0, kernel.length);
-        items[kernel.length] = "外调";
+        items[kernel.length] = getString(R.string.player_kernel_external);
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setItems(items, (dialog, which) -> {
             if (which < kernel.length) {
                 if (!refreshAndSwitchPlayerKernel(which)) {
@@ -4497,7 +4497,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (mSeekProgressFallback != null) App.removeCallbacks(mSeekProgressFallback);
         mBinding.progress.getRoot().setVisibility(View.GONE);
         App.removeCallbacks(mR2);
-        Traffic.reset();
+        Traffic.reset(mBinding.progress.traffic);
     }
 
     private void showDetailContent() {
