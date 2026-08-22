@@ -3486,7 +3486,16 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         hideControl();
         Flag flag = getFlag();
         boolean tmdbCard = flag != null && EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(isTmdbSourceEnabled(), flag.getEpisodes());
-        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).tmdbCard(tmdbCard).show(this);
+        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).tmdbCard(tmdbCard).fallbackStill(getEpisodeFallbackStillUrl()).seasons(getEpisodeDialogSeasons(), getEpisodeDialogSeasonCounts()).show(this);
+    }
+
+    private java.util.List<Integer> getEpisodeDialogSeasons() {
+        return new java.util.ArrayList<>(getEpisodeDialogSeasonCounts().keySet());
+    }
+
+    private java.util.Map<Integer, Integer> getEpisodeDialogSeasonCounts() {
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return java.util.Map.of();
+        return mTmdbUIAdapter.getSeasonEpisodeCounts();
     }
 
     private void onRepeat() {
@@ -4305,14 +4314,15 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private String getEpisodeFallbackStillUrl() {
-        // 分集无 TMDB 剧照时的兜底图：优先取当前 TMDB 条目自己的图（backdrop→poster），
-        // 这样切换条目后兜底图跟随当前剧集，而非停留在进场时固定的 getPic()/tmdb_vod_pic
-        // （那些是 intent 里进场时的值，切换条目不变，会导致所有卡片显示切换前那部剧的海报）。
+        // 分集无 TMDB 剧照时的兜底图，顺序对齐详情页 episodeFallbackStillUrl()：海报优先，再退 backdrop。
+        // getPosterUrl() 内部已带 tmdbItem.getPosterUrl() 兜底，比 getPhotos()（backdrops 列表，
+        // tmdbDetail 未就绪时为空）可靠。取当前 TMDB 条目自己的图，切换条目后兜底图才会跟随当前剧集，
+        // 而非停留在进场时固定的 getPic()/tmdb_vod_pic（那些切换条目不变，会显示切换前那部剧的海报）。
         if (mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded()) {
-            java.util.List<String> photos = mTmdbUIAdapter.getPhotos();
-            if (photos != null && !photos.isEmpty() && !TextUtils.isEmpty(photos.get(0))) return photos.get(0);
             String poster = mTmdbUIAdapter.getPosterUrl();
             if (!TextUtils.isEmpty(poster)) return poster;
+            java.util.List<String> photos = mTmdbUIAdapter.getPhotos();
+            if (photos != null && !photos.isEmpty() && !TextUtils.isEmpty(photos.get(0))) return photos.get(0);
         }
         if (!TextUtils.isEmpty(getPic())) return getPic();
         if (!TextUtils.isEmpty(getTmdbVodPic())) return getTmdbVodPic();

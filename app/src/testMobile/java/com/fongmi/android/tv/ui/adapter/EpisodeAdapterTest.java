@@ -107,9 +107,36 @@ public class EpisodeAdapterTest {
                         && !adapter.contains("width - ResUtil.dp2px(96)"));
         assertTrue("TV TMDB episode cards must expose a fileSize badge",
                 layout.contains("android:id=\"@+id/fileSize\"")
-                        && adapter.contains("String cardTitle = getCardTitle(item, tmdbEpisode);")
+                        && adapter.contains("getCardTitle(item, tmdbEpisode)")
                         && adapter.contains("binding.cardTitle.setText(cardTitle);")
                         && adapter.contains("bindFileSize(binding, getCardFileSize(item, cardTitle), showMeta);"));
+    }
+
+    @Test
+    public void leanbackEpisodeGridKeepsOneUniformViewTypePerMode() throws Exception {
+        String adapter = read(findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "EpisodeAdapter.java")));
+
+        assertTrue("TV episode view type must depend only on the card mode, never on per-episode TMDB data;"
+                        + " EpisodeListDialog sizes rows from a single mode-wide height, so mixing card and text"
+                        + " holders in one grid misaligns every row that contains both",
+                adapter.contains("return useTmdbCard ? VIEW_TYPE_CARD : VIEW_TYPE_TEXT;"));
+        assertFalse("TV episode view type must not branch on getTmdbEpisode()",
+                adapter.contains("useTmdbCard && item.getTmdbEpisode() != null"));
+        assertFalse("bindCardView must degrade unmatched episodes instead of returning an unbound 190dp card",
+                adapter.contains("if (tmdbEpisode == null) return;"));
+        assertTrue("unmatched episodes must fall back to the native title, not the rejected TMDB name",
+                adapter.contains("tmdbEpisode == null ? getNativeDisplayTitle(item) : getCardTitle(item, tmdbEpisode)"));
+        assertTrue("card binding must null-guard every TMDB dereference so degraded cards still render",
+                adapter.contains("tmdbEpisode == null ? \"\" : tmdbEpisode.getStillUrl()")
+                        && adapter.contains("tmdbEpisode == null ? \"\" : getMeta(tmdbEpisode)"));
+        assertTrue("TV cards must follow the detail page showVisual model: hide the full-bleed still and its"
+                        + " scrim when no image resolves, and clear the recycled bitmap, or the previous"
+                        + " episode's still bleeds through and the scrim darkens a flat card",
+                adapter.contains("boolean showVisual = !TextUtils.isEmpty(imageUrl);")
+                        && adapter.contains("binding.still.setVisibility(showVisual ? View.VISIBLE : View.GONE);")
+                        && adapter.contains("binding.scrim.setVisibility(showVisual ? View.VISIBLE : View.GONE);")
+                        && adapter.contains("binding.still.setImageDrawable(null);")
+                        && adapter.contains("binding.textPanel.setGravity(showVisual ? Gravity.NO_GRAVITY : Gravity.CENTER_VERTICAL);"));
     }
 
     @Test

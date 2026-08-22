@@ -1927,6 +1927,8 @@
     <string name="detail_score">评分 %1$s</string>
     <string name="detail_runtime_format">%1$d 分钟</string>
     <string name="detail_season_format">第 %1$d 季</string>
+    <string name="detail_season">季度</string>
+    <string name="detail_season_other">未匹配</string>
     <string name="detail_media_movie">电影</string>
     <string name="detail_media_tv">剧集</string>
     <string name="detail_media_unknown">详情</string>
