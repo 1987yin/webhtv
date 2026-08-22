@@ -44,10 +44,12 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -914,17 +916,28 @@ public class TmdbUIAdapter {
                 sourceEpisodeNumbers(activeFlagFor(sourceVod)),
                 explicitEpisodeSeasons(activeFlagFor(sourceVod)),
                 !SiteApi.PUSH.equals(cacheSiteKey(sourceVod)));
-        Integer selected = seasonResolution.getSelectedSeason();
-        sourceSeasonNumber = selected == null ? -1 : selected;
         TmdbSeasonScope routeScope = seasonResolution.toScope();
         if (seasonResolution.getSource() == TmdbSeasonResolver.Source.REQUEST) {
-            routeScope = TmdbSeasonResolver.resolve(
+            // intent 带来的 season 只是"进场时选中的那一季"，不该锁死整条线路的季度解析。
+            // TmdbSeasonResolver.resolve 的第一个判断就用 requestSeason 短路返回 RESOLVED，
+            // 于是分集富化走单季路径，只能按扁平集号在该季 1..N 里查；源站不分季的长番
+            // （如航海王第 62 集）超出该季集数后一律匹配不到 TMDB。这里重算一次不带
+            // requestSeason 的解析：本就该按季切片的源，改用切片结果，让 mapFlatEpisodeNumber
+            // 把扁平集号映射到正确的季。
+            TmdbSeasonResolver.Resolution unrequested = TmdbSeasonResolver.resolve(
                     -1, manual, explicitSourceSeasons, titleSeasonNumber, tmdbSeasons, seasonCounts,
                     sourceEpisodeCount(activeFlagFor(sourceVod)), sourceEpisodeNumbers(activeFlagFor(sourceVod)),
                     explicitEpisodeSeasons(activeFlagFor(sourceVod)),
-                    !SiteApi.PUSH.equals(cacheSiteKey(sourceVod)))
-                    .toScope();
+                    !SiteApi.PUSH.equals(cacheSiteKey(sourceVod)));
+            routeScope = unrequested.toScope();
+            if (unrequested.getStatus() == TmdbSeasonResolver.Status.MULTI_SLICE) {
+                seasonResolution = unrequested;
+                SpiderDebug.log("tmdb", "adopt multi-slice over request season=%d source=%s",
+                        requestSeasonNumber, sourceCacheTitle);
+            }
         }
+        Integer selected = seasonResolution.getSelectedSeason();
+        sourceSeasonNumber = selected == null ? -1 : selected;
         Flag resolvedFlag = activeFlagFor(sourceVod);
         if (cache.recordRouteBinding(cacheSiteKey(sourceVod), cacheVodId(sourceVod), activeFlagKey,
                 resolvedFlag == null ? "" : resolvedFlag.getFlag(),
@@ -1709,18 +1722,25 @@ public class TmdbUIAdapter {
 
     private boolean applyEpisodeTitlesForSlices(Vod vod, TmdbItem item, int generation, int metadataGeneration) {
         if (vod == null || item == null || vod.getFlags() == null || !isMultiSliceResolution()) return false;
-        List<Integer> seasons = seasonResolution.getAvailableSeasons();
         Map<Integer, Integer> seasonCounts = new HashMap<>();
         for (SeasonOption option : seasonOptions) seasonCounts.put(option.getSeasonNumber(), option.getEpisodeCount());
         List<TmdbSeasonSegment> persistedSegments = seasonResolution.getSegments();
+        // 只拉 availableSeasons 会漏季：手动分段绑定时它仅含 segments 涉及的季，
+        // 其余季（如航海王第 7 季）的集永远拿不到刮削数据。但也不能拉全部可切分季——
+        // 23 季串行阻塞 HTTP 首次冷缓存要 7-18 秒，期间选集界面无标题无图。
+        // 只拉源集数实际覆盖到的那几季（这正是 fallback 唯一会用到的集合）。
+        List<Integer> seasons = seasonsCoveringSource(seasonCounts, sourceEpisodeCount(activeFlagFor(vod)), persistedSegments);
         Map<Integer, Map<Integer, TmdbEpisode>> episodesBySeason = new HashMap<>();
         try {
             for (Integer season : seasons) {
                 if (!isCurrentEpisodeMetadataRequest(generation, metadataGeneration, null)) return false;
+                // 采用远端带内存缓存的 seasonEpisodes；单季拿不到时跳过而不是整体放弃，
+                // 否则 23 季里任何一季失败就会让所有季的刮削一起丢掉。
                 List<TmdbEpisode> seasonItems = seasonEpisodes(item, season);
-                if (seasonItems.isEmpty()) return false;
+                if (seasonItems.isEmpty()) continue;
                 episodesBySeason.put(season, indexEpisodesByNumber(seasonItems));
             }
+            if (episodesBySeason.isEmpty()) return false;
             synchronized (episodeMetadataLock) {
                 if (!isCurrentEpisodeMetadataRequest(generation, metadataGeneration, null)) return false;
                 boolean changed = false;
@@ -1734,6 +1754,10 @@ public class TmdbUIAdapter {
                     } else if (EpisodeSeasonPolicy.canMapFlatEpisodeKeys(sourceNumbers, seasons, seasonCounts)) {
                         changed |= applyMappedEpisodeMetadata(sourceEpisodes, episodesBySeason, seasons, seasonCounts);
                     }
+                    // 上面两条路径都可能留下大量未挂数据的集：分段只覆盖部分季，
+                    // canMapFlatEpisodeKeys 又要求各季集数精确覆盖源集数（航海王 1114 vs ~1120 不满足）。
+                    // 用尽力切分补齐剩下的集，与选集界面的季度按钮同一套分段口径。
+                    changed |= applySegmentFallbackMetadata(sourceEpisodes, episodesBySeason, seasons, seasonCounts);
                 }
                 com.fongmi.android.tv.utils.TmdbEpisodeSorter.sort(target);
                 SpiderDebug.log("tmdb", "应用多季切片元数据: %s", seasons);
@@ -1761,6 +1785,99 @@ public class TmdbUIAdapter {
                 if (TextUtils.equals(episode.getDisplayName(), displayName)) continue;
                 episode.setDisplayName(displayName);
                 changed = true;
+            }
+        }
+        return changed;
+    }
+
+    private List<Integer> allSliceableSeasons(Map<Integer, Integer> seasonCounts) {
+        List<Integer> ordered = new ArrayList<>();
+        for (SeasonOption option : seasonOptions) ordered.add(option.getSeasonNumber());
+        return EpisodeSeasonPolicy.sliceableSeasons(ordered);
+    }
+
+    /**
+     * 拉取范围：源集数按各季集数累加能覆盖到的季，外加已持久化分段涉及的季。
+     * 源只有 300 集时前 5-6 季就够了，不必为 1000+ 集的番拉满 23 季。
+     */
+    private List<Integer> seasonsCoveringSource(Map<Integer, Integer> seasonCounts, int sourceEpisodeCount, List<TmdbSeasonSegment> persistedSegments) {
+        List<Integer> sliceable = allSliceableSeasons(seasonCounts);
+        if (sourceEpisodeCount <= 0) return sliceable;
+        Set<Integer> needed = new LinkedHashSet<>();
+        int covered = 0;
+        for (Integer season : sliceable) {
+            if (covered >= sourceEpisodeCount) break;
+            needed.add(season);
+            covered += Math.max(0, seasonCounts.getOrDefault(season, 0));
+        }
+        // 分段绑定可能指向累加范围之外的季，缺了它 applySegmentedEpisodeMetadata 会拿不到数据
+        for (TmdbSeasonSegment segment : persistedSegments) needed.add(segment.getSeasonNumber());
+        List<Integer> ordered = new ArrayList<>();
+        for (Integer season : sliceable) if (needed.contains(season)) ordered.add(season);
+        return ordered.isEmpty() ? sliceable : ordered;
+    }
+
+    /**
+     * 排序后的集号是否为无跳号的连续序列，且长度至少覆盖 width。
+     * 只要前 width 个连续即可——末季分段被裁短时取前缀是安全的。
+     */
+    static boolean isContiguousFrom(List<Integer> orderedNumbers, int width) {
+        if (width <= 0 || orderedNumbers.size() < width) return false;
+        for (int i = 1; i < width; i++) {
+            // 必须 intValue 比较：集号常大于 127，超出 Integer 缓存后 != 会比对象引用
+            if (orderedNumbers.get(i).intValue() != orderedNumbers.get(i - 1) + 1) return false;
+        }
+        return true;
+    }
+
+    /**
+     * 按 {@link EpisodeSeasonSegments} 的尽力切分给尚未挂上 TMDB 数据的集补齐元数据。
+     * 只填空缺，不覆盖已匹配的集——分段绑定和精确映射的结果比这里的推算更可信。
+     */
+    private boolean applySegmentFallbackMetadata(
+            List<Episode> sourceEpisodes,
+            Map<Integer, Map<Integer, TmdbEpisode>> episodesBySeason,
+            List<Integer> seasons,
+            Map<Integer, Integer> seasonCounts) {
+        List<EpisodeSeasonSegments.Segment> segments =
+                EpisodeSeasonSegments.build(sourceEpisodes.size(), seasons, seasonCounts);
+        if (segments.isEmpty()) return false;
+        boolean changed = false;
+        for (EpisodeSeasonSegments.Segment segment : segments) {
+            if (EpisodeSeasonSegments.isOther(segment.season())) continue;
+            Map<Integer, TmdbEpisode> episodesByNumber = episodesBySeason.get(segment.season());
+            if (episodesByNumber == null) continue;
+            // 不能假设每季集号都从 1 开始：航海王这类长番在 TMDB 里是跨季连续编号的
+            // （第 7 季 = 196-228 而非 1-33），按季内序号取键会全部落空。
+            // 改为把该季集号排序后按位置取，既支持连续编号也支持每季重新编号。
+            List<Integer> orderedNumbers = new ArrayList<>(episodesByNumber.keySet());
+            Collections.sort(orderedNumbers);
+            int width = segment.end() - segment.start();
+            // 按位置贴的前提：该季集号必须是无跳号的连续序列，且至少覆盖分段宽度。
+            // indexEpisodesByNumber 会滤掉集号 <= 0 并对重号去重，中间缺一集就会让后面每集
+            // 都挂上下一集的标题和剧照——这条路径没有 TmdbEpisodeMatcher 兜底，只能整季放弃。
+            // 不能简单要求"集数 == 分段宽度"：末季的分段会被 build 裁到源集数
+            // （航海王 S22 宽 26 而该季 67 集），那种前缀对齐的情况是安全的。
+            if (!isContiguousFrom(orderedNumbers, width)) continue;
+            for (int index = segment.start(); index < segment.end() && index < sourceEpisodes.size(); index++) {
+                Episode episode = sourceEpisodes.get(index);
+                if (episode == null || episode.getTmdbEpisode() != null) continue;
+                int offset = index - segment.start();
+                if (offset >= orderedNumbers.size()) continue;
+                int mappedNumber = orderedNumbers.get(offset);
+                TmdbEpisode tmdbEpisode = episodesByNumber.get(mappedNumber);
+                if (tmdbEpisode == null) continue;
+                // 源集号与本季集号一致时是普通匹配；不一致才是跨季映射，必须带 mapped 标记
+                // 才能通过 TmdbEpisodeMatcher 的校验。
+                if (episode.getNumber() == tmdbEpisode.getNumber()) episode.setTmdbEpisode(tmdbEpisode);
+                else episode.setMappedTmdbEpisode(tmdbEpisode);
+                changed = true;
+                if (tmdbEpisode.getTitle().isEmpty()) continue;
+                String displayName = EpisodeTitleFormatter.withSourceFileSize(
+                        episode.getName(),
+                        EpisodeTitleFormatter.formatTmdbTitle(mappedNumber, tmdbEpisode.getTitle()),
+                        Setting.isTmdbEpisodeFileSize());
+                if (!TextUtils.equals(episode.getDisplayName(), displayName)) episode.setDisplayName(displayName);
             }
         }
         return changed;
