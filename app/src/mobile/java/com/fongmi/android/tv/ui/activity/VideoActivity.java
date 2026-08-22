@@ -2508,6 +2508,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (items.size() < 2) mEpisodeGridMode = true;
         updateEpisodeFallbackStillUrl();
         mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
+        mEpisodeAdapter.setNativeGridExpanded(mEpisodeGridMode && !useTmdbCard && isOriginalEnhancedEpisodeFallback());
         mEpisodeAdapter.setViewType(!mEpisodeGridMode ? ViewType.HORI : ViewType.GRID);
         mEpisodeAdapter.addAll(displayItems);
         updateEpisodeLayout(displayItems, useTmdbCard);
@@ -2552,7 +2553,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (useTmdbCard) return getEpisodeGridSpanCount();
         if (items.size() == 1) return 1;
         int maxLen = 0;
-        for (Episode item : items) maxLen = Math.max(maxLen, item.getDisplayName().length());
+        for (Episode item : items) maxLen = Math.max(maxLen, EpisodeAdapter.getNativeDisplayTitle(item).length());
+        if (isOriginalEnhancedEpisodeFallback()) {
+            return EpisodeGridLayoutPolicy.getOriginalEnhancedFallbackSpan(items.size(), maxLen, PlayerSetting.getEpisodeColumn());
+        }
         if (maxLen >= 12) return PlayerSetting.getEpisodeColumn();
         int ideal = maxLen >= 10 ? 130 : maxLen >= 7 ? 104 : 80;
         int width = EpisodeGridLayoutPolicy.getAvailableWidth(
@@ -2564,6 +2568,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                 ResUtil.isLand(this));
         int span = width / ResUtil.dp2px(ideal);
         return Math.max(2, Math.min(getEpisodeSpanCount(), span));
+    }
+
+    private boolean isOriginalEnhancedEpisodeFallback() {
+        return Setting.isOriginalEnhancedDetailPage() && isTmdbSourceEnabled();
     }
 
     private List<Episode> getEpisodeDisplayItems(List<Episode> items) {
@@ -2781,6 +2789,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             mEpisodeAdapter = new EpisodeAdapter(this, viewType, items);
             mEpisodeAdapter.setOnTitleReadyListener(this::onEpisodeTitlesReady);
             mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
+            mEpisodeAdapter.setNativeGridExpanded(mEpisodeGridMode && !useTmdbCard && isOriginalEnhancedEpisodeFallback());
             updateEpisodeFallbackStillUrl();
             mBinding.episode.setAdapter(mEpisodeAdapter);
             scrollToPosition(mBinding.episode, position);
@@ -4241,7 +4250,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         String[] kernel = ResUtil.getStringArray(R.array.select_player_kernel);
         String[] items = new String[kernel.length + 1];
         System.arraycopy(kernel, 0, items, 0, kernel.length);
-        items[kernel.length] = "外调";
+        items[kernel.length] = getString(R.string.player_kernel_external);
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setItems(items, (dialog, which) -> {
             if (which < kernel.length) {
                 if (!refreshAndSwitchPlayerKernel(which)) {
@@ -5234,6 +5243,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         List<Episode> displayItems = getEpisodeDisplayItems(items);
         updateEpisodeFallbackStillUrl();
         mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
+        mEpisodeAdapter.setNativeGridExpanded(mEpisodeGridMode && !useTmdbCard && isOriginalEnhancedEpisodeFallback());
         mEpisodeAdapter.setViewType(!mEpisodeGridMode ? ViewType.HORI : ViewType.GRID);
         mEpisodeAdapter.refreshMetadata(displayItems);
         updateEpisodeLayout(displayItems, useTmdbCard);
