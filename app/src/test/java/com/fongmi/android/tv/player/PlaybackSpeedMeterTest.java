@@ -59,17 +59,16 @@ public class PlaybackSpeedMeterTest {
     }
 
     @Test
-    public void anyObservedByteEndsTheKernelFallbackForGood() {
+    public void javaTrafficDoesNotDisableKernelFallbackForNativeSockets() {
         Fake fake = new Fake();
         fake.trafficBytes = UNSUPPORTED;
         PlaybackSpeedMeter meter = fake.meter();
 
-        // A deliberate trade-off: once a counter moves it owns the readout, because a
-        // trickle through Java is indistinguishable from a device that can finally see
-        // its traffic. On a ROM with no per-UID accounting a native-socket stream will
-        // therefore read as the poster/scraping traffic beside it rather than as the
-        // kernel's estimate. Understating a readout beats freezing it at a constant,
-        // which is what trusting the kernel here used to cause.
+        // Posters, scraping and config fetches trickle through OkHttp on every device.
+        // They must not be mistaken for proof that this ROM can account for traffic:
+        // OkHttp never sees a native socket, so only TrafficStats can settle that. If a
+        // stray poster download switched the kernel tier off, the fallback would be dead
+        // in practice on exactly the ROMs it exists for.
         meter.observe(0);
         fake.okHttpBytes = 2_000;
         fake.advance(1000);
@@ -77,10 +76,31 @@ public class PlaybackSpeedMeterTest {
         assertEquals(PlaybackSpeedMeter.Source.OK_HTTP, meter.getSource());
         assertEquals(2_000, meter.getBytesPerSecond());
 
-        // And it does not revert on the next idle interval.
+        // Poster finished; the native video stream is still running and still invisible
+        // to both counters, so the kernel takes over again.
         fake.advance(1000);
         meter.observe(8_000_000);
-        assertEquals(PlaybackSpeedMeter.Source.OK_HTTP, meter.getSource());
+        assertEquals(PlaybackSpeedMeter.Source.KERNEL, meter.getSource());
+        assertEquals(1_000_000, meter.getBytesPerSecond());
+    }
+
+    @Test
+    public void workingTrafficStatsRetiresTheKernelFallbackOnceItCounts() {
+        Fake fake = new Fake();
+        fake.trafficBytes = 1_000_000;
+        PlaybackSpeedMeter meter = fake.meter();
+
+        meter.observe(0);
+        fake.trafficBytes = 1_512_000;
+        fake.advance(1000);
+        meter.observe(8_000_000);
+        assertEquals(512_000, meter.getBytesPerSecond());
+
+        // TrafficStats has proven it counts, and it sees native sockets too. Its zero is
+        // therefore the truth and the frozen kernel estimate must not resurrect.
+        fake.advance(1000);
+        meter.observe(8_000_000);
+        assertEquals(PlaybackSpeedMeter.Source.TRAFFIC_STATS, meter.getSource());
         assertEquals(0, meter.getBytesPerSecond());
     }
 

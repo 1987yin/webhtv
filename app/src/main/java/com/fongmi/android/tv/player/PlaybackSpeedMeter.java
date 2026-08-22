@@ -37,9 +37,10 @@ import java.util.function.LongSupplier;
  * filled buffer leaves media3's sliding percentile, ffmpeg's {@code tcp_speed} and
  * mpv's {@code raw-input-rate} all holding their last reading indefinitely. Trusting
  * that first pinned the readout to a constant for the rest of playback. The kernel is
- * therefore consulted only while no counter has ever been seen to move, which is what
- * distinguishes a device that cannot observe its traffic from a stream that is simply
- * idle.
+ * therefore consulted only until {@code TrafficStats} has proven it counts on this
+ * device — that proof is what separates a ROM which cannot observe its own traffic from
+ * a stream that is simply idle, and only {@code TrafficStats} can supply it because it
+ * alone sees native sockets.
  */
 public final class PlaybackSpeedMeter {
 
@@ -66,11 +67,12 @@ public final class PlaybackSpeedMeter {
     private long lastOkHttpBytes = UNSUPPORTED;
     private long lastTimeStamp;
     /**
-     * Whether either counter has ever reported bytes arriving. Until one does, this
-     * device may be a ROM with no working per-UID accounting playing through a native
-     * socket, where a zero delta means "cannot see" rather than "nothing arrived".
+     * Whether {@code TrafficStats} has ever reported bytes arriving on this device.
+     * Until it does, it may be absent or frozen at a constant, and since it is the only
+     * counter that can see a native engine socket, a zero delta then means "cannot see"
+     * rather than "nothing arrived".
      */
-    private boolean everObservedBytes;
+    private boolean trafficStatsProvenLive;
     private long bytesPerSecond;
     private Source source = Source.NONE;
 
@@ -114,20 +116,22 @@ public final class PlaybackSpeedMeter {
         // sockets, TrafficStats misses nothing but may be unsupported or frozen. The
         // larger delta is the better lower bound on what actually arrived.
         long delta = Math.max(okHttpDelta, trafficDelta);
+        if (trafficDelta > 0) trafficStatsProvenLive = true;
         if (delta > 0) {
-            everObservedBytes = true;
             source = trafficDelta > okHttpDelta ? Source.TRAFFIC_STATS : Source.OK_HTTP;
             bytesPerSecond = delta * 1000L / elapsedMs;
             return;
         }
-        // Nothing was measured this interval. Usually that is the truth — a filled buffer
-        // fetches nothing — and the readout must fall to zero rather than hold the last
-        // value. But a ROM whose per-UID counter is missing reports UNSUPPORTED or a
-        // frozen constant, and a native engine socket never reaches Java either, so on
-        // those devices no delta can *ever* appear however fast the stream runs. The
-        // kernel tier exists for exactly that case, and only there: a counter that has
-        // proven it can move is trusted when it reports an idle interval.
-        if (!everObservedBytes && kernelBitsPerSecond > 0) {
+        // Nothing was measured this interval. TrafficStats is the only counter that can
+        // see a native engine socket, so once it has proven it counts on this device its
+        // zero is the truth — a filled buffer fetches nothing — and the readout falls to
+        // zero rather than holding the last value. Until then it may be absent or frozen
+        // at a constant, and a native stream would be invisible to both counters however
+        // fast it runs. That, and only that, is what the kernel tier covers.
+        //
+        // OkHttp cannot stand in for that proof: it never sees native sockets, so its
+        // deltas say nothing about whether one is transferring.
+        if (!trafficStatsProvenLive && kernelBitsPerSecond > 0) {
             bytesPerSecond = kernelBitsPerSecond / 8L;
             source = Source.KERNEL;
             return;
