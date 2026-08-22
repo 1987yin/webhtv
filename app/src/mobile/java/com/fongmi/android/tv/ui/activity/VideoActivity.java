@@ -2514,6 +2514,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (items.size() < 2) mEpisodeGridMode = true;
         updateEpisodeFallbackStillUrl();
         mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
+        mEpisodeAdapter.setNativeGridExpanded(mEpisodeGridMode && !useTmdbCard && isOriginalEnhancedEpisodeFallback());
         mEpisodeAdapter.setViewType(!mEpisodeGridMode ? ViewType.HORI : ViewType.GRID);
         mEpisodeAdapter.addAll(displayItems);
         updateEpisodeLayout(displayItems, useTmdbCard);
@@ -2558,7 +2559,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (useTmdbCard) return getEpisodeGridSpanCount();
         if (items.size() == 1) return 1;
         int maxLen = 0;
-        for (Episode item : items) maxLen = Math.max(maxLen, item.getDisplayName().length());
+        for (Episode item : items) maxLen = Math.max(maxLen, EpisodeAdapter.getNativeDisplayTitle(item).length());
+        if (isOriginalEnhancedEpisodeFallback()) {
+            return EpisodeGridLayoutPolicy.getOriginalEnhancedFallbackSpan(items.size(), maxLen, PlayerSetting.getEpisodeColumn());
+        }
         if (maxLen >= 12) return PlayerSetting.getEpisodeColumn();
         int ideal = maxLen >= 10 ? 130 : maxLen >= 7 ? 104 : 80;
         int width = EpisodeGridLayoutPolicy.getAvailableWidth(
@@ -2570,6 +2574,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                 ResUtil.isLand(this));
         int span = width / ResUtil.dp2px(ideal);
         return Math.max(2, Math.min(getEpisodeSpanCount(), span));
+    }
+
+    private boolean isOriginalEnhancedEpisodeFallback() {
+        return Setting.isOriginalEnhancedDetailPage() && isTmdbSourceEnabled();
     }
 
     private List<Episode> getEpisodeDisplayItems(List<Episode> items) {
@@ -2787,6 +2795,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             mEpisodeAdapter = new EpisodeAdapter(this, viewType, items);
             mEpisodeAdapter.setOnTitleReadyListener(this::onEpisodeTitlesReady);
             mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
+            mEpisodeAdapter.setNativeGridExpanded(mEpisodeGridMode && !useTmdbCard && isOriginalEnhancedEpisodeFallback());
             updateEpisodeFallbackStillUrl();
             mBinding.episode.setAdapter(mEpisodeAdapter);
             scrollToPosition(mBinding.episode, position);
@@ -4261,7 +4270,17 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (mFlagAdapter == null || mFlagAdapter.isEmpty() || mHistory == null) return;
         Flag flag = getFlag();
         syncSelectedEpisode(flag);
-        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).reverse(mHistory.isRevSort()).tmdbCard(shouldUseTmdbEpisodeCards(flag.getEpisodes())).show(this);
+        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).reverse(mHistory.isRevSort()).tmdbCard(shouldUseTmdbEpisodeCards(flag.getEpisodes())).fallbackStill(getEpisodeFallbackStillUrl()).seasons(getEpisodeDialogSeasons(), getEpisodeDialogSeasonCounts()).show(this);
+    }
+
+    private List<Integer> getEpisodeDialogSeasons() {
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return List.of();
+        return new ArrayList<>(getEpisodeDialogSeasonCounts().keySet());
+    }
+
+    private Map<Integer, Integer> getEpisodeDialogSeasonCounts() {
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return Map.of();
+        return mTmdbUIAdapter.getSeasonEpisodeCounts();
     }
 
     private void onChoose() {
@@ -4521,6 +4540,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mTmdbContentLoaded = true;
         mBinding.name.setVisibility(View.GONE);
         if (mVod != null) setText(mVod);
+        // 选集列表在 TMDB 就绪前就已构建，那时 mTmdbUIAdapter.isLoaded() 为 false，
+        // 兜底图取不到海报；此处重算，否则无 TMDB 数据的集会一直是无图卡片。
+        updateEpisodeFallbackStillUrl();
         showDetailContent();
     }
 
@@ -4899,6 +4921,15 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private String getEpisodeFallbackStillUrl() {
+        // 分集无 TMDB 剧照时的兜底图，顺序对齐详情页 episodeFallbackStillUrl()：海报优先，再退 backdrop。
+        // getPosterUrl() 内部已带 tmdbItem.getPosterUrl() 兜底，比 getPhotos()（backdrops 列表，
+        // tmdbDetail 未就绪时为空）可靠。下面几项是进场 intent 的值，从 TMDB 详情页进来时可能全为空。
+        if (mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded()) {
+            String poster = mTmdbUIAdapter.getPosterUrl();
+            if (!TextUtils.isEmpty(poster)) return poster;
+            java.util.List<String> photos = mTmdbUIAdapter.getPhotos();
+            if (photos != null && !photos.isEmpty() && !TextUtils.isEmpty(photos.get(0))) return photos.get(0);
+        }
         if (!TextUtils.isEmpty(getPic())) return getPic();
         if (!TextUtils.isEmpty(getTmdbVodPic())) return getTmdbVodPic();
         if (mVod != null && !TextUtils.isEmpty(mVod.getPic())) return mVod.getPic();
@@ -5249,6 +5280,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         List<Episode> displayItems = getEpisodeDisplayItems(items);
         updateEpisodeFallbackStillUrl();
         mEpisodeAdapter.setUseTmdbCard(useTmdbCard);
+        mEpisodeAdapter.setNativeGridExpanded(mEpisodeGridMode && !useTmdbCard && isOriginalEnhancedEpisodeFallback());
         mEpisodeAdapter.setViewType(!mEpisodeGridMode ? ViewType.HORI : ViewType.GRID);
         mEpisodeAdapter.refreshMetadata(displayItems);
         updateEpisodeLayout(displayItems, useTmdbCard);

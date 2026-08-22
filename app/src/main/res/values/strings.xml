@@ -1946,6 +1946,8 @@
     <string name="detail_score">Score %1$s</string>
     <string name="detail_runtime_format">%1$d min</string>
     <string name="detail_season_format">Season %1$d</string>
+    <string name="detail_season">Season</string>
+    <string name="detail_season_other">Unmatched</string>
     <string name="detail_media_movie">Movie</string>
     <string name="detail_media_tv">Series</string>
     <string name="detail_media_unknown">Detail</string>
