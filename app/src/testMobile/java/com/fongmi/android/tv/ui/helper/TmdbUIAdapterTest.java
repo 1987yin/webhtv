@@ -121,6 +121,11 @@ public class TmdbUIAdapterTest {
         assertEquals(1, source.get(0).getTmdbEpisode().getSeasonNumber());
         assertEquals(2, source.get(3).getTmdbEpisode().getSeasonNumber());
         assertEquals(1, source.get(3).getTmdbEpisode().getNumber());
+        // 分段已通过 shouldApplyMapped 校验，必须标记 mapped，
+        // 否则第二季分段的源集号与本季集号不同，会被严格匹配当成无效匹配而丢掉刮削结果
+        assertTrue(source.get(3).isTmdbEpisodeMapped());
+        assertTrue(EpisodeDisplayPolicy.hasTmdbEpisodeData(List.of(source.get(3))));
+        assertTrue(TmdbEpisodeMatcher.shouldApply(source.get(3), source.get(3).getTmdbEpisode()));
     }
 
     @Test
