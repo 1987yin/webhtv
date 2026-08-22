@@ -28,14 +28,22 @@ public class EpisodeDisplayPolicyTest {
     }
 
     @Test
-    public void tmdbModeWhileLoading_canShowTemporaryLoadingChrome() {
-        assertTrue(EpisodeDisplayPolicy.shouldWaitForTmdbEpisodes(true, true, true, false, Collections.singletonList(nativeEpisode())));
+    public void tmdbModeWhileLoading_showsScrapedEpisodesImmediatelyWithLoadingChrome() {
+        // 站源集数已可渲染时不再等 TMDB：先出纯文本列表，卡片随后原地替换。
+        assertFalse(EpisodeDisplayPolicy.shouldWaitForTmdbEpisodes(true, true, true, false, Collections.singletonList(nativeEpisode())));
         assertTrue(EpisodeDisplayPolicy.shouldShowTmdbEpisodeChrome(true, true, Collections.singletonList(nativeEpisode())));
     }
 
     @Test
-    public void rejectedTmdbEpisode_stopsMetadataLoadingWaitBecausePayloadArrived() {
-        // 集号对不上不代表刮削没回来；否则整季误匹配会把 loading 卡住直到超时
+    public void tmdbModeWhileLoadingWithoutAnyEpisode_stillShowsPlaceholder() {
+        // 一集都还没有时占位符仍是唯一能显示的东西。
+        assertTrue(EpisodeDisplayPolicy.shouldWaitForTmdbEpisodes(true, true, true, false, Collections.emptyList()));
+        assertTrue(EpisodeDisplayPolicy.shouldWaitForTmdbEpisodes(true, true, true, false, null));
+    }
+
+    @Test
+    public void rejectedTmdbEpisode_stopsMetadataLoadingWaitBecauseEpisodesAreRenderable() {
+        // 集号对不上不代表没有可渲染的集数；否则整季误匹配会把 loading 卡住直到超时
         assertFalse(EpisodeDisplayPolicy.shouldWaitForTmdbEpisodes(
                 true, true, true, false, Collections.singletonList(wrongNumberTmdbEpisode())));
     }
