@@ -56,9 +56,9 @@ public class EpisodeAdapterTest {
 
         assertTrue("mobile grid native fallback must expose a stable file-size badge",
                 gridLayout.contains("android:id=\"@+id/nativeFileSize\"")
-                        && gridHolder.contains("bindNativeFileSize(EpisodeAdapter.getNativeFileSize(item));")
-                        && gridHolder.contains("EpisodeAdapter.getNativeDisplayTitle(item)"));
-        assertTrue("mobile horizontal native fallback must expose a stable file-size badge",
+                        && gridHolder.contains("applyNativeLayout(EpisodeAdapter.getNativeFileSize(item));")
+                        && gridHolder.contains("bindNativeFileSize(fileSize, stacked);")
+                        && gridHolder.contains("EpisodeAdapter.getNativeDisplayTitle(item)"));        assertTrue("mobile horizontal native fallback must expose a stable file-size badge",
                 horiLayout.contains("android:id=\"@+id/nativeFileSize\"")
                         && horiHolder.contains("bindNativeFileSize(EpisodeAdapter.getNativeFileSize(item));")
                         && horiHolder.contains("EpisodeAdapter.getNativeDisplayTitle(item)"));
@@ -83,8 +83,8 @@ public class EpisodeAdapterTest {
         assertTrue("TMDB card spacing must be applied only when card mode is active",
                 gridHolder.contains("int margin = useTmdbCard ? cardMargin : 0;")
                         && gridHolder.contains("marginParams.setMargins(margin, margin, margin, margin);"));
-        assertTrue("inactive native episode labels must preserve the episode suffix like upstream",
-                gridHolder.contains("focused ? TextUtils.TruncateAt.MARQUEE : TextUtils.TruncateAt.START"));
+        assertTrue("native episode labels must preserve the title suffix with end ellipsis",
+                gridHolder.contains("binding.text.setEllipsize(TextUtils.TruncateAt.END);"));
     }
 
     @Test
@@ -128,6 +128,64 @@ public class EpisodeAdapterTest {
     }
 
     @Test
+    public void mobileOriginalEnhancedFallbackShowsTwoLineNativeTitlesWithoutChangingDirectMode() throws Exception {
+        String gridLayout = read(findMobileResPath().resolve(Path.of("layout", "adapter_episode_grid.xml")));
+        String adapter = read(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "adapter", "EpisodeAdapter.java")));
+        String gridHolder = read(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "holder", "EpisodeGridHolder.java")));
+        String activity = read(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")));
+        Element text = findById(parseLayout(gridLayout), "@+id/text");
+
+        assertEquals("40dp", androidAttribute(text, "layout_height"));
+        assertEquals("true", androidAttribute(text, "singleLine"));
+        assertTrue("only the original-enhanced unmatched grid may opt into the expanded native button",
+                activity.contains("setNativeGridExpanded(mEpisodeGridMode && !useTmdbCard && isOriginalEnhancedEpisodeFallback())")
+                        && adapter.contains("public void setNativeGridExpanded(boolean nativeGridExpanded)")
+                        && adapter.contains("holder.setNativeGridExpanded(nativeGridExpanded);"));
+        assertTrue("expanded native grid titles must use two lines and end ellipsis",
+                gridHolder.contains("if (multiLine)")
+                        && gridHolder.contains("binding.text.setMaxLines(2);")
+                        && gridHolder.contains("binding.text.setEllipsize(TextUtils.TruncateAt.END);"));
+        assertTrue("direct/native mode must retain its compact single-line marquee",
+                gridHolder.contains("binding.text.setSingleLine(true);")
+                        && gridHolder.contains("focused ? TextUtils.TruncateAt.MARQUEE : TextUtils.TruncateAt.START"));
+        assertTrue("a wide native button keeps the badge beside the title like upstream",
+                gridLayout.contains("android:id=\"@+id/nativeFileSize\"")
+                        && gridHolder.contains("else binding.text.setPadding(visible ? ResUtil.dp2px(96) : horizontalPadding, 0, horizontalPadding, 0);"));
+        assertTrue("a narrow native button must stack the badge above the title instead of squeezing it to zero width",
+                gridHolder.contains("boolean stacked = !TextUtils.isEmpty(fileSize) && !hasRoomForSideFileSize();")
+                        && gridHolder.contains("if (stacked) binding.text.setPadding(horizontalPadding, ResUtil.dp2px(28), horizontalPadding, 0);")
+                        && gridHolder.contains("Gravity.START | (stacked ? Gravity.TOP : Gravity.CENTER_VERTICAL)"));
+        assertTrue("the first bind happens before addView, so stacking must be decided from the injected RecyclerView span, not the item's own width",
+                adapter.contains("listener, parent);")
+                        && gridHolder.contains("int width = estimateItemWidth();")
+                        && gridHolder.contains("if (width <= 0) width = binding.getRoot().getWidth();")
+                        && gridHolder.contains("if (!(recycler instanceof RecyclerView view)) return 0;")
+                        && gridHolder.contains("gridManager.getSpanCount()"));
+        assertTrue("the estimate must be re-checked once layout settles so a span change cannot leave a squeezed title",
+                gridHolder.contains("if (boundItem == null) return;")
+                        && gridHolder.contains("applyNativeLayout(EpisodeAdapter.getNativeFileSize(boundItem));"));
+        assertTrue("the deferred re-check must restore the marquee, because applyNativeLayout resets ellipsize",
+                gridHolder.contains("applyNativeLayout(EpisodeAdapter.getNativeFileSize(boundItem));")
+                        && gridHolder.contains("setNativeActive(binding.text.hasFocus() || binding.text.isActivated());"));
+        assertTrue("the deferred re-check must read the currently bound item, never a captured file size, or a recycled holder shows the previous episode's badge",
+                !gridHolder.contains("binding.text.post(() -> applyNativeLayout(fileSize));")
+                        && gridHolder.contains("boundItem = item;")
+                        && gridHolder.contains("boundItem = null;"));
+        assertTrue("the card branch must clear the native button's stacked state so a recycled holder cannot inherit it",
+                gridHolder.contains("nativeMultiLine = false;")
+                        && gridHolder.contains("binding.text.setMinHeight(0);"));
+        assertTrue("two-line titles must keep the END ellipsis, so the marquee override has to follow the effective multi-line state, not just the mode flag",
+                gridHolder.contains("if (!nativeMultiLine) {")
+                        && gridHolder.contains("this.nativeMultiLine = multiLine;"));
+        assertTrue("a stacked button needs two lines and extra height for the badge",
+                gridHolder.contains("boolean multiLine = nativeGridExpanded || stacked;")
+                        && gridHolder.contains("binding.text.setMinHeight(stacked ? ResUtil.dp2px(76)"));
+        assertTrue("the fallback must keep click and long-press behavior on the native button",
+                gridHolder.contains("binding.text.setOnClickListener(v -> listener.onItemClick(item));")
+                        && gridHolder.contains("EpisodeAdapter.bindNativeTitlePopup(binding.text, item);"));
+    }
+
+    @Test
     public void mobilePlaybackEpisodeNamesAndLabelsMarqueeWhenActive() throws Exception {
         String mobileGridLayout = read(findMobileResPath().resolve(Path.of("layout", "adapter_episode_grid.xml")));
         String mobileHoriLayout = read(findMobileResPath().resolve(Path.of("layout", "adapter_episode_hori.xml")));
@@ -149,7 +207,7 @@ public class EpisodeAdapterTest {
                         && mobileHoriHolder.contains("binding.fileSize.setSelected(active);"));
         assertTrue("recycled mobile holders must clear hidden text marquee state",
                 mobileGridHolder.contains("binding.text.setActivated(false);")
-                        && mobileGridHolder.contains("setMarquee(false);")
+                        && mobileGridHolder.contains("clearNativeActive();")
                         && mobileHoriHolder.contains("binding.text.setActivated(false);")
                         && mobileHoriHolder.contains("setTextMarquee(false);")
                         && mobileHoriHolder.contains("binding.text.isActivated()"));

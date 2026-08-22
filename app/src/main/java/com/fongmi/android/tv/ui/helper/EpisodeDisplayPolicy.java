@@ -9,10 +9,11 @@ public final class EpisodeDisplayPolicy {
     private EpisodeDisplayPolicy() {
     }
 
+    /** 是否存在通过严格集号校验的有效 TMDB 分集，决定要不要用增强卡片。 */
     public static boolean hasTmdbEpisodeData(List<Episode> items) {
         if (items == null || items.isEmpty()) return false;
         for (Episode item : items) {
-            if (item != null && item.getTmdbEpisode() != null) return true;
+            if (item != null && TmdbEpisodeMatcher.shouldApply(item, item.getTmdbEpisode())) return true;
         }
         return false;
     }

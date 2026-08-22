@@ -1783,6 +1783,7 @@ public class TmdbUIAdapter {
             TmdbEpisode tmdbEpisode = episodesByNumber.get(mappedNumber);
             if (!TmdbEpisodeMatcher.shouldApplyMapped(episode, tmdbEpisode, mapped.seasonNumber(), mappedNumber)) continue;
             if (hasEpisodeMetadataChanged(episode.getTmdbEpisode(), tmdbEpisode)) changed = true;
+            // 同上：已通过跨季映射校验，必须标记 mapped，否则源集号≠本季集号的条目会被严格匹配丢掉
             episode.setMappedTmdbEpisode(tmdbEpisode);
             if (!tmdbEpisode.getTitle().isEmpty()) {
                 String displayName = EpisodeTitleFormatter.withSourceFileSize(episode.getName(), EpisodeTitleFormatter.formatTmdbTitle(mappedNumber, tmdbEpisode.getTitle()), Setting.isTmdbEpisodeFileSize());
@@ -1820,7 +1821,9 @@ public class TmdbUIAdapter {
                 if (!TmdbEpisodeMatcher.shouldApplyMapped(
                         episode, tmdbEpisode, segment.getSeasonNumber(), tmdbNumber)) continue;
                 if (hasEpisodeMetadataChanged(episode.getTmdbEpisode(), tmdbEpisode)) changed = true;
-                episode.setTmdbEpisode(tmdbEpisode);
+                // 已通过 shouldApplyMapped 的分段校验，属于明确的跨季安全映射；
+                // 必须标记 mapped，否则源集号与本季集号不同的分段会被严格匹配判为无效。
+                episode.setMappedTmdbEpisode(tmdbEpisode);
                 if (!tmdbEpisode.getTitle().isEmpty()) {
                     String displayName = EpisodeTitleFormatter.withSourceFileSize(
                             episode.getName(),
