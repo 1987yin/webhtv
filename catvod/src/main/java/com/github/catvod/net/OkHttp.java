@@ -105,7 +105,10 @@ public class OkHttp {
 
     public static synchronized OkHttpClient player() {
         if (get().player != null) return get().player;
-        return get().player = getBuilder().eventListenerFactory(call -> SpiderDebug.isEnabled() ? new DebugEventListener() : EventListener.NONE).build();
+        return get().player = getBuilder()
+                .addInterceptor(new KuaishouMediaFallbackInterceptor())
+                .eventListenerFactory(call -> SpiderDebug.isEnabled() ? new DebugEventListener() : EventListener.NONE)
+                .build();
     }
 
     public static OkHttpClient client(long timeout) {
@@ -234,7 +237,10 @@ public class OkHttp {
     }
 
     private static OkHttpClient.Builder getBuilder() {
-        OkHttpClient.Builder builder = new OkHttpClient.Builder().addInterceptor(new HostExceptionInterceptor()).addInterceptor(requestInterceptor()).addInterceptor(authInterceptor()).addNetworkInterceptor(responseInterceptor()).connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS).readTimeout(TIMEOUT, TimeUnit.MILLISECONDS).writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS).dns(dns()).hostnameVerifier((hostname, session) -> true).sslSocketFactory(getSSLContext().getSocketFactory(), trustAllCertificates());
+        // OkTrafficCounter must stay the last network interceptor: the innermost one sits
+        // closest to the socket and so counts compressed wire bytes. Moving it outside
+        // responseInterceptor() would count inflated bytes and silently overstate speed.
+        OkHttpClient.Builder builder = new OkHttpClient.Builder().addInterceptor(new HostExceptionInterceptor()).addInterceptor(requestInterceptor()).addInterceptor(authInterceptor()).addNetworkInterceptor(responseInterceptor()).addNetworkInterceptor(OkTrafficCounter.interceptor()).connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS).readTimeout(TIMEOUT, TimeUnit.MILLISECONDS).writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS).dns(dns()).hostnameVerifier((hostname, session) -> true).sslSocketFactory(getSSLContext().getSocketFactory(), trustAllCertificates());
         HttpLoggingInterceptor logging = new HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY);
         builder.proxyAuthenticator(authenticator());
         //builder.addNetworkInterceptor(logging);
