@@ -311,11 +311,25 @@ public class EpisodeListDialog extends BaseAlertDialog implements FlagAdapter.On
     }
 
     private boolean onEpisodeKey(KeyEvent event) {
-        if (!KeyUtil.isActionDown(event) || !KeyUtil.isUpKey(event)) return false;
+        if (!KeyUtil.isActionDown(event)) return false;
+        if (KeyUtil.isDownKey(event)) return focusLowerFromEpisode();
+        if (!KeyUtil.isUpKey(event)) return false;
         int position = getFocusedPosition(binding.episode);
         int column = Math.max(1, episodeAdapter.getColumn());
         if (position == RecyclerView.NO_POSITION || position >= column) return false;
         focusUpperFromEpisode();
+        return true;
+    }
+
+    private boolean focusLowerFromEpisode() {
+        int position = getFocusedPosition(binding.episode);
+        int column = Math.max(1, episodeAdapter.getColumn());
+        int count = episodeAdapter.getItemCount();
+        // 正下方有卡片时交给 Leanback 原生逐行移动，只兜底末行不满导致同列为空、下键卡住的情况
+        if (position == RecyclerView.NO_POSITION || position + column < count) return false;
+        int target = TmdbEpisodeGridPolicy.verticalFocusTarget(position, column, count, true);
+        if (target == TmdbEpisodeGridPolicy.NO_FOCUS_TARGET) return false;
+        focusPosition(binding.episode, target);
         return true;
     }
 
