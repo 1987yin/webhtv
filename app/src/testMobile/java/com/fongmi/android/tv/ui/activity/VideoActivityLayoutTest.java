@@ -2239,6 +2239,26 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void leanbackPlaybackEpisodeDialogFallsBackToLastCardOnPartialRow() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "dialog", "EpisodeListDialog.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int key = source.indexOf("private boolean onEpisodeKey(KeyEvent event)");
+        int lower = source.indexOf("private boolean focusLowerFromEpisode()");
+        int lowerEnd = source.indexOf("\n    private ", lower + 1);
+        String lowerBody = lower >= 0 && lowerEnd > lower ? source.substring(lower, lowerEnd) : "";
+
+        assertTrue(sourcePath + " is missing playback episode down key handling", key >= 0 && lower > key);
+        assertTrue("playback episode grid must route the down key through the partial row fallback",
+                source.indexOf("if (KeyUtil.isDownKey(event)) return focusLowerFromEpisode();", key) > key);
+        assertTrue("playback episode grid must defer to Leanback while a card sits directly below",
+                lowerBody.contains("if (position == RecyclerView.NO_POSITION || position + column < count) return false;"));
+        assertTrue("playback episode grid must reuse the shared grid policy so a short last row stays reachable",
+                lowerBody.contains("TmdbEpisodeGridPolicy.verticalFocusTarget(position, column, count, true)")
+                        && lowerBody.contains("if (target == TmdbEpisodeGridPolicy.NO_FOCUS_TARGET) return false;")
+                        && lowerBody.contains("focusPosition(binding.episode, target);"));
+    }
+
+    @Test
     public void leanbackPlaybackEpisodeKeyIgnoresMissingFocus() throws Exception {
         Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
