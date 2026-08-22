@@ -2774,6 +2774,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (mBinding.episodeFileName == null || mBinding.episodeFileName.getVisibility() != View.VISIBLE) {
             return;
         }
+        // 影视原生模式没有 TMDB 刮削标题，切换刮削/原文件名不会有任何变化，改为等同「短显」
+        if (shouldUseUpstreamNativeEpisodeModule()) {
+            onShortDisplay();
+            return;
+        }
         boolean showScraped = !Setting.getTmdbEpisodeShowScrapedName();
         android.util.Log.d("VideoActivity", "toggleEpisodeFileName - showScraped=" + showScraped + ", mTmdbControlsMoved=" + mTmdbControlsMoved);
         Setting.putTmdbEpisodeShowScrapedName(showScraped);
@@ -2802,6 +2807,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void updateEpisodeFileNameButton() {
         if (mBinding.episodeFileName == null) return;
+        if (shouldUseUpstreamNativeEpisodeModule()) {
+            mBinding.episodeFileName.setContentDescription(getString(R.string.play_short_display));
+            applyTmdbPlaybackControlColors();
+            return;
+        }
         boolean showScraped = Setting.getTmdbEpisodeShowScrapedName();
         mBinding.episodeFileName.setContentDescription(getString(showScraped ? R.string.detail_episode_file_name_original_action : R.string.detail_episode_file_name_scraped_action));
         applyTmdbPlaybackControlColors();
