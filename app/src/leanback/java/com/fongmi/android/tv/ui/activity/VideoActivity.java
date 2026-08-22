@@ -3124,9 +3124,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 R.id.episodeGrid,
                 R.id.tmdbCast,
                 R.id.tmdbPhotos,
+                R.id.tmdbPosters,
+                R.id.tmdbRelatedVideos,
                 R.id.tmdbCrew,
                 R.id.tmdbRecommendations,
-                R.id.tmdbRelatedVideos,
                 R.id.tmdbPersonalTmdbRecommendations,
                 R.id.tmdbPersonalDoubanRecommendations,
                 R.id.tmdbPersonalAiRecommendations,
@@ -5453,6 +5454,15 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             if (postersLabel != null) postersLabel.setVisibility(View.GONE);
         }
 
+        // TMDB related videos
+        java.util.List<TmdbVideo> relatedVideos = mTmdbUIAdapter.getRelatedVideos();
+        if (bindTmdbVideoGrid(mBinding.tmdbRelatedVideos, mBinding.tmdbRelatedVideosLabel, relatedVideos)) {
+            if (lastVisibleGrid == null) setDetailButtonsNextFocus(R.id.tmdbRelatedVideos);
+            if (lastVisibleGrid != null) lastVisibleGrid.setNextFocusDownId(R.id.tmdbRelatedVideos);
+            lastVisibleGrid = mBinding.tmdbRelatedVideos;
+            if (!hasTmdbContent) hasTmdbContent = true;
+        }
+
 
         // 主创团队
         java.util.List<com.fongmi.android.tv.bean.TmdbPerson> creators = mTmdbUIAdapter.getCreators();
@@ -5485,15 +5495,6 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             if (lastVisibleGrid == null) setDetailButtonsNextFocus(R.id.tmdbRecommendations);
             if (lastVisibleGrid != null) lastVisibleGrid.setNextFocusDownId(R.id.tmdbRecommendations);
             lastVisibleGrid = mBinding.tmdbRecommendations;
-            if (!hasTmdbContent) hasTmdbContent = true;
-        }
-
-        // 个性推荐 · TMDB
-        java.util.List<TmdbVideo> relatedVideos = mTmdbUIAdapter.getRelatedVideos();
-        if (bindTmdbVideoGrid(mBinding.tmdbRelatedVideos, mBinding.tmdbRelatedVideosLabel, relatedVideos)) {
-            if (lastVisibleGrid == null) setDetailButtonsNextFocus(R.id.tmdbRelatedVideos);
-            if (lastVisibleGrid != null) lastVisibleGrid.setNextFocusDownId(R.id.tmdbRelatedVideos);
-            lastVisibleGrid = mBinding.tmdbRelatedVideos;
             if (!hasTmdbContent) hasTmdbContent = true;
         }
 
