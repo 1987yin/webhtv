@@ -53,6 +53,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * TMDB 数据适配器
@@ -69,6 +70,10 @@ public class TmdbUIAdapter {
 
     private static final long VOD_REFRESH_COALESCE_MS = 240;
     private static final long TMDB_STARTUP_BACKGROUND_DELAY_MS = 1200;
+    // 选集是首屏内容，不能和推荐/个性化一起排在 1200ms 之后：用户盯着的就是它。
+    // 集数元数据立刻发起（磁盘缓存命中时几乎瞬时），推荐等仍延后给首帧让路。
+    private static final long TMDB_STARTUP_EPISODE_DELAY_MS = 0;
+    private static final int MAX_CACHED_SEASONS = 24;
 
     private final Activity activity;
     private final TmdbService tmdbService;
@@ -77,6 +82,7 @@ public class TmdbUIAdapter {
     private final Runnable pendingVodRefresh = this::dispatchPendingVodRefresh;
     private final TmdbDetailPrefetch detailPrefetch;
     private final Task.Scope backgroundTasks;
+    private final Task.Scope episodeTasks;
     private ListenableFuture<TmdbDetailPrefetch.Result> activePrefetch;
 
     private TmdbItem tmdbItem;
@@ -117,10 +123,14 @@ public class TmdbUIAdapter {
     private volatile int episodeMetadataGeneration;
     private volatile int relatedVideoGeneration;
     private final Object episodeMetadataLock = new Object();
+    // 季级内存缓存：切季 / 切线路会反复要同一季的集数，磁盘缓存虽然命中但仍要读文件 +
+    // 解析整季 JSON。缓存解析结果让重复访问零 IO。键为 tmdbId|mediaType|season。
+    private final Map<String, List<TmdbEpisode>> seasonEpisodeCache = new ConcurrentHashMap<>();
     private volatile int pendingVodRefreshGeneration;
     private volatile Vod pendingVodRefreshVod;
     private final java.util.EnumSet<RefreshEvent.Type> pendingVodRefreshTypes = java.util.EnumSet.noneOf(RefreshEvent.Type.class);
     private Runnable pendingStartupBackgroundLoads;
+    private Runnable pendingStartupEpisodeLoad;
     private PersonalAiUpdateListener personalAiUpdateListener;
 
     public interface LoadMoreCallback {
@@ -137,6 +147,10 @@ public class TmdbUIAdapter {
         this.tmdbConfig = TmdbConfig.objectFrom(Setting.getTmdbConfig());
         this.tmdbMatcher = new TmdbMatcher(tmdbService, tmdbConfig);
         this.backgroundTasks = new Task.Scope(Task.recommendationExecutor());
+        // 选集元数据独立线程池：recommendationExecutor 只有 3 条线程，推荐 / 个性化 / AI 推荐
+        // 都挤在里面。原先 1200ms 延迟天然把选集和它们错开了，现在选集不再延迟，必须换到
+        // largeExecutor(20)，否则选集会排在推荐后面，反而更慢。
+        this.episodeTasks = new Task.Scope(Task.largeExecutor());
         this.detailPrefetch = new TmdbDetailPrefetch(Task.recommendationExecutor());
     }
 
@@ -347,6 +361,11 @@ public class TmdbUIAdapter {
     public void beginDetailRequest() {
         resetLoadState();
         backgroundTasks.cancelAll();
+        episodeTasks.cancelAll();
+        // 季缓存在这里清而不是在 resetLoadState 里：本方法由 getDetail() 在 prefetch 之前调用，
+        // 清完紧接着的预热会重新填。放在 resetLoadState 会被 load() 冲掉预热结果；不清则
+        // getDetail(refresh=true) 这类强制刷新会被内存缓存挡住，拿到陈旧集数。
+        seasonEpisodeCache.clear();
         cancelActivePrefetch();
         detailPrefetch.cancel();
     }
@@ -354,6 +373,7 @@ public class TmdbUIAdapter {
     public void release() {
         resetLoadState();
         backgroundTasks.close();
+        episodeTasks.close();
         cancelActivePrefetch();
         detailPrefetch.cancel();
     }
@@ -364,11 +384,18 @@ public class TmdbUIAdapter {
     public void prefetch(TmdbItem item) {
         if (item == null || !isReady()) return;
         long start = System.currentTimeMillis();
+        // Intent 在主线程读：本方法由 prefetchDirectTmdbDetail 在主线程调用，而 Intent 内部是
+        // 非线程安全的 Bundle，主线程还会 putExtras/removeExtra 改它。算好季号再传进后台任务。
+        int intentSeason = intentSeasonNumber();
         TmdbDetailPrefetch.StartResult started = detailPrefetch.start(item, () -> {
             JsonObject detail = tmdbService.detail(item, tmdbConfig, false);
             TmdbItem loadedItem = normalizeLoadedItem(item, detail);
             List<TmdbPerson> cast = tmdbService.cast(detail, tmdbConfig);
             SpiderDebug.log("tmdb-prefetch", "finish cost=%dms media=%s id=%d", System.currentTimeMillis() - start, loadedItem.getMediaType(), loadedItem.getTmdbId());
+            // 选集卡片要的是 season/episodes，detail 里没有，所以顺手预热最可能的那一季。
+            // 必须另起任务：这个 future 完成才会触发 loadDetailSync，串在里面等于用选集
+            // 预热延后核心详情上屏。
+            warmLikelySeasonAsync(loadedItem, detail, intentSeason);
             return new TmdbDetailPrefetch.Result(loadedItem, detail, cast);
         });
         if (started == null) {
@@ -377,6 +404,57 @@ public class TmdbUIAdapter {
         }
         SpiderDebug.log("tmdb-prefetch", "%s media=%s id=%d", prefetchStateText(started.getState()), item.getMediaType(), item.getTmdbId());
         if (started.getState() != TmdbDetailPrefetch.StartState.REUSED) logPrefetchFailure(started.getFuture(), item, start);
+    }
+
+    /**
+     * 预热最可能用到的那一季，跑在独立任务里，不阻塞 prefetch future。
+     *
+     * 预热可能与随后的 loadEpisodeTitlesAsync 并发请求同一季，两者都 miss 时会重复读一次
+     * 磁盘/网络。这是有意接受的：预热猜错季本来也会浪费一次，为去重引入 per-key future
+     * 不划算，且 TmdbEpisode 全是 final 字段、缓存值用 List.copyOf，重复写入不会产生脏数据。
+     */
+    private void warmLikelySeasonAsync(TmdbItem item, JsonObject detail, int intentSeason) {
+        if (item == null || !item.isTv() || detail == null) return;
+        int target = likelySeasonNumber(detail, intentSeason);
+        if (target < 0) return;
+        // 走 episodeTasks 而非裸 Task.submitLarge：换源 / 销毁时能随 generation 一起取消，
+        // 不会在后台继续跑并往缓存里写已经没人要的数据。
+        episodeTasks.submit(() -> {
+            try {
+                long start = System.currentTimeMillis();
+                List<TmdbEpisode> episodes = seasonEpisodes(item, target);
+                SpiderDebug.log("tmdb-prefetch", "season warm season=%d count=%d cost=%dms", target, episodes.size(), System.currentTimeMillis() - start);
+            } catch (CancellationException ignored) {
+                // 预热是纯优化，取消无需处理。
+            } catch (Throwable e) {
+                SpiderDebug.log("tmdb-prefetch", "season warm failed error=%s", e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * 猜测预热哪一季。prefetch 早于 captureSourceSeason，季解析还没跑，所以只能用 Intent
+     * 指定的季号，没有时退化为唯一正片季（单季剧最常见）。返回 < 0 表示证据不足，不猜。
+     */
+    static int likelySeasonNumber(JsonObject detail, int intentSeason) {
+        List<SeasonOption> options = parseSeasonOptions(detail);
+        if (options.isEmpty()) return -1;
+        int target = intentSeason;
+        if (target < 0) {
+            List<Integer> ordinary = new ArrayList<>();
+            for (SeasonOption option : options) if (option.getSeasonNumber() > 0) ordinary.add(option.getSeasonNumber());
+            if (ordinary.size() != 1) return -1;
+            target = ordinary.get(0);
+        }
+        for (SeasonOption option : options) if (option.getSeasonNumber() == target) return target;
+        return -1;
+    }
+
+    private int intentSeasonNumber() {
+        if (activity == null || activity.getIntent() == null) return -1;
+        int requested = activity.getIntent().getIntExtra("tmdb_play_season_number", -1);
+        if (requested >= 0) return requested;
+        return EpisodeSeasonPolicy.resolveSourceSeason(activityIntentTitle());
     }
 
     private String prefetchStateText(TmdbDetailPrefetch.StartState state) {
@@ -656,6 +734,8 @@ public class TmdbUIAdapter {
         App.removeCallbacks(pendingVodRefresh);
         if (pendingStartupBackgroundLoads != null) App.removeCallbacks(pendingStartupBackgroundLoads);
         pendingStartupBackgroundLoads = null;
+        if (pendingStartupEpisodeLoad != null) App.removeCallbacks(pendingStartupEpisodeLoad);
+        pendingStartupEpisodeLoad = null;
         return generation;
     }
 
@@ -1232,20 +1312,11 @@ public class TmdbUIAdapter {
     }
 
     private void scheduleStartupBackgroundLoads(Vod vod, TmdbItem item, JsonObject detail, int generation) {
+        scheduleStartupEpisodeLoad(vod, item, generation);
         if (pendingStartupBackgroundLoads != null) App.removeCallbacks(pendingStartupBackgroundLoads);
         pendingStartupBackgroundLoads = () -> {
             if (!isCurrentGeneration(generation)) return;
             SpiderDebug.log("tmdb", "startup background loads begin title=%s delay=%dms", item == null ? "" : item.getTitle(), TMDB_STARTUP_BACKGROUND_DELAY_MS);
-            if (vod != null && item != null && item.isTv()) {
-                int metadataGeneration = ++episodeMetadataGeneration;
-                Integer selectedSeason = currentEpisodeMetadataSeason();
-                episodeMetadataLoaded = false;
-                if (selectedSeason == null && !isMultiSliceResolution()) {
-                    finishEpisodeMetadataLoad(vod, generation, metadataGeneration, null);
-                } else {
-                    loadEpisodeTitlesAsync(vod, item, generation, metadataGeneration, selectedSeason);
-                }
-            }
             loadRelatedVideosAsync(sourceSeasonNumber, -1);
             loadRelatedRecommendationsAsync(vod, item, detail, generation);
             loadPersonalRecommendationsAsync(vod, item, detail, generation);
@@ -1253,9 +1324,28 @@ public class TmdbUIAdapter {
         App.post(pendingStartupBackgroundLoads, TMDB_STARTUP_BACKGROUND_DELAY_MS);
     }
 
+    // 选集元数据单独排程且不延迟：它决定「正在加载剧集信息...」占位符何时消失。
+    private void scheduleStartupEpisodeLoad(Vod vod, TmdbItem item, int generation) {
+        if (pendingStartupEpisodeLoad != null) App.removeCallbacks(pendingStartupEpisodeLoad);
+        pendingStartupEpisodeLoad = () -> {
+            if (!isCurrentGeneration(generation)) return;
+            SpiderDebug.log("tmdb", "startup episode load begin title=%s delay=%dms", item == null ? "" : item.getTitle(), TMDB_STARTUP_EPISODE_DELAY_MS);
+            if (vod == null || item == null || !item.isTv()) return;
+            int metadataGeneration = ++episodeMetadataGeneration;
+            Integer selectedSeason = currentEpisodeMetadataSeason();
+            episodeMetadataLoaded = false;
+            if (selectedSeason == null && !isMultiSliceResolution()) {
+                finishEpisodeMetadataLoad(vod, generation, metadataGeneration, null);
+            } else {
+                loadEpisodeTitlesAsync(vod, item, generation, metadataGeneration, selectedSeason);
+            }
+        };
+        App.post(pendingStartupEpisodeLoad, TMDB_STARTUP_EPISODE_DELAY_MS);
+    }
+
     private void loadEpisodeTitlesAsync(Vod vod, TmdbItem item, int generation, int metadataGeneration, Integer selectedSeason) {
         if (vod == null || item == null || !item.isTv()) return;
-        backgroundTasks.submit(() -> {
+        episodeTasks.submit(() -> {
             if (!isCurrentEpisodeMetadataRequest(generation, metadataGeneration, selectedSeason)) return;
             long start = System.currentTimeMillis();
             boolean changed = selectedSeason != null
@@ -1404,6 +1494,32 @@ public class TmdbUIAdapter {
         if (!isCurrentEpisodeMetadataRequest(generation, metadataGeneration, selectedSeason)) return;
         episodeMetadataLoaded = true;
         notifyVodChanged(vod, generation, RefreshEvent.Type.VOD_EPISODE_TITLES);
+    }
+
+    /**
+     * 取某季集数，优先命中进程内缓存。缓存未命中才走 TmdbService（磁盘缓存 / 网络）。
+     * 空结果不写缓存，避免把一次失败固化成整个会话的空列表。
+     *
+     * 缓存生命周期绑定一次详情请求：由 beginDetailRequest() 清空（在 prefetch 预热之前），
+     * 所以既不会挡住强制刷新，也不会被 load() 冲掉预热结果。MAX_CACHED_SEASONS 只是
+     * 防御多季剧反复切季时的无界增长。
+     */
+    private List<TmdbEpisode> seasonEpisodes(TmdbItem item, int seasonNumber) throws Exception {
+        if (item == null || seasonNumber < 0) return List.of();
+        String key = item.getTmdbId() + "|" + item.getMediaType() + "|" + seasonNumber;
+        List<TmdbEpisode> cached = seasonEpisodeCache.get(key);
+        if (cached != null) {
+            SpiderDebug.log("tmdb", "season episodes source=memory season=%d count=%d", seasonNumber, cached.size());
+            return cached;
+        }
+        JsonObject season = tmdbService.season(item, seasonNumber, tmdbConfig);
+        if (season == null) return List.of();
+        List<TmdbEpisode> episodes = tmdbService.episodes(season, tmdbConfig, item.getTmdbId(), seasonNumber);
+        if (!episodes.isEmpty()) {
+            if (seasonEpisodeCache.size() >= MAX_CACHED_SEASONS) seasonEpisodeCache.clear();
+            seasonEpisodeCache.put(key, List.copyOf(episodes));
+        }
+        return episodes;
     }
 
     private Integer currentEpisodeMetadataSeason() {
@@ -1572,10 +1688,7 @@ public class TmdbUIAdapter {
         if (vod == null || item == null || vod.getFlags() == null) return false;
         if (!isCurrentEpisodeMetadataRequest(generation, metadataGeneration, selectedSeason)) return false;
         try {
-            JsonObject season = tmdbService.season(item, selectedSeason, tmdbConfig);
-            if (season == null) return false;
-
-            List<TmdbEpisode> episodes = tmdbService.episodes(season, tmdbConfig, item.getTmdbId(), selectedSeason);
+            List<TmdbEpisode> episodes = seasonEpisodes(item, selectedSeason);
             if (episodes.isEmpty()) return false;
             Map<Integer, TmdbEpisode> episodesByNumber = indexEpisodesByNumber(episodes);
 
@@ -1604,9 +1717,9 @@ public class TmdbUIAdapter {
         try {
             for (Integer season : seasons) {
                 if (!isCurrentEpisodeMetadataRequest(generation, metadataGeneration, null)) return false;
-                JsonObject detail = tmdbService.season(item, season, tmdbConfig);
-                if (detail == null) return false;
-                episodesBySeason.put(season, indexEpisodesByNumber(tmdbService.episodes(detail, tmdbConfig, item.getTmdbId(), season)));
+                List<TmdbEpisode> seasonItems = seasonEpisodes(item, season);
+                if (seasonItems.isEmpty()) return false;
+                episodesBySeason.put(season, indexEpisodesByNumber(seasonItems));
             }
             synchronized (episodeMetadataLock) {
                 if (!isCurrentEpisodeMetadataRequest(generation, metadataGeneration, null)) return false;
