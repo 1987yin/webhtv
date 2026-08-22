@@ -1133,6 +1133,7 @@
     <string name="pan_diagnostic_entry">Link test</string>
     <string name="pan_diagnostic_title">Playback link diagnostics</string>
     <string name="player_kernel">Player engine</string>
+    <string name="player_kernel_external">External</string>
     <string name="player_scale">Scale</string>
     <string name="player_lut">LUT color</string>
     <string name="player_mpv_config">MPV config manager</string>
