@@ -925,7 +925,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private void hideProgress() {
         mBinding.progress.getRoot().setVisibility(View.GONE);
         App.removeCallbacks(mR2);
-        Traffic.reset();
+        Traffic.reset(mBinding.progress.traffic);
     }
 
     private void showError(String text) {

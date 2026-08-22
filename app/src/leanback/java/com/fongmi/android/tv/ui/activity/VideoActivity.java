@@ -1290,6 +1290,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBroken = new ArrayList<>();
         mR1 = this::hideControl;
         mR2 = this::updateFocus;
+        mR3 = this::setTraffic;
         mR4 = this::showEmpty;
         mSeekProgressFallback = this::hideSeekProgressIfReady;
         mAudioRefreshLyricsRunnable = this::refreshLyricsNow;
@@ -4030,6 +4031,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
         if (mSeekProgressFallback != null) App.removeCallbacks(mSeekProgressFallback);
         mBinding.progress.getRoot().setVisibility(View.VISIBLE);
+        App.post(mR3, 0);
         hideCenter();
         hideError();
     }
@@ -4037,6 +4039,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private void hideProgress() {
         if (mSeekProgressFallback != null) App.removeCallbacks(mSeekProgressFallback);
         mBinding.progress.getRoot().setVisibility(View.GONE);
+        App.removeCallbacks(mR3);
+        Traffic.reset(mBinding.progress.traffic);
     }
 
     private void showPlaybackContent() {
@@ -8685,7 +8689,7 @@ private boolean onChooseLong() {
         return true;
     }
 
-private void setTraffic() {
+    private void setTraffic() {
         Traffic.setSpeed(mBinding.progress.traffic, service() == null ? null : player());
         App.post(mR3, 1000);
     }

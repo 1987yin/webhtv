@@ -280,7 +280,7 @@ public class CastActivity extends PlaybackActivity implements CustomKeyDownVod.L
     private void hideProgress() {
         mBinding.progress.getRoot().setVisibility(View.GONE);
         App.removeCallbacks(mR2);
-        Traffic.reset();
+        Traffic.reset(mBinding.progress.traffic);
     }
 
     private void showError(String text) {
