@@ -131,7 +131,7 @@ public class PlaybackSpeedMeterTest {
     }
 
     @Test
-    public void kernelCoversNativeSocketWhileNoCounterHasEverMoved() {
+    public void kernelCoversNativeSocketWhileTrafficStatsHasNotProvenItself() {
         Fake fake = new Fake();
         fake.trafficBytes = UNSUPPORTED;
         fake.okHttpBytes = 0;
@@ -144,6 +144,29 @@ public class PlaybackSpeedMeterTest {
         meter.observe(8_000_000);
         assertEquals(PlaybackSpeedMeter.Source.KERNEL, meter.getSource());
         assertEquals(1_000_000, meter.getBytesPerSecond());
+    }
+
+    @Test
+    public void provenCounterGoingBlindLaterDoesNotReviveTheKernel() {
+        Fake fake = new Fake();
+        fake.trafficBytes = 1_000_000;
+        PlaybackSpeedMeter meter = fake.meter();
+
+        meter.observe(0);
+        fake.trafficBytes = 1_512_000;
+        fake.advance(1000);
+        meter.observe(8_000_000);
+        assertEquals(512_000, meter.getBytesPerSecond());
+
+        // A counter that has proven it counts is not expected to stop. If it does, the
+        // readout stays on the in-process OkHttp count rather than reviving the frozen
+        // kernel estimate this class exists to avoid — the proof flag deliberately does
+        // not decay, so one blind interval cannot undo it.
+        fake.trafficBytes = UNSUPPORTED;
+        fake.advance(1000);
+        meter.observe(8_000_000);
+        assertEquals(PlaybackSpeedMeter.Source.OK_HTTP, meter.getSource());
+        assertEquals(0, meter.getBytesPerSecond());
     }
 
     @Test
@@ -207,8 +230,9 @@ public class PlaybackSpeedMeterTest {
         fake.advance(1000);
         meter.observe(0);
 
-        // TrafficStats is readable here, so it owns the idle verdict: it is the counter
-        // that would have seen a native socket had one been transferring.
+        // No kernel reading either, so there is nothing to fall back to. A readable
+        // counter reporting nothing is an idle interval, not a missing source: show
+        // zero rather than blanking the readout.
         assertEquals(PlaybackSpeedMeter.Source.TRAFFIC_STATS, meter.getSource());
         assertEquals(0, meter.getBytesPerSecond());
         assertFalse(meter.isUnavailable());
