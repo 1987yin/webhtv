@@ -34,6 +34,13 @@ public class EpisodeDisplayPolicyTest {
     }
 
     @Test
+    public void rejectedTmdbEpisode_stopsMetadataLoadingWaitBecausePayloadArrived() {
+        // 集号对不上不代表刮削没回来；否则整季误匹配会把 loading 卡住直到超时
+        assertFalse(EpisodeDisplayPolicy.shouldWaitForTmdbEpisodes(
+                true, true, true, false, Collections.singletonList(wrongNumberTmdbEpisode())));
+    }
+
+    @Test
     public void tmdbModeWithMatchedEpisodeData_usesTmdbCardsAndChrome() {
         assertTrue(EpisodeDisplayPolicy.hasTmdbEpisodeData(Arrays.asList(nativeEpisode(), tmdbEpisode())));
         assertTrue(EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(true, Arrays.asList(nativeEpisode(), tmdbEpisode())));
@@ -41,10 +48,36 @@ public class EpisodeDisplayPolicyTest {
     }
 
     @Test
-    public void originalEnhancedMode_keepsScrapedEpisodeDataAcrossDifferentlyNamedSourceLines() {
-        assertTrue(EpisodeDisplayPolicy.hasTmdbEpisodeData(Collections.singletonList(mismatchedTmdbEpisode())));
-        assertTrue(EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(true, Collections.singletonList(mismatchedTmdbEpisode())));
-        assertTrue(EpisodeDisplayPolicy.shouldShowTmdbEpisodeChrome(true, false, Collections.singletonList(mismatchedTmdbEpisode())));
+    public void originalEnhancedMode_keepsMatchedEpisodeAcrossDifferentlyNamedSourceLines() {
+        Episode episode = sameNumberDifferentTitleEpisode();
+
+        assertTrue(EpisodeDisplayPolicy.hasTmdbEpisodeData(Collections.singletonList(episode)));
+        assertTrue(EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(true, Collections.singletonList(episode)));
+        assertTrue(EpisodeDisplayPolicy.shouldShowTmdbEpisodeChrome(true, false, Collections.singletonList(episode)));
+    }
+
+    @Test
+    public void rejectedTmdbEpisode_doesNotEnableCardsOrChrome() {
+        Episode episode = wrongNumberTmdbEpisode();
+
+        assertFalse(EpisodeDisplayPolicy.hasTmdbEpisodeData(Collections.singletonList(episode)));
+        assertFalse(EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(true, Collections.singletonList(episode)));
+        assertFalse(EpisodeDisplayPolicy.shouldShowTmdbEpisodeChrome(true, false, Collections.singletonList(episode)));
+    }
+
+    @Test
+    public void anyValidMatch_keepsWholeSeasonInCardMode() {
+        assertTrue(EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(
+                true, Arrays.asList(wrongNumberTmdbEpisode(), tmdbEpisode())));
+    }
+
+    @Test
+    public void explicitSafeMapping_countsAsValidMatch() {
+        Episode episode = Episode.create("第25集 源站标题", "http://example.test/25");
+        episode.setMappedTmdbEpisode(new TmdbEpisode(1, "Mapped title", "", "", "", 0, 0, 0, 2));
+
+        assertTrue(EpisodeDisplayPolicy.hasTmdbEpisodeData(Collections.singletonList(episode)));
+        assertTrue(EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(true, Collections.singletonList(episode)));
     }
 
     @Test
@@ -64,9 +97,15 @@ public class EpisodeDisplayPolicyTest {
         return episode;
     }
 
-    private static Episode mismatchedTmdbEpisode() {
-        Episode episode = Episode.create("2. Source Title", "http://example.test/2");
+    private static Episode sameNumberDifferentTitleEpisode() {
+        Episode episode = Episode.create("第2集 Source Title", "http://example.test/2");
         episode.setTmdbEpisode(new TmdbEpisode(2, "Different Title", "", "", "", 0, 0));
+        return episode;
+    }
+
+    private static Episode wrongNumberTmdbEpisode() {
+        Episode episode = Episode.create("第2集 Source Title", "http://example.test/2");
+        episode.setTmdbEpisode(new TmdbEpisode(9, "Wrong episode", "", "", "", 0, 0));
         return episode;
     }
 }
