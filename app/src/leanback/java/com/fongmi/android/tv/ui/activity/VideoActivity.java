@@ -1360,7 +1360,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.control.action.reset.setOnClickListener(guarded(this::onReset));
         mBinding.control.action.title.setOnClickListener(guarded(this::onTitle));
         mBinding.control.action.player.setOnClickListener(guarded(this::onPlayerKernel));
-        mBinding.control.action.player.setOnLongClickListener(view -> onChooseLong());
+        mBinding.control.action.player.setOnLongClickListener(view -> onPlayerKernelLong());
         mBinding.control.action.decode.setOnClickListener(guarded(this::onDecode));
         mBinding.control.action.playParams.setOnClickListener(guarded(this::onPlayParams));
         mBinding.control.action.multiThreadProxy.setOnClickListener(guarded(this::onMultiThreadProxy));
@@ -3804,26 +3804,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         syncHistory();
     }
 
-    private void onChoose() {
-        String[] kernel = ResUtil.getStringArray(R.array.select_player_kernel);
-        String[] items = Arrays.copyOf(kernel, kernel.length + 1);
-        items[kernel.length] = "外调";
-        new androidx.appcompat.app.AlertDialog.Builder(this).setItems(items, (dialog, which) -> {
-            if (which < kernel.length) {
-                clearLyrics();
-                player().switchPlayerManually(which);
-                setPlayer();
-                setDecode();
-            } else {
-                PlayerHelper.choose(this, player().getUrl(), player().getHeaders(), player().isVod(), player().getPosition(), mBinding.widget.title.getText());
-                setRedirect(true);
-            }
-        }).show();
-    }
-
     private void onPlayerKernel() {
         if (playerKernelSwitchRefreshing) return;
-        PlayerKernelDialog.show(this, player().getPlayerType(), this::switchPlayerKernel);
+        PlayerKernelDialog.show(this, player().getPlayerType(), this::switchPlayerKernel, this::onExternalPlayer);
+    }
+
+    private void onExternalPlayer() {
+        PlayerHelper.choose(this, player().getUrl(), player().getHeaders(), player().isVod(), player().getPosition(), mBinding.widget.title.getText());
+        setRedirect(true);
     }
 
     private void switchPlayerKernel(int type) {
@@ -8675,11 +8663,6 @@ public void onLutSelected(LutPreset preset) {
         else player().applyLutPreview(true);
         setLut();
         setR1Callback();
-    }
-
-private boolean onChooseLong() {
-        onChoose();
-        return true;
     }
 
     private void setTraffic() {
