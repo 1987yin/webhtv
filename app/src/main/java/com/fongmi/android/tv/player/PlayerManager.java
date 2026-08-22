@@ -278,6 +278,7 @@ public class PlayerManager implements ParseCallback {
     private boolean manualPlayerSwitchPending;
     private boolean mpvAutoOutputEvaluated;
     private boolean mpvAutoOutputEvaluationScheduled;
+    private boolean mpvAutoOutputProbeGaveUp;
     private boolean mpvExplicitSubtitlePreference;
     private boolean mpvAutoGpuPinnedForSession;
     private boolean mpvSurfaceFallbackTried;
@@ -1005,11 +1006,21 @@ public class PlayerManager implements ParseCallback {
      * Keep the native player's shutter visible while automatic MPV output is
      * still being selected. This prevents a failed direct DV probe from
      * exposing a stale poster or the last frame before the GPU rebuild.
+     * The probe frame only exists when automatic output can actually reach
+     * surface direct; while the stability guard pins automatic mode to GPU —
+     * or the device guard blocks zero copy, which makes
+     * {@link MpvPerformanceSetting#resolveSurfaceDirect} refuse direct output
+     * in every mode — there is nothing to hide, so holding the shutter would
+     * only withhold the picture while audio already plays.
+     * Probing that gives up without a decision also releases the shutter,
+     * otherwise the picture would stay hidden for the rest of the item.
      */
     public boolean shouldKeepVideoShutterClosed() {
         return isMpv()
+                && MpvPerformanceSetting.isAutoSurfaceDirectEnabled()
                 && MpvPerformanceSetting.getOutputMode() == MpvPerformanceSetting.OUTPUT_AUTO
-                && !mpvAutoOutputEvaluated;
+                && !mpvAutoOutputEvaluated
+                && !mpvAutoOutputProbeGaveUp;
     }
 
     public boolean isExo() {
@@ -5130,7 +5141,7 @@ public void resetTrack(int type) {
         if (!(engine instanceof MpvPlayerEngine mpv)) return;
         boolean hwdecOverrideCleared = mpv.clearHwdecOverride();
         boolean automaticOutput = MpvPerformanceSetting.getOutputMode() == MpvPerformanceSetting.OUTPUT_AUTO;
-        if (automaticOutput) callback.onPlayerOutputPending();
+        if (shouldKeepVideoShutterClosed()) callback.onPlayerOutputPending();
         mpv.setSurfaceDirectOverride(null);
         boolean autoDirectEligible = MpvAutoOutputPolicy.canStartSurfaceDirect(
                 engine.isHard(),
@@ -5172,6 +5183,7 @@ public void resetTrack(int type) {
     private void resetMpvOutputEvaluationState() {
         mpvAutoOutputEvaluated = false;
         mpvAutoOutputEvaluationScheduled = false;
+        mpvAutoOutputProbeGaveUp = false;
         mpvAutoOutputProbeAttempts = 0;
         mpvSurfaceFallbackTried = false;
         mpvVulkanFallbackTried = false;
@@ -5197,8 +5209,17 @@ public void resetTrack(int type) {
             boolean evaluated = evaluateMpvAutoOutput();
             if (!evaluated && !mpvAutoOutputEvaluated && mpvAutoOutputProbeAttempts < MPV_AUTO_OUTPUT_PROBE_MAX_ATTEMPTS) {
                 scheduleMpvAutoOutputEvaluation();
-            } else if (!evaluated && SpiderDebug.isEnabled()) {
-                SpiderDebug.log("mpv-output", "auto probe exhausted attempts=%d size=%dx%d tracksEmpty=%s", mpvAutoOutputProbeAttempts, getVideoWidth(), getVideoHeight(), engine == null || engine.getCurrentTracks() == null || engine.getCurrentTracks().isEmpty());
+            } else if (!evaluated) {
+                // Probing gave up without a decision. Release the shutter so the
+                // picture is never withheld indefinitely; a later size or track
+                // callback can still re-run the evaluation, so this must not set
+                // mpvAutoOutputEvaluated — that would end automatic output for
+                // the whole item.
+                // Set the latch first: onPlayerOutputReady re-enters syncShutter
+                // synchronously, which re-reads shouldKeepVideoShutterClosed().
+                mpvAutoOutputProbeGaveUp = true;
+                callback.onPlayerOutputReady();
+                if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "auto probe exhausted attempts=%d size=%dx%d tracksEmpty=%s", mpvAutoOutputProbeAttempts, getVideoWidth(), getVideoHeight(), engine == null || engine.getCurrentTracks() == null || engine.getCurrentTracks().isEmpty());
             }
         }, MPV_AUTO_OUTPUT_PROBE_INTERVAL_MS);
     }
