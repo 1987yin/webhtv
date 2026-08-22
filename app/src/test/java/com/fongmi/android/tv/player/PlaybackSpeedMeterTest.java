@@ -47,12 +47,40 @@ public class PlaybackSpeedMeterTest {
         fake.trafficBytes = 4096;
         PlaybackSpeedMeter meter = fake.meter();
 
-        // A ROM that reports a constant never advances the delta. That is
-        // indistinguishable from an idle network, so the zero must stand.
+        // A ROM that reports a constant never advances the delta, and a native engine
+        // socket never reaches OkHttp either. Neither counter has ever been seen to
+        // move, so their zeroes mean "cannot see" and the kernel must be believed.
         meter.observe(0);
         fake.advance(1000);
         meter.observe(16_000_000);
 
+        assertEquals(PlaybackSpeedMeter.Source.KERNEL, meter.getSource());
+        assertEquals(2_000_000, meter.getBytesPerSecond());
+    }
+
+    @Test
+    public void anyObservedByteEndsTheKernelFallbackForGood() {
+        Fake fake = new Fake();
+        fake.trafficBytes = UNSUPPORTED;
+        PlaybackSpeedMeter meter = fake.meter();
+
+        // A deliberate trade-off: once a counter moves it owns the readout, because a
+        // trickle through Java is indistinguishable from a device that can finally see
+        // its traffic. On a ROM with no per-UID accounting a native-socket stream will
+        // therefore read as the poster/scraping traffic beside it rather than as the
+        // kernel's estimate. Understating a readout beats freezing it at a constant,
+        // which is what trusting the kernel here used to cause.
+        meter.observe(0);
+        fake.okHttpBytes = 2_000;
+        fake.advance(1000);
+        meter.observe(8_000_000);
+        assertEquals(PlaybackSpeedMeter.Source.OK_HTTP, meter.getSource());
+        assertEquals(2_000, meter.getBytesPerSecond());
+
+        // And it does not revert on the next idle interval.
+        fake.advance(1000);
+        meter.observe(8_000_000);
+        assertEquals(PlaybackSpeedMeter.Source.OK_HTTP, meter.getSource());
         assertEquals(0, meter.getBytesPerSecond());
     }
 
@@ -83,7 +111,7 @@ public class PlaybackSpeedMeterTest {
     }
 
     @Test
-    public void kernelCoversNativeSocketOnlyWhileTrafficStatsIsBlind() {
+    public void kernelCoversNativeSocketWhileNoCounterHasEverMoved() {
         Fake fake = new Fake();
         fake.trafficBytes = UNSUPPORTED;
         fake.okHttpBytes = 0;

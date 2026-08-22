@@ -36,8 +36,10 @@ import java.util.function.LongSupplier;
  * <em>smoothed estimate</em> that freezes rather than decays when transfers stop: a
  * filled buffer leaves media3's sliding percentile, ffmpeg's {@code tcp_speed} and
  * mpv's {@code raw-input-rate} all holding their last reading indefinitely. Trusting
- * that first pinned the readout to a constant for the rest of playback, so the kernel
- * is consulted only when neither counter can observe the transfer at all.
+ * that first pinned the readout to a constant for the rest of playback. The kernel is
+ * therefore consulted only while no counter has ever been seen to move, which is what
+ * distinguishes a device that cannot observe its traffic from a stream that is simply
+ * idle.
  */
 public final class PlaybackSpeedMeter {
 
@@ -63,6 +65,12 @@ public final class PlaybackSpeedMeter {
     private long lastRxBytes = UNSUPPORTED;
     private long lastOkHttpBytes = UNSUPPORTED;
     private long lastTimeStamp;
+    /**
+     * Whether either counter has ever reported bytes arriving. Until one does, this
+     * device may be a ROM with no working per-UID accounting playing through a native
+     * socket, where a zero delta means "cannot see" rather than "nothing arrived".
+     */
+    private boolean everObservedBytes;
     private long bytesPerSecond;
     private Source source = Source.NONE;
 
@@ -107,18 +115,19 @@ public final class PlaybackSpeedMeter {
         // larger delta is the better lower bound on what actually arrived.
         long delta = Math.max(okHttpDelta, trafficDelta);
         if (delta > 0) {
+            everObservedBytes = true;
             source = trafficDelta > okHttpDelta ? Source.TRAFFIC_STATS : Source.OK_HTTP;
             bytesPerSecond = delta * 1000L / elapsedMs;
             return;
         }
-        // Nothing was measured. When TrafficStats works it sees native sockets too, so
-        // its zero is the truth — a filled buffer fetches nothing — and the readout must
-        // fall to zero instead of holding the last value. Only when TrafficStats is blind
-        // *and* nothing came through Java is a transfer possibly invisible to both, which
-        // is the single case the kernel tier exists to cover: a native engine socket on a
-        // ROM with no per-UID accounting.
-        boolean invisible = trafficDelta < 0 && okHttpDelta <= 0;
-        if (invisible && kernelBitsPerSecond > 0) {
+        // Nothing was measured this interval. Usually that is the truth — a filled buffer
+        // fetches nothing — and the readout must fall to zero rather than hold the last
+        // value. But a ROM whose per-UID counter is missing reports UNSUPPORTED or a
+        // frozen constant, and a native engine socket never reaches Java either, so on
+        // those devices no delta can *ever* appear however fast the stream runs. The
+        // kernel tier exists for exactly that case, and only there: a counter that has
+        // proven it can move is trusted when it reports an idle interval.
+        if (!everObservedBytes && kernelBitsPerSecond > 0) {
             bytesPerSecond = kernelBitsPerSecond / 8L;
             source = Source.KERNEL;
             return;
