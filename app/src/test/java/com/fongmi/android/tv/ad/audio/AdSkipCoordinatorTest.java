@@ -174,6 +174,26 @@ public class AdSkipCoordinatorTest {
         assertEquals(AdSkipCoordinator.State.IDLE, coordinator.state());
     }
 
+    @Test
+    public void ignoreSuppressesOnlyTheMatchedIntervalNotEveryLaterMatchOfTheRule() {
+        FakePlaybackPort playback = new FakePlaybackPort(snapshot(
+                1L, 1L, 5_000L, 1_500_000L, true, false,
+                freshClock(1L, 0L, 1_000_000L, 5_000L)));
+        FakeUiPort ui = new FakeUiPort();
+        AdSkipCoordinator coordinator = new AdSkipCoordinator(playback, ui, 5_000L);
+
+        coordinator.onCandidate(candidate(1L, 1L, "speech-keyword", 60_000L, 75_000L,
+                AudioFingerprintMatcher.Type.FULL_MATCHED));
+        ui.actions.ignore();
+        coordinator.onCandidate(candidate(1L, 1L, "speech-keyword", 60_000L, 75_000L,
+                AudioFingerprintMatcher.Type.FULL_MATCHED));
+        coordinator.onCandidate(candidate(1L, 1L, "speech-keyword", 900_000L, 915_000L,
+                AudioFingerprintMatcher.Type.FULL_MATCHED));
+
+        assertEquals(2, ui.candidateShows);
+        assertEquals(915_000L, ui.lastPrompt.targetMediaMs());
+    }
+
     private static AdSkipCoordinator.PlaybackSnapshot snapshot(
             long session, long generation, long position, long duration,
             boolean seekable, boolean live, PlaybackMediaClock.Snapshot clock) {

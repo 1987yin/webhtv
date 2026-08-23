@@ -39,4 +39,5 @@ app/signing/
 plans/
 .tokensave
 .codebase-memory
+graphify-out/
 参考/*

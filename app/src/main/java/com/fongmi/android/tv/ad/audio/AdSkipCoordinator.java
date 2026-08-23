@@ -177,7 +177,11 @@ public final class AdSkipCoordinator implements AutoCloseable {
 
     private void showCandidate(AdAudioConsumer.Candidate candidate, CandidateKey key) {
         Target target = targetFor(candidate);
-        if (target == null) return;
+        if (target == null) {
+            AdAudioDiagnostics.log("prompt dropped rule=%s endMs=%d",
+                    candidate.event().ruleId(), candidate.event().endTimeMs());
+            return;
+        }
         activeCandidate = candidate;
         activeKey = key;
         undoContext = null;
@@ -187,6 +191,8 @@ public final class AdSkipCoordinator implements AutoCloseable {
         Prompt prompt = new Prompt(candidate.sessionId(), candidate.generation(),
                 candidate.event().ruleId(), target.positionMs,
                 Math.max(1L, (remainingMs + 999L) / 1_000L), isFull(candidate));
+        AdAudioDiagnostics.log("prompt shown rule=%s targetMs=%d fromMs=%d",
+                prompt.ruleId(), prompt.targetMediaMs(), target.snapshot.positionMs());
         ui.showCandidate(prompt, new TokenActions(token));
     }
 
@@ -370,9 +376,15 @@ public final class AdSkipCoordinator implements AutoCloseable {
         return left + right;
     }
 
-    private record CandidateKey(long sessionId, long generation, String ruleId) {
+    private record CandidateKey(long sessionId, long generation, String ruleId,
+                                long startMs, long endMs) {
         static CandidateKey of(AdAudioConsumer.Candidate candidate) {
-            return new CandidateKey(candidate.sessionId(), candidate.generation(), candidate.event().ruleId());
+            // The matched interval is part of the identity, otherwise ignoring one
+            // occurrence silences every later match of the same rule. START_MATCHED and
+            // FULL_MATCHED share an interval, so prompt upgrades still collapse onto one key.
+            return new CandidateKey(candidate.sessionId(), candidate.generation(),
+                    candidate.event().ruleId(), candidate.event().startTimeMs(),
+                    candidate.event().endTimeMs());
         }
     }
 

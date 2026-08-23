@@ -102,6 +102,26 @@ public class AdAudioDetectionMultiplexerTest {
     }
 
     @Test
+    public void speechRulePassesOnlyWhenExplicitlyAllowed() {
+        RecordingListener output = new RecordingListener();
+        AdAudioDetectionMultiplexer mux = new AdAudioDetectionMultiplexer(
+                new AdAudioSignalProvider.SessionContext(
+                        7L, 2L, "media", "https://media.example/video.m3u8", Map.of()),
+                "rules-v1", Set.of(SpeechAdSignalProvider.RULE_ID), 8, output);
+
+        mux.onCandidate(candidate(
+                SpeechAdSignalProvider.ID, SpeechAdSignalProvider.RULE_ID,
+                1_000L, 3_000L, true, 1.0d));
+        mux.onCandidate(candidate(
+                SpeechAdSignalProvider.ID, "untrusted-speech-rule",
+                4_000L, 6_000L, true, 1.0d));
+
+        assertEquals(1, output.candidates.size());
+        assertEquals(SpeechAdSignalProvider.RULE_ID,
+                output.candidates.get(0).ruleId());
+        assertEquals(1L, mux.diagnostics().invalid());
+    }
+    @Test
     public void boundedStateEvictsOldestCandidates() {
         RecordingListener output = new RecordingListener();
         AdAudioDetectionMultiplexer mux = multiplexer(2, output);
