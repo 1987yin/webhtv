@@ -16,6 +16,8 @@ import com.fongmi.android.tv.api.config.ImportedAdRuleCandidateStore;
 import com.fongmi.android.tv.api.config.RuleConfig;
 import com.fongmi.android.tv.api.config.UserAdRuleStore;
 import com.fongmi.android.tv.bean.AudioConfig;
+import com.fongmi.android.tv.bean.ComicSourceConfig;
+import com.fongmi.android.tv.bean.NovelSourceConfig;
 import com.fongmi.android.tv.bean.ShortDramaConfig;
 import com.fongmi.android.tv.gitcloud.GitCloudAccountStore;
 import com.fongmi.android.tv.playback.ViewingRecordSyncStore;
@@ -26,10 +28,13 @@ import com.fongmi.android.tv.setting.CustomCspSetting;
 import com.fongmi.android.tv.setting.ProxySetting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.setting.SiteNameStore;
+import com.fongmi.android.tv.ui.activity.FileActivity;
 import com.fongmi.android.tv.ui.activity.HomeActivity;
 import com.fongmi.android.tv.ui.base.BaseFragment;
 import com.fongmi.android.tv.ui.dialog.AdRuleManageDialog;
 import com.fongmi.android.tv.ui.dialog.AudioSourceDialog;
+import com.fongmi.android.tv.ui.dialog.ComicSourceDialog;
+import com.fongmi.android.tv.ui.dialog.NovelSourceDialog;
 import com.fongmi.android.tv.ui.dialog.ShortDramaSourceDialog;
 import com.fongmi.android.tv.ui.dialog.CspWarmupDialog;
 import com.fongmi.android.tv.ui.dialog.CustomCspDialog;
@@ -93,6 +98,9 @@ public class SettingEnhanceFragment extends BaseFragment {
         });
         mBinding.driveCheck.setOnClickListener(this::setDriveCheck);
         mBinding.siteName.setOnClickListener(this::setSiteName);
+        mBinding.localReader.setOnClickListener(this::setLocalReader);
+        mBinding.novelSource.setOnClickListener(this::setNovelSource);
+        mBinding.comicSource.setOnClickListener(this::setComicSource);
         mBinding.audioSource.setOnClickListener(this::setAudioSource);
         mBinding.shortDramaSource.setOnClickListener(this::setShortDramaSource);
         mBinding.adRuleManage.setOnClickListener(view -> AdRuleManageDialog.create().show(requireActivity(), this::setText));
@@ -139,6 +147,9 @@ public class SettingEnhanceFragment extends BaseFragment {
                 mBinding.playbackArtworkWall,
                 mBinding.driveCheck,
                 mBinding.siteName,
+                mBinding.localReader,
+                mBinding.novelSource,
+                mBinding.comicSource,
                 mBinding.audioSource,
                 mBinding.shortDramaSource,
                 mBinding.adRuleManage,
@@ -154,6 +165,8 @@ public class SettingEnhanceFragment extends BaseFragment {
         if (!canSetText()) return;
         safeSet("driveCheck", mBinding.driveCheckText, () -> getSwitch(Setting.isDriveCheck()));
         safeSet("siteName", mBinding.siteNameText, () -> getString(R.string.setting_site_name_summary, SiteNameStore.count()));
+        safeSet("novelSource", mBinding.novelSourceText, () -> getSwitch(!NovelSourceConfig.get().getDisplayRules().isEmpty()));
+        safeSet("comicSource", mBinding.comicSourceText, () -> getSwitch(!ComicSourceConfig.get().getDisplayRules().isEmpty()));
         safeSet("audioSource", mBinding.audioSourceText, () -> getSwitch(!AudioConfig.objectFrom(Setting.getAudioConfig()).getDisplayRules().isEmpty()));
         safeSet("shortDramaSource", mBinding.shortDramaSourceText, () -> getSwitch(!ShortDramaConfig.objectFrom(Setting.getShortDramaConfig()).getDisplayRules().isEmpty()));
         safeSet("adRuleManage", mBinding.adRuleManageText, () -> getString(R.string.ad_rule_count_with_pending,
@@ -250,8 +263,22 @@ public class SettingEnhanceFragment extends BaseFragment {
         SiteNameDialog.create(requireActivity()).onChanged(this::setText).show();
     }
 
+    private void setLocalReader(View view) {
+        Intent intent = new Intent(requireContext(), FileActivity.class);
+        intent.putExtra("read_mode", true);
+        startActivity(intent);
+    }
+
     private void setAudioSource(View view) {
         AudioSourceDialog.create(requireActivity()).onDismiss(this::setText).show();
+    }
+
+    private void setNovelSource(View view) {
+        NovelSourceDialog.create(requireActivity()).onDismiss(this::setText).show();
+    }
+
+    private void setComicSource(View view) {
+        ComicSourceDialog.create(requireActivity()).onDismiss(this::setText).show();
     }
 
     private void setShortDramaSource(View view) {
