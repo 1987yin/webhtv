@@ -179,6 +179,11 @@
     <string name="setting_danmaku">Danmaku setting</string>
     <string name="setting_subtitle">Subtitle setting</string>
     <string name="setting_enhance">Enhancements</string>
+    <string name="setting_tmdb">TMDB</string>
+    <string name="setting_ai">AI services</string>
+    <string name="setting_ai_group_recommendation">Recommendations</string>
+    <string name="setting_ai_group_detection">Content detection</string>
+    <string name="setting_ai_group_subtitle">Subtitles</string>
     <string name="setting_personal">Personal</string>
     <string name="setting_group_rule">Group rules</string>
     <string name="setting_group_rule_summary">Enabled %1$d / %2$d</string>
@@ -1128,6 +1133,7 @@
     <string name="pan_diagnostic_entry">Link test</string>
     <string name="pan_diagnostic_title">Playback link diagnostics</string>
     <string name="player_kernel">Player engine</string>
+    <string name="player_kernel_external">External</string>
     <string name="player_scale">Scale</string>
     <string name="player_lut">LUT color</string>
     <string name="player_mpv_config">MPV config manager</string>
@@ -1324,6 +1330,7 @@
     <string name="lut_empty_favorites">No favorite LUT presets</string>
     <string name="lut_apply_failed">LUT color has been disabled temporarily</string>
     <string name="lut_unavailable_player">Current player engine does not support LUT color</string>
+    <string name="lut_unavailable_output_mode">Current output mode does not support LUT color. Switch to GPU output mode to use it</string>
     <string name="lut_unavailable_drm">DRM protected videos do not support LUT color</string>
     <string name="lut_unavailable_tunnel">Tunnel mode does not support LUT color</string>
     <string name="lut_unavailable_soft_decode">Software decode does not support LUT color</string>
@@ -1759,8 +1766,6 @@
 
     <string name="setting_tmdb_source">TMDB data config</string>
     <string name="setting_ai_recommendation">AI configuration</string>
-    <string name="setting_tmdb_model">TMDB interaction model</string>
-    <string name="setting_tmdb_model_native">Native enhancement</string>
     <string name="setting_tmdb_match_mode">TMDB match mode</string>
     <string name="setting_detail_open_mode">Detail page mode</string>
     <string name="setting_detail_open_original">Original detail</string>
@@ -1839,6 +1844,7 @@
     <string name="tmdb_loading_episodes">Loading episodes...</string>
     <string name="tmdb_powered_by">Powered by TMDB</string>
     <string name="tmdb_photos_label">Backdrops</string>
+    <string name="tmdb_posters_label">Posters</string>
     <string name="tmdb_crew_label">Crew</string>
     <string name="tmdb_recommendations_label">You May Like</string>
     <string name="tmdb_related_videos_label">Related Videos</string>
@@ -1916,6 +1922,7 @@
     <string name="detail_image_permission_denied">Storage permission denied</string>
 
     <string name="detail_tmdb_photos">剧照</string>
+    <string name="detail_tmdb_posters">海报</string>
     <string name="detail_no_overview">暂无简介</string>
     <string name="detail_image_rotate">旋转</string>
     <string name="tmdb_external_links_label">外部链接</string>
@@ -1939,6 +1946,8 @@
     <string name="detail_score">Score %1$s</string>
     <string name="detail_runtime_format">%1$d min</string>
     <string name="detail_season_format">Season %1$d</string>
+    <string name="detail_season">Season</string>
+    <string name="detail_season_other">Unmatched</string>
     <string name="detail_media_movie">Movie</string>
     <string name="detail_media_tv">Series</string>
     <string name="detail_media_unknown">Detail</string>
@@ -2030,7 +2039,7 @@
 
     <!-- AI 智能去广 -->
     <string name="setting_ai_ad_detection">AI 智能去广</string>
-    <string name="setting_ad_rule_manage">规则管理</string>
+    <string name="setting_ad_rule_manage">广告规则管理</string>
     <string name="ad_rule_add_manual">手动添加规则</string>
     <string name="ad_rule_import_candidates">待审核接口规则（%d）</string>
     <string name="ad_rule_import_title">导入接口去广规则</string>

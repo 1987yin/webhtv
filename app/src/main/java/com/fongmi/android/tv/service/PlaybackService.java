@@ -655,6 +655,21 @@ private AudioHistory.Record audioHistoryRecord;
     }
 
     @Override
+    public void onPlayerRenderRequired() {
+        playerCallbacks.forEach(PlayerCallback::onPlayerRenderRequired);
+    }
+
+    @Override
+    public void onPlayerOutputPending() {
+        playerCallbacks.forEach(PlayerCallback::onPlayerOutputPending);
+    }
+
+    @Override
+    public void onPlayerOutputReady() {
+        playerCallbacks.forEach(PlayerCallback::onPlayerOutputReady);
+    }
+
+    @Override
     public void onPlayerRebuild(Player newPlayer, boolean resetVideoSurface) {
         exoPlayer.removeListener(listener);
         exoPlayer = newPlayer;
@@ -761,6 +776,15 @@ public void onIsPlayingChanged(boolean isPlaying) {
         }
 
         default void onReload(String msg) {
+        }
+
+        default void onPlayerRenderRequired() {
+        }
+
+        default void onPlayerOutputPending() {
+        }
+
+        default void onPlayerOutputReady() {
         }
 
         default void onPlayerRebuild(Player player, boolean resetVideoSurface) {

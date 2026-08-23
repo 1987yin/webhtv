@@ -177,6 +177,11 @@
     <string name="setting_danmaku">弹幕设置</string>
     <string name="setting_subtitle">字幕设置</string>
     <string name="setting_enhance">增强功能</string>
+    <string name="setting_tmdb">TMDB</string>
+    <string name="setting_ai">AI 服务</string>
+    <string name="setting_ai_group_recommendation">推荐</string>
+    <string name="setting_ai_group_detection">内容识别</string>
+    <string name="setting_ai_group_subtitle">字幕</string>
     <string name="setting_personal">个性设置</string>
     <string name="setting_group_rule">分组规则</string>
     <string name="setting_group_rule_summary">已启用 %1$d / %2$d</string>
@@ -1125,6 +1130,7 @@
     <string name="pan_diagnostic_entry">链路诊断</string>
     <string name="pan_diagnostic_title">播放链路诊断</string>
     <string name="player_kernel">播放器内核</string>
+    <string name="player_kernel_external">外调</string>
     <string name="player_scale">缩放比例</string>
     <string name="player_lut">LUT 调色</string>
     <string name="player_mpv_config">MPV 配置管理</string>
@@ -1321,6 +1327,7 @@
     <string name="lut_empty_favorites">暂无收藏 LUT</string>
     <string name="lut_apply_failed">LUT 调色已临时关闭</string>
     <string name="lut_unavailable_player">当前播放器内核不支持 LUT 调色</string>
+    <string name="lut_unavailable_output_mode">当前输出模式不支持 LUT 调色，请切换为 GPU 输出模式后使用</string>
     <string name="lut_unavailable_drm">DRM 保护视频不支持 LUT 调色</string>
     <string name="lut_unavailable_tunnel">隧道模式不支持 LUT 调色</string>
     <string name="lut_unavailable_soft_decode">软解不支持 LUT 调色</string>
@@ -1741,8 +1748,6 @@
 
     <string name="setting_tmdb_source">TMDB 数据配置</string>
     <string name="setting_ai_recommendation">AI 通用配置</string>
-    <string name="setting_tmdb_model">TMDB 交互模型</string>
-    <string name="setting_tmdb_model_native">原生增强</string>
     <string name="setting_tmdb_match_mode">TMDB 匹配模式</string>
     <string name="setting_detail_open_mode">详情页模式</string>
     <string name="setting_detail_open_original">原始详情</string>
@@ -1821,8 +1826,10 @@
     <string name="tmdb_loading_episodes">正在加载剧集信息...</string>
     <string name="tmdb_powered_by">数据来源：TMDB</string>
     <string name="tmdb_photos_label">剧照</string>
+    <string name="tmdb_posters_label">海报</string>
     <string name="tmdb_crew_label">主创团队</string>
     <string name="tmdb_recommendations_label">猜你喜欢</string>
+    <string name="tmdb_related_videos_label">相关视频</string>
     <string name="tmdb_personal_recommendations_tmdb_label">个性推荐 · TMDB</string>
     <string name="tmdb_personal_recommendations_douban_label">个性推荐 · 豆瓣</string>
     <string name="tmdb_personal_recommendations_ai_label">个性推荐 · 智能</string>
@@ -1897,6 +1904,7 @@
     <string name="detail_image_permission_denied">存储权限被拒绝</string>
 
     <string name="detail_tmdb_photos">剧照</string>
+    <string name="detail_tmdb_posters">海报</string>
     <string name="detail_no_overview">暂无简介</string>
     <string name="detail_image_rotate">旋转</string>
     <string name="tmdb_external_links_label">外部链接</string>
@@ -1920,6 +1928,8 @@
     <string name="detail_score">评分 %1$s</string>
     <string name="detail_runtime_format">%1$d 分钟</string>
     <string name="detail_season_format">第 %1$d 季</string>
+    <string name="detail_season">季度</string>
+    <string name="detail_season_other">未匹配</string>
     <string name="detail_media_movie">电影</string>
     <string name="detail_media_tv">剧集</string>
     <string name="detail_media_unknown">详情</string>
@@ -2364,7 +2374,7 @@
     <string name="dialog_short_drama_add">添加</string>
     <string name="viewing_report_refreshing">刷新报告中...</string>
     <string name="setting_ai_ad_detection">AI 智能去广</string>
-    <string name="setting_ad_rule_manage">规则管理</string>
+    <string name="setting_ad_rule_manage">广告规则管理</string>
     <string name="ad_rule_add_manual">手动添加规则</string>
     <string name="ad_rule_import_candidates">待审核接口规则（%d）</string>
     <string name="ad_rule_import_title">导入接口去广规则</string>

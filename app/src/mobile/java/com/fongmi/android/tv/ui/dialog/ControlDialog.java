@@ -286,9 +286,8 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         setControlPadding();
         setSheetBackground();
         binding.decode.setText(controls.decode.getText());
-        binding.playParams.setSelected(controls.playParams != null && controls.playParams.isSelected());
         setLut();
-binding.ending.setText(controls.ending.getText());
+        binding.ending.setText(controls.ending.getText());
         binding.opening.setText(controls.opening.getText());
         binding.repeat.setSelected(controls.repeat.isSelected());
         binding.immersiveAudio.setSelected(PlayerSetting.isImmersiveAudioMode());
@@ -322,7 +321,6 @@ binding.ending.setText(controls.ending.getText());
             displays.get(i).setOnClickListener(v -> toggleDisplaySetting(index));
         }
         binding.reset.setOnClickListener(v -> dismiss(controls.reset));
-        binding.fullscreen.setOnClickListener(v -> dismiss(controls.fullscreen));
         binding.text.setOnClickListener(v -> onTrack(binding.text));
         binding.audio.setOnClickListener(v -> onTrack(binding.audio));
         binding.video.setOnClickListener(v -> onTrack(binding.video));
@@ -334,10 +332,6 @@ binding.ending.setText(controls.ending.getText());
         binding.danmaku.setOnClickListener(v -> listener().onDanmakuPanel());
         binding.repeat.setOnClickListener(v -> active(binding.repeat, controls.repeat));
         binding.decode.setOnClickListener(v -> click(binding.decode, controls.decode));
-        binding.playParams.setOnClickListener(v -> {
-            dismissAllowingStateLoss();
-            listener().onPlayParamsPanel();
-        });
         binding.codecCapability.setOnClickListener(v -> listener().onCodecCapabilityPanel());
         binding.panDiagnostic.setOnClickListener(v -> onPanDiagnostic());
         binding.lut.setOnClickListener(v -> onLut());

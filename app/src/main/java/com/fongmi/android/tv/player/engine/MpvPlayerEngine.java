@@ -25,15 +25,20 @@ import com.fongmi.android.tv.player.PlaybackTrace;
 import com.fongmi.android.tv.player.exo.ExoUtil;
 import com.fongmi.android.tv.player.exo.TrackUtil;
 import com.fongmi.android.tv.player.lut.MpvLutShader;
+import com.fongmi.android.tv.player.lut.LutSetting;
 import com.fongmi.android.tv.player.mpv.MpvConfigStore;
 import com.fongmi.android.tv.player.mpv.MpvAutoControlPolicy;
+import com.fongmi.android.tv.player.mpv.MpvAutoOutputPolicy;
+import com.fongmi.android.tv.player.mpv.MpvVulkanBackendPolicy;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.MpvPerformanceSetting;
+import com.fongmi.android.tv.setting.PlaybackPerformanceCatalog;
 import com.fongmi.android.tv.setting.PlaybackPerformanceSetting;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Util;
 import com.github.catvod.crawler.SpiderDebug;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
@@ -49,13 +54,18 @@ public class MpvPlayerEngine implements PlayerEngine {
     private boolean retriedFormat;
     private boolean surfaceDirect;
     private Boolean surfaceDirectOverride;
+    private boolean lutAllowed = true;
+    private String vulkanBackendOverride;
+    private String vulkanBackend = MpvVulkanBackendPolicy.AUTO;
+    private boolean vulkanRenderer;
     private String hwdecOverride;
     private String configuredHwdec = "no";
     private final BiConsumer<Integer, Integer> videoSizeProbeListener;
     private int decode;
 
-    public MpvPlayerEngine(int decode, Player.Listener listener, BiConsumer<Integer, Integer> videoSizeProbeListener) {
+    public MpvPlayerEngine(int decode, boolean lutAllowed, Player.Listener listener, BiConsumer<Integer, Integer> videoSizeProbeListener) {
         this.decode = decode;
+        this.lutAllowed = lutAllowed;
         this.videoSizeProbeListener = videoSizeProbeListener;
         this.player = buildPlayer(listener);
     }
@@ -246,6 +256,10 @@ public class MpvPlayerEngine implements PlayerEngine {
                 player.hasObservedDroppedFrames() ? player.getObservedDroppedFrames() : null);
     }
 
+    public MpvPlayer.FrameTimingSnapshot getFrameTimingSnapshot() {
+        return player.getFrameTimingSnapshot();
+    }
+
     @Override
     public boolean supportsNativeLut() {
         return !surfaceDirect;
@@ -257,6 +271,22 @@ public class MpvPlayerEngine implements PlayerEngine {
 
     public void setSurfaceDirectOverride(@Nullable Boolean value) {
         surfaceDirectOverride = value;
+    }
+
+    // 直播等场景会禁用 LUT，此时不能因为全局 LUT 开关而放弃电视直出，
+    // 否则与 PlayerManager 的 lutAllowed && LutSetting.isEnabled() 判断相反，
+    // 会在启播后多触发一次播放器重建。仅影响下一次 buildConfig()。
+    public void setLutAllowed(boolean allowed) {
+        lutAllowed = allowed;
+    }
+
+    public void setVulkanBackendOverride(@Nullable String value) {
+        vulkanBackendOverride = value;
+    }
+
+    public boolean shouldFallbackVulkanToStable() {
+        return vulkanRenderer && MpvVulkanBackendPolicy.isAutomaticConfig()
+                && !MpvVulkanBackendPolicy.STABLE.equals(vulkanBackend);
     }
 
     public void forceMediaCodecCopy() {
@@ -330,6 +360,11 @@ public class MpvPlayerEngine implements PlayerEngine {
     }
 
     @Override
+    public void setNativeLutPreviewProgress(float progress) {
+        player.setLutPreviewProgress(progress);
+    }
+
+    @Override
     public PlayerCacheState getCacheState() {
         return player.getCacheState();
     }
@@ -350,10 +385,31 @@ public class MpvPlayerEngine implements PlayerEngine {
     }
 
     @Override
+    public void setGpuLoadDiagnosticsEnabled(boolean enabled) {
+        player.setGpuLoadDiagnosticsEnabled(enabled);
+    }
+
+    @Override
     public VideoPlaybackDetails getVideoPlaybackDetails() {
         MpvPlayer.VideoTrackDiagnostics details =
                 player.getSelectedVideoTrackDiagnostics();
+        // A failed direct MediaCodec attempt can make mpv report vid=no while
+        // retaining the actual video track in track-list. Preserve that source
+        // metadata so automatic output can move to GPU instead of treating a
+        // failed Dolby Vision stream as ordinary video.
+        if (details == null || (details.dolbyVisionProfile() <= 0
+                && details.sourceCodecs().isEmpty())) {
+            MpvPlayer.VideoTrackDiagnostics available =
+                    player.getAvailableVideoTrackDiagnostics();
+            if (available != null && (!available.sourceCodecs().isEmpty()
+                    || available.dolbyVisionProfile() > 0)) {
+                details = available;
+            }
+        }
         String currentVo = player.getObservedCurrentVideoOutput();
+        boolean fallbackConfigured = isConfiguredDv7Hdr10Fallback(
+                details, isHard(),
+                PlaybackPerformanceSetting.isDv7Hdr10FallbackEnabled());
         return new VideoPlaybackDetails(
                 details.sourceCodecs(),
                 details.dolbyVisionProfile(),
@@ -362,7 +418,16 @@ public class MpvPlayerEngine implements PlayerEngine {
                 details.decoderName(),
                 player.getObservedHwdecCurrent(),
                 details.outputColorInfo(),
-                isDolbyVisionHdr10Fallback(details, currentVo));
+                isDolbyVisionHdr10Fallback(details, currentVo)
+                        || fallbackConfigured);
+    }
+
+    static boolean isConfiguredDv7Hdr10Fallback(
+            MpvPlayer.VideoTrackDiagnostics details,
+            boolean hardDecode,
+            boolean fallbackEnabled) {
+        return details != null && details.dolbyVisionProfile() == 7
+                && hardDecode && fallbackEnabled;
     }
 
     static boolean isDolbyVisionHdr10Fallback(
@@ -452,16 +517,23 @@ public class MpvPlayerEngine implements PlayerEngine {
 
     private String findMpvTrackId(Track track) {
         if (track == null || track.getFormat() == null) return null;
+        List<Format> candidates = new ArrayList<>();
         for (Tracks.Group group : getCurrentTracks().getGroups()) {
             if (group.getType() != track.getType()) continue;
             for (int i = 0; i < group.length; i++) {
                 if (!group.isTrackSupported(i)) continue;
-                Format format = group.getTrackFormat(i);
-                if (!track.getFormat().equals(PlayerHelper.describeFormat(format))) continue;
-                return parseMpvTrackId(format.id);
+                candidates.add(group.getTrackFormat(i));
             }
         }
-        return null;
+        Format matched = findPersistedMpvTrack(track, candidates);
+        if (matched == null) return null;
+        String id = parseMpvTrackId(matched.id);
+        if (id != null) {
+            SpiderDebug.log("mpv",
+                    "restore persisted track matched type=%d id=%s name=%s format=%s",
+                    track.getType(), id, track.getName(), track.getFormat());
+        }
+        return id;
     }
 
     private String resolveMpvTrackId(Track track) {
@@ -472,7 +544,97 @@ public class MpvPlayerEngine implements PlayerEngine {
         return id != null ? id : findMpvTrackId(track);
     }
 
-    private String parseMpvTrackId(String id) {
+    @Nullable
+    static Format findPersistedMpvTrack(Track track, List<Format> candidates) {
+        if (track == null || track.getFormat() == null
+                || candidates == null || candidates.isEmpty()) return null;
+        List<PersistedTrackCandidate> descriptors = new ArrayList<>();
+        for (Format format : candidates) {
+            descriptors.add(format == null ? null : new PersistedTrackCandidate(
+                    PlayerHelper.describeFormat(format),
+                    format.id,
+                    format.sampleMimeType,
+                    format.codecs,
+                    format.sampleRate,
+                    format.channelCount,
+                    format.language,
+                    format.label));
+        }
+        int index = findPersistedMpvTrackIndex(track.getFormat(), descriptors);
+        return index >= 0 ? candidates.get(index) : null;
+    }
+
+    static int findPersistedMpvTrackIndex(
+            String persisted, List<PersistedTrackCandidate> candidates) {
+        if (persisted == null || candidates == null || candidates.isEmpty()) return -1;
+        int bestIndex = -1;
+        int bestScore = -1;
+        for (int index = 0; index < candidates.size(); index++) {
+            PersistedTrackCandidate candidate = candidates.get(index);
+            if (candidate == null) continue;
+            if (persisted.equals(candidate.description())) return index;
+            int score = persistedTrackMatchScore(persisted, candidate);
+            if (score <= bestScore) continue;
+            bestIndex = index;
+            bestScore = score;
+        }
+        return bestScore >= 40 ? bestIndex : -1;
+    }
+
+    static int persistedTrackMatchScore(
+            String persisted, PersistedTrackCandidate candidate) {
+        if (persisted == null || candidate == null) return -1;
+        boolean persistedHasMime = hasPersistedMimeToken(persisted);
+        if (persistedHasMime && (candidate.sampleMimeType() == null
+                || !hasPersistedToken(persisted, candidate.sampleMimeType()))) return -1;
+        int score = persistedHasMime ? 100 : 0;
+        if (candidate.codecs() != null && hasPersistedToken(persisted, candidate.codecs())) score += 40;
+        if (candidate.sampleRate() > 0 && hasPersistedToken(persisted, String.valueOf(candidate.sampleRate()))) score += 10;
+        if (candidate.channelCount() > 0 && hasPersistedToken(persisted, String.valueOf(candidate.channelCount()))) score += 10;
+        if (candidate.language() != null && hasPersistedToken(persisted, candidate.language())) score += 5;
+        if (candidate.label() != null && hasPersistedToken(persisted, candidate.label())) score += 3;
+        String persistedId = firstPersistedToken(persisted);
+        String candidateId = parseMpvTrackId(candidate.id());
+        if (candidateId != null && candidateId.equals(parseMpvTrackId(persistedId))) score++;
+        return score;
+    }
+
+    record PersistedTrackCandidate(
+            String description,
+            String id,
+            String sampleMimeType,
+            String codecs,
+            int sampleRate,
+            int channelCount,
+            String language,
+            String label) {
+    }
+
+    private static boolean hasPersistedMimeToken(String persisted) {
+        for (String token : persisted.split(",")) {
+            String value = token.trim().toLowerCase(java.util.Locale.US);
+            if (value.startsWith("audio/") || value.startsWith("video/")
+                    || value.startsWith("text/") || value.startsWith("application/")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasPersistedToken(String persisted, String expected) {
+        if (expected == null || expected.isBlank()) return false;
+        for (String token : persisted.split(",")) {
+            if (token.trim().equalsIgnoreCase(expected.trim())) return true;
+        }
+        return false;
+    }
+
+    private static String firstPersistedToken(String persisted) {
+        int comma = persisted.indexOf(',');
+        return (comma < 0 ? persisted : persisted.substring(0, comma)).trim();
+    }
+
+    private static String parseMpvTrackId(String id) {
         if (id == null) return null;
         int index = id.indexOf(':');
         return index >= 0 && index + 1 < id.length() ? id.substring(index + 1) : id;
@@ -551,7 +713,9 @@ public class MpvPlayerEngine implements PlayerEngine {
 
     private MpvPlayer buildPlayer(Player.Listener listener) {
         MpvPlayer player = new MpvPlayer(App.get(), buildConfig());
-        if (PlaybackPerformanceSetting.isAuto(PlayerSetting.MPV)) {
+        if (PlaybackPerformanceSetting.isAuto(
+                PlayerSetting.MPV,
+                PlaybackPerformanceCatalog.PRELOAD)) {
             player.updateAutomaticPreloadControl(true, false, false);
         }
         player.setVideoSizeProbeListener(videoSizeProbeListener);
@@ -562,13 +726,28 @@ public class MpvPlayerEngine implements PlayerEngine {
     private MpvPlayerConfig buildConfig() {
         MpvConfigStore.ensureReady();
         boolean zeroCopyBlocked = MpvPerformanceSetting.isZeroCopyBlocked();
+        boolean autoDirectEligible = !zeroCopyBlocked && MpvAutoOutputPolicy.canStartSurfaceDirect(
+                decode == HARD,
+                Util.isLeanback(),
+                MpvPerformanceSetting.isInterpolation() || lutAllowed && LutSetting.isEnabled(),
+                MpvConfigStore.hasGpuVideoProcessing());
         surfaceDirect = surfaceDirectOverride == null
-                ? MpvPerformanceSetting.shouldUseSurfaceDirect(false, Util.isLeanback(), decode == HARD)
+                ? MpvPerformanceSetting.shouldUseSurfaceDirect(autoDirectEligible, Util.isLeanback(), decode == HARD)
                 : surfaceDirectOverride && decode == HARD && !zeroCopyBlocked;
         boolean requestVulkan = PlayerSetting.getMpvRender() == PlayerSetting.MPV_RENDER_VULKAN;
         boolean nativeVulkan = MPVLib.isBundledVulkanEnabled(App.get());
         boolean deviceVulkan = MPVLib.isDeviceVulkan13Capable(App.get());
         boolean useVulkan = !surfaceDirect && requestVulkan && nativeVulkan && deviceVulkan;
+        vulkanRenderer = useVulkan;
+        String configuredBackend = MpvVulkanBackendPolicy.configuredBackend();
+        String appBackendOverride = MpvVulkanBackendPolicy.appOverride();
+        boolean automaticBackend = configuredBackend.isEmpty()
+                || MpvVulkanBackendPolicy.AUTO.equals(configuredBackend);
+        String automaticOverride = vulkanBackendOverride != null
+                ? vulkanBackendOverride : MpvVulkanBackendPolicy.automaticOverride();
+        vulkanBackend = automaticBackend && !automaticOverride.isEmpty()
+                ? automaticOverride
+                : configuredBackend.isEmpty() ? MpvVulkanBackendPolicy.AUTO : configuredBackend;
         boolean useGpuNext = !surfaceDirect && (useVulkan || decode != HARD);
         if (requestVulkan && !surfaceDirect && !useVulkan) SpiderDebug.log("player-engine", "mpv render requested=vulkan but unavailable native=%s device=%s; fallback=opengl", nativeVulkan, deviceVulkan);
         String hwdec = surfaceDirect ? "mediacodec" : resolveGpuHwdec(zeroCopyBlocked);
@@ -586,15 +765,28 @@ public class MpvPlayerEngine implements PlayerEngine {
                 .demuxerHysteresisSeconds(MpvPlayerConfig.DEFAULT_DEMUXER_HYSTERESIS_SECONDS)
                 .rebufferMs(MpvPerformanceSetting.getRebufferMs())
                 .performanceOptionsPriority(MpvPerformanceSetting.isPerformancePriority())
-                .automaticCacheTime(PlaybackPerformanceSetting.isAuto(PlayerSetting.MPV))
-                .automaticHlsVariant(PlaybackPerformanceSetting.isAuto(PlayerSetting.MPV))
+                .automaticCacheTime(PlaybackPerformanceSetting.isAuto(
+                        PlayerSetting.MPV,
+                        PlaybackPerformanceCatalog.BUFFER_TIME))
+                .automaticHlsVariant(PlaybackPerformanceSetting.isAuto(
+                        PlayerSetting.MPV,
+                        PlaybackPerformanceCatalog.MPV_HLS_BITRATE))
                 .option("framedrop", MpvPerformanceSetting.getFrameDropOption())
                 .option("video-sync", MpvPerformanceSetting.getSyncOption())
                 .option("interpolation", MpvPerformanceSetting.isInterpolation() ? "yes" : "no")
-                .option("hls-bitrate", MpvPerformanceSetting.getHlsBitrateOption());
+                .option("hls-bitrate", MpvPerformanceSetting.getHlsBitrateOption())
+                .option("demuxer-dovi-profile7",
+                        PlaybackPerformanceSetting.isDv7Hdr10FallbackEnabled()
+                                ? "hdr10" : "preserve");
+        if (useVulkan && !appBackendOverride.isEmpty()) {
+            builder.option(MpvVulkanBackendPolicy.OPTION, appBackendOverride);
+        } else if (useVulkan && automaticBackend && !automaticOverride.isEmpty()) {
+            builder.option(MpvVulkanBackendPolicy.OPTION, automaticOverride);
+        }
         applySoftDecodeOptions(builder);
         if (surfaceDirect) {
             builder.vo("mediacodec_embed")
+                    .option("sid", "no")
                     .gpuApi("")
                     .openglEs(false);
         } else if (useVulkan) {
@@ -606,7 +798,18 @@ public class MpvPlayerEngine implements PlayerEngine {
             // The legacy gpu renderer restores the original pre-Dolby-Vision
             // color representation. Software-decoded Profile 5 frames need
             // gpu-next/libplacebo to apply their per-frame DOVI mapping.
-            builder.vo("gpu-next");
+            builder.vo("gpu-next")
+                    .gpuContext("android")
+                    .gpuApi("opengl")
+                    .openglEs(true);
+        } else {
+            // Keep the OpenGL override complete. Leaving gpu-api empty would
+            // allow gpu-api=vulkan from mpv.conf to survive the performance
+            // overlay and create an invalid android + Vulkan mixed context.
+            builder.vo("gpu")
+                    .gpuContext("android")
+                    .gpuApi("opengl")
+                    .openglEs(true);
         }
         return builder.build();
     }
@@ -628,12 +831,17 @@ public class MpvPlayerEngine implements PlayerEngine {
     }
 
     private String resolveAudioSpdifCodecs() {
-        if (!PlayerSetting.isAudioPassThrough(PlayerSetting.MPV)) return "";
-        return MpvAudioCapabilities.getAudioSpdifCodecs(App.get());
+        boolean enabled = PlayerSetting.isAudioPassThrough(PlayerSetting.MPV);
+        String codecs = enabled ? MpvAudioCapabilities.getAudioSpdifCodecs(App.get()) : "";
+        SpiderDebug.log("mpv-audio", "configured enabled=%s codecs=%s",
+                enabled, codecs.isEmpty() ? "pcm" : codecs);
+        return codecs;
     }
 
     private long getDemuxerMaxBytes() {
-        if (PlaybackPerformanceSetting.isAuto(PlayerSetting.MPV)) {
+        if (PlaybackPerformanceSetting.isAuto(
+                PlayerSetting.MPV,
+                PlaybackPerformanceCatalog.BUFFER_BYTES)) {
             return MpvAutoControlPolicy.MIN_FORWARD_BYTES;
         }
         int bytes = PlayerSetting.getBufferBytes(PlayerSetting.MPV);
@@ -641,7 +849,9 @@ public class MpvPlayerEngine implements PlayerEngine {
     }
 
     private long getDemuxerMaxBackBytes() {
-        if (PlaybackPerformanceSetting.isAuto(PlayerSetting.MPV)) {
+        if (PlaybackPerformanceSetting.isAuto(
+                PlayerSetting.MPV,
+                PlaybackPerformanceCatalog.BACK_BUFFER)) {
             return MpvAutoControlPolicy.INITIAL_BACK_BYTES;
         }
         if (PlayerSetting.getBackBufferMs(PlayerSetting.MPV) <= 0) return 0;
@@ -660,6 +870,14 @@ public class MpvPlayerEngine implements PlayerEngine {
 
     private int getCacheTargetSeconds() {
         return Math.min(60, Math.max(15, PlayerSetting.getBuffer(PlayerSetting.MPV) * 3));
+    }
+
+    public long getConfiguredForwardCacheBytes() {
+        return getDemuxerMaxBytes();
+    }
+
+    public long getConfiguredBackCacheBytes() {
+        return getDemuxerMaxBackBytes();
     }
 
     private static long formatBitrate(Format format) {

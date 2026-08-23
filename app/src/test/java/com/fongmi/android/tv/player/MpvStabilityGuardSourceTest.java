@@ -14,7 +14,7 @@ public class MpvStabilityGuardSourceTest {
 
     @Test
     public void runtimeAutoEvaluationAppliesStabilityGuardBeforeTransition() throws Exception {
-        String method = methodBody(readPlayerManager(), "private boolean evaluateMpvAutoOutput()", "private boolean shouldLeaveAutoSurfaceDirectForSubtitle");
+        String method = methodBody(readPlayerManager(), "private boolean evaluateMpvAutoOutput()", "private boolean hasRequestedSubtitle");
 
         assertTrue(method.contains("boolean effectiveEligible = MpvPerformanceSetting.isAutoSurfaceDirectEnabled() && decision.eligible();"));
         assertTrue(method.contains("MpvAutoOutputPolicy.transition(effectiveEligible, currentlyDirect)"));

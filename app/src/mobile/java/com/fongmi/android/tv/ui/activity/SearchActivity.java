@@ -9,6 +9,7 @@ import androidx.viewbinding.ViewBinding;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.History;
+import com.fongmi.android.tv.playback.HistoryResumePayload;
 import com.fongmi.android.tv.databinding.ActivitySearchBinding;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.fragment.CollectFragment;
@@ -70,7 +71,7 @@ public class SearchActivity extends BaseActivity {
         intent.putExtra("wallPic", history.getWallPic());
         intent.putExtra("direct", true);
         intent.putExtra("historyResumeCid", history.getCid());
-        intent.putExtra("historyResumeKey", history.getKey());
+        intent.putExtra("historyResumeKey", HistoryResumePayload.encode(history));
         intent.putExtra("historyResumeTargetCid", targetCid);
         activity.startActivity(intent);
     }
