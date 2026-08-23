@@ -57,6 +57,13 @@ public class HomeMenuDialogSourceTest {
         String adapter = read("app/src/leanback/res/layout/adapter_home_menu.xml");
         assertTrue(dialog.contains("@+id/recycler"));
         assertTrue(adapter.contains("@+id/text"));
+        // 9 项按 3 列排布才能一屏显示完，单列会超出 maxHeight 需要滚动
+        assertTrue(dialog.contains("app:spanCount=\"3\""));
+        assertTrue(dialog.contains("GridLayoutManager"));
+        String java = read("app/src/leanback/java/com/fongmi/android/tv/ui/dialog/HomeMenuDialog.java");
+        // 间距的列数必须与 XML 的 spanCount 一致，否则条目宽度不均
+        assertTrue(java.contains("GRID_COUNT = 3"));
+        assertTrue(java.contains("new SpaceItemDecoration(GRID_COUNT, 16)"));
     }
 
     private static int countItems(String strings) {

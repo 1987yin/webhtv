@@ -26,6 +26,8 @@ import java.util.List;
 public class HomeMenuDialog extends BaseAlertDialog {
 
     private static final String TAG = "home_menu_dialog";
+    // 9 项按 3 列排布，正好一屏显示完，与参考实现一致
+    private static final int GRID_COUNT = 3;
 
     private DialogHomeMenuBinding binding;
     private Listener listener;
@@ -65,15 +67,16 @@ public class HomeMenuDialog extends BaseAlertDialog {
     @Override
     protected void initView() {
         binding.recycler.setItemAnimator(null);
-        binding.recycler.setHasFixedSize(false);
-        binding.recycler.addItemDecoration(new SpaceItemDecoration(1, 16));
+        binding.recycler.setHasFixedSize(true);
+        // 列数由 dialog_home_menu.xml 的 spanCount 声明，这里只需与之对齐的间距
+        binding.recycler.addItemDecoration(new SpaceItemDecoration(GRID_COUNT, 16));
         binding.recycler.setAdapter(new MenuAdapter());
     }
 
     @Override
     public void onStart() {
         super.onStart();
-        setWidth(0.4f);
+        setWidth(0.6f);
         binding.recycler.post(() -> {
             RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(0);
             if (holder == null) binding.recycler.requestFocus();

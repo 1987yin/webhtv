@@ -10,7 +10,8 @@
     android:clipToPadding="false"
     android:overScrollMode="never"
     android:padding="24dp"
-    app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+    app:layoutManager="androidx.recyclerview.widget.GridLayoutManager"
     app:maxHeight="352dp"
-    tools:itemCount="5"
+    app:spanCount="3"
+    tools:itemCount="9"
     tools:listitem="@layout/adapter_home_menu" />
