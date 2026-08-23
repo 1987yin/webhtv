@@ -4973,18 +4973,21 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void updateEpisodeReverseButton() {
-        binding.episodeReverse.setIconResource(R.drawable.ic_action_reverse);
+        // 图标表达当前排序状态，描述表达点击后的动作。
+        binding.episodeReverse.setIconResource(episodeReverse ? R.drawable.ic_action_sort_desc : R.drawable.ic_action_sort_asc);
         binding.episodeReverse.setContentDescription(getString(episodeReverse ? R.string.detail_episode_forward : R.string.detail_episode_reverse));
     }
+
     private void updateEpisodeViewModeButton() {
-        boolean switchToList = episodeGridMode;
-        binding.episodeViewMode.setIconResource(switchToList ? R.drawable.ic_site_list : R.drawable.ic_site_grid);
-        binding.episodeViewMode.setContentDescription(getString(switchToList ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
+        // 图标表达当前视图状态，描述表达点击后的动作。
+        binding.episodeViewMode.setIconResource(episodeGridMode ? R.drawable.ic_site_grid : R.drawable.ic_site_list);
+        binding.episodeViewMode.setContentDescription(getString(episodeGridMode ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
     }
 
     private void updateEpisodeFileNameButton() {
+        // 图标表达当前标题状态，描述表达点击后的动作。
         boolean showScraped = Setting.getTmdbEpisodeShowScrapedName();
-        binding.episodeFileName.setIconResource(R.drawable.ic_action_rename);
+        binding.episodeFileName.setIconResource(showScraped ? R.drawable.ic_action_name_short : R.drawable.ic_action_name_full);
         binding.episodeFileName.setContentDescription(getString(showScraped ? R.string.detail_episode_file_name_original_action : R.string.detail_episode_file_name_scraped_action));
     }
 
@@ -8928,10 +8931,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void updateInlineEpisodeModeButton(MaterialButton button) {
-        boolean switchToList = inlineEpisodeGridMode;
-        button.setText(switchToList ? R.string.detail_episode_view_list : R.string.detail_episode_view_grid);
-        button.setIconResource(switchToList ? R.drawable.ic_site_list : R.drawable.ic_site_grid);
-        button.setContentDescription(getString(switchToList ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
+        // 文字与图标表达当前视图状态，描述表达点击后的动作。
+        button.setText(inlineEpisodeGridMode ? R.string.detail_episode_view_grid : R.string.detail_episode_view_list);
+        button.setIconResource(inlineEpisodeGridMode ? R.drawable.ic_site_grid : R.drawable.ic_site_list);
+        button.setContentDescription(getString(inlineEpisodeGridMode ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
         applyInlineEpisodeModeButtonState(button, button.hasFocus());
     }
 
@@ -8946,9 +8949,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void updateInlineEpisodeModeIcon(ImageView icon) {
-        boolean switchToList = inlineEpisodeGridMode;
-        icon.setImageResource(switchToList ? R.drawable.ic_site_list : R.drawable.ic_site_grid);
-        icon.setContentDescription(getString(switchToList ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
+        // 图标表达当前视图状态，描述表达点击后的动作。
+        icon.setImageResource(inlineEpisodeGridMode ? R.drawable.ic_site_grid : R.drawable.ic_site_list);
+        icon.setContentDescription(getString(inlineEpisodeGridMode ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
         icon.setColorFilter(0xFFEAF2F8);
     }
 

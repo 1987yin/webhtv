@@ -2694,6 +2694,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void setShortDisplay() {
         mBinding.shortDisplay.setSelected(Setting.isCompactEpisodeTitle());
+        // 原生模式下铅笔按钮就是短显开关，图标要跟着一起翻。
+        updateEpisodeFileNameButton();
     }
 
     private void onMore() {
@@ -2758,15 +2760,20 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void updateEpisodeReverseButton() {
         if (mHistory == null) return;
-        mBinding.reverse.setImageResource(R.drawable.ic_action_reverse);
-        mBinding.reverse.setContentDescription(getString(mHistory.isRevSort() ? R.string.detail_episode_forward : R.string.detail_episode_reverse));
+        // 图标表达当前排序状态，描述表达点击后的动作。
+        boolean reversed = mHistory.isRevSort();
+        mBinding.reverse.setImageResource(reversed ? R.drawable.ic_action_sort_desc : R.drawable.ic_action_sort_asc);
+        mBinding.reverse.setContentDescription(getString(reversed ? R.string.detail_episode_forward : R.string.detail_episode_reverse));
+        applyTmdbPlaybackControlColors();
     }
+
 
     private void updateEpisodeViewModeButton() {
         if (mBinding.episodeViewMode == null) return;
-        boolean switchToList = mEpisodeGridMode;
-        mBinding.episodeViewMode.setImageResource(switchToList ? R.drawable.ic_site_list : R.drawable.ic_site_grid);
-        mBinding.episodeViewMode.setContentDescription(getString(switchToList ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
+        // 图标表达当前视图状态，描述表达点击后的动作。
+        boolean grid = mEpisodeGridMode;
+        mBinding.episodeViewMode.setImageResource(grid ? R.drawable.ic_site_grid : R.drawable.ic_site_list);
+        mBinding.episodeViewMode.setContentDescription(getString(grid ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
         applyTmdbPlaybackControlColors();
     }
 
@@ -2807,12 +2814,18 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void updateEpisodeFileNameButton() {
         if (mBinding.episodeFileName == null) return;
+        // 图标表达当前标题状态，描述表达点击后的动作。
         if (shouldUseUpstreamNativeEpisodeModule()) {
+            // 原生模式没有刮削标题，这个按钮等同「短显」。
+            boolean compact = Setting.isCompactEpisodeTitle();
+            mBinding.episodeFileName.setImageResource(compact ? R.drawable.ic_action_name_short : R.drawable.ic_action_name_full);
             mBinding.episodeFileName.setContentDescription(getString(R.string.play_short_display));
             applyTmdbPlaybackControlColors();
             return;
         }
         boolean showScraped = Setting.getTmdbEpisodeShowScrapedName();
+        // 刮削名是「序号 + 剧集标题」的规整短标题，原文件名则是完整长文件名。
+        mBinding.episodeFileName.setImageResource(showScraped ? R.drawable.ic_action_name_short : R.drawable.ic_action_name_full);
         mBinding.episodeFileName.setContentDescription(getString(showScraped ? R.string.detail_episode_file_name_original_action : R.string.detail_episode_file_name_scraped_action));
         applyTmdbPlaybackControlColors();
     }
@@ -8154,6 +8167,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     @Override
     public void onCompactEpisodeTitleChanged() {
+        // 设置面板改短显时也要同步「短显」高亮与铅笔图标，与 onShortDisplay() 对齐。
+        setShortDisplay();
         refreshEpisodeTitles();
     }
 
