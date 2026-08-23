@@ -1621,7 +1621,7 @@ public class TmdbDetailActivityLayoutTest {
                         && activity.contains("button.setMinWidth(ResUtil.dp2px(64));")
                         && activity.contains("ThemeColors colors = currentThemeColors();")
                         && activity.contains("background.setColor(focused ? colors.control : selected ? colors.chipActive : colors.chip);")
-                        && activity.contains("background.setStroke(ResUtil.dp2px(focused ? 2 : CHIP_STROKE_DP), focused ? colors.accent : selected ? colors.accent : colors.line);")
+                        && activity.contains("background.setStroke(ResUtil.dp2px(focused ? FOCUS_STROKE_DP : selected ? 2 : CHIP_STROKE_DP), focused ? FOCUS_STROKE : selected ? colors.accent : colors.line);")
                         && activity.contains("button.setTextColor(colors.primary);")
                         && activity.contains("button.setBackground(background);")
                         && activity.contains("button.setActivated(selected);")
