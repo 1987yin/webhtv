@@ -871,6 +871,10 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "state changed state=%d %s", state, lifecycleState());
         syncKeepScreenOn();
         if (!isOwner()) return;
+        // Ownership is established after onServiceConnected/onResume have already run, so
+        // the earlier bind attempts were rejected by the isOwner() guard. Bind here too or
+        // the ad-audio runtime never gets a UI and stays deactivated for the whole session.
+        bindAdAudioPrompt();
         syncShutter();
         onStateChanged(state);
     }

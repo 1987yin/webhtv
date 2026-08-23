@@ -2484,4 +2484,15 @@
     <string name="setting_ad_audio_imported">Imported %1$d rules · %2$s</string>
     <string name="setting_ad_audio_import_failed">Rule import failed; the previous rules were kept.</string>
     <string name="setting_ad_audio_clear_done">Audio fingerprint rules cleared</string>
-</resources>
+    <string name="speech_ad_enabled">Speech ad recognition</string>
+    <string name="speech_ad_keywords">Ad keywords</string>
+    <string name="speech_ad_keyword_count">%1$d keywords</string>
+    <string name="speech_ad_skip_seconds">Skip duration</string>
+    <string name="speech_ad_skip_seconds_value">%1$d seconds</string>
+    <string name="speech_ad_skip_mode">Skip mode</string>
+    <string name="speech_ad_skip_mode_prompt">Confirm before skipping</string>
+    <string name="speech_ad_skip_mode_auto">Auto skip</string>
+    <string name="speech_ad_skip_seconds_invalid">Enter a whole number from 1 to 120.</string>
+    <string name="speech_ad_model_not_ready">model not ready</string>
+    <string name="ad_audio_speech_candidate_title">Speech advertisement detected</string>
+    <string name="ad_audio_speech_candidate_message">Speech keywords matched. Skip about %1$d seconds?</string></resources>
