@@ -9883,6 +9883,37 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         hideInlineGestureOverlays();
     }
 
+    /**
+     * 播放失败回退（软解后切核心）在引擎侧换内核/解码后只发 onPlayerRebuild，
+     * 不走 onPrepare，内嵌播放器的内核与解码标签必须在这里补刷，否则会一直停在起播时的值。
+     *
+     * 必须放在 onPrepare 之前：TmdbDetailActivityLayoutTest 用
+     * [onPrepare, getInlineResumePosition) 的源码切片断言 onPrepare 的内容，
+     * 插在两者之间会把本方法并进那段切片里。
+     */
+    @Override
+    protected void onPlayerRebuilt() {
+        if (!isInlinePlayerMode() || !inlineStarted || !isOwner()) return;
+        updateInlineButtons(service() != null && !player().isEmpty() && player().isPlaying());
+        refreshInlineControlDialog();
+    }
+
+    /**
+     * 内嵌设置弹窗只在 initView 时从宿主抄一次标签，回退期间开着弹窗就会一直显示旧的内核/解码。
+     * 弹窗在 mobile flavor 里，main 源集只能反射调用，与 showInlineControlDialog 保持一致。
+     */
+    private void refreshInlineControlDialog() {
+        try {
+            Class<?> dialogClass = Class.forName("com.fongmi.android.tv.ui.dialog.ControlDialog");
+            for (androidx.fragment.app.Fragment fragment : getSupportFragmentManager().getFragments()) {
+                if (dialogClass.isInstance(fragment)) dialogClass.getMethod("setPlayer").invoke(fragment);
+            }
+        } catch (Throwable e) {
+            // 只是标签刷新，失败不该影响播放；但要留痕，否则将来 setPlayer 抛异常会被永久静默成"标签不刷新"。
+            SpiderDebug.log("tmdb-inline", "refresh control dialog failed errorType=%s", e.getClass().getSimpleName());
+        }
+    }
+
     @Override
     protected void onPrepare() {
         if (!isInlinePlayerMode() || !inlineStarted || !isOwner()) return;
@@ -10023,6 +10054,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (!isInlinePlayerMode() || !inlineStarted || !isOwner()) return;
         updateInlineButtons(service() != null && !player().isEmpty() && player().isPlaying());
         updateInlineDisplayPanel();
+        // 轨道要等新引擎 prepare 完才回来，重建那一刻宿主的音轨/字幕按钮是 GONE，
+        // 弹窗抄到的是这个中间态，必须在轨道就绪后再抄一次。
+        refreshInlineControlDialog();
     }
 
     @Override
