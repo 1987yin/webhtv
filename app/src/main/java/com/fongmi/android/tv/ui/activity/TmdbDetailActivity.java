@@ -590,6 +590,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     @Override
+    protected boolean customWallMotion() {
+        return false;
+    }
+
+    @Override
     protected PlaybackService.NavigationCallback getNavigationCallback() {
         return mNavigationCallback;
     }
