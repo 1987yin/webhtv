@@ -17,7 +17,10 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
 
     private static final String HUB_CONSUMER_ID = "speech-ad";
     private static final int TARGET_SAMPLE_RATE = 16_000;
-    private static final int DEFAULT_MAILBOX_CAPACITY = 8;
+    // Matches RealtimeSubtitleController.AUDIO_QUEUE_CAPACITY. Eight slots overflowed within
+    // a second on a 48 kHz stream, where every frame needs downsampling before it can be fed
+    // to the recognizer.
+    private static final int DEFAULT_MAILBOX_CAPACITY = 16;
     private static final Executor DIRECT_EXECUTOR = Runnable::run;
 
     public interface ConfigSource {
@@ -52,6 +55,10 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
     private long instanceToken;
     private int timelineToken;
     private long lastMatchPositionMs = Long.MIN_VALUE;
+    private long pcmFrameCount;
+    private long droppedPcmCount;
+    private long fedFrameCount;
+    private long recognitionCount;
     private boolean drainScheduled;
     private boolean enabled;
     private boolean closed;
@@ -220,7 +227,10 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
                     "Speech routing version is unavailable") : null;
         }
         if (!isEligible(hostPosition)) {
-            deactivateResourcesLocked(false, false);
+            // Park without releasing resources. Buffering makes the position temporarily
+            // ineligible many times per session; tearing the recognizer and the capture
+            // lease down here would rebuild sherpa each time, lose the in-flight
+            // utterance, and drop the PCM tap the audio pipeline was rebuilt to attach.
             state = ProviderState.IDLE;
             return null;
         }
@@ -300,7 +310,7 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
             @Override
             public void onResult(String text, long startUs, long endUs,
                                  int callbackTimelineToken) {
-                onRecognitionResult(token, text, callbackTimelineToken);
+                onRecognitionResult(token, text, startUs, callbackTimelineToken);
             }
 
             @Override
@@ -334,7 +344,16 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
 
     private void enqueuePcm(long token, PlaybackMediaSignalHub.PcmFrame frame) {
         synchronized (this) {
-            if (closed || token != instanceToken || state != ProviderState.RUNNING) return;
+            if (closed || token != instanceToken) return;
+            if (state != ProviderState.RUNNING) {
+                // Frames are dropped whenever the provider is parked. Count them, otherwise
+                // "audio arrives but nothing is recognized" looks identical to "no audio".
+                if (droppedPcmCount++ % 50L == 0L) {
+                    AdAudioDiagnostics.log("speech pcm dropped state=%s n=%d",
+                            state, droppedPcmCount);
+                }
+                return;
+            }
             if (!matchesContext(frame.sessionId(), frame.generation())) {
                 diagnostics.record(AdAudioDiagnostics.Code.STALE_GENERATION);
                 return;
@@ -349,6 +368,10 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
             if (mailbox.size() >= mailboxCapacity) {
                 mailbox.removeFirst();
                 diagnostics.record(AdAudioDiagnostics.Code.QUEUE_OVERFLOW);
+            }
+            if (pcmFrameCount++ % 200L == 0L) {
+                AdAudioDiagnostics.log("speech pcm n=%d rate=%d captureMs=%d",
+                        pcmFrameCount, frame.sampleRate(), frame.captureStartTimeMs());
             }
             mailbox.addLast(new PcmEnvelope(
                     token, frame.sessionId(), frame.generation(), timelineToken,
@@ -411,6 +434,11 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
                 try {
                     recognitionSession.accept(
                             samples, startUs, endUs, envelope.timelineToken());
+                    if (fedFrameCount++ % 200L == 0L) {
+                        AdAudioDiagnostics.log("speech fed n=%d samples=%d startMs=%d",
+                                fedFrameCount, samples.length,
+                                microsecondsToMilliseconds(startUs));
+                    }
                 } catch (RuntimeException error) {
                     diagnostics.record(AdAudioDiagnostics.Code.MATCHER_ERROR);
                 }
@@ -418,7 +446,7 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
         }
     }
 
-    private void onRecognitionResult(long token, String text,
+    private void onRecognitionResult(long token, String text, long startUs,
                                      int callbackTimelineToken) {
         Listener currentListener;
         AdAudioCandidate candidate;
@@ -427,7 +455,8 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
                 diagnostics.record(AdAudioDiagnostics.Code.SPEECH_STALE_CALLBACK);
                 return;
             }
-            if (SpeechAdKeywordSet.normalize(text).isEmpty()) {
+            String normalized = SpeechAdKeywordSet.normalize(text);
+            if (normalized.isEmpty()) {
                 diagnostics.record(AdAudioDiagnostics.Code.SPEECH_TEXT_EMPTY);
                 return;
             }
@@ -439,6 +468,11 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
                 diagnostics.record(AdAudioDiagnostics.Code.MATCHER_ERROR);
                 return;
             }
+            // Log only the transcript LENGTH and the match verdict. The recognized text and
+            // the matched keyword must never reach the log.
+            AdAudioDiagnostics.log("speech text n=%d chars=%d matched=%b startMs=%d",
+                    ++recognitionCount, normalized.length(),
+                    matched, microsecondsToMilliseconds(startUs));
             if (!matched) return;
             HostPosition position = hostPosition;
             if (!isEligible(position)
@@ -446,20 +480,22 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
                 diagnostics.record(AdAudioDiagnostics.Code.CLOCK_UNAVAILABLE);
                 return;
             }
-            long startMs = position.positionMs();
+            // Anchor on the capture timestamp the recognizer reported for this utterance.
+            // hostPosition is only republished on bind/refresh/state change, so during
+            // steady playback it is stale and would place the candidate at the position
+            // playback had when it was last sampled instead of where the keyword was said.
+            long startMs = microsecondsToMilliseconds(startUs);
+            if (startMs < 0L) {
+                diagnostics.record(AdAudioDiagnostics.Code.CLOCK_UNAVAILABLE);
+                return;
+            }
             if (lastMatchPositionMs != Long.MIN_VALUE
                     && startMs >= lastMatchPositionMs
                     && startMs - lastMatchPositionMs < MATCH_COOLDOWN_MS) {
                 diagnostics.record(AdAudioDiagnostics.Code.SPEECH_COOLDOWN);
                 return;
             }
-            long requestedEnd = saturatedAdd(startMs,
-                    (long) config.skipSeconds() * 1_000L);
-            long endMs = Math.min(position.durationMs(), requestedEnd);
-            if (endMs <= startMs) {
-                diagnostics.record(AdAudioDiagnostics.Code.CLOCK_UNAVAILABLE);
-                return;
-            }
+            long endMs = saturatedAdd(startMs, (long) config.skipSeconds() * 1_000L);
             try {
                 candidate = new AdAudioCandidate(
                         context.sessionId(), context.generation(), RULE_ID, ruleVersion,
@@ -665,6 +701,10 @@ public final class SpeechAdSignalProvider implements AdAudioSignalProvider {
         if (milliseconds <= 0L) return 0L;
         if (milliseconds > Long.MAX_VALUE / 1_000L) return Long.MAX_VALUE;
         return milliseconds * 1_000L;
+    }
+
+    private static long microsecondsToMilliseconds(long microseconds) {
+        return microseconds < 0L ? -1L : microseconds / 1_000L;
     }
 
     private static long saturatedAdd(long left, long right) {

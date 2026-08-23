@@ -66,9 +66,9 @@ public class SpeechAdRuntimeEndToEndTest {
         autoSession.emit("赌场", autoSession.lastTimelineToken);
 
         assertEquals(1, ui.candidateShows);
-        assertEquals(List.of(16_000L, 1_000L, 16_000L), playback.seekTargets);
+        assertEquals(List.of(16_000L, 1_000L, 16_100L), playback.seekTargets);
         ui.undo();
-        assertEquals(List.of(16_000L, 1_000L, 16_000L, 1_000L), playback.seekTargets);
+        assertEquals(List.of(16_000L, 1_000L, 16_100L, 1_000L), playback.seekTargets);
 
         int staleTimelineToken = autoSession.lastTimelineToken;
         playback.positionMs = 30_000L;
@@ -81,9 +81,12 @@ public class SpeechAdRuntimeEndToEndTest {
         assertEquals(1, ui.candidateShows);
 
         runtime.refresh();
+        // The recognizer is reused across the reset instead of being rebuilt; isolation
+        // comes from the bumped timeline token plus session.reset(), not from a new session.
         FakeRecognitionSession resumedSession = recognition.current();
-        assertFalse(autoSession == resumedSession);
-        assertEquals(1, autoSession.closeCalls);
+        assertTrue(autoSession == resumedSession);
+        assertEquals(0, autoSession.closeCalls);
+        assertEquals(1, autoSession.resetCalls);
 
         autoSession.emit("赌场", staleTimelineToken);
         assertEquals(4, playback.seekTargets.size());
@@ -92,10 +95,10 @@ public class SpeechAdRuntimeEndToEndTest {
         hub.publishPcm(reset.frame(new float[] {0.3f}, 16_000, 30_000L));
         resumedSession.emit("赌场", resumedSession.lastTimelineToken);
 
-        assertEquals(List.of(16_000L, 1_000L, 16_000L, 1_000L, 45_000L),
+        assertEquals(List.of(16_000L, 1_000L, 16_100L, 1_000L, 45_000L),
                 playback.seekTargets);
         ui.undo();
-        assertEquals(List.of(16_000L, 1_000L, 16_000L, 1_000L, 45_000L, 30_000L),
+        assertEquals(List.of(16_000L, 1_000L, 16_100L, 1_000L, 45_000L, 30_000L),
                 playback.seekTargets);
 
         runtime.close();
@@ -202,6 +205,8 @@ public class SpeechAdRuntimeEndToEndTest {
             implements SpeechRecognitionFactory.Session {
         private final SpeechRecognitionFactory.Listener listener;
         private int lastTimelineToken;
+        private long lastStartUs;
+        private long lastEndUs;
         private int resetCalls;
         private int closeCalls;
 
@@ -213,6 +218,8 @@ public class SpeechAdRuntimeEndToEndTest {
         public void accept(float[] samples, long startUs, long endUs,
                            int timelineToken) {
             lastTimelineToken = timelineToken;
+            lastStartUs = startUs;
+            lastEndUs = endUs;
         }
 
         @Override
@@ -225,8 +232,9 @@ public class SpeechAdRuntimeEndToEndTest {
             closeCalls++;
         }
 
+        /** Echoes the capture window of the last accepted frame, like the real recognizer. */
         private void emit(String text, int timelineToken) {
-            listener.onResult(text, 1L, 2L, timelineToken);
+            listener.onResult(text, lastStartUs, lastEndUs, timelineToken);
         }
     }
 }

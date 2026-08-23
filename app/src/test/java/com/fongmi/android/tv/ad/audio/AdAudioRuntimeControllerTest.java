@@ -374,6 +374,113 @@ public class AdAudioRuntimeControllerTest {
         assertEquals(0, ui.candidateShows);
         runtime.close();
     }
+    @Test
+    public void rebindingTheSameUiKeepsTheRunningSpeechSession() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSpeechRecognitionFactory recognition = new FakeSpeechRecognitionFactory();
+        AdAudioRuntimeController runtime = new AdAudioRuntimeController(
+                hub, new PlaybackMediaClock(500L),
+                AdAudioRuntimeControllerTest::emptySnapshot, playback, recognition);
+        FakeUiPort ui = new FakeUiPort();
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "赌场", 15, "PROMPT"));
+        runtime.start(false);
+        runtime.bindUi(ui);
+        assertEquals(1, recognition.sessions.size());
+
+        // PlaybackActivity rebinds on every playback state change; that must not tear the
+        // recognizer down and lose the in-flight utterance.
+        runtime.bindUi(ui);
+        runtime.bindUi(ui);
+
+        assertEquals(1, recognition.sessions.size());
+        assertEquals(0, recognition.sessions.get(0).closeCalls);
+
+        // The rebind installed a new coordinator. Candidates from the still-running
+        // provider must reach it, not the discarded one.
+        hub.publishPcm(hub.session().frame(new float[] {0.1f}, 16_000, 30_000L));
+        recognition.sessions.get(0).listener.onResult(
+                "赌场", 30_000_000L, 31_000_000L, 1);
+        assertEquals(1, ui.candidateShows);
+        runtime.close();
+    }
+
+    @Test
+    public void refreshKeepsAnIdleSpeechProviderInsteadOfRebuildingIt() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        // Duration still unknown: mirrors STATE_BUFFERING right after the pipeline rebuild.
+        playback.positionEligible = false;
+        FakeSpeechRecognitionFactory recognition = new FakeSpeechRecognitionFactory();
+        AdAudioRuntimeController runtime = new AdAudioRuntimeController(
+                hub, new PlaybackMediaClock(500L),
+                AdAudioRuntimeControllerTest::emptySnapshot, playback, recognition);
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(true, "赌场", 15, "PROMPT"));
+        runtime.start(false);
+        runtime.bindUi(new FakeUiPort());
+        // Resources are only acquired once the position is eligible, so nothing exists yet.
+        assertTrue(recognition.sessions.isEmpty());
+
+        // Playback flaps between BUFFERING and READY; each flap calls refresh(). An IDLE
+        // provider must count as live, otherwise every refresh destroys and re-creates the
+        // recognizer and it never reaches RUNNING.
+        runtime.refresh();
+        runtime.refresh();
+        runtime.refresh();
+
+        assertTrue(recognition.sessions.isEmpty());
+
+        // Once the duration is known the provider must acquire its recognizer exactly once
+        // and then survive further refreshes without being rebuilt.
+        playback.positionEligible = true;
+        runtime.refresh();
+        assertEquals(1, recognition.sessions.size());
+        assertTrue(hub.isCaptureRequested(PlaybackMediaSignalHub.ConsumerKind.AD_AUDIO));
+
+        runtime.refresh();
+        runtime.refresh();
+        assertEquals(1, recognition.sessions.size());
+        assertEquals(0, recognition.sessions.get(0).closeCalls);
+
+        // Falling back to buffering must not tear the recognizer down again.
+        playback.positionEligible = false;
+        runtime.refresh();
+        assertEquals(1, recognition.sessions.size());
+        assertEquals(0, recognition.sessions.get(0).closeCalls);
+        runtime.close();
+    }
+
+    @Test
+    public void newHubSessionRebuildsAParkedSpeechProviderInsteadOfKeepingItsStaleLease() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSpeechRecognitionFactory recognition = new FakeSpeechRecognitionFactory();
+        AdAudioRuntimeController runtime = new AdAudioRuntimeController(
+                hub, new PlaybackMediaClock(500L),
+                AdAudioRuntimeControllerTest::emptySnapshot, playback, recognition);
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(true, "赌场", 15, "PROMPT"));
+        runtime.start(false);
+        runtime.bindUi(new FakeUiPort());
+        assertEquals(1, recognition.sessions.size());
+        FakeSpeechSession first = recognition.sessions.get(0);
+
+        // A new media session (换源/换集) without a suspend() in between. The parked provider
+        // holds a capture lease bound to the old session, so it must be rebuilt.
+        hub.beginSession(0L);
+        runtime.refresh();
+
+        assertEquals(1, first.closeCalls);
+        assertEquals(2, recognition.sessions.size());
+        runtime.close();
+    }
+
     private static AdAudioRuntimeController runtime(
             PlaybackMediaSignalHub hub, FakePlaybackPort playback, AdAudioRuleSnapshot snapshot) {
         return new AdAudioRuntimeController(
@@ -499,6 +606,8 @@ public class AdAudioRuntimeControllerTest {
         private final PlaybackMediaSignalHub hub;
         private final List<Long> seekTargets = new java.util.ArrayList<>();
         private boolean eligible;
+        /** Mirrors STATE_BUFFERING: the controller gate passes but duration is unknown. */
+        private boolean positionEligible = true;
 
         FakePlaybackPort(PlaybackMediaSignalHub hub, boolean eligible) {
             this.hub = hub;
@@ -512,8 +621,10 @@ public class AdAudioRuntimeControllerTest {
 
         @Override
         public AdSkipCoordinator.PlaybackSnapshot snapshot(long sessionId, long generation) {
+            boolean seekable = eligible && positionEligible;
             return new AdSkipCoordinator.PlaybackSnapshot(
-                    sessionId, generation, 1_000L, 100_000L, eligible, !eligible,
+                    sessionId, generation, 1_000L,
+                    positionEligible ? 100_000L : -1L, seekable, !eligible,
                     new PlaybackMediaClock.Snapshot(generation, 0L, 50_000L, 1_000L, true, true));
         }
 

@@ -39,7 +39,7 @@ public class SpeechAdSignalProviderTest {
         assertEquals(SpeechAdSignalProvider.RULE_ID, candidate.ruleId());
         assertEquals("v1", candidate.ruleVersion());
         assertEquals(10_000L, candidate.startMs());
-        assertEquals(20_000L, candidate.endMs());
+        assertEquals(25_000L, candidate.endMs());
         assertTrue(candidate.fullMatch());
         assertEquals(1.0d, candidate.similarity(), 0.0d);
         assertEquals(1L, fixture.diagnostics.count(AdAudioDiagnostics.Code.SPEECH_MATCHED));
@@ -143,6 +143,51 @@ public class SpeechAdSignalProviderTest {
     }
 
     @Test
+    public void candidateTracksSpokenMomentNotTheLastPublishedHostPosition() {
+        Fixture fixture = new Fixture(true, config(true, "赌场", 15), Runnable::run, 8);
+        // Host position is published once when playback becomes READY and is not pumped
+        // again during steady playback.
+        fixture.host(0L, 2_400_000L, true, false);
+
+        // 15 minutes later the keyword is spoken; the capture clock knows this, the cached
+        // host position does not.
+        fixture.publish(new float[] {0.1f}, 16_000, 900_000L);
+        FakeSession recognizer = fixture.factory.current();
+        recognizer.emitAt("赌场", 900_000_000L, 901_000_000L, recognizer.lastTimelineToken());
+
+        assertEquals(1, fixture.emitted.size());
+        assertEquals(900_000L, fixture.emitted.get(0).startMs());
+        assertEquals(915_000L, fixture.emitted.get(0).endMs());
+        fixture.close();
+    }
+
+    @Test
+    public void ineligiblePositionParksTheProviderWithoutTearingDownTheRecognizer() {
+        Fixture fixture = new Fixture(true, config(true, "赌场", 15), Runnable::run, 8);
+        fixture.host(10_000L, 20_000L, true, false);
+        assertEquals(AdAudioSignalProvider.ProviderState.RUNNING, fixture.provider.state());
+        FakeSession running = fixture.factory.current();
+
+        // Buffering: duration momentarily unknown. This happens repeatedly during normal
+        // playback, so it must not destroy the recognizer or drop the capture lease --
+        // rebuilding sherpa on every buffering blip loses the in-flight utterance and
+        // forces the audio pipeline to be re-attached.
+        fixture.host(10_000L, -1L, false, false);
+
+        assertEquals(AdAudioSignalProvider.ProviderState.IDLE, fixture.provider.state());
+        assertEquals(0, running.closeCalls);
+        assertEquals(1, fixture.factory.sessions.size());
+        assertTrue(fixture.hub.isCaptureRequested(
+                PlaybackMediaSignalHub.ConsumerKind.AD_AUDIO));
+
+        // Recovering must resume the same session rather than start a new one.
+        fixture.host(11_000L, 20_000L, true, false);
+        assertEquals(AdAudioSignalProvider.ProviderState.RUNNING, fixture.provider.state());
+        assertEquals(1, fixture.factory.sessions.size());
+        fixture.close();
+    }
+
+    @Test
     public void mismatchedHostGenerationIsIgnoredBeforeActivation() {
         Fixture fixture = new Fixture(true, config(true, "\u8d4c\u573a", 15), Runnable::run, 8);
 
@@ -158,7 +203,7 @@ public class SpeechAdSignalProviderTest {
     }
 
     @Test
-    public void candidateEndIsClampedToKnownDuration() {
+    public void candidateUsesCaptureTimeAndLeavesDurationClampingToTheCoordinator() {
         Fixture fixture = new Fixture(true, config(true, "\u8d4c\u573a", 120), Runnable::run, 8);
         fixture.host(59_500L, 60_000L, true, false);
         fixture.publish(new float[] {0.1f}, 16_000, 59_500L);
@@ -166,9 +211,12 @@ public class SpeechAdSignalProviderTest {
 
         recognizer.emit("\u8d4c\u573a", recognizer.lastTimelineToken());
 
+        // The provider reports the raw capture interval, exactly like the fingerprint
+        // provider. AdSkipCoordinator.targetFor is the single place that clamps to
+        // duration, so clamping here would double-apply it.
         assertEquals(1, fixture.emitted.size());
         assertEquals(59_500L, fixture.emitted.get(0).startMs());
-        assertEquals(60_000L, fixture.emitted.get(0).endMs());
+        assertEquals(179_500L, fixture.emitted.get(0).endMs());
         fixture.close();
     }
 
@@ -399,6 +447,8 @@ public class SpeechAdSignalProviderTest {
         private final SpeechRecognitionFactory.Listener listener;
         private final List<float[]> acceptedSamples = new ArrayList<>();
         private int lastTimelineToken;
+        private long lastStartUs;
+        private long lastEndUs;
         private int resetCalls;
         private int closeCalls;
         private boolean throwOnAccept;
@@ -413,6 +463,8 @@ public class SpeechAdSignalProviderTest {
             if (throwOnAccept) throw new IllegalStateException("accept failed");
             acceptedSamples.add(samples.clone());
             lastTimelineToken = timelineToken;
+            lastStartUs = startUs;
+            lastEndUs = endUs;
         }
 
         @Override
@@ -430,8 +482,13 @@ public class SpeechAdSignalProviderTest {
             return lastTimelineToken;
         }
 
+        /** Echoes the capture window of the last accepted frame, like the real recognizer. */
         private void emit(String text, int timelineToken) {
-            listener.onResult(text, 1L, 2L, timelineToken);
+            listener.onResult(text, lastStartUs, lastEndUs, timelineToken);
+        }
+
+        private void emitAt(String text, long startUs, long endUs, int timelineToken) {
+            listener.onResult(text, startUs, endUs, timelineToken);
         }
 
         private void fail() {

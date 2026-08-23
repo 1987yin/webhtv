@@ -59,6 +59,8 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     private AdSkipPolicyController.Mode skipMode = AdSkipPolicyController.Mode.PROMPT;
     private SpeechAdConfig speechConfig = SpeechAdConfig.defaults();
     private boolean enabled;
+    private String lastRefreshLog = "";
+    private long activeSessionId = Long.MIN_VALUE;
     private boolean closed;
 
     public AdAudioRuntimeController(PlaybackMediaSignalHub hub, PlaybackMediaClock clock,
@@ -158,8 +160,17 @@ public final class AdAudioRuntimeController implements AutoCloseable {
 
     public synchronized void bindUi(AdSkipCoordinator.UiPort ui) {
         if (closed) return;
+        Objects.requireNonNull(ui, "ui");
+        // PlaybackActivity rebinds whenever it regains ownership, which can happen on every
+        // playback state change. Re-creating the coordinator would orphan the already
+        // running providers: they keep a reference to the old one and the output listener
+        // then drops their candidates, so the prompt silently disappears.
+        if (this.ui == ui && coordinator != null) {
+            refreshLocked();
+            return;
+        }
         if (coordinator != null) coordinator.close();
-        this.ui = Objects.requireNonNull(ui, "ui");
+        this.ui = ui;
         this.coordinator = new AdSkipCoordinator(playback, ui, 5_000L, diagnostics);
         refreshLocked();
     }
@@ -261,16 +272,27 @@ public final class AdAudioRuntimeController implements AutoCloseable {
         boolean fingerprintReady = enabled && !snapshot.hasError() && snapshot.hasRules();
         boolean speechReady = speechConfig.enabled() && !speechConfig.keywords().isEmpty();
         if (ui == null || (!fingerprintReady && !speechReady)) {
+            // Transition-only: refreshLocked runs every 5s from the host position pump, and
+            // an unsampled line here would churn the bounded debug-log ring.
+            logTransition("refresh skipped ui=" + (ui != null)
+                    + " fingerprint=" + fingerprintReady + " speech=" + speechReady);
             deactivateLocked();
             return;
         }
         PlaybackMediaSignalHub.Session session = hub.session();
         if (!playback.isEligible(session.id(), session.generation())) {
+            logTransition("refresh ineligible session=" + session.id()
+                    + " gen=" + session.generation());
             deactivateLocked();
             return;
         }
         if (multiplexer != null) {
-            if (isActiveLocked()) {
+            // Re-validate the hub SESSION: an active-but-parked provider still holds a
+            // capture lease bound to the session it was created for. Generation is
+            // deliberately not checked -- it bumps on every seek/flush and the providers
+            // already self-heal through onTimelineReset, so comparing it here would rebuild
+            // the recognizer on each seek.
+            if (isActiveLocked() && activeSessionId == session.id()) {
                 publishHostPositionLocked(session);
                 return;
             }
@@ -278,6 +300,20 @@ public final class AdAudioRuntimeController implements AutoCloseable {
         }
         activateLocked(session, fingerprintReady, speechReady);
         publishHostPositionLocked(session);
+        // Logged after the host position is published: the speech provider only leaves IDLE
+        // once it has an eligible position, so reading state before this is misleading.
+        logTransition("activated"
+                + " speech=" + (speechProvider == null ? "none" : speechProvider.state())
+                + " pcm=" + (pcmProvider == null ? "none" : pcmProvider.state())
+                + " capture=" + hub.isCaptureRequested(PlaybackMediaSignalHub.ConsumerKind.AD_AUDIO)
+                + " pipeline=" + hub.isPipelineAttached());
+    }
+
+    /** Emits {@code message} only when it differs from the previous refresh outcome. */
+    private void logTransition(String message) {
+        if (message.equals(lastRefreshLog)) return;
+        lastRefreshLog = message;
+        AdAudioDiagnostics.log("%s", message);
     }
 
     private void activateLocked(PlaybackMediaSignalHub.Session session,
@@ -365,6 +401,7 @@ public final class AdAudioRuntimeController implements AutoCloseable {
         pcmProvider = nextPcm;
         probeProvider = nextProbe;
         speechProvider = nextSpeech;
+        activeSessionId = session.id();
 
         startProvider(nextPcm, true, context, routingSnapshot, nextMux);
         startProvider(nextProbe, snapshot.probeAvailable(), context, routingSnapshot, nextMux);
@@ -393,6 +430,7 @@ public final class AdAudioRuntimeController implements AutoCloseable {
         speechProvider = null;
         multiplexer = null;
         policy = null;
+        activeSessionId = Long.MIN_VALUE;
         closeProvider(oldSpeech);
         closeProvider(oldProbe);
         closeProvider(oldPcm);
@@ -401,8 +439,11 @@ public final class AdAudioRuntimeController implements AutoCloseable {
     }
 
     private boolean isActiveLocked() {
+        // IDLE counts as active for the speech provider: it parks there while the position
+        // is not yet eligible (buffering, duration unknown) but keeps its recognizer and
+        // capture lease. Treating it as inactive would make every refresh tear it down.
         return isRunning(pcmProvider) || isRunning(probeProvider)
-                || isRunning(speechProvider);
+                || isReadyForHostPosition(speechProvider);
     }
 
     private void publishHostPositionLocked(PlaybackMediaSignalHub.Session session) {
