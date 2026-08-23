@@ -1955,6 +1955,8 @@
     <string name="tmdb_episode_compact_season_progress">TMDB S%1$d %2$d/%3$d 集</string>
     <string name="tmdb_episode_compact_planned">TMDB 待播</string>
     <string name="detail_source_current">站源：%1$s</string>
+    <string name="detail_source_route_chip">换源·%1$s</string>
+    <string name="detail_source_route_chip_entry">同站·%1$s</string>
     <string name="detail_source_empty">暂无可用站源</string>
     <string name="detail_source_episode_empty">暂无可用选集或站源</string>
     <string name="detail_source_searching">正在搜索站源...</string>
@@ -2512,4 +2514,15 @@
     <string name="download_delete_episode">确定删除该集？</string>
     <string name="download_delete_group">确定删除该剧全部已下载缓存？</string>
     <string name="download_long_press_tip">点击可暂停/继续，长按删除</string>
-</resources>
+    <string name="speech_ad_enabled">语音广告识别</string>
+    <string name="speech_ad_keywords">广告关键词</string>
+    <string name="speech_ad_keyword_count">%1$d 个关键词</string>
+    <string name="speech_ad_skip_seconds">跳过时长</string>
+    <string name="speech_ad_skip_seconds_value">%1$d 秒</string>
+    <string name="speech_ad_skip_mode">跳过模式</string>
+    <string name="speech_ad_skip_mode_prompt">弹窗确认后跳过</string>
+    <string name="speech_ad_skip_mode_auto">自动跳过</string>
+    <string name="speech_ad_skip_seconds_invalid">请输入 1 到 120 之间的整数。</string>
+    <string name="speech_ad_model_not_ready">模型未就绪</string>
+    <string name="ad_audio_speech_candidate_title">检测到语音广告</string>
+    <string name="ad_audio_speech_candidate_message">命中广告关键词，跳过约 %1$d 秒？</string></resources>

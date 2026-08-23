@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.fongmi.android.tv.player.audio.PlaybackMediaClock;
 import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
+import com.fongmi.android.tv.subtitle.SpeechRecognitionFactory;
 
 import org.junit.Test;
 
@@ -267,6 +268,219 @@ public class AdAudioRuntimeControllerTest {
         runtime.close();
     }
 
+    @Test
+    public void speechRunsWithoutFingerprintRulesAndUsesItsOwnAutoMode() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSignalProvider speech = new FakeSignalProvider(SpeechAdSignalProvider.ID);
+        AdAudioRuntimeController runtime = runtimeWithProviders(
+                hub, playback, emptySnapshot(),
+                ignored -> new NoopAdAudioSignalProvider("probe"), () -> speech);
+        FakeUiPort ui = new FakeUiPort();
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "\u8d4c\u573a", 15, "AUTO"));
+        runtime.start(false);
+        runtime.bindUi(ui);
+
+        assertEquals(AdAudioSignalProvider.ProviderState.RUNNING, speech.state());
+        speech.emit(SpeechAdSignalProvider.RULE_ID, 10_000L, 25_000L);
+        assertEquals(List.of(25_000L), playback.seekTargets);
+        assertEquals(0, ui.candidateShows);
+        runtime.close();
+    }
+
+    @Test
+    public void speechStartFailureDoesNotStopPcmOrProbe() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSignalProvider probe = new FakeSignalProvider("probe");
+        FakeSignalProvider speech = new FakeSignalProvider(SpeechAdSignalProvider.ID);
+        speech.failOnStart = true;
+        AdAudioRuntimeController runtime = runtimeWithProviders(
+                hub, playback, snapshotForRuleWithSidecar("ad"),
+                ignored -> probe, () -> speech);
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "\u8d4c\u573a", 15, "PROMPT"));
+        runtime.start(true);
+        runtime.bindUi(new FakeUiPort());
+
+        assertEquals(AdAudioSignalProvider.ProviderState.RUNNING, probe.state());
+        assertTrue(runtime.isActive());
+        assertTrue(hub.isCaptureRequested(PlaybackMediaSignalHub.ConsumerKind.AD_AUDIO));
+        runtime.close();
+    }
+
+    @Test
+    public void speechModeSwitchAffectsOnlyFutureSpeechCandidates() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        List<FakeSignalProvider> speeches = new ArrayList<>();
+        AdAudioRuntimeController runtime = runtimeWithProviders(
+                hub, playback, emptySnapshot(),
+                ignored -> new NoopAdAudioSignalProvider("probe"), () -> {
+                    FakeSignalProvider provider = new FakeSignalProvider(
+                            SpeechAdSignalProvider.ID);
+                    speeches.add(provider);
+                    return provider;
+                });
+        FakeUiPort ui = new FakeUiPort();
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "\u8d4c\u573a", 15, "PROMPT"));
+        runtime.start(false);
+        runtime.bindUi(ui);
+        speeches.get(0).emit(SpeechAdSignalProvider.RULE_ID, 1_000L, 16_000L);
+        ui.actions.ignore();
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "\u8d4c\u573a", 15, "AUTO"));
+        speeches.get(1).emit(SpeechAdSignalProvider.RULE_ID, 30_000L, 45_000L);
+
+        assertEquals(1, ui.candidateShows);
+        assertEquals(List.of(45_000L), playback.seekTargets);
+        assertEquals(AdAudioSignalProvider.ProviderState.CLOSED,
+                speeches.get(0).state());
+        runtime.close();
+    }
+    @Test
+    public void replacingSpeechConfigClosesProductionSessionAndDropsOldCallbacks() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSpeechRecognitionFactory recognition = new FakeSpeechRecognitionFactory();
+        AdAudioRuntimeController runtime = new AdAudioRuntimeController(
+                hub, new PlaybackMediaClock(500L),
+                AdAudioRuntimeControllerTest::emptySnapshot, playback, recognition);
+        FakeUiPort ui = new FakeUiPort();
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "\u8d4c\u573a", 15, "PROMPT"));
+        runtime.start(false);
+        runtime.bindUi(ui);
+        FakeSpeechSession first = recognition.sessions.get(0);
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "\u9996\u5145", 30, "AUTO"));
+
+        assertEquals(1, first.closeCalls);
+        assertEquals(2, recognition.sessions.size());
+        first.listener.onResult("\u8d4c\u573a", 1L, 2L, 1);
+        assertTrue(playback.seekTargets.isEmpty());
+        assertEquals(0, ui.candidateShows);
+        runtime.close();
+    }
+    @Test
+    public void rebindingTheSameUiKeepsTheRunningSpeechSession() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSpeechRecognitionFactory recognition = new FakeSpeechRecognitionFactory();
+        AdAudioRuntimeController runtime = new AdAudioRuntimeController(
+                hub, new PlaybackMediaClock(500L),
+                AdAudioRuntimeControllerTest::emptySnapshot, playback, recognition);
+        FakeUiPort ui = new FakeUiPort();
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(
+                true, "赌场", 15, "PROMPT"));
+        runtime.start(false);
+        runtime.bindUi(ui);
+        assertEquals(1, recognition.sessions.size());
+
+        // PlaybackActivity rebinds on every playback state change; that must not tear the
+        // recognizer down and lose the in-flight utterance.
+        runtime.bindUi(ui);
+        runtime.bindUi(ui);
+
+        assertEquals(1, recognition.sessions.size());
+        assertEquals(0, recognition.sessions.get(0).closeCalls);
+
+        // The rebind installed a new coordinator. Candidates from the still-running
+        // provider must reach it, not the discarded one.
+        hub.publishPcm(hub.session().frame(new float[] {0.1f}, 16_000, 30_000L));
+        recognition.sessions.get(0).listener.onResult(
+                "赌场", 30_000_000L, 31_000_000L, 1);
+        assertEquals(1, ui.candidateShows);
+        runtime.close();
+    }
+
+    @Test
+    public void refreshKeepsAnIdleSpeechProviderInsteadOfRebuildingIt() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        // Duration still unknown: mirrors STATE_BUFFERING right after the pipeline rebuild.
+        playback.positionEligible = false;
+        FakeSpeechRecognitionFactory recognition = new FakeSpeechRecognitionFactory();
+        AdAudioRuntimeController runtime = new AdAudioRuntimeController(
+                hub, new PlaybackMediaClock(500L),
+                AdAudioRuntimeControllerTest::emptySnapshot, playback, recognition);
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(true, "赌场", 15, "PROMPT"));
+        runtime.start(false);
+        runtime.bindUi(new FakeUiPort());
+        // Resources are only acquired once the position is eligible, so nothing exists yet.
+        assertTrue(recognition.sessions.isEmpty());
+
+        // Playback flaps between BUFFERING and READY; each flap calls refresh(). An IDLE
+        // provider must count as live, otherwise every refresh destroys and re-creates the
+        // recognizer and it never reaches RUNNING.
+        runtime.refresh();
+        runtime.refresh();
+        runtime.refresh();
+
+        assertTrue(recognition.sessions.isEmpty());
+
+        // Once the duration is known the provider must acquire its recognizer exactly once
+        // and then survive further refreshes without being rebuilt.
+        playback.positionEligible = true;
+        runtime.refresh();
+        assertEquals(1, recognition.sessions.size());
+        assertTrue(hub.isCaptureRequested(PlaybackMediaSignalHub.ConsumerKind.AD_AUDIO));
+
+        runtime.refresh();
+        runtime.refresh();
+        assertEquals(1, recognition.sessions.size());
+        assertEquals(0, recognition.sessions.get(0).closeCalls);
+
+        // Falling back to buffering must not tear the recognizer down again.
+        playback.positionEligible = false;
+        runtime.refresh();
+        assertEquals(1, recognition.sessions.size());
+        assertEquals(0, recognition.sessions.get(0).closeCalls);
+        runtime.close();
+    }
+
+    @Test
+    public void newHubSessionRebuildsAParkedSpeechProviderInsteadOfKeepingItsStaleLease() {
+        PlaybackMediaSignalHub hub = new PlaybackMediaSignalHub(8);
+        hub.beginSession(0L);
+        FakePlaybackPort playback = new FakePlaybackPort(hub, true);
+        FakeSpeechRecognitionFactory recognition = new FakeSpeechRecognitionFactory();
+        AdAudioRuntimeController runtime = new AdAudioRuntimeController(
+                hub, new PlaybackMediaClock(500L),
+                AdAudioRuntimeControllerTest::emptySnapshot, playback, recognition);
+
+        runtime.setSpeechConfig(SpeechAdConfig.create(true, "赌场", 15, "PROMPT"));
+        runtime.start(false);
+        runtime.bindUi(new FakeUiPort());
+        assertEquals(1, recognition.sessions.size());
+        FakeSpeechSession first = recognition.sessions.get(0);
+
+        // A new media session (换源/换集) without a suspend() in between. The parked provider
+        // holds a capture lease bound to the old session, so it must be rebuilt.
+        hub.beginSession(0L);
+        runtime.refresh();
+
+        assertEquals(1, first.closeCalls);
+        assertEquals(2, recognition.sessions.size());
+        runtime.close();
+    }
+
     private static AdAudioRuntimeController runtime(
             PlaybackMediaSignalHub hub, FakePlaybackPort playback, AdAudioRuleSnapshot snapshot) {
         return new AdAudioRuntimeController(
@@ -283,6 +497,15 @@ public class AdAudioRuntimeControllerTest {
                 Runnable::run, () -> { }, factory);
     }
 
+    private static AdAudioRuntimeController runtimeWithProviders(
+            PlaybackMediaSignalHub hub, FakePlaybackPort playback,
+            AdAudioRuleSnapshot snapshot,
+            AdAudioRuntimeController.ProbeProviderFactory probeFactory,
+            AdAudioRuntimeController.SpeechProviderFactory speechFactory) {
+        return new AdAudioRuntimeController(
+                hub, new PlaybackMediaClock(500L), () -> snapshot, playback,
+                Runnable::run, () -> { }, probeFactory, speechFactory);
+    }
     private static AdAudioRuleSnapshot goodSnapshot() {
         return snapshotForRule("ad");
     }
@@ -383,6 +606,8 @@ public class AdAudioRuntimeControllerTest {
         private final PlaybackMediaSignalHub hub;
         private final List<Long> seekTargets = new java.util.ArrayList<>();
         private boolean eligible;
+        /** Mirrors STATE_BUFFERING: the controller gate passes but duration is unknown. */
+        private boolean positionEligible = true;
 
         FakePlaybackPort(PlaybackMediaSignalHub hub, boolean eligible) {
             this.hub = hub;
@@ -396,8 +621,10 @@ public class AdAudioRuntimeControllerTest {
 
         @Override
         public AdSkipCoordinator.PlaybackSnapshot snapshot(long sessionId, long generation) {
+            boolean seekable = eligible && positionEligible;
             return new AdSkipCoordinator.PlaybackSnapshot(
-                    sessionId, generation, 1_000L, 100_000L, eligible, !eligible,
+                    sessionId, generation, 1_000L,
+                    positionEligible ? 100_000L : -1L, seekable, !eligible,
                     new PlaybackMediaClock.Snapshot(generation, 0L, 50_000L, 1_000L, true, true));
         }
 
@@ -432,12 +659,55 @@ public class AdAudioRuntimeControllerTest {
         }
     }
 
+    private static final class FakeSpeechRecognitionFactory
+            implements SpeechRecognitionFactory {
+        private final List<FakeSpeechSession> sessions = new ArrayList<>();
+
+        @Override
+        public boolean isReady() {
+            return true;
+        }
+
+        @Override
+        public Session create(Listener listener) {
+            FakeSpeechSession session = new FakeSpeechSession(listener);
+            sessions.add(session);
+            return session;
+        }
+    }
+
+    private static final class FakeSpeechSession
+            implements SpeechRecognitionFactory.Session {
+        private final SpeechRecognitionFactory.Listener listener;
+        private int closeCalls;
+
+        private FakeSpeechSession(SpeechRecognitionFactory.Listener listener) {
+            this.listener = listener;
+        }
+
+        @Override
+        public void accept(float[] samples, long startUs, long endUs,
+                           int timelineToken) {
+        }
+
+        @Override
+        public void reset() {
+        }
+
+        @Override
+        public void close() {
+            closeCalls++;
+        }
+    }
     private static final class FakeSignalProvider implements AdAudioSignalProvider {
         private final String id;
         private Listener listener;
+        private SessionContext context;
+        private String ruleVersion;
         private ProviderState state = ProviderState.DISABLED;
         private int starts;
         private int closes;
+        private boolean failOnStart;
 
         private FakeSignalProvider(String id) {
             this.id = id;
@@ -450,6 +720,9 @@ public class AdAudioRuntimeControllerTest {
 
         @Override
         public void start(SessionContext context, AdAudioRuleSnapshot rules, Listener listener) {
+            if (failOnStart) throw new IllegalStateException("start failed");
+            this.context = context;
+            this.ruleVersion = rules.version();
             this.listener = listener;
             starts++;
             state = ProviderState.RUNNING;
@@ -482,6 +755,12 @@ public class AdAudioRuntimeControllerTest {
 
         private void emit(AdAudioCandidate candidate) {
             listener.onCandidate(candidate);
+        }
+
+        private void emit(String ruleId, long startMs, long endMs) {
+            listener.onCandidate(new AdAudioCandidate(
+                    context.sessionId(), context.generation(), ruleId, ruleVersion,
+                    startMs, endMs, true, 1.0d, id));
         }
 
         private void fail(ErrorCode code) {
