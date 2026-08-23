@@ -518,6 +518,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         return true;
     }
 
+    @Override
+    protected boolean customWallMotion() {
+        return false;
+    }
+
     public static void file(FragmentActivity activity, String path) {
         file(activity, path, "");
     }
