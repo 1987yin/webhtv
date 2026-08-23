@@ -60,6 +60,9 @@ public class HomeMenuDialogSourceTest {
         // 9 项按 3 列排布才能一屏显示完，单列会超出 maxHeight 需要滚动
         assertTrue(dialog.contains("app:spanCount=\"3\""));
         assertTrue(dialog.contains("GridLayoutManager"));
+        // 英文文案最长 13 字符，18sp 在窄列上会被 ellipsize 截断，需要自适应缩字兜底
+        assertTrue(adapter.contains("app:autoSizeTextType=\"uniform\""));
+        assertTrue(adapter.contains("xmlns:app="));
         String java = read("app/src/leanback/java/com/fongmi/android/tv/ui/dialog/HomeMenuDialog.java");
         // 间距的列数必须与 XML 的 spanCount 一致，否则条目宽度不均
         assertTrue(java.contains("GRID_COUNT = 3"));
