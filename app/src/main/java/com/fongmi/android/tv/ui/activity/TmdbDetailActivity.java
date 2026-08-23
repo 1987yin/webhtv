@@ -4205,12 +4205,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         int seasonNumber = currentSeasonSourceScope();
         if (item == null || !item.isTv() || item.getTmdbId() <= 0 || seasonNumber < 0) return;
         int generation = loadGeneration;
+        // 把当前站源和这次提交绑定，避免和后续换源写入的 intent 混用。
+        String currentKey = getKeyText();
         detailTasks.submit(() -> {
             List<SourceMatch> sources = findSeasonHistorySources(item, seasonNumber);
             runOnAliveUi(() -> {
                 if (generation != loadGeneration || routeGeneration != seasonSourceRouteGeneration || sources.isEmpty()) return;
+                Set<String> usedLabels = new HashSet<>();
                 for (SourceMatch source : sources) {
-                    MaterialButton button = createChipButton(source.site().getName());
+                    MaterialButton button = createChipButton(distinctChipLabel(seasonSourceRouteLabel(source, currentKey), usedLabels));
                     setChipState(button, false);
                     button.setNextFocusDownId(R.id.episodeReverse);
                     button.setOnKeyListener((view, keyCode, event) -> onDetailFlagKey(keyCode, event));
@@ -4219,6 +4222,31 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 }
             });
         });
+    }
+
+    /**
+     * 这些 chip 混在线路行里，但点下去是换源而不是切线路，所以文字必须自带来源语义。
+     * 同一站源的另一个入口（常见于按季拆条目）用条目名区分，避免和右侧“站源：X”重名。
+     */
+    private String seasonSourceRouteLabel(SourceMatch source, String currentKey) {
+        String siteName = source.site().getDisplayName();
+        if (!TextUtils.equals(source.site().getKey(), currentKey)) {
+            return getString(R.string.detail_source_route_chip, siteName);
+        }
+        String entryName = source.vod() == null ? "" : source.vod().getName();
+        if (TextUtils.isEmpty(entryName)) entryName = source.vod() == null ? "" : source.vod().getId();
+        return getString(R.string.detail_source_route_chip_entry, TextUtils.isEmpty(entryName) ? siteName : entryName);
+    }
+
+    /**
+     * 同站可能存在同名条目，重名的 chip 用户无法区分，只能盲点，所以追加序号。
+     */
+    private String distinctChipLabel(String label, Set<String> used) {
+        if (used.add(label)) return label;
+        for (int index = 2; ; index++) {
+            String candidate = label + " (" + index + ")";
+            if (used.add(candidate)) return candidate;
+        }
     }
 
     private void refreshSeasonSourceRoutes() {
