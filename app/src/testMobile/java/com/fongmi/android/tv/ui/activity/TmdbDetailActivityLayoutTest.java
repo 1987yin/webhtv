@@ -2390,9 +2390,9 @@ public class TmdbDetailActivityLayoutTest {
                         && !activity.contains("binding.episodeViewMode.setText(switchToList ? R.string.detail_episode_view_list : R.string.detail_episode_view_grid);")
                         && !activity.contains("binding.episodeFileName.setText(showScraped ? R.string.detail_episode_file_name_original : R.string.detail_episode_file_name_scraped);"));
 
-        assertIconOnlyEpisodeTool(layout, "episodeReverse", "ic_action_reverse", "detail_episode_reverse");
-        assertIconOnlyEpisodeTool(layout, "episodeFileName", "ic_action_rename", "detail_episode_file_name_scraped_action");
-        assertIconOnlyEpisodeTool(layout, "episodeViewMode", "ic_site_grid", "detail_episode_view_grid_action");
+        assertIconOnlyEpisodeTool(layout, "episodeReverse", "ic_action_sort_asc", "detail_episode_reverse");
+        assertIconOnlyEpisodeTool(layout, "episodeFileName", "ic_action_name_full", "detail_episode_file_name_scraped_action");
+        assertIconOnlyEpisodeTool(layout, "episodeViewMode", "ic_site_list", "detail_episode_view_grid_action");
     }
 
 
