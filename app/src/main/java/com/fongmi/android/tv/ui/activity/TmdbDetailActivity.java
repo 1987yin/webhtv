@@ -8545,7 +8545,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             }
         });
         adapter.setLight(lightTheme);
-        adapter.setActiveStrokeColor(0xFF2AA46B);
+        adapter.setActiveStrokeColor(0xFF2CC56F);
         adapter.setNativeEnhanced(true);
         recycler.setAdapter(adapter);
         LinearLayout.LayoutParams recyclerParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -8699,7 +8699,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         GradientDrawable background = new GradientDrawable();
         background.setCornerRadius(ResUtil.dp2px(4));
         background.setColor(focused ? colors.control : selected ? colors.chipActive : colors.chip);
-        background.setStroke(ResUtil.dp2px(focused ? 2 : CHIP_STROKE_DP), focused ? colors.accent : selected ? colors.accent : colors.line);
+        background.setStroke(ResUtil.dp2px(focused ? FOCUS_STROKE_DP : selected ? 2 : CHIP_STROKE_DP), focused ? FOCUS_STROKE : selected ? colors.accent : colors.line);
         button.setSelected(selected);
         button.setActivated(selected);
         button.setTextColor(colors.primary);
@@ -8880,13 +8880,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         GradientDrawable background = new GradientDrawable();
         background.setCornerRadius(ResUtil.dp2px(6));
         if (focused) {
-            background.setColor(lightTheme ? 0x1A2196F3 : 0x552196F3);
-            background.setStroke(ResUtil.dp2px(3), 0xFF0077FF);
+            background.setColor(lightTheme ? 0x1AFFD166 : 0x55FFD166);
+            background.setStroke(ResUtil.dp2px(FOCUS_STROKE_DP), FOCUS_STROKE);
             button.setTextColor(lightTheme ? colors.primary : 0xFFFFFFFF);
         } else if (selected) {
-            background.setColor(lightTheme ? 0x1F20B866 : 0x332196F3);
-            background.setStroke(ResUtil.dp2px(2), lightTheme ? colors.accent : 0xFF2196F3);
-            button.setTextColor(lightTheme ? colors.accent : 0xFF85C7FF);
+            background.setColor(lightTheme ? 0x1F20B866 : 0x332CC56F);
+            background.setStroke(ResUtil.dp2px(2), colors.accent);
+            button.setTextColor(colors.accent);
         } else {
             background.setColor(0x00000000);
             button.setTextColor(lightTheme ? colors.secondary : 0xFFC6D0D9);
@@ -8899,8 +8899,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         GradientDrawable background = new GradientDrawable();
         background.setCornerRadius(ResUtil.dp2px(6));
         if (focused) {
-            background.setColor(0x552196F3);
-            background.setStroke(ResUtil.dp2px(3), 0xFF0077FF);
+            background.setColor(0x55FFD166);
+            background.setStroke(ResUtil.dp2px(FOCUS_STROKE_DP), FOCUS_STROKE);
         } else {
             background.setColor(0x00000000);
         }
@@ -8943,8 +8943,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         int text = focused ? (lightTheme ? colors.primary : 0xFFFFFFFF) : colors.primary;
         button.setTextColor(text);
         button.setIconTint(ColorStateList.valueOf(text));
-        button.setBackgroundTintList(ColorStateList.valueOf(focused ? (lightTheme ? 0x1A2196F3 : 0x552196F3) : colors.control));
-        button.setStrokeColor(ColorStateList.valueOf(focused ? 0xFF0077FF : colors.lineStrong));
+        button.setBackgroundTintList(ColorStateList.valueOf(focused ? (lightTheme ? 0x1AFFD166 : 0x55FFD166) : colors.control));
+        button.setStrokeColor(ColorStateList.valueOf(focused ? FOCUS_STROKE : colors.lineStrong));
         button.setStrokeWidth(ResUtil.dp2px(focused ? 2 : 1));
     }
 
