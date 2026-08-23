@@ -8167,6 +8167,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     @Override
     public void onCompactEpisodeTitleChanged() {
+        // 设置面板改短显时也要同步「短显」高亮与铅笔图标，与 onShortDisplay() 对齐。
+        setShortDisplay();
         refreshEpisodeTitles();
     }
 
