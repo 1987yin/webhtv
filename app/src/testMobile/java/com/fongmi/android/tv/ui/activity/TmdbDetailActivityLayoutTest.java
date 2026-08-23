@@ -3071,6 +3071,32 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void seasonSourceRouteChipsAreDistinguishableFromRealFlags() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String bindRoutes = javaBlockAt(source, "private void bindSeasonSourceRoutes(");
+        String label = javaBlockAt(source, "private String seasonSourceRouteLabel(");
+
+        assertTrue("route chips must be labelled as source switches, not as playback lines",
+                label.contains("R.string.detail_source_route_chip"));
+        assertTrue("a same-site route must be named by its entry so it cannot read as the header source label",
+                label.contains("R.string.detail_source_route_chip_entry"));
+        assertTrue("route chip labels must honour the user's custom site name like the header does",
+                label.contains("getDisplayName()"));
+        assertFalse("route chip labels must not fall back to the raw site name",
+                label.contains("site().getName()"));
+        assertTrue("an entry with no usable name must still get a non-empty label",
+                label.contains("TextUtils.isEmpty(entryName)"));
+        assertFalse("a same-site route stays reachable in one click, so it must not be filtered out",
+                bindRoutes.contains("currentKey)) continue"));
+        assertTrue("duplicate entry names must not produce two identical chips",
+                bindRoutes.contains("distinctChipLabel("));
+        int capture = bindRoutes.indexOf("String currentKey = getKeyText();");
+        int submit = bindRoutes.indexOf("detailTasks.submit(");
+        assertTrue("the intent site key must be bound to this submission, not read back later",
+                capture >= 0 && submit > capture);
+    }
+
+    @Test
     public void initialStandaloneFlagLoadsSeasonBindingBeforeRoutesAndEpisodes() throws Exception {
         String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
         String bindFlags = source.substring(source.indexOf("private void bindFlags()"),
