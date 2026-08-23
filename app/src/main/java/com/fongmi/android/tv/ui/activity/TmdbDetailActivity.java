@@ -4973,18 +4973,21 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void updateEpisodeReverseButton() {
-        binding.episodeReverse.setIconResource(R.drawable.ic_action_reverse);
+        // 图标表达当前排序状态，描述表达点击后的动作。
+        binding.episodeReverse.setIconResource(episodeReverse ? R.drawable.ic_action_sort_desc : R.drawable.ic_action_sort_asc);
         binding.episodeReverse.setContentDescription(getString(episodeReverse ? R.string.detail_episode_forward : R.string.detail_episode_reverse));
     }
+
     private void updateEpisodeViewModeButton() {
-        boolean switchToList = episodeGridMode;
-        binding.episodeViewMode.setIconResource(switchToList ? R.drawable.ic_site_list : R.drawable.ic_site_grid);
-        binding.episodeViewMode.setContentDescription(getString(switchToList ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
+        // 图标表达当前视图状态，描述表达点击后的动作。
+        binding.episodeViewMode.setIconResource(episodeGridMode ? R.drawable.ic_site_grid : R.drawable.ic_site_list);
+        binding.episodeViewMode.setContentDescription(getString(episodeGridMode ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
     }
 
     private void updateEpisodeFileNameButton() {
+        // 图标表达当前标题状态，描述表达点击后的动作。
         boolean showScraped = Setting.getTmdbEpisodeShowScrapedName();
-        binding.episodeFileName.setIconResource(R.drawable.ic_action_rename);
+        binding.episodeFileName.setIconResource(showScraped ? R.drawable.ic_action_name_short : R.drawable.ic_action_name_full);
         binding.episodeFileName.setContentDescription(getString(showScraped ? R.string.detail_episode_file_name_original_action : R.string.detail_episode_file_name_scraped_action));
     }
 
@@ -8542,7 +8545,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             }
         });
         adapter.setLight(lightTheme);
-        adapter.setActiveStrokeColor(0xFF2AA46B);
+        adapter.setActiveStrokeColor(0xFF2CC56F);
         adapter.setNativeEnhanced(true);
         recycler.setAdapter(adapter);
         LinearLayout.LayoutParams recyclerParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -8696,7 +8699,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         GradientDrawable background = new GradientDrawable();
         background.setCornerRadius(ResUtil.dp2px(4));
         background.setColor(focused ? colors.control : selected ? colors.chipActive : colors.chip);
-        background.setStroke(ResUtil.dp2px(focused ? 2 : CHIP_STROKE_DP), focused ? colors.accent : selected ? colors.accent : colors.line);
+        background.setStroke(ResUtil.dp2px(focused ? FOCUS_STROKE_DP : selected ? 2 : CHIP_STROKE_DP), focused ? FOCUS_STROKE : selected ? colors.accent : colors.line);
         button.setSelected(selected);
         button.setActivated(selected);
         button.setTextColor(colors.primary);
@@ -8877,13 +8880,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         GradientDrawable background = new GradientDrawable();
         background.setCornerRadius(ResUtil.dp2px(6));
         if (focused) {
-            background.setColor(lightTheme ? 0x1A2196F3 : 0x552196F3);
-            background.setStroke(ResUtil.dp2px(3), 0xFF0077FF);
+            background.setColor(lightTheme ? 0x1AFFD166 : 0x55FFD166);
+            background.setStroke(ResUtil.dp2px(FOCUS_STROKE_DP), FOCUS_STROKE);
             button.setTextColor(lightTheme ? colors.primary : 0xFFFFFFFF);
         } else if (selected) {
-            background.setColor(lightTheme ? 0x1F20B866 : 0x332196F3);
-            background.setStroke(ResUtil.dp2px(2), lightTheme ? colors.accent : 0xFF2196F3);
-            button.setTextColor(lightTheme ? colors.accent : 0xFF85C7FF);
+            background.setColor(lightTheme ? 0x1F20B866 : 0x332CC56F);
+            background.setStroke(ResUtil.dp2px(2), colors.accent);
+            button.setTextColor(colors.accent);
         } else {
             background.setColor(0x00000000);
             button.setTextColor(lightTheme ? colors.secondary : 0xFFC6D0D9);
@@ -8896,8 +8899,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         GradientDrawable background = new GradientDrawable();
         background.setCornerRadius(ResUtil.dp2px(6));
         if (focused) {
-            background.setColor(0x552196F3);
-            background.setStroke(ResUtil.dp2px(3), 0xFF0077FF);
+            background.setColor(0x55FFD166);
+            background.setStroke(ResUtil.dp2px(FOCUS_STROKE_DP), FOCUS_STROKE);
         } else {
             background.setColor(0x00000000);
         }
@@ -8928,10 +8931,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void updateInlineEpisodeModeButton(MaterialButton button) {
-        boolean switchToList = inlineEpisodeGridMode;
-        button.setText(switchToList ? R.string.detail_episode_view_list : R.string.detail_episode_view_grid);
-        button.setIconResource(switchToList ? R.drawable.ic_site_list : R.drawable.ic_site_grid);
-        button.setContentDescription(getString(switchToList ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
+        // 文字与图标表达当前视图状态，描述表达点击后的动作。
+        button.setText(inlineEpisodeGridMode ? R.string.detail_episode_view_grid : R.string.detail_episode_view_list);
+        button.setIconResource(inlineEpisodeGridMode ? R.drawable.ic_site_grid : R.drawable.ic_site_list);
+        button.setContentDescription(getString(inlineEpisodeGridMode ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
         applyInlineEpisodeModeButtonState(button, button.hasFocus());
     }
 
@@ -8940,15 +8943,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         int text = focused ? (lightTheme ? colors.primary : 0xFFFFFFFF) : colors.primary;
         button.setTextColor(text);
         button.setIconTint(ColorStateList.valueOf(text));
-        button.setBackgroundTintList(ColorStateList.valueOf(focused ? (lightTheme ? 0x1A2196F3 : 0x552196F3) : colors.control));
-        button.setStrokeColor(ColorStateList.valueOf(focused ? 0xFF0077FF : colors.lineStrong));
+        button.setBackgroundTintList(ColorStateList.valueOf(focused ? (lightTheme ? 0x1AFFD166 : 0x55FFD166) : colors.control));
+        button.setStrokeColor(ColorStateList.valueOf(focused ? FOCUS_STROKE : colors.lineStrong));
         button.setStrokeWidth(ResUtil.dp2px(focused ? 2 : 1));
     }
 
     private void updateInlineEpisodeModeIcon(ImageView icon) {
-        boolean switchToList = inlineEpisodeGridMode;
-        icon.setImageResource(switchToList ? R.drawable.ic_site_list : R.drawable.ic_site_grid);
-        icon.setContentDescription(getString(switchToList ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
+        // 图标表达当前视图状态，描述表达点击后的动作。
+        icon.setImageResource(inlineEpisodeGridMode ? R.drawable.ic_site_grid : R.drawable.ic_site_list);
+        icon.setContentDescription(getString(inlineEpisodeGridMode ? R.string.detail_episode_view_list_action : R.string.detail_episode_view_grid_action));
         icon.setColorFilter(0xFFEAF2F8);
     }
 

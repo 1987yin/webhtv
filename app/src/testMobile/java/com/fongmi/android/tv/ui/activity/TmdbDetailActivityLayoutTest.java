@@ -1621,7 +1621,7 @@ public class TmdbDetailActivityLayoutTest {
                         && activity.contains("button.setMinWidth(ResUtil.dp2px(64));")
                         && activity.contains("ThemeColors colors = currentThemeColors();")
                         && activity.contains("background.setColor(focused ? colors.control : selected ? colors.chipActive : colors.chip);")
-                        && activity.contains("background.setStroke(ResUtil.dp2px(focused ? 2 : CHIP_STROKE_DP), focused ? colors.accent : selected ? colors.accent : colors.line);")
+                        && activity.contains("background.setStroke(ResUtil.dp2px(focused ? FOCUS_STROKE_DP : selected ? 2 : CHIP_STROKE_DP), focused ? FOCUS_STROKE : selected ? colors.accent : colors.line);")
                         && activity.contains("button.setTextColor(colors.primary);")
                         && activity.contains("button.setBackground(background);")
                         && activity.contains("button.setActivated(selected);")
@@ -2390,9 +2390,9 @@ public class TmdbDetailActivityLayoutTest {
                         && !activity.contains("binding.episodeViewMode.setText(switchToList ? R.string.detail_episode_view_list : R.string.detail_episode_view_grid);")
                         && !activity.contains("binding.episodeFileName.setText(showScraped ? R.string.detail_episode_file_name_original : R.string.detail_episode_file_name_scraped);"));
 
-        assertIconOnlyEpisodeTool(layout, "episodeReverse", "ic_action_reverse", "detail_episode_reverse");
-        assertIconOnlyEpisodeTool(layout, "episodeFileName", "ic_action_rename", "detail_episode_file_name_scraped_action");
-        assertIconOnlyEpisodeTool(layout, "episodeViewMode", "ic_site_grid", "detail_episode_view_grid_action");
+        assertIconOnlyEpisodeTool(layout, "episodeReverse", "ic_action_sort_asc", "detail_episode_reverse");
+        assertIconOnlyEpisodeTool(layout, "episodeFileName", "ic_action_name_full", "detail_episode_file_name_scraped_action");
+        assertIconOnlyEpisodeTool(layout, "episodeViewMode", "ic_site_list", "detail_episode_view_grid_action");
     }
 
 
