@@ -24,6 +24,7 @@ import androidx.leanback.widget.ArrayObjectAdapter;
 import androidx.leanback.widget.HorizontalGridView;
 import androidx.leanback.widget.ItemBridgeAdapter;
 import androidx.appcompat.widget.LinearLayoutCompat;
+import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.leanback.widget.OnChildViewHolderSelectedListener;
 import androidx.leanback.widget.VerticalGridView;
@@ -4769,6 +4770,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     protected void onPlayerRebuilt() {
         setPlayerKernel();
         setDecode();
+        refreshControlDialog();
+    }
+
+    // 设置弹窗自己不会跟着引擎重建刷新，回退期间开着弹窗就会一直显示旧的内核/解码。
+    private void refreshControlDialog() {
+        for (Fragment fragment : getSupportFragmentManager().getFragments()) {
+            if (fragment instanceof ControlDialog dialog) dialog.setPlayer();
+        }
     }
 
     @Override
@@ -4776,11 +4785,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         refreshLyrics();
         setTrackVisible();
         mClock.setCallback(this);
+        // 轨道要等新引擎 prepare 完才回来，重建那一刻按钮还是隐藏态，弹窗必须在这里再抄一次。
+        refreshControlDialog();
     }
 
     @Override
     protected void onTitlesChanged() {
         setTitleVisible();
+        refreshControlDialog();
     }
 
     @Override
