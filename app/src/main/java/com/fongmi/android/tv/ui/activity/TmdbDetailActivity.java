@@ -152,6 +152,7 @@ import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.ChoiceDialog;
 import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
+import com.fongmi.android.tv.ui.novel.NovelRouter;
 import com.fongmi.android.tv.ui.helper.DetailThemeVisibility;
 import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
 import com.fongmi.android.tv.ui.helper.EpisodeSeasonPolicy;
@@ -6757,6 +6758,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         playInline(C.TIME_UNSET, "", "");
     }
 
+    @Override
+    protected Vod getReaderVod() {
+        // TV 内联播放路径把当前 Vod（含章节列表）交给阅读器路由
+        return vod;
+    }
+
     private void playInline(long resumePosition, String failedUrl, String failureMessage) {
         if (selectedFlag == null || selectedEpisode == null) return;
         inlinePlaybackLoading = true;
@@ -6818,6 +6825,19 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void startInlinePlayer(Result result, long resumePosition) {
+        // 决定性拦截：play_url 协议为 novel:// / pics:// / manga:// → 直启阅读器，不再喂给内联 player
+        // （选集 / quality 切换 / 重连 / resume 全走此汇聚点。）
+        if (NovelRouter.guardInlinePlay(this, result,
+                getKeyText(),
+                selectedFlag == null ? "" : selectedFlag.getFlag(),
+                vod == null ? "" : vod.getId(),
+                vod == null ? "" : vod.getName(),
+                vod == null ? "" : vod.getPic(),
+                selectedEpisode,
+                selectedFlag == null ? null : selectedFlag.getEpisodes())) {
+            stopInlinePlayerForReload();
+            return;
+        }
         currentInlineResult = result;
         useParse = result.shouldUseParse();
         if (result.hasPosition() && history != null) history.setPosition(result.getPosition());
@@ -9087,6 +9107,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void selectInlineEpisode(Episode episode) {
+        if (NovelRouter.route(this, getKeyText(), episode, vod, selectedFlag, () -> inlinePlay(episode))) return;
+        inlinePlay(episode);
+    }
+
+    private void inlinePlay(Episode episode) {
         if (isSamePendingInlinePlayback(episode)) return;
         cancelPendingInlinePlayback();
         playbackSelectionTouched = true;
