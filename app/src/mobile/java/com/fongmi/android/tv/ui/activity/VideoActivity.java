@@ -1793,9 +1793,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         }
         // 双重策略:View 覆盖层(压 TextureView) + 窗口亮度上限(压 SurfaceView)
         mNightModeOverlay.setBackgroundColor((alpha << 24) | 0x000000);
-        WindowManager.LayoutParams lp = getWindow().getAttributes();
-        lp.screenBrightness = maxBrightness;
-        getWindow().setAttributes(lp);
+        // 上限交给手势控制器与用户亮度合并，避免直接覆写窗口亮度吞掉手势设定
+        if (mKeyDown != null) mKeyDown.setBrightLimit(maxBrightness);
         // 更新按钮图标
         mBinding.control.nightMode.setImageResource(iconRes);
     }
