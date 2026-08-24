@@ -40,4 +40,6 @@ plans/
 .tokensave
 .codebase-memory
 graphify-out/
+.codex/task-state/
+
 参考/*
