@@ -32,11 +32,13 @@ public class FlagPreferenceCache {
     private static final String CACHE_FILE_NAME = "flag_preferences.json";
     private static final int MAX_ENTRIES = 500;
     private static final long EXPIRE_TIME = 90L * 24 * 60 * 60 * 1000; // 90天过期
+    private static final long RENEW_INTERVAL = 24L * 60 * 60 * 1000; // 同一选择每天最多续期一次
 
     private final Map<String, FlagPreference> cache;
     private final Gson gson;
     private final File cacheFile;
-    private boolean dirty = false;
+    // UI 线程写、Task.execute 的后台线程读，必须 volatile 才能保证写盘不被漏掉。
+    private volatile boolean dirty = false;
 
     private static class Loader {
         static volatile FlagPreferenceCache INSTANCE = new FlagPreferenceCache();
@@ -76,7 +78,14 @@ public class FlagPreferenceCache {
         }
 
         public boolean isExpired() {
+            // gson 反序列化不走构造函数，缺字段/损坏数据的 timestamp 会是 0。
+            // 直接判过期会让这条偏好永久失效，按「刚写入」处理，下次 put 自会续期。
+            if (timestamp <= 0) return false;
             return System.currentTimeMillis() - timestamp > EXPIRE_TIME;
+        }
+
+        boolean isUsable() {
+            return !getStableKey().isEmpty() || !getFlagName().isEmpty();
         }
 
         public String getStableKey() {
@@ -110,13 +119,16 @@ public class FlagPreferenceCache {
         if (TextUtils.isEmpty(stableKey) && TextUtils.isEmpty(flagName)) return;
         String key = buildKey(siteKey, vodId);
         FlagPreference existing = cache.get(key);
-        // 播放路径每次换集都会重申当前线路，选择没变就不必反复落盘。
         boolean changed = existing == null
                 || !TextUtils.equals(existing.getStableKey(), stableKey == null ? "" : stableKey)
                 || !TextUtils.equals(existing.getFlagName(), flagName == null ? "" : flagName);
-        cache.put(key, new FlagPreference(stableKey, flagName));
-        if (!changed) return;
-        dirty = true;
+        // 选择没变也要续期：起播路径每次换集都会重申当前线路，只刷内存不落盘的话，
+        // 磁盘上的 timestamp 会一直停在首次选择的时刻，长期只用同一条线路的用户
+        // 反而会在 90 天后被判过期。RENEW_INTERVAL 之内不重复写盘，避免频繁 IO。
+        FlagPreference updated = new FlagPreference(stableKey, flagName);
+        boolean stale = existing == null || updated.timestamp - existing.timestamp >= RENEW_INTERVAL;
+        cache.put(key, updated);
+        if (changed || stale) dirty = true;
         if (cache.size() > MAX_ENTRIES) removeOldest();
     }
 
@@ -128,7 +140,7 @@ public class FlagPreferenceCache {
         String key = buildKey(siteKey, vodId);
         FlagPreference preference = cache.get(key);
         if (preference == null) return null;
-        if (preference.isExpired()) {
+        if (preference.isExpired() || !preference.isUsable()) {
             cache.remove(key);
             dirty = true;
             return null;
@@ -155,15 +167,27 @@ public class FlagPreferenceCache {
 
     public synchronized void save() {
         if (!dirty) return;
+        // 先清 dirty 再快照：期间若有新的 put，它会重新置上 dirty，
+        // 下一次 save 仍会落盘。反过来（写完再清）会把并发 put 的置位擦掉，丢写。
+        dirty = false;
+        File temp = null;
         try {
             cache.entrySet().removeIf(entry -> entry.getValue().isExpired());
-            File file = cacheFile;
-            if (file.getParentFile() != null) file.getParentFile().mkdirs();
-            try (FileWriter writer = new FileWriter(file)) {
-                gson.toJson(new HashMap<>(cache), writer);
-                dirty = false;
+            Map<String, FlagPreference> snapshot = new HashMap<>(cache);
+            if (cacheFile.getParentFile() != null) cacheFile.getParentFile().mkdirs();
+            // 先写临时文件再替换：直写目标文件时若中途失败（磁盘满、进程被杀），
+            // 会在磁盘上留下被截断的半个 JSON，下次 load 整份偏好都解析不出来。
+            temp = new File(cacheFile.getPath() + ".tmp");
+            try (FileWriter writer = new FileWriter(temp)) {
+                gson.toJson(snapshot, writer);
+            }
+            if (!temp.renameTo(cacheFile)) {
+                if (!cacheFile.delete() || !temp.renameTo(cacheFile)) throw new IOException("rename failed");
             }
         } catch (IOException | RuntimeException e) {
+            // 写盘失败要把 dirty 还回去，否则这次选择再也不会被重试落盘。
+            dirty = true;
+            if (temp != null && temp.exists()) temp.delete();
             e.printStackTrace();
         }
     }
@@ -176,10 +200,12 @@ public class FlagPreferenceCache {
                         new TypeToken<Map<String, FlagPreference>>() {}.getType());
                 if (loaded == null) return;
                 cache.clear();
+                // 两个字段都空的条目匹配不到任何线路，留着只会挡住后续写入的有效偏好。
                 loaded.forEach((key, value) -> {
-                    if (key != null && value != null) cache.put(key, value);
+                    if (key == null || key.isEmpty() || value == null) return;
+                    if (!value.isUsable() || value.isExpired()) return;
+                    cache.put(key, value);
                 });
-                cache.entrySet().removeIf(entry -> entry.getValue().isExpired());
             }
         } catch (Exception e) {
             e.printStackTrace();
