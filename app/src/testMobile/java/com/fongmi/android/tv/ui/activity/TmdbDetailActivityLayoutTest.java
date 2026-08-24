@@ -3167,6 +3167,49 @@ public class TmdbDetailActivityLayoutTest {
                 clear.contains("vod.getFlags()"));
     }
 
+    @Test
+    public void explicitFlagSelectionPersistsIndependentlyOfPlaybackProgress() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String initial = javaBlockAt(source, "private Flag findInitialFlag(");
+        String preferred = javaBlockAt(source, "private Flag findPreferredFlag(");
+        String save = javaBlockAt(source, "private void savePreferredFlag(");
+        String bindFlags = javaBlockAt(source, "private void bindFlags(");
+        String switchInline = javaBlockAt(source, "private void switchNativeEnhancedInlineFlag(");
+        String updateHistory = javaBlockAt(source, "private void updateInlineHistory(");
+
+        // 线路偏好必须独立落盘：History.vodFlag 只在起播且 position>0 时才写，
+        // 详情直放模式下「切了线路没起播」或「从播放器返回后再切」都写不进去，
+        // 进程被杀后重进就会退回 flags.get(0)。
+        assertTrue("explicit flag taps must persist the selection without waiting for playback",
+                bindFlags.contains("savePreferredFlag(flag)"));
+        assertTrue("native enhanced inline flag switches must persist the selection too",
+                switchInline.contains("savePreferredFlag(flag)"));
+        assertTrue("starting playback must refresh the preference so cross-line resume cannot leave it stale",
+                updateHistory.contains("savePreferredFlag(selectedFlag)"));
+
+        assertTrue("the persisted preference must be consulted when resolving the initial flag",
+                initial.contains("findPreferredFlag(flags)"));
+        assertTrue("season preload must resolve the flag the same way or it prefetches the wrong season",
+                javaBlockAt(source, "private Flag initialStandaloneFlag(").contains("findPreferredFlag(flags)"));
+        assertTrue("an explicit intent target must still outrank the stored preference",
+                initial.indexOf("TmdbUIAdapter.selectPlaybackFlag(") < initial.indexOf("findPreferredFlag("));
+        assertTrue("the stored preference must outrank the history fallback and the flags.get(0) default",
+                initial.indexOf("findPreferredFlag(") < initial.indexOf("history.getSourceBindingKey()")
+                        && initial.indexOf("findPreferredFlag(") < initial.indexOf("flags.get(0)"));
+
+        assertTrue("preference lookup must key off the stable flag key to separate same-named lines",
+                preferred.contains("TmdbUIAdapter.flagKey(flags.get(i), i)"));
+        assertTrue("preference lookup must degrade to the flag name when source ordering shifts",
+                preferred.indexOf("TmdbUIAdapter.flagKey(flags.get(i), i)")
+                        < preferred.indexOf("flag.getFlag()"));
+        assertTrue("writes must record both the stable key and the flag name",
+                save.contains("TmdbUIAdapter.flagKey(flag, index)") && save.contains("flag.getFlag()"));
+        assertTrue("an unknown flag index must not be written as a stable key, Flag.stableKey clamps it to #0",
+                save.contains("index < 0 ? \"\" : TmdbUIAdapter.flagKey(flag, index)"));
+        assertTrue("the preference file must be flushed off the main thread",
+                save.contains("Task.execute(() -> FlagPreferenceCache.get().save())"));
+    }
+
     private static Path findMainJavaPath() {
         Path moduleRelative = Path.of("src", "main", "java");
         if (Files.exists(moduleRelative)) return moduleRelative;
