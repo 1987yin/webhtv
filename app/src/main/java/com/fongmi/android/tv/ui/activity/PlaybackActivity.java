@@ -249,6 +249,11 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     protected void onPlayerRebuilt() {
     }
 
+    protected void onExoFirstFrame() {
+        View progress = getExoView().getRootView().findViewById(R.id.progress);
+        if (progress != null) progress.setVisibility(View.GONE);
+    }
+
     protected void onTracksChanged() {
     }
 
@@ -836,6 +841,15 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             if (!isOwner()) return;
             nativeOutputPending = false;
             syncShutter();
+        }
+
+        @Override
+        public void onExoFirstFrame() {
+            if (!isOwner() || !player().isExo()) return;
+            View shutter = getExoView().findViewById(androidx.media3.ui.R.id.exo_shutter);
+            if (shutter != null) shutter.setVisibility(View.INVISIBLE);
+            getExoView().setShutterBackgroundColor(Color.TRANSPARENT);
+            PlaybackActivity.this.onExoFirstFrame();
         }
 
         @Override
