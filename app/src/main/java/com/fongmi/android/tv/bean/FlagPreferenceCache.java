@@ -129,7 +129,7 @@ public class FlagPreferenceCache {
         boolean stale = existing == null || updated.timestamp - existing.timestamp >= RENEW_INTERVAL;
         cache.put(key, updated);
         if (changed || stale) dirty = true;
-        if (cache.size() > MAX_ENTRIES) removeOldest();
+        trimToCapacity();
     }
 
     /**
@@ -153,16 +153,23 @@ public class FlagPreferenceCache {
         if (cache.remove(buildKey(siteKey, vodId)) != null) dirty = true;
     }
 
-    private void removeOldest() {
-        String oldest = null;
-        long oldestTime = Long.MAX_VALUE;
-        for (Map.Entry<String, FlagPreference> entry : cache.entrySet()) {
-            if (entry.getValue().timestamp < oldestTime) {
-                oldestTime = entry.getValue().timestamp;
-                oldest = entry.getKey();
+    /**
+     * 淘汰到容量上限以内。淘汰要置 dirty：否则遇到已经超容的旧文件时，
+     * 内存里减下去了但不落盘，下次打开又是超容状态，永远收敛不了。
+     */
+    private void trimToCapacity() {
+        while (cache.size() > MAX_ENTRIES) {
+            String oldest = null;
+            long oldestTime = Long.MAX_VALUE;
+            for (Map.Entry<String, FlagPreference> entry : cache.entrySet()) {
+                if (entry.getValue().timestamp < oldestTime) {
+                    oldestTime = entry.getValue().timestamp;
+                    oldest = entry.getKey();
+                }
             }
+            if (oldest == null || cache.remove(oldest) == null) return;
+            dirty = true;
         }
-        if (oldest != null) cache.remove(oldest);
     }
 
     public synchronized void save() {
@@ -181,8 +188,17 @@ public class FlagPreferenceCache {
             try (FileWriter writer = new FileWriter(temp)) {
                 gson.toJson(snapshot, writer);
             }
+            // Android 上 renameTo 是原子替换，一次就成。Windows 等平台目标已存在时会失败，
+            // 需要先移走旧文件——但要留着它直到新文件就位，否则重试再失败就两份都没了。
             if (!temp.renameTo(cacheFile)) {
-                if (!cacheFile.delete() || !temp.renameTo(cacheFile)) throw new IOException("rename failed");
+                File backup = new File(cacheFile.getPath() + ".bak");
+                if (backup.exists()) backup.delete();
+                boolean moved = !cacheFile.exists() || cacheFile.renameTo(backup);
+                if (!moved || !temp.renameTo(cacheFile)) {
+                    if (backup.exists() && !cacheFile.exists()) backup.renameTo(cacheFile);
+                    throw new IOException("rename failed");
+                }
+                backup.delete();
             }
         } catch (IOException | RuntimeException e) {
             // 写盘失败要把 dirty 还回去，否则这次选择再也不会被重试落盘。
@@ -206,6 +222,8 @@ public class FlagPreferenceCache {
                     if (!value.isUsable() || value.isExpired()) return;
                     cache.put(key, value);
                 });
+                // 收口已经超容的旧文件。启动不主动写盘，dirty 交给下一次 put 带出去。
+                trimToCapacity();
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -216,6 +234,8 @@ public class FlagPreferenceCache {
         cache.clear();
         dirty = false;
         if (cacheFile.exists()) cacheFile.delete();
+        File temp = new File(cacheFile.getPath() + ".tmp");
+        if (temp.exists()) temp.delete();
     }
 
     int size() {

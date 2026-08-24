@@ -122,9 +122,100 @@ public class FlagPreferenceCacheTest {
         reopened.put("site", "vod", "线路一#0", "线路一");
         reopened.save();
 
+        // 只能倒退到 EXPIRE_TIME 以内：一旦磁盘 timestamp 越过过期窗口，
+        // load() 会先把它丢掉，任何 put 都来不及续期。
         assertTrue("重申同一选择必须续期落盘，否则偏好会在过期窗口后失效",
-                readTimestamp() > firstWrite - 60L * 24 * 60 * 60 * 1000);
-        assertNotNull(new FlagPreferenceCache(cacheFile).get("site", "vod"));
+                readTimestamp() >= firstWrite);
+    }
+
+    /**
+     * 与上一条互补：一天内重申同一选择不该反复写盘。
+     */
+    @Test
+    public void reaffirmingWithinTheRenewIntervalDoesNotRewrite() throws Exception {
+        FlagPreferenceCache cache = new FlagPreferenceCache(cacheFile);
+        cache.put("site", "vod", "线路一#0", "线路一");
+        cache.save();
+
+        long firstWrite = readTimestamp();
+        cache.put("site", "vod", "线路一#0", "线路一");
+        cache.save();
+
+        assertEquals("一天内重申同一选择不该重复写盘", firstWrite, readTimestamp());
+    }
+
+    /**
+     * 已经超容的旧文件必须收敛。淘汰若不置 dirty，内存减下去了但不落盘，
+     * 下次打开又是超容状态。
+     */
+    @Test
+    public void overCapacityFileConvergesAndPersists() throws Exception {
+        StringBuilder json = new StringBuilder("{");
+        long now = System.currentTimeMillis();
+        for (int i = 0; i < 520; i++) {
+            if (i > 0) json.append(',');
+            json.append("\"site|vod-").append(i).append("\":{\"stableKey\":\"线路#0\",")
+                    .append("\"flagName\":\"线路\",\"timestamp\":").append(now - i).append('}');
+        }
+        Files.write(cacheFile.toPath(), json.append('}').toString().getBytes(StandardCharsets.UTF_8));
+
+        FlagPreferenceCache cache = new FlagPreferenceCache(cacheFile);
+        assertTrue("载入时就该收口到容量上限内", cache.size() <= 500);
+
+        // 故意用「已存在且一天内」的选择：这条路径 changed 和 stale 都是 false，
+        // 不会自己置 dirty，只有淘汰本身置了 dirty 才会落盘。
+        FlagPreferenceCache.FlagPreference survivor = cache.get("site", "vod-0");
+        assertNotNull("最新的条目应当留在容量内", survivor);
+        cache.put("site", "vod-0", survivor.getStableKey(), survivor.getFlagName());
+        cache.save();
+
+        // 必须查磁盘上的真实条目数：load() 每次都会收口，
+        // 断言重新载入后的 size() 恒为 500，看不出到底有没有落盘。
+        assertEquals("收口结果必须落盘，否则下次打开又要重新淘汰", 500, countPersistedEntries());
+    }
+
+    /**
+     * 索引未知时 savePreferredFlag 会故意只存线路名，这条路径必须放行。
+     */
+    @Test
+    public void flagNameOnlyPreferenceIsAccepted() {
+        FlagPreferenceCache cache = new FlagPreferenceCache(cacheFile);
+        cache.put("site", "vod", "", "夸克原画#0101");
+        cache.save();
+
+        FlagPreferenceCache.FlagPreference preference =
+                new FlagPreferenceCache(cacheFile).get("site", "vod");
+
+        assertNotNull("只有线路名的偏好也要能存能取", preference);
+        assertEquals("", preference.getStableKey());
+        assertEquals("夸克原画#0101", preference.getFlagName());
+    }
+
+    @Test
+    public void removeIsPersistedNotOnlyInMemory() {
+        FlagPreferenceCache cache = new FlagPreferenceCache(cacheFile);
+        cache.put("site", "vod", "线路一#0", "线路一");
+        cache.save();
+
+        cache.remove("site", "vod");
+        cache.save();
+
+        assertNull("删除必须落盘", new FlagPreferenceCache(cacheFile).get("site", "vod"));
+    }
+
+    @Test
+    public void clearRemovesBothTheCacheFileAndAnyTemporaryFile() throws Exception {
+        FlagPreferenceCache cache = new FlagPreferenceCache(cacheFile);
+        cache.put("site", "vod", "线路一#0", "线路一");
+        cache.save();
+        File temp = new File(cacheFile.getPath() + ".tmp");
+        Files.write(temp.toPath(), "{}".getBytes(StandardCharsets.UTF_8));
+
+        cache.clear();
+
+        assertTrue(!cacheFile.exists());
+        assertTrue("残留的临时文件也要清掉", !temp.exists());
+        assertNull(cache.get("site", "vod"));
     }
 
     /**
@@ -197,6 +288,14 @@ public class FlagPreferenceCacheTest {
         writeTimestamp(System.currentTimeMillis() - 200L * 24 * 60 * 60 * 1000);
 
         assertNull(new FlagPreferenceCache(cacheFile).get("site", "vod"));
+    }
+
+    private int countPersistedEntries() throws Exception {
+        String content = new String(Files.readAllBytes(cacheFile.toPath()), StandardCharsets.UTF_8);
+        Matcher matcher = Pattern.compile("\"site\\|vod-\\d+\"").matcher(content);
+        int count = 0;
+        while (matcher.find()) count++;
+        return count;
     }
 
     private long readTimestamp() throws Exception {
