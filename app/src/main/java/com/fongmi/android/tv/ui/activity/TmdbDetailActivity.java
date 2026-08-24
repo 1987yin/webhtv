@@ -74,6 +74,7 @@ import com.fongmi.android.tv.bean.Danmaku;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.EpisodePositionCache;
 import com.fongmi.android.tv.bean.Flag;
+import com.fongmi.android.tv.bean.FlagPreferenceCache;
 import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.bean.Keep;
 import com.fongmi.android.tv.bean.Parse;
@@ -2349,6 +2350,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         Flag requested = TmdbUIAdapter.selectPlaybackFlag(
                 flags, requestedFlagKey, requestedEpisodeUrl, requestedFlag);
         if (requested != null) return requested;
+        // 与 findInitialFlag 保持同一优先级，否则季度预取会按另一条线路取季，
+        // 详情绑定完成后又要重新加载。
+        Flag preferred = findPreferredFlag(flags);
+        if (preferred != null) return preferred;
         History saved = null;
         try {
             saved = isResumeFromHistory() ? getIntentResumeHistory() : null;
@@ -4222,6 +4227,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 cancelPendingInlinePlayback();
                 playbackSelectionTouched = true;
                 selectedFlag = flag;
+                savePreferredFlag(flag);
                 loadTmdbSeasonBinding();
                 selectedEpisode = null;
                 selectedSeasonNumber = -1;
@@ -8804,6 +8810,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         cancelPendingInlinePlayback();
         playbackSelectionTouched = true;
         selectedFlag = flag;
+        savePreferredFlag(flag);
         loadTmdbSeasonBinding();
         selectedEpisode = null;
         selectedSeasonNumber = -1;
@@ -10583,6 +10590,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         history.setVodName(playbackHistoryName());
         history.setVodFlag(selectedFlag.getFlag());
         history.setSourceBindingKey(selectedSeasonFlagKey());
+        // 起播时同步偏好，避免从历史列表跨线路续播后偏好仍指向旧线路。
+        savePreferredFlag(selectedFlag);
         history.setVodRemarks(historyEpisodeTitle(item));
         history.setEpisodeUrl(item.getUrl());
         setHistoryTmdbEpisodePosition(history, item);
@@ -11755,9 +11764,49 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         Flag requested = TmdbUIAdapter.selectPlaybackFlag(
                 flags, requestedFlagKey, requestedEpisodeUrl, requestedFlag);
         if (requested != null) return requested;
+        // 用户在详情页显式切过的线路优先于历史记录：History.vodFlag 只在起播且有进度时才写，
+        // 「切了线路没起播」或「从播放器返回后再切」都落不到库里，重进就会退回第一条线路。
+        Flag preferred = findPreferredFlag(flags);
+        if (preferred != null) return preferred;
         Flag selected = history == null ? null : TmdbUIAdapter.selectPlaybackFlag(
                 flags, history.getSourceBindingKey(), history.getEpisodeUrl(), history.getVodFlag());
         return selected == null ? flags.get(0) : selected;
+    }
+
+    /**
+     * 读取独立落盘的线路偏好。稳定键（线路名#索引）优先，避免同名线路串号；
+     * 源站线路顺序变化后稳定键失效，退化用线路名匹配。
+     */
+    private Flag findPreferredFlag(List<Flag> flags) {
+        FlagPreferenceCache.FlagPreference preference =
+                FlagPreferenceCache.get().get(getKeyText(), getIdText());
+        if (preference == null) return null;
+        // 稳定键精确命中同名线路中的某一条。
+        String stableKey = preference.getStableKey();
+        if (!TextUtils.isEmpty(stableKey)) {
+            for (int i = 0; i < flags.size(); i++) {
+                if (TextUtils.equals(stableKey, TmdbUIAdapter.flagKey(flags.get(i), i))) return flags.get(i);
+            }
+        }
+        // 源站线路增删导致索引漂移时退化用线路名匹配。
+        String flagName = preference.getFlagName();
+        if (TextUtils.isEmpty(flagName)) return null;
+        for (Flag flag : flags) {
+            if (flag != null && TextUtils.equals(flagName, flag.getFlag())) return flag;
+        }
+        return null;
+    }
+
+    /**
+     * 记录用户显式选中的线路。不依赖播放状态，切一下就落盘。
+     */
+    private void savePreferredFlag(Flag flag) {
+        if (flag == null) return;
+        int index = TmdbUIAdapter.flagIndex(vod == null ? null : vod.getFlags(), flag);
+        // 索引未知时不写稳定键：Flag.stableKey 会把 -1 夹成 0，留下一个会命中首条线路的假键。
+        String stableKey = index < 0 ? "" : TmdbUIAdapter.flagKey(flag, index);
+        FlagPreferenceCache.get().put(getKeyText(), getIdText(), stableKey, flag.getFlag());
+        Task.execute(() -> FlagPreferenceCache.get().save());
     }
 
     private Episode findIntentPlaybackEpisode(Flag flag) {
