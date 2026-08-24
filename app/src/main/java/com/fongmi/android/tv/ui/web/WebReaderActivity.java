@@ -63,13 +63,30 @@ public class WebReaderActivity extends AppCompatActivity {
      */
     private static final java.util.concurrent.ConcurrentHashMap<String, ArrayList<Episode>> CHAPTER_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.concurrent.ConcurrentHashMap<String, String> PAYLOAD_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+    /** 缓存条目创建时间，用于清理「startActivity 没走到 onCreate」而残留的条目。 */
+    private static final java.util.concurrent.ConcurrentHashMap<String, Long> CACHE_TIME = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long CACHE_TTL_MS = 10 * 60 * 1000L;
 
     /** 把大数据存入缓存并返回 key，供 Intent 携带。 */
     public static String cacheLargeData(String payload, List<Episode> chapters) {
+        evictStaleCache();
         String key = "reader_" + System.nanoTime();
         if (payload != null) PAYLOAD_CACHE.put(key, payload);
         if (chapters != null) CHAPTER_CACHE.put(key, new ArrayList<>(chapters));
+        CACHE_TIME.put(key, System.currentTimeMillis());
         return key;
+    }
+
+    /** 清理超过 TTL 的缓存：阅读器未真正启动时没人来取，否则会留到进程结束。 */
+    private static void evictStaleCache() {
+        long now = System.currentTimeMillis();
+        for (java.util.Map.Entry<String, Long> e : CACHE_TIME.entrySet()) {
+            if (now - e.getValue() <= CACHE_TTL_MS) continue;
+            String k = e.getKey();
+            CACHE_TIME.remove(k);
+            PAYLOAD_CACHE.remove(k);
+            CHAPTER_CACHE.remove(k);
+        }
     }
 
     private static final okhttp3.OkHttpClient IMAGE_CLIENT = new okhttp3.OkHttpClient.Builder()
@@ -80,14 +97,42 @@ public class WebReaderActivity extends AppCompatActivity {
     /** 章节解析线程（单线程串行，避免快速连点目录时并发注入乱序）。 */
     private static final java.util.concurrent.ExecutorService RESOLVE_EXECUTOR = java.util.concurrent.Executors.newSingleThreadExecutor();
 
+    /** 本地文本文件单次读入上限（32MB），超过则报错而不是 OOM。 */
+    private static final long MAX_LOCAL_TEXT_BYTES = 32L * 1024 * 1024;
+    /** 单张图片读入上限（16MB）：漫画单页远小于此，超过视为异常响应。 */
+    private static final long MAX_IMAGE_BYTES = 16L * 1024 * 1024;
+
+    /** 读取至多 limit 字节；超出返回 null（视为异常内容，不渲染）。 */
+    private static byte[] readCapped(java.io.InputStream in, long limit) {
+        try {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(8192);
+            byte[] buf = new byte[8192];
+            long total = 0;
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                total += n;
+                if (total > limit) return null;
+                out.write(buf, 0, n);
+            }
+            return out.toByteArray();
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    /** 带 Referer 的图片地址表：token → {url, referer}，只在本 Activity 存活期间有效。 */
+    private final java.util.concurrent.ConcurrentHashMap<String, String[]> picTokens = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicLong picTokenSeq = new java.util.concurrent.atomic.AtomicLong();
+    private final int picNonce = new java.util.Random().nextInt();
+
     private WebView webView;
     private ProgressBar progress;
     private View loading;
-    private int kind = 1;
+    private volatile int kind = 1;                // volatile：RESOLVE_EXECUTOR 写、主线程与 JS 桥线程读
     private String payload = "";
     private String siteKey = "", flag = "", vodId = "", vodName = "", vodPic = "";
     private ArrayList<Episode> chapters = new ArrayList<>();
-    private int index = 0;
+    private volatile int index = 0;               // volatile：JS 桥线程与主线程都会写读
     private String localPath = "";
     private String cacheKey = "";
     private boolean pageFinished = false;
@@ -95,11 +140,30 @@ public class WebReaderActivity extends AppCompatActivity {
 
     /** 阅读进度：JS 滚动时上报到内存，onPause / onDestroy 落库。 */
     private ReaderHistory.Record record;
-    private String lastChapterUrl = "";
-    private String lastChapterName = "";
-    /** 章节内锚点序号（小说=段落，漫画/PDF=页）与锚点总数。 */
-    private int lastAnchor = 0;
-    private int lastTotal = 0;
+
+    /**
+     * 最新阅读位置快照。
+     *
+     * saveProgress 跑在 WebView 的 JavaBridge 线程，persistProgress 跑在主线程。
+     * 用不可变对象整体替换，避免「章节名已换到新章、锚点还是旧章」这种撕裂写入，
+     * 也保证主线程能看到最新值（volatile）。
+     */
+    private volatile Progress lastProgress = new Progress("", "", 0, 0);
+
+    /** 章节内位置快照：锚点序号（小说=段落，漫画/PDF=页）与锚点总数。 */
+    private static final class Progress {
+        final String chapterUrl;
+        final String chapterName;
+        final int anchor;
+        final int total;
+
+        Progress(String chapterUrl, String chapterName, int anchor, int total) {
+            this.chapterUrl = chapterUrl == null ? "" : chapterUrl;
+            this.chapterName = chapterName == null ? "" : chapterName;
+            this.anchor = anchor;
+            this.total = total;
+        }
+    }
     /** 待恢复的章节内锚点与总数（用完置 0）。 */
     private long restoreAnchor = 0;
     private long restoreTotal = 0;
@@ -108,9 +172,10 @@ public class WebReaderActivity extends AppCompatActivity {
 
     /** 把内存里的最新阅读进度落库。 */
     private void persistProgress() {
-        if (record == null || lastChapterUrl.isEmpty()) return;
-        ReaderHistory.save(record, lastChapterName, lastChapterUrl, lastAnchor, lastTotal);
-        SpiderDebug.log(TAG, "saveProgress index=%d anchor=%d/%d chapter=%s", index, lastAnchor, lastTotal, lastChapterName);
+        Progress p = lastProgress;
+        if (record == null || p.chapterUrl.isEmpty()) return;
+        ReaderHistory.save(record, p.chapterName, p.chapterUrl, p.anchor, p.total);
+        SpiderDebug.log(TAG, "saveProgress index=%d anchor=%d/%d chapter=%s", index, p.anchor, p.total, p.chapterName);
     }
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -178,9 +243,11 @@ public class WebReaderActivity extends AppCompatActivity {
         s.setSupportZoom(false);
         s.setAllowFileAccess(true);
         s.setAllowContentAccess(true);
-        // 允许 file:// 页面加载同源 assets 资源、pdf.worker.min.js worker 以及 fetch 缓存目录里的 PDF 文件
+        // 允许 file:// 页面加载 pdf.worker.min.js worker 与缓存目录里的 PDF 文件。
+        // 不开 setAllowUniversalAccessFromFileURLs：正文来自第三方 spider，一旦有脚本执行，
+        // 通用跨源访问就意味着「读私有文件 + 无 CORS 限制地外发」。保持关闭可切断外发这一半，
+        // 与 reader.html 的 DOM 允许列表净化、shouldOverrideUrlLoading 一起构成多层防护。
         s.setAllowFileAccessFromFileURLs(true);
-        s.setAllowUniversalAccessFromFileURLs(true);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
 
         webView.addJavascriptInterface(this, "AndroidReader");
@@ -220,8 +287,18 @@ public class WebReaderActivity extends AppCompatActivity {
                 } else if (!localPath.isEmpty()) {
                     loadLocalFileAsync();
                 } else {
-                    inject(buildDataJson());
+                    buildDataJsonAsync();
                 }
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                // 阅读器只应停在本地模板页。正文来自第三方 spider，若被导航到远程页面，
+                // AndroidReader 这个 JS 桥是 WebView 级别的，会一并暴露给远程页面。
+                String u = request.getUrl() == null ? "" : request.getUrl().toString();
+                if (u.startsWith("file:///android_asset/reader.html")) return false;
+                SpiderDebug.log(TAG, "blockNavigation url=%s", u);
+                return true;
             }
 
             @Override
@@ -256,10 +333,31 @@ public class WebReaderActivity extends AppCompatActivity {
         loading.postDelayed(this::hideLoading, 8000);
     }
 
+    /**
+     * 首屏数据在后台线程构建后注入。
+     *
+     * 必须离开主线程：PDF 漫画会在这里下载整份 PDF（网络阻塞，targetSdk 28 下主线程网络
+     * 直接抛 NetworkOnMainThreadException 并被 catch 吞成「当图片渲染」→ 破图）；
+     * 长篇小说还要为数千章建 JSONObject。
+     */
+    private void buildDataJsonAsync() {
+        RESOLVE_EXECUTOR.execute(() -> {
+            // 执行器是进程级单线程：任务开跑前先确认自己还活着，
+            // 否则一次被放弃的 PDF 下载（最长 45s 超时）会把后一本书的首屏堵在队列后面。
+            if (isFinishing() || isDestroyed()) return;
+            String json = buildDataJson();
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                inject(json);
+            });
+        });
+    }
+
     private void inject(String json) {
         if (webView == null) return;
         try {
             // 用 typeof 探测模板函数是否就绪，回执写日志：区分「注入没发生」和「注入了但渲染失败」
+            json = jsSafe(json);
             String js = "(function(){try{"
                     + "if(typeof window.__injectReader!=='function') return 'no-fn';"
                     + "window.__injectReader(" + json + ");"
@@ -309,6 +407,17 @@ public class WebReaderActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * JSON 转成可安全嵌入 JS 源码的形式。
+     *
+     * U+2028/U+2029 在 JSON 里合法，但在旧版 WebView 的 JS 字符串字面量里是非法字符，
+     * 会让整次注入变成语法错误（表现为白屏）。spider 正文里出现这两个字符并不罕见。
+     */
+    private static String jsSafe(String json) {
+        if (json == null) return "null";
+        return json.replace("\u2028", "\\u2028").replace("\u2029", "\\u2029");
+    }
+
     /** 内容已渲染 → 淡出原生占位层，露出 WebView。 */
     private void hideLoading() {
         if (loading == null || loading.getVisibility() != View.VISIBLE) return;
@@ -330,6 +439,9 @@ public class WebReaderActivity extends AppCompatActivity {
             data.put("vodPic", vodPic);
             data.put("current", index);
             data.put("chapters", buildChaptersJson());
+            // 告知页面「稍后会恢复位置」：否则页面在注入时立刻上报 anchor=0，
+            // 把 restoreFromHistory 刚读出来的位置覆盖掉。
+            data.put("restore", restoreAnchor > 0 || pendingRestoreUrl != null);
 
             if (kind == 1) {
                 // 小说：novel://{title,content}
@@ -381,10 +493,10 @@ public class WebReaderActivity extends AppCompatActivity {
     /** novel://{json} → {title, content}，容错常见字段。 */
     private JSONObject parseNovel(String raw) {
         JSONObject out = new JSONObject();
+        String body = raw == null ? "" : raw.trim();
+        if (body.startsWith("novel://")) body = body.substring("novel://".length()).trim();
         try {
-            String s = raw.trim();
-            if (s.startsWith("novel://")) s = s.substring("novel://".length()).trim();
-            JSONObject o = new JSONObject(s);
+            JSONObject o = new JSONObject(body);
             String title = o.optString("title", "");
             String content = "";
             for (String k : new String[]{"content", "text", "book", "body", "data", "txt", "chapter", "article"}) {
@@ -403,14 +515,16 @@ public class WebReaderActivity extends AppCompatActivity {
             out.put("title", title);
             out.put("content", content);
         } catch (Throwable e) {
-            // 非 JSON：把整段当正文
-            try { out.put("content", raw); } catch (Throwable ignore) {}
+            // 非 JSON：把整段当正文（用已剥掉协议前缀的 body，别把 novel:// 显示成第一行）
+            try { out.put("content", body); } catch (Throwable ignore) {}
         }
         return out;
     }
 
     /** pics://url1&&url2... → [url1,url2,...]。
-     *  带 @Referer= 防盗链头的图片，转成 readerpic:// 自定义 scheme，由 shouldInterceptRequest 加 Referer 头请求。 */
+     *  带 @Referer= 防盗链头的图片，转成 readerpic://img?t=token 自定义 scheme，
+     *  真实地址与 Referer 只留在 Java 侧的 {@link #picTokens} 里，不进入页面 —— 页面脚本
+     *  就无法把这个拦截器当成「任意 URL 取回代理」（否则可用它探测回环/内网地址）。 */
     private JSONArray parsePics(String raw) {
         JSONArray arr = new JSONArray();
         if (raw == null) return arr;
@@ -429,12 +543,19 @@ public class WebReaderActivity extends AppCompatActivity {
             int ua = u.indexOf("@User-Agent=");
             if (ua > 0) u = u.substring(0, ua);
             if (referer != null && !referer.isEmpty()) {
-                arr.put("readerpic://img?u=" + android.net.Uri.encode(u) + "&r=" + android.net.Uri.encode(referer));
+                arr.put("readerpic://img?t=" + putPicToken(u, referer));
             } else {
                 arr.put(u);
             }
         }
         return arr;
+    }
+
+    /** 登记一条带 Referer 的图片地址，返回只在本次会话有效的 token。 */
+    private String putPicToken(String url, String referer) {
+        String token = Long.toHexString(picTokenSeq.incrementAndGet()) + "_" + Integer.toHexString(picNonce);
+        picTokens.put(token, new String[]{url, referer});
+        return token;
     }
 
     /** 检测 pics:// payload 是否为 PDF 漫画；若是则下载到缓存并返回 file:// URL，否则返回 null。 */
@@ -474,13 +595,19 @@ public class WebReaderActivity extends AppCompatActivity {
             okhttp3.Request.Builder rb = new okhttp3.Request.Builder().url(url)
                     .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36");
             if (referer != null && !referer.isEmpty()) rb.header("Referer", referer);
-            okhttp3.Response resp = IMAGE_CLIENT.newCall(rb.build()).execute();
-            if (!resp.isSuccessful() || resp.body() == null) { resp.close(); return null; }
-            byte[] body = resp.body().bytes();
-            resp.close();
-            java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
-            fos.write(body);
-            fos.close();
+            // 流式落盘：PDF 动辄几十上百 MB，整体读进 byte[] 会 OOM
+            try (okhttp3.Response resp = IMAGE_CLIENT.newCall(rb.build()).execute()) {
+                if (!resp.isSuccessful() || resp.body() == null) return null;
+                java.io.File tmp = new java.io.File(f.getAbsolutePath() + ".tmp");
+                try (java.io.InputStream in = resp.body().byteStream();
+                     java.io.FileOutputStream fos = new java.io.FileOutputStream(tmp)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+                }
+                // 下载完再改名，避免中断留下半截文件被当成有效缓存
+                if (!tmp.renameTo(f)) { tmp.delete(); return null; }
+            }
             return "file://" + f.getAbsolutePath();
         } catch (Throwable e) {
             return null;
@@ -505,6 +632,7 @@ public class WebReaderActivity extends AppCompatActivity {
         new Thread(() -> {
             String json = buildLocalDataJson(localPath);
             runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
                 if (pageFinished) inject(json);
                 else pendingJson = json;
             });
@@ -618,12 +746,20 @@ public class WebReaderActivity extends AppCompatActivity {
         return arr;
     }
 
+    /** 用 JSONObject 生成，不手写转义（手写版漏了控制字符等情况）。 */
     private String errorJson(String msg) {
-        return "{\"kind\":1,\"title\":\"读取失败\",\"content\":\"" + escape(msg) + "\",\"images\":[],\"chapters\":[],\"current\":0}";
-    }
-
-    private String escape(String s) {
-        return (s == null ? "" : s).replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "");
+        try {
+            JSONObject d = new JSONObject();
+            d.put("kind", 1);
+            d.put("title", "读取失败");
+            d.put("content", msg == null ? "" : msg);
+            d.put("images", new JSONArray());
+            d.put("chapters", new JSONArray());
+            d.put("current", 0);
+            return d.toString();
+        } catch (Throwable e) {
+            return "{\"kind\":1,\"title\":\"读取失败\",\"content\":\"\",\"images\":[],\"chapters\":[],\"current\":0}";
+        }
     }
 
     private boolean isImage(String lower) {
@@ -651,20 +787,23 @@ public class WebReaderActivity extends AppCompatActivity {
     }
 
     private byte[] readAllBytes(java.io.File f) throws Exception {
-        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-        java.io.FileInputStream in = new java.io.FileInputStream(f);
-        byte[] buf = new byte[8192];
-        int n;
-        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-        in.close();
+        // 本地 txt/epub 可能很大，限制单次读入上限，避免 OOM
+        long len = f.length();
+        if (len > MAX_LOCAL_TEXT_BYTES) throw new java.io.IOException("文件过大：" + (len >> 20) + "MB");
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream((int) Math.max(8192, Math.min(len, MAX_LOCAL_TEXT_BYTES)));
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        }
         return out.toByteArray();
     }
 
     /** ZIP 漫画：解压所有图片，按文件名排序，写缓存目录返回 file:// URL 列表。 */
     private String buildZipJson(java.io.File f) {
-        try {
+        // try-with-resources：异常路径也要关掉 ZipFile
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(f)) {
             java.util.List<String> imgs = new java.util.ArrayList<>();
-            java.util.zip.ZipFile zip = new java.util.zip.ZipFile(f);
             java.util.Enumeration<? extends java.util.zip.ZipEntry> en = zip.entries();
             java.io.File dir = new java.io.File(getCacheDir(), "readerzip/" + md5(f.getAbsolutePath()));
             if (!dir.exists()) dir.mkdirs();
@@ -675,17 +814,10 @@ public class WebReaderActivity extends AppCompatActivity {
                 if (!isImage(n)) continue;
                 java.io.File out = new java.io.File(dir, Integer.toHexString(e.getName().hashCode()) + extOf(n));
                 if (!out.exists() || out.length() == 0) {
-                    java.io.InputStream in = zip.getInputStream(e);
-                    java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
-                    byte[] buf = new byte[8192];
-                    int c;
-                    while ((c = in.read(buf)) > 0) fos.write(buf, 0, c);
-                    fos.close();
-                    in.close();
+                    if (!extractEntryTo(zip, e, out)) continue;
                 }
                 imgs.add(e.getName());
             }
-            zip.close();
             java.util.Collections.sort(imgs, String::compareToIgnoreCase);
             JSONObject data = new JSONObject();
             data.put("kind", 2);
@@ -711,16 +843,16 @@ public class WebReaderActivity extends AppCompatActivity {
 
     /** EPUB：解压 → 解析 container.xml/opf/spine → 拼接图文 HTML（图片提取到缓存转 file:// URL）。 */
     private String buildEpubJson(java.io.File f) {
-        try {
-            java.util.zip.ZipFile zip = new java.util.zip.ZipFile(f);
+        // try-with-resources：异常路径也要关掉 ZipFile
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(f)) {
             String opfPath = findOpfPath(zip);
-            if (opfPath == null) { zip.close(); return errorJson("无效 EPUB：找不到 OPF"); }
+            if (opfPath == null) return errorJson("无效 EPUB：找不到 OPF");
             String opfDir = "";
             int slash = opfPath.lastIndexOf('/');
             if (slash >= 0) opfDir = opfPath.substring(0, slash + 1);
 
             String opf = readEntry(zip, opfPath);
-            if (opf == null) { zip.close(); return errorJson("无法读取 OPF"); }
+            if (opf == null) return errorJson("无法读取 OPF");
 
             java.util.Map<String, String> manifest = new java.util.LinkedHashMap<>();
             java.util.regex.Matcher mi = java.util.regex.Pattern.compile("<item[^>]*id=\"([^\"]*)\"[^>]*href=\"([^\"]*)\"", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(opf);
@@ -751,7 +883,6 @@ public class WebReaderActivity extends AppCompatActivity {
                 body = replaceImages(zip, body, xhtmlPath, imgDir, collectedImages);
                 if (!body.trim().isEmpty()) html.append("<section class=\"epub-chapter\">").append(body).append("</section>\n");
             }
-            zip.close();
 
             JSONObject data = new JSONObject();
             data.put("title", f.getName());
@@ -796,17 +927,42 @@ public class WebReaderActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * 解压单个 zip 条目到目标文件。
+     *
+     * 先写 .tmp 再改名：中途失败时不会留下「非空但截断」的文件 ——
+     * 缓存命中判断是 length() > 0，半截文件会被当成有效缓存永久复用。
+     */
+    private boolean extractEntryTo(java.util.zip.ZipFile zip, java.util.zip.ZipEntry e, java.io.File out) {
+        java.io.File tmp = new java.io.File(out.getAbsolutePath() + ".tmp");
+        try (java.io.InputStream in = zip.getInputStream(e);
+             java.io.FileOutputStream fos = new java.io.FileOutputStream(tmp)) {
+            byte[] buf = new byte[8192];
+            long total = 0;
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                total += n;
+                if (total > MAX_LOCAL_TEXT_BYTES) { tmp.delete(); return false; }
+                fos.write(buf, 0, n);
+            }
+        } catch (Throwable ex) {
+            tmp.delete();
+            return false;
+        }
+        if (tmp.renameTo(out)) return true;
+        tmp.delete();
+        return false;
+    }
+
+    /** 读取 zip 内文本条目；限长 + try-with-resources（zip 条目可能是解压炸弹）。 */
     private String readEntry(java.util.zip.ZipFile zip, String path) {
         try {
             java.util.zip.ZipEntry e = zip.getEntry(path);
             if (e == null) return null;
-            java.io.InputStream in = zip.getInputStream(e);
-            byte[] buf = new byte[8192];
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            int n;
-            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-            in.close();
-            return new String(out.toByteArray(), "UTF-8");
+            try (java.io.InputStream in = zip.getInputStream(e)) {
+                byte[] data = readCapped(in, MAX_LOCAL_TEXT_BYTES);
+                return data == null ? null : new String(data, "UTF-8");
+            }
         } catch (Throwable e) {
             return null;
         }
@@ -850,13 +1006,7 @@ public class WebReaderActivity extends AppCompatActivity {
             if (e == null) return src;
             java.io.File out = new java.io.File(imgDir, Integer.toHexString(e.getName().hashCode()) + extOf(e.getName().toLowerCase()));
             if (!out.exists() || out.length() == 0) {
-                java.io.InputStream in = zip.getInputStream(e);
-                java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
-                fos.close();
-                in.close();
+                if (!extractEntryTo(zip, e, out)) return src;
             }
             return "file://" + out.getAbsolutePath();
         } catch (Throwable ex) {
@@ -894,25 +1044,44 @@ public class WebReaderActivity extends AppCompatActivity {
         return sb.toString();
     }
 
-    /** 拦截 readerpic:// 自定义 scheme，用 OkHttp 加 Referer/UA 头请求图片（解决防盗链图片加载失败）。 */
+    /**
+     * 拦截 readerpic:// 自定义 scheme，用 OkHttp 加 Referer/UA 头请求图片（解决防盗链图片加载失败）。
+     *
+     * 只接受本次会话登记过的 token，不接受页面自带的 URL —— 否则页面脚本可用它请求任意地址
+     * （含 127.0.0.1 上的应用内 HTTP 服务）并伪造 Referer。
+     */
     private android.webkit.WebResourceResponse fetchImageWithReferer(String proxyUrl) {
+        okhttp3.Response resp = null;
         try {
             android.net.Uri u = android.net.Uri.parse(proxyUrl);
-            String realUrl = u.getQueryParameter("u");
-            String referer = u.getQueryParameter("r");
+            String token = u.getQueryParameter("t");
+            if (token == null || token.isEmpty()) return null;
+            String[] entry = picTokens.get(token);
+            if (entry == null) return null;
+            String realUrl = entry[0];
+            String referer = entry[1];
             if (realUrl == null || realUrl.isEmpty()) return null;
             okhttp3.Request.Builder rb = new okhttp3.Request.Builder().url(realUrl)
                     .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36");
             if (referer != null && !referer.isEmpty()) rb.header("Referer", referer);
-            okhttp3.Response resp = IMAGE_CLIENT.newCall(rb.build()).execute();
-            if (!resp.isSuccessful()) { resp.close(); return null; }
-            byte[] body = resp.body() != null ? resp.body().bytes() : new byte[0];
+            resp = IMAGE_CLIENT.newCall(rb.build()).execute();
+            if (!resp.isSuccessful() || resp.body() == null) return null;
+            // 限长读取：URL 来自第三方 spider，服务端可能一直吐数据或谎报 Content-Length，
+            // 无上限的 bytes() 会把 WebView 的拦截线程 OOM 掉。
+            long declared = resp.body().contentLength();
+            if (declared > MAX_IMAGE_BYTES) return null;
+            byte[] body = readCapped(resp.body().byteStream(), MAX_IMAGE_BYTES);
+            if (body == null) return null;
+            // Content-Type 可能带 "; charset=..."，WebResourceResponse 只接受纯 mime；
+            // encoding 参数语义是字符集，不是 Content-Encoding（OkHttp 已解压），传 null。
             String mime = resp.header("Content-Type", "image/jpeg");
-            String encoding = resp.header("Content-Encoding");
-            resp.close();
-            return new android.webkit.WebResourceResponse(mime, encoding, new java.io.ByteArrayInputStream(body));
+            int semi = mime.indexOf(';');
+            if (semi > 0) mime = mime.substring(0, semi).trim();
+            return new android.webkit.WebResourceResponse(mime, null, new java.io.ByteArrayInputStream(body));
         } catch (Throwable e) {
             return null;
+        } finally {
+            if (resp != null) try { resp.close(); } catch (Throwable ignore) {}
         }
     }
 
@@ -938,10 +1107,7 @@ public class WebReaderActivity extends AppCompatActivity {
     @JavascriptInterface
     public void saveProgress(int chapterIndex, String chapterUrl, String chapterName, int anchor, int total) {
         index = chapterIndex;
-        lastChapterUrl = chapterUrl == null ? "" : chapterUrl;
-        lastChapterName = chapterName == null ? "" : chapterName;
-        lastAnchor = anchor;
-        lastTotal = total;
+        lastProgress = new Progress(chapterUrl, chapterName, anchor, total);
     }
 
     /**
@@ -957,22 +1123,34 @@ public class WebReaderActivity extends AppCompatActivity {
         if (TextUtils.isEmpty(url)) return;
         int at = indexOfChapter(url);
         if (at < 0) return;
+        // 传入 payload 对应的章节（EXTRA_INDEX），必须在覆盖 index 之前取，
+        // 否则「传入的是不是目标章」会拿目标章和自己比，永远相等。
+        String incomingUrl = index >= 0 && index < chapters.size() ? chapters.get(index).getUrl() : null;
         index = at;
         // position/duration 即锚点序号/总数；旧版小说记录存的是百分比×SCALE，
         // HTML 侧按 total 是否等于 SCALE 兜底处理。
         restoreAnchor = h.getPosition();
         restoreTotal = h.getDuration();
-        lastChapterUrl = url;
-        lastChapterName = h.getVodRemarks() == null ? "" : h.getVodRemarks();
-        lastAnchor = (int) restoreAnchor;
-        lastTotal = (int) restoreTotal;
+        String chapterName = h.getVodRemarks() == null ? "" : h.getVodRemarks();
+        lastProgress = new Progress(url, chapterName, (int) restoreAnchor, (int) restoreTotal);
         // 传入 payload 已是该章内容时无需重新解析
-        if (!extractedTitleMatches(lastChapterName)) pendingRestoreUrl = url;
+        if (!isCurrentChapter(chapterName, incomingUrl, url)) pendingRestoreUrl = url;
         SpiderDebug.log(TAG, "restore index=%d anchor=%d/%d kind=%d chapter=%s reresolve=%b",
-                index, restoreAnchor, restoreTotal, kind, lastChapterName, pendingRestoreUrl != null);
+                index, restoreAnchor, restoreTotal, kind, chapterName, pendingRestoreUrl != null);
     }
 
-    /** 传入的 payload 是否正是待恢复的那一章（按标题比对）。 */
+    /**
+     * 传入的 payload 是否正是待恢复的那一章。
+     *
+     * 漫画 payload（pics://a&&b）里没有 title，只能按章节 URL 比；
+     * 小说 payload 是 novel://{title,content}，按 title 比。
+     */
+    private boolean isCurrentChapter(String chapterName, String incomingUrl, String targetUrl) {
+        if (kind != 1) return targetUrl != null && targetUrl.equals(incomingUrl);
+        return extractedTitleMatches(chapterName);
+    }
+
+    /** 小说 payload 的 title 是否等于给定章节名。 */
     private boolean extractedTitleMatches(String chapterName) {
         if (TextUtils.isEmpty(chapterName)) return false;
         try {
@@ -986,7 +1164,7 @@ public class WebReaderActivity extends AppCompatActivity {
     /** 换章：HTML 点目录时回调。本地模式读目录章节，在线模式自行解析（无播放器时也能切章）。 */
     @JavascriptInterface
     public void loadChapter(String chapterUrl) {
-        if (TextUtils.isEmpty(chapterUrl)) return;
+        if (TextUtils.isEmpty(chapterUrl)) { chapterFailed(); return; }
         runOnUiThread(() -> {
             if (!localPath.isEmpty() && isLocalDir(chapterUrl)) {
                 loadLocalChapter(chapterUrl);
@@ -998,10 +1176,29 @@ public class WebReaderActivity extends AppCompatActivity {
                 resolveChapterSelf(chapterUrl);
                 return;
             }
-            NovelReaderHost h = NovelRouter.host;
+            NovelReaderHost h = NovelRouter.getHost();
             if (h != null) h.labPlayEpisode(chapterUrl);
-            else Toast.makeText(this, R.string.reader_chapter_failed, Toast.LENGTH_SHORT).show();
+            else chapterFailedWithToast();
         });
+    }
+
+    /**
+     * 通知 HTML 本次切章失败：解锁 switchingChapter 并把章节下标回退。
+     * 少了这一步，HTML 会一直停在「切章中」，之后所有阅读进度都不再上报。
+     */
+    private void chapterFailed() {
+        if (webView == null) return;
+        runOnUiThread(() -> {
+            if (webView == null || isFinishing() || isDestroyed()) return;
+            try {
+                webView.evaluateJavascript("window.__chapterFailed && window.__chapterFailed();", null);
+            } catch (Throwable ignore) {}
+        });
+    }
+
+    private void chapterFailedWithToast() {
+        Toast.makeText(this, R.string.reader_chapter_failed, Toast.LENGTH_SHORT).show();
+        chapterFailed();
     }
 
     /**
@@ -1039,10 +1236,13 @@ public class WebReaderActivity extends AppCompatActivity {
                     onEpisodeResolved(fk, fp, at >= 0 ? chapters.get(at).getName() : "");
                     return;
                 }
-                NovelReaderHost h = NovelRouter.host;
+                NovelReaderHost h = NovelRouter.getHost();
                 if (fh && h != null) h.labPlayEpisode(chapterUrl);
-                else Toast.makeText(this, R.string.reader_chapter_failed, Toast.LENGTH_SHORT).show();
-                // 解析失败也要放开占位层，否则恢复历史章节失败时会一直挡着
+                else chapterFailedWithToast();
+                // 解析失败：放开占位层，并丢掉待恢复位置 —— 否则它会残留到用户下一次手动切章，
+                // 把上一本/上一章的锚点套用到新章上（章短时直接跳到章末）。
+                restoreAnchor = 0;
+                restoreTotal = 0;
                 hideLoading();
             });
         });
@@ -1069,13 +1269,19 @@ public class WebReaderActivity extends AppCompatActivity {
                 if (pdf != null) {
                     d.put("kind", 3);
                     d.put("pdfFile", "file://" + pdf.getAbsolutePath());
+                    d.put("images", new JSONArray());
                 } else {
                     d.put("kind", 2);
                     d.put("images", collectImagesFromDir(dir));
+                    d.put("pdfFile", "");
                 }
+                d.put("content", "");
                 d.put("title", dir.getName());
                 String json = d.toString();
-                runOnUiThread(() -> injectChapter(json));
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    injectChapter(json);
+                });
             } catch (Throwable ignore) {}
         }).start();
     }
@@ -1096,28 +1302,65 @@ public class WebReaderActivity extends AppCompatActivity {
      * 播放器解析完成后回传结果（由 NovelRouter.routeReaderEngine 调用，已在主线程）。
      * 把 novel:// / pics:// 解析成阅读数据注入 HTML。
      */
-    public void onEpisodeResolved(int kind, String payload, String title) {
+    public void onEpisodeResolved(int newKind, String payload, String title) {
         if (webView == null) return;
+        // 漫画分支要下载 PDF（网络），不能在主线程做
+        RESOLVE_EXECUTOR.execute(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            String json = buildChapterJson(newKind, payload, title);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (json != null) {
+                    injectChapter(json);
+                } else {
+                    // 构建失败也要清掉待恢复位置，否则会被套用到用户下一次选的章上
+                    restoreAnchor = 0;
+                    restoreTotal = 0;
+                    hideLoading();
+                    chapterFailed();
+                }
+            });
+        });
+    }
+
+    /**
+     * 构建切章注入数据。
+     *
+     * 始终写入 kind，并把另一路数据显式置空：__updateChapter 是「字段存在才覆盖」，
+     * 漏写 kind 会让漫画站里夹带的 novel:// 章节仍按漫画渲染，显示上一章的图片。
+     */
+    private String buildChapterJson(int newKind, String payload, String title) {
         try {
             JSONObject d = new JSONObject();
-            if (kind == 1) {
+            d.put("title", title == null ? "" : title);
+            if (newKind == 1) {
                 JSONObject n = parseNovel(payload);
+                d.put("kind", 1);
                 d.put("title", n.optString("title", title == null ? "" : title));
                 d.put("content", n.optString("content", ""));
+                d.put("images", new JSONArray());
+                d.put("pdfFile", "");
             } else {
                 String pdfFile = downloadPdfIfNeeded(payload);
+                d.put("content", "");
                 if (pdfFile != null) {
                     d.put("kind", 3);
                     d.put("pdfFile", pdfFile);
+                    d.put("images", new JSONArray());
                 } else {
+                    // 上一章的图片 token 不再需要，先清掉，避免长时间连续翻章无限积累
+                    picTokens.clear();
+                    d.put("kind", 2);
                     d.put("images", parsePics(payload));
+                    d.put("pdfFile", "");
                 }
-                d.put("title", title == null ? "" : title);
             }
-            injectChapter(d.toString());
+            kind = d.optInt("kind", newKind);
+            return d.toString();
         } catch (Throwable e) {
-            SpiderDebug.log(TAG, "onEpisodeResolved failed kind=%d", kind);
+            SpiderDebug.log(TAG, "buildChapterJson failed kind=%d", newKind);
             SpiderDebug.log(TAG, e);
+            return null;
         }
     }
 
@@ -1125,7 +1368,7 @@ public class WebReaderActivity extends AppCompatActivity {
         if (webView == null) return;
         try {
             SpiderDebug.log(TAG, "injectChapter len=%d head=%s", json.length(), json.substring(0, Math.min(160, json.length())));
-            webView.evaluateJavascript("window.__updateChapter && window.__updateChapter(" + json + ");",
+            webView.evaluateJavascript("window.__updateChapter && window.__updateChapter(" + jsSafe(json) + ");",
                     value -> {
                         SpiderDebug.log(TAG, "injectChapterResult %s", value);
                         restoreScroll();
@@ -1133,6 +1376,11 @@ public class WebReaderActivity extends AppCompatActivity {
                     });
         } catch (Throwable e) {
             SpiderDebug.log(TAG, e);
+            // 注入抛异常：清掉待恢复位置并解锁切章，避免残留污染下一章
+            restoreAnchor = 0;
+            restoreTotal = 0;
+            hideLoading();
+            chapterFailed();
         }
     }
 
@@ -1152,20 +1400,32 @@ public class WebReaderActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         persistProgress();
-        // 清理阅读器静态引用 + 标记关闭时间，避免残留的 playerContent 回调在返回后重新拉起阅读器
-        NovelRouter.currentReader = null;
-        NovelRouter.readerClosedAt = System.currentTimeMillis();
-        if (!cacheKey.isEmpty()) {
+        // 清理阅读器静态引用 + 标记关闭时间，避免残留的 playerContent 回调在返回后重新拉起阅读器。
+        // 只在自己仍是「当前阅读器」时清：两个阅读器叠栈时，旧实例销毁不能把前台新实例的注册抹掉。
+        if (NovelRouter.currentReader == this) {
+            NovelRouter.currentReader = null;
+            NovelRouter.readerClosedAt = System.currentTimeMillis();
+        }
+        picTokens.clear();
+        // 只在真正结束时清缓存：配置变更 / 系统回收导致的重建会再次用同一个 cacheKey
+        // 读取正文与章节列表（Intent 里只带 key，不带数据），提前清掉会渲染成空章。
+        if (isFinishing() && !cacheKey.isEmpty()) {
             CHAPTER_CACHE.remove(cacheKey);
             PAYLOAD_CACHE.remove(cacheKey);
+            CACHE_TIME.remove(cacheKey);
         }
         if (webView != null) {
             try {
                 webView.removeJavascriptInterface("AndroidReader");
                 webView.stopLoading();
                 webView.loadUrl("about:blank");
+                // 先从 view 树摘掉再 destroy，否则仍挂在父容器上销毁会告警/泄漏
+                android.view.ViewParent parent = webView.getParent();
+                if (parent instanceof android.view.ViewGroup) ((android.view.ViewGroup) parent).removeView(webView);
                 webView.destroy();
             } catch (Throwable ignore) {}
+            // 置 null：在途的 evaluateJavascript 回调不能再碰已销毁的 WebView
+            webView = null;
         }
         super.onDestroy();
     }

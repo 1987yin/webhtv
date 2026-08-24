@@ -59,37 +59,48 @@ public final class NovelRouter {
         if (!comicSite && !novelSite) return false;
         ProgressDialog pd = new ProgressDialog(ctx);
         pd.setMessage("正在识别内容…");
-        pd.setCancelable(false);
+        pd.setCancelable(true);
         pd.show();
         executor.execute(() -> {
-            boolean launched = false;
+            Runnable launch = null;
             try {
                 Result r = SiteApi.playerContent(pure, flag == null ? "" : flag.getFlag(), episode.getUrl());
                 String u = firstContent(r);
                 if (isComic(u)) {
-                    openPics(ctx, siteKey, flag, vod, episode, u);
-                    launched = true;
+                    final String p = u;
+                    launch = () -> openPics(ctx, siteKey, flag, vod, episode, p);
                 } else if (isNovel(u)) {
-                    openReader(ctx, siteKey, flag, vod, episode, u);
-                    launched = true;
+                    final String p = u;
+                    launch = () -> openReader(ctx, siteKey, flag, vod, episode, p);
                 } else if (u != null && !u.isEmpty() && !r.needParse()
                         && !u.startsWith("http://") && !u.startsWith("https://")
                         && !Sniffer.isVideoFormat(u)) {
                     // 非协议、非 http、无需二次解析 → 视为内联文本内容（小说正文）
-                    if (comicSite) openPics(ctx, siteKey, flag, vod, episode, u);
-                    else openReader(ctx, siteKey, flag, vod, episode, u);
-                    launched = true;
+                    final String p = u;
+                    launch = comicSite
+                            ? () -> openPics(ctx, siteKey, flag, vod, episode, p)
+                            : () -> openReader(ctx, siteKey, flag, vod, episode, p);
                 }
             } catch (Throwable ignore) {
-                launched = false;
+                launch = null;
             }
-            boolean finalLaunched = launched;
+            // startActivity 统一回主线程执行，与 dismiss 保持时序
+            final Runnable finalLaunch = launch;
             main.post(() -> {
-                pd.dismiss();
-                if (!finalLaunched && fallback != null) fallback.run();
+                try { pd.dismiss(); } catch (Throwable ignore) {}
+                if (isDead(ctx)) return;
+                if (finalLaunch != null) finalLaunch.run();
+                else if (fallback != null) fallback.run();
             });
         });
         return true;
+    }
+
+    /** 宿主 Activity 是否已不可用（回调到达时页面可能已销毁）。 */
+    private static boolean isDead(Context ctx) {
+        if (!(ctx instanceof Activity)) return false;
+        Activity a = (Activity) ctx;
+        return a.isFinishing() || a.isDestroyed();
     }
 
     /* ---------------- 播放入口拦截：按 play_url 协议前缀路由到阅读器 ---------------- */
@@ -117,7 +128,7 @@ public final class NovelRouter {
         // 用户刚关闭阅读器（1.5 秒内）：这是返回后残留的回调，不再拉起
         if (readerClosedAt > 0 && System.currentTimeMillis() - readerClosedAt < 1500) return false;
 
-        if (ctx instanceof NovelReaderHost) host = (NovelReaderHost) ctx;
+        if (ctx instanceof NovelReaderHost) setHost((NovelReaderHost) ctx);
 
         String payload = result.getRealUrl();
         ArrayList<Episode> ch = new ArrayList<>();
@@ -208,7 +219,7 @@ public final class NovelRouter {
      *
      * @return true 表示已启动阅读器，调用方应停止播放并结束当前页
      */
-    public static boolean handleResult(Activity activity, String siteKey, String flag, String vodName, String vodPic, List<Episode> episodes, int position, Result result) {
+    public static boolean handleResult(Activity activity, String historyKey, String siteKey, String flag, String vodName, String vodPic, List<Episode> episodes, int position, Result result) {
         if (activity == null || result == null) return false;
 
         int kind = readerUrlKind(result);
@@ -220,7 +231,7 @@ public final class NovelRouter {
         String title = extractTitle(payload);
         if (title == null || title.isEmpty()) title = current == null ? vodName : current.getName();
 
-        if (activity instanceof NovelReaderHost) host = (NovelReaderHost) activity;
+        if (activity instanceof NovelReaderHost) setHost((NovelReaderHost) activity);
 
         // 阅读器已在前台 → 回传解析结果，不重复启动（切换章节场景）
         WebReaderActivity reader = currentReader;
@@ -240,12 +251,21 @@ public final class NovelRouter {
         it.putExtra(WebReaderActivity.EXTRA_CACHE_KEY, WebReaderActivity.cacheLargeData(payload, ch));
         it.putExtra(WebReaderActivity.EXTRA_SITE_KEY, pureSiteKey(siteKey));
         it.putExtra(WebReaderActivity.EXTRA_FLAG, flag == null ? "" : flag);
-        it.putExtra(WebReaderActivity.EXTRA_VOD_ID, "");
+        // vodId 从 historyKey（siteKey@@@vodId@@@cid）解出：没有它 ReaderHistory 无法标识一本书，
+        // 这条分流路径上的阅读进度会既不记录也不恢复。
+        it.putExtra(WebReaderActivity.EXTRA_VOD_ID, vodIdOf(historyKey));
         it.putExtra(WebReaderActivity.EXTRA_VOD_NAME, vodName == null ? "" : vodName);
         it.putExtra(WebReaderActivity.EXTRA_VOD_PIC, vodPic == null ? "" : vodPic);
         it.putExtra(WebReaderActivity.EXTRA_INDEX, Math.max(0, position));
         activity.startActivity(it);
         return true;
+    }
+
+    /** 从 historyKey（siteKey@@@vodId@@@cid）中取出 vodId。 */
+    private static String vodIdOf(String historyKey) {
+        if (historyKey == null) return "";
+        String[] parts = historyKey.split("@@@");
+        return parts.length > 1 ? parts[1] : "";
     }
 
     /** 站点是否命中小说 / 漫画源规则（供 ContentDispatcher.dispatchSite 判定）。 */
@@ -322,6 +342,7 @@ public final class NovelRouter {
             final boolean fallback = launch == null && error == null;
             main.post(() -> {
                 try { pd.dismiss(); } catch (Throwable ignore) {}
+                if (isDead(activity)) return;
                 if (finalLaunch != null) finalLaunch.run();
                 else if (fallback) openPlayerFallback(activity, key, id, name, pic, mark);
                 else Notify.show(finalError);
@@ -402,8 +423,23 @@ public final class NovelRouter {
 
     /** 当前前台的阅读器实例（用于切换章节后回传解析结果，避免重复启动）。 */
     public static volatile WebReaderActivity currentReader;
-    /** 播放器宿主（VideoActivity 实现 NovelReaderHost，负责执行解析任务）。 */
-    public static volatile NovelReaderHost host;
+
+    /**
+     * 播放器宿主（VideoActivity 实现 NovelReaderHost，负责执行解析任务）。
+     *
+     * 用弱引用持有：宿主是 Activity，静态强引用会把整个播放页（含 player、adapter、bitmap）
+     * 留到进程结束。宿主已销毁时取到 null，调用方会退回「阅读器自行解析」。
+     */
+    private static volatile java.lang.ref.WeakReference<NovelReaderHost> hostRef;
+
+    public static void setHost(NovelReaderHost h) {
+        hostRef = h == null ? null : new java.lang.ref.WeakReference<>(h);
+    }
+
+    public static NovelReaderHost getHost() {
+        java.lang.ref.WeakReference<NovelReaderHost> ref = hostRef;
+        return ref == null ? null : ref.get();
+    }
     /** 阅读器关闭时间戳，用于拦截「返回后残留 playerContent 回调又重新拉起阅读器」。 */
     public static volatile long readerClosedAt = 0L;
 
@@ -433,7 +469,7 @@ public final class NovelRouter {
         int atIdx = siteKey.indexOf("@@@");
         if (atIdx > 0) siteKey = siteKey.substring(0, atIdx);
 
-        if (activity instanceof NovelReaderHost) host = (NovelReaderHost) activity;
+        if (activity instanceof NovelReaderHost) setHost((NovelReaderHost) activity);
 
         // 整本书章节列表（跨所有线路合并）
         ArrayList<Episode> ch = new ArrayList<>();

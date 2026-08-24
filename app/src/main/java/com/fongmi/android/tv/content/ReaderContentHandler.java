@@ -40,6 +40,6 @@ public class ReaderContentHandler implements ContentHandler {
 
     @Override
     public boolean handleResult(Activity activity, String historyKey, String siteKey, String flag, String vodName, String vodPic, List<Episode> episodes, int position, Result result, long timeout) {
-        return NovelRouter.handleResult(activity, siteKey, flag, vodName, vodPic, episodes, position, result);
+        return NovelRouter.handleResult(activity, historyKey, siteKey, flag, vodName, vodPic, episodes, position, result);
     }
 }
