@@ -1338,6 +1338,12 @@
                             android:text="@string/play_change" />
 
                         <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/playerSearch"
+                            style="@style/Control"
+                            android:layout_marginEnd="8dp"
+                            android:text="@string/play_search" />
+
+                        <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/playerFullscreenAction"
                             style="@style/Control"
                             android:layout_marginEnd="8dp"
