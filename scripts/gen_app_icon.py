@@ -15,6 +15,10 @@
     只按【宽度】反算基准高度，而 O 高出 M 字高 25%，所以竖向实际占比要按
     h*R_O_W 另算——改动 R_O_W / FILL_* 后需重新确认安全区（见 --preview）
 
+覆盖范围：启动器图标、TV 横幅、Play 商店图、应用内标题栏 logo、通知栏小图标、
+网页管理端 favicon。这些是全部承载 App 形象的位置，改图标时必须整套重跑——
+上一版只换了启动器和横幅，结果桌面已是 MO 字标、应用内和通知栏还是旧立方体。
+
 用法:
   py scripts/gen_app_icon.py --preview   只输出预览图到 build/icon-preview/
   py scripts/gen_app_icon.py             写入 app/src/**/res/
@@ -63,6 +67,22 @@ R_TOTAL = R_M_W + R_GAP + R_O_W
 # 字标占画面宽度的比例
 FILL_SAFE = 0.52    # 自适应图标：收在 66/108 安全区内
 FILL_LEGACY = 0.70  # 传统位图图标：满版更醒目
+FILL_CIRCLE = 0.64  # 圆形裁切：圆比方窄，字标要收进内接正方形
+FILL_NOTIFY = 0.88  # 通知小图标：白色剪影无底色，按 24dp 留 6% 边距铺满。
+                    # 24px 下 M 竖干 2.27px，达到通知图标 2dp 最小笔画；
+                    # 再放大边缘会贴到 24dp 边界，被状态栏裁掉。
+
+# 小尺寸降级：低于此像素数就丢掉 M、只留 O 播放徽章。
+# 16px 下按 FILL_CIRCLE 反算，M 竖干只有 1.10px，抗锯齿后是一团灰，
+# 连"有两个字母"都读不出；只留 O 时环厚 2.22px，形状仍然干净。
+# 阈值取 32：竖干要到 2.20px 才立得住，24px 只有 1.65px、31px 也才 2.13px。
+# 只对 render() 生效——通知小图标另用 FILL_NOTIFY(0.88) 铺满无底画布，
+# 24px 下竖干 2.27px，不需要降级。
+WORDMARK_MIN_PX = 32
+# O 徽章直径占画面比例。注意这与 FILL_* 不是一个基准：FILL_* 是整个 MO
+# 字标的总宽占比，这里是单个圆的直径占比，两者不能互相代入，所以
+# render() 走徽章分支时不会转发 fill。
+FILL_BADGE = 0.68
 
 def m_shapes(x, y, h):
     """极粗几何 M：拆成 4 个凸多边形的并集（几何粗体的标准构造）。
@@ -165,6 +185,25 @@ def draw_wordmark(size, fill):
     return layer
 
 
+def draw_badge(size):
+    """只画 O 播放徽章的图层，用于 M 会糊掉的小尺寸（见 WORDMARK_MIN_PX）。
+
+    环厚沿用字标里 O 的比例（R_STEM*R_RING/R_O_W），使徽章与大尺寸下的
+    O 字重一致，两种形态放在一起不会显得是两套设计。
+    直径固定取 FILL_BADGE，不接受 fill 参数：字标的 fill 是 MO 总宽占比，
+    与单圆直径占比不同基准，代入会让徽章大小失控。
+    """
+    layer = Image.new("RGBA", (size, size), HOLE)
+    d = ImageDraw.Draw(layer)
+    dia = size * FILL_BADGE
+    ring = dia * R_STEM * R_RING / R_O_W
+    ox = oy = (size - dia) / 2
+    d.ellipse([ox, oy, ox + dia, oy + dia], fill=WHITE)
+    d.ellipse([ox + ring, oy + ring, ox + dia - ring, oy + dia - ring], fill=HOLE)
+    d.polygon(play_triangle(ox + dia / 2, oy + dia / 2, dia / 2 - ring), fill=WHITE)
+    return layer
+
+
 def _mask(size, shape, radius_ratio=0.0):
     m = Image.new("L", (size, size), 0)
     md = ImageDraw.Draw(m)
@@ -178,17 +217,23 @@ def _mask(size, shape, radius_ratio=0.0):
     return m
 
 
-def render(size, shape="rounded", fill=FILL_LEGACY, radius_ratio=0.22, inset=None):
+def render(size, shape="rounded", fill=FILL_LEGACY, radius_ratio=0.22,
+           inset=None, badge=None):
     """渲染完整图标（渐变底 + 字标 + 外形裁切）。
 
     inset 默认按外形自动选取，使裁切后的可见区跨满完整色域。
+    badge 默认按目标像素数自动降级：小于 WORDMARK_MIN_PX 时改画 O 播放
+    徽章，该尺寸下 M 的竖干细到读不出字形，判定依据见 WORDMARK_MIN_PX。
+    注意降级后 fill 不再生效——徽章直径由 FILL_BADGE 单独控制。
     """
     if inset is None:
         inset = {"circle": GRAD_INSET_CIRCLE,
                  "rounded": GRAD_INSET_ROUNDED}.get(shape, GRAD_INSET_SQUARE)
+    if badge is None:
+        badge = size < WORDMARK_MIN_PX
     big = size * SS
     img = make_gradient(big, inset)
-    img.alpha_composite(draw_wordmark(big, fill))
+    img.alpha_composite(draw_badge(big) if badge else draw_wordmark(big, fill))
     if shape != "square":
         img.putalpha(_mask(big, shape, radius_ratio))
     return img.resize((size, size), Image.LANCZOS)
@@ -207,6 +252,17 @@ def render_banner(w, h):
     mark = draw_wordmark(mark_box, 0.92)
     img.alpha_composite(mark, (int(bw * 0.075), int((bh - mark_box) / 2)))
     return img.resize((w, h), Image.LANCZOS)
+
+
+def render_notification(size):
+    """通知栏小图标：纯白字标 + 全透明底，无渐变。
+
+    Android 5.0+ 只取 alpha 通道、丢弃颜色，自行按系统主题重染，
+    所以这里必须是白色剪影。若沿用带渐变底的图标，整个方块都是非零
+    alpha，重染后会变成一个纯色实心方块。
+    """
+    return draw_wordmark(size * SS, FILL_NOTIFY).resize((size, size),
+                                                        Image.LANCZOS)
 
 
 # --- VectorDrawable ----------------------------------------------------------
@@ -240,12 +296,15 @@ def ellipse_path(cx, cy, rx, ry, clockwise=True):
             f"a{_p(rx)},{_p(ry)} 0 1,{sw} {_p(-rx * 2)},0z")
 
 
-def vector_wordmark(fill, color="#FFFFFF"):
-    """生成纯字标的 VectorDrawable（用于自适应图标前景 / 单色主题图标）。
+def vector_wordmark(fill, color="#FFFFFF", size_dp=108):
+    """生成纯字标的 VectorDrawable（自适应图标前景 / 单色图标 / 通知小图标）。
 
-    尺寸固定 108dp 方形：adaptive-icon 一律按方形渲染，曾经给 banner 的
-    foreground 传过 320x180，结果 512 方形视口被拉成 16:9 把字标纵向压扁。
-    横幅另由 ic_banner.png 承担，这里不再提供非方形入口。
+    size_dp 只改声明尺寸，视口恒为方形：adaptive-icon 一律按方形渲染，
+    曾经给 banner 的 foreground 传过 320x180，结果 512 方形视口被拉成
+    16:9 把字标纵向压扁。横幅另由 ic_banner.png 承担，这里不提供非方形入口。
+
+    不设 android:tint：三条 path 已经是 #FFFFFF，再叠一层白色 tint 是空操作。
+    通知栏的实际着色由系统在 API 21+ 按 alpha 重染，与这里的颜色无关。
     """
     m_path, (ox, oy, ow, ring) = wordmark_paths(fill)
     cx, cy = ox + ow / 2, oy + ow / 2
@@ -257,8 +316,8 @@ def vector_wordmark(fill, color="#FFFFFF"):
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <!-- 由 scripts/gen_app_icon.py 生成，请勿手工编辑 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
+    android:width="{size_dp}dp"
+    android:height="{size_dp}dp"
     android:viewportWidth="{VIEWPORT}"
     android:viewportHeight="{VIEWPORT}">
     <path
@@ -330,6 +389,14 @@ BANNER_XML = """<?xml version="1.0" encoding="utf-8"?>
 # --- 输出清单 ----------------------------------------------------------------
 DENSITIES = [("mdpi", 48), ("hdpi", 72), ("xhdpi", 96),
              ("xxhdpi", 144), ("xxxhdpi", 192)]
+# 通知小图标：24dp 基准，仓库里到 xxhdpi 为止（无 xxxhdpi 档）
+NOTIFY_DENSITIES = [("mdpi", 24), ("hdpi", 36), ("xhdpi", 48), ("xxhdpi", 72)]
+LOGO_PX = 600      # 应用内标题栏 logo，沿用原 ic_logo.png 尺寸
+# favicon 沿用原文件的三帧规格（16/32/48）。必须逐帧独立渲染：交给 PIL 用
+# sizes= 缩放会让小帧由最大帧降采样而来，笔画糊成一团；各帧单独走一遍
+# 超采样绘制才能保住小尺寸下的形状。低于 WORDMARK_MIN_PX 的帧会自动降级
+# 成 O 徽章（16px 帧即是），这是刻意的，浏览器标签页只有 16px 可用。
+FAVICON_SIZES = [16, 32, 48]
 MAIN_RES = "app/src/main/res"
 
 
@@ -361,7 +428,7 @@ def do_preview():
     out = "build/icon-preview"
     print(f"[preview] -> {out}/")
     save_img(render(512, "rounded"), f"{out}/rounded_512.png")
-    save_img(render(512, "circle", fill=0.64), f"{out}/circle_512.png")
+    save_img(render(512, "circle", fill=FILL_CIRCLE), f"{out}/circle_512.png")
     save_img(render(512, "square"), f"{out}/square_512.png")
     save_img(render(48, "rounded"), f"{out}/rounded_48.png")
     save_img(render(72, "rounded"), f"{out}/rounded_72.png")
@@ -375,6 +442,18 @@ def do_preview():
     mono = Image.new("RGBA", (432, 432), (0x1F, 0x1F, 0x1F, 255))
     mono.alpha_composite(draw_wordmark(432, FILL_SAFE))
     save_img(mono, f"{out}/monochrome.png")
+    # 应用内 logo 与 favicon
+    save_img(render(LOGO_PX, "circle", fill=FILL_CIRCLE), f"{out}/logo.png")
+    # favicon 三帧分别放大 8 倍看真实像素（16px 帧最吃紧）
+    for px in FAVICON_SIZES:
+        save_img(render(px, "circle", fill=FILL_CIRCLE).resize(
+            (px * 8, px * 8), Image.NEAREST), f"{out}/favicon_{px}.png")
+    # 通知小图标：白色剪影铺深色状态栏底，并放大到 8 倍看真实像素
+    for px in (24, 36, 48, 72):
+        bar = Image.new("RGBA", (px, px), (0x20, 0x21, 0x24, 255))
+        bar.alpha_composite(render_notification(px))
+        save_img(bar.resize((px * 8, px * 8), Image.NEAREST),
+                 f"{out}/notification_{px}.png")
 
 
 def do_write():
@@ -395,7 +474,7 @@ def do_write():
               "xxhdpi": 384, "xxxhdpi": 512}[name]
         save_img(render(px, "rounded"), f"{MAIN_RES}/mipmap-{name}/ic_launcher.png",
                  format="PNG")
-        save_img(render(base, "circle", fill=0.64),
+        save_img(render(base, "circle", fill=FILL_CIRCLE),
                  f"{MAIN_RES}/mipmap-{name}/ic_launcher_round.webp",
                  format="WEBP", lossless=True, quality=100)
 
@@ -412,6 +491,34 @@ def do_write():
     save_text(BANNER_XML, "app/src/leanback/res/mipmap-anydpi-v26/ic_banner.xml")
     save_img(render_banner(320, 180), "app/src/leanback/res/drawable/ic_banner.png",
              format="PNG")
+
+    # 以下三处并非启动器资源，但同样承载 App 形象。上一版重做图标时漏改，
+    # 结果桌面已是 MO 字标、应用内标题栏和通知栏还是旧的立方体线框。
+    print("[in-app logo]")
+    # 圆形而非圆角方形：ImgUtil.logo() 对远端 logo 做了 circleCrop()，
+    # 本地兜底图必须同为圆形，否则配置里带 logo 时形状会跳变。
+    save_img(render(LOGO_PX, "circle", fill=FILL_CIRCLE),
+             f"{MAIN_RES}/drawable-nodpi/ic_logo.png", format="PNG")
+
+    print("[notification]")
+    # anydpi 矢量供 API 21+ 使用，位图是 API < 21 的兜底（minSdk 24 其实
+    # 已用不到，但仓库里既有这几档，一并更新以免留下新旧混杂）。
+    save_text(vector_wordmark(FILL_NOTIFY, size_dp=24),
+              f"{MAIN_RES}/drawable-anydpi/ic_notification.xml")
+    for name, px in NOTIFY_DENSITIES:
+        save_img(render_notification(px),
+                 f"{MAIN_RES}/drawable-{name}/ic_notification.png", format="PNG")
+
+    print("[web favicon]")
+    # PIL 按尺寸把 append_images 里的帧匹配给 sizes=，匹配不上的才自行缩放；
+    # 这里逐帧原生渲染后全部传进去，因此不会有降采样帧。
+    # 必须升序、最大帧作为主图像：PIL 只在 append_images + 主图像里找目标
+    # 尺寸，实测传 [48,32,16] 会静默只写出一帧 16x16。
+    sizes = sorted(FAVICON_SIZES)
+    frames = [render(px, "circle", fill=FILL_CIRCLE) for px in sizes]
+    save_img(frames[-1], "app/src/main/assets/favicon.ico", format="ICO",
+             sizes=[(px, px) for px in sizes],
+             append_images=frames[:-1])
     print("\nDone.")
 
 
