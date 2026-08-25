@@ -183,11 +183,19 @@ if (nowMs - episodeStartedAtMs >= EPISODE_CEILING_MS) return true;
 
 于是「慢但在稳步推进」的会话也会在 90s 被杀 —— 大文件配慢链路完全可能花超过 90s 稳步填那 15s 阈值。这恰恰绕过了双条件判据本要保护的场景，是我加上限时引入的误杀。
 
-修法：上限改为**同时**要求「已过 90s」**且**「自 episode 起点起净进展 < `EPISODE_PROGRESS_MARGIN_MS` = 15_000」。净进展取 position 与 buffered 两者增量的较大值，起点水位在 `arm()` 时记录、`rebaseline()` **不动**（维持「回退只重置进展时钟、不重置 episode」的既有区分）。余量取 15s 量级与 `MAX_STREAMING_REBUFFER_MS` 对齐：既保住「正在填阈值」的会话，又不放过净进展仅 3s 的病态回退循环（`repeatingLargeRegressionCannotDeferTheTimeoutForever` 那条用例的净进展正是 3s，仍会触发）。
+修法：上限改为**同时**要求「已过 90s」**且**「净进展 < `EPISODE_PROGRESS_MARGIN_MS` = 15_000」。净进展取 position 与 buffered 两者增量的较大值（任一轴前进都是真实前进，要求两者同时增长会杀掉「仅在填缓冲」的会话）。余量取 15s 量级与 `MAX_STREAMING_REBUFFER_MS` 对齐：既保住「正在填阈值」的会话，又不放过净进展仅 3s 的病态回退循环（`repeatingLargeRegressionCannotDeferTheTimeoutForever` 的净进展正是 3s，仍会触发）。
+
+**水位必须随不连续重锚（自查发现，P0 从另一个门重回）。** 初次修 P0 时我把进展水位记在 `arm()`、`rebaseline()` 不动，理由是「维持回退只重置进展时钟、不重置 episode 的区分」。但这样一来，向后 seek 后水位仍是 seek **之前**的高位，`net = max(p - 旧高位, b - 旧高位)` 恒被 `Math.max(0, ...)` 夹成 0 —— 即使 position 一路上涨也永远读作零进展，90s 照样误杀。我用一个独立推演程序复现了它：`seek 后正常推进被误杀 = true 于 90000ms`。
+
+因此进展水位属于**当前连续段**而非 episode，`rebaseline()` 必须一并重锚（字段已改名 `segmentStart*` 以反映真实语义）；而**时间锚 `episodeStartedAtMs` 保持不动**，那才是约束回退循环的东西。两者职责不同，不能同进同退。
+
+修后同一程序四个场景全部正确：向后 seek 后推进不误杀、向后 seek 后停滞 21s 触发、病态回退循环 90s 终止、慢但在填缓冲不误杀。其中「回退循环终止」与「慢会话不被杀」是相互拉扯的一对，两者同时成立才说明判据到位。
+
+新增 `ceilingSparesProgressAfterABackwardSeek` 与 `stallAfterABackwardSeekStillFires` 锁定这两侧。
 
 同时更正上一节曾写下的错误论证 —— 「60s 档先触发、90s 上限轮不到」**只在无进展时成立**，而这正是本 P0 的根因。
 
-新增 `ceilingSparesAGenuinelyProgressingEpisode`（每 tick 双双 +200ms，跨越上限仍不得触发）与 `ceilingStillFiresWhenNetProgressIsBelowTheMargin` 两条锁定两侧。
+另新增 `ceilingSparesAGenuinelyProgressingEpisode`（每 tick 双双 +200ms，跨越上限仍不得触发）与 `ceilingStillFiresWhenNetProgressIsBelowTheMargin`。看门狗单测现共 20 条。
 
 ### 其余两项（复审 P1／P2，已修）
 

@@ -139,6 +139,35 @@ public class ExoBufferingStallWatchdogTest {
     }
 
     @Test
+    public void ceilingSparesProgressAfterABackwardSeek() {
+        ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
+        // Start high, then seek far back. If the progress watermarks stayed at the pre-seek
+        // values, every later sample would read as zero progress (clamped) and the ceiling
+        // would kill a session that is actually advancing from the new position.
+        watchdog.arm(0, 600_000, 620_000);
+        watchdog.observe(1_000, 30_000, 32_000);
+        long position = 30_000;
+        long buffered = 32_000;
+        for (long now = 2_000; now < ExoBufferingStallWatchdog.EPISODE_CEILING_MS + 5_000;
+                now += 1_000) {
+            position += 1_000;
+            buffered += 1_000;
+            assertFalse("fired at " + now + "ms after a backward seek despite progress",
+                    watchdog.shouldTimeout(now, position, buffered, false));
+            watchdog.observe(now, position, buffered);
+        }
+    }
+
+    @Test
+    public void stallAfterABackwardSeekStillFires() {
+        ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
+        watchdog.arm(0, 600_000, 620_000);
+        watchdog.observe(1_000, 30_000, 32_000);
+        // Frozen from the new position onward, so the normal criterion must still report it.
+        assertTrue(watchdog.shouldTimeout(1_000 + STALL, 30_000, 32_000, false));
+    }
+
+    @Test
     public void ceilingStillFiresWhenNetProgressIsBelowTheMargin() {
         ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
         watchdog.arm(0, 5_000, 9_000);

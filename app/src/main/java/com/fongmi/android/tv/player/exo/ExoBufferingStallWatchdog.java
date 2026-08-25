@@ -49,8 +49,16 @@ public final class ExoBufferingStallWatchdog {
 
     private boolean armed;
     private long episodeStartedAtMs;
-    private long episodeStartPositionMs;
-    private long episodeStartBufferedMs;
+    /**
+     * Progress watermarks for the current <em>continuity segment</em>, not for the episode. A
+     * discontinuity re-anchors them because progress can only be measured within one continuous
+     * stretch: after a backward seek the pre-seek watermarks are unreachable, so keeping them
+     * would read every later sample as zero progress and let the ceiling kill a session that is
+     * in fact advancing. The episode's <em>time</em> anchor deliberately survives, since that is
+     * what bounds a repeating regression cycle.
+     */
+    private long segmentStartPositionMs;
+    private long segmentStartBufferedMs;
     private long lastProgressAtMs;
     private long lastPositionMs;
     private long lastBufferedPositionMs;
@@ -63,15 +71,16 @@ public final class ExoBufferingStallWatchdog {
     public void arm(long nowMs, long positionMs, long bufferedPositionMs) {
         armed = true;
         episodeStartedAtMs = nowMs;
-        episodeStartPositionMs = positionMs;
-        episodeStartBufferedMs = bufferedPositionMs;
         rebaseline(nowMs, positionMs, bufferedPositionMs);
     }
 
+    /** Starts a new continuity segment: both the progress clock and its watermarks re-anchor. */
     private void rebaseline(long nowMs, long positionMs, long bufferedPositionMs) {
         lastProgressAtMs = nowMs;
         lastPositionMs = positionMs;
         lastBufferedPositionMs = bufferedPositionMs;
+        segmentStartPositionMs = positionMs;
+        segmentStartBufferedMs = bufferedPositionMs;
     }
 
     public void observe(long nowMs, long positionMs, long bufferedPositionMs) {
@@ -104,8 +113,8 @@ public final class ExoBufferingStallWatchdog {
     public void reset() {
         armed = false;
         episodeStartedAtMs = 0;
-        episodeStartPositionMs = 0;
-        episodeStartBufferedMs = 0;
+        segmentStartPositionMs = 0;
+        segmentStartBufferedMs = 0;
         lastProgressAtMs = 0;
         lastPositionMs = 0;
         lastBufferedPositionMs = 0;
@@ -123,7 +132,7 @@ public final class ExoBufferingStallWatchdog {
         // spend well over the ceiling steadily filling its rebuffer threshold. Require both the
         // elapsed ceiling AND insufficient net progress since the episode start.
         if (nowMs - episodeStartedAtMs >= EPISODE_CEILING_MS
-                && netEpisodeProgressMs(positionMs, bufferedPositionMs)
+                && netSegmentProgressMs(positionMs, bufferedPositionMs)
                 < EPISODE_PROGRESS_MARGIN_MS) {
             return true;
         }
@@ -132,9 +141,14 @@ public final class ExoBufferingStallWatchdog {
                 && nowMs - lastProgressAtMs >= (loading ? LOADING_STALL_TIMEOUT_MS : STALL_TIMEOUT_MS);
     }
 
-    private long netEpisodeProgressMs(long positionMs, long bufferedPositionMs) {
-        long position = Math.max(0, positionMs - episodeStartPositionMs);
-        long buffered = Math.max(0, bufferedPositionMs - episodeStartBufferedMs);
+    /**
+     * Progress within the current continuity segment. The larger of the two axes is used: either
+     * the position advancing or the buffered end growing is real forward motion on its own, so
+     * requiring both would kill a session that is only filling its buffer while paused-by-buffer.
+     */
+    private long netSegmentProgressMs(long positionMs, long bufferedPositionMs) {
+        long position = Math.max(0, positionMs - segmentStartPositionMs);
+        long buffered = Math.max(0, bufferedPositionMs - segmentStartBufferedMs);
         return Math.max(position, buffered);
     }
 }
