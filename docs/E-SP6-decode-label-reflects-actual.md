@@ -22,7 +22,10 @@
 
 新增纯逻辑类 `ExoDecoderKindPolicy`：
 
-- `classify(name)` 按前缀判定 `SOFTWARE`／`HARDWARE`／`UNKNOWN`。软解前缀为 `ffmpeg`（nextlib 扩展渲染器，如 `ffmpegLavc63.3.100-hevc`）、`omx.google.`、`c2.android.`（平台自带软解）。厂商解码器如 `c2.mtk.hevc.decoder`、`OMX.amlogic.hevc.decoder` 判为硬解。大小写不敏感并去空白。
+- `classify(name)` 判定 `SOFTWARE`／`HARDWARE`／`UNKNOWN`，分两类规则：
+  - **前缀**匹配 `omx.google.`、`c2.android.`（平台自带软解）。
+  - **子串**匹配 `ffmpeg`、`libvpx`、`libgav1`。用子串而非前缀，是因为部分机型把 FFmpeg 包在 OMX 名字下暴露为 `OMX.ffmpeg.*`，只做前缀匹配会漏判成硬解，正好隐藏本策略要暴露的那种不一致。厂商硬解名字不含这些 token，故子串匹配不会造成误报（已用 `c2.mtk.`／`OMX.amlogic.`／`c2.qti.`／`OMX.SEC.`／`c2.rk.`／`OMX.hisi.` 六个真实厂商名做反向断言）。
+  - 大小写不敏感并去空白。默认判 `HARDWARE`，使无法识别的名字**漏报而非误报**。
 - 名字缺失时返回 `UNKNOWN` 且**绝不下判断** —— 起播早期尚无解码器名，不能据此误报。
 - `decodeLabel(configured, hardwareProfile, decoderName)` 仅在「配置为硬解且确认运行软解」时返回 `硬解→软解`，其余原样返回。
 
@@ -41,7 +44,7 @@
 
 ## 验证
 
-- `ExoDecoderKindPolicyTest`：8 个用例，覆盖 nextlib/平台软解/厂商硬解识别、大小写与空白、名字缺失不下判断、仅在硬解档遇软解才报不一致、标签两侧显示。
+- `ExoDecoderKindPolicyTest`：11 个用例，覆盖 nextlib／平台软解／`OMX.ffmpeg.*` 包装／libvpx・libgav1 识别、六个真实厂商硬解名的反向断言、大小写与空白、名字缺失不下判断、仅在硬解档遇软解才报不一致、标签两侧显示。
 - `compileLeanbackArm64_v8aDebugJavaWithJavac` 与 `compileMobileArm64_v8aDebugJavaWithJavac` 均 `BUILD SUCCESSFUL`。
 - 空值安全：`PlaybackAnalyticsListener.snapshot` 为 `volatile` 且初始 `Snapshot.empty()`，永不为 null；内部名字为空时分类器返回 `UNKNOWN`。
 

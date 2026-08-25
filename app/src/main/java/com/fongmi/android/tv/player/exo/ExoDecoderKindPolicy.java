@@ -21,9 +21,20 @@ public final class ExoDecoderKindPolicy {
      * extension renderers (for example {@code ffmpegLavc63.3.100-hevc}).
      */
     private static final String[] SOFTWARE_PREFIXES = {
-            "ffmpeg",
             "omx.google.",
             "c2.android.",
+    };
+
+    /**
+     * Matched anywhere in the name rather than only as a prefix. Some devices expose an OMX
+     * wrapper around FFmpeg as {@code OMX.ffmpeg.*}, which a prefix test would miss and
+     * report as hardware. No vendor hardware decoder carries this token, so substring
+     * matching cannot produce a false software claim.
+     */
+    private static final String[] SOFTWARE_TOKENS = {
+            "ffmpeg",
+            "libvpx",
+            "libgav1",
     };
 
     private ExoDecoderKindPolicy() {
@@ -42,6 +53,11 @@ public final class ExoDecoderKindPolicy {
         for (String prefix : SOFTWARE_PREFIXES) {
             if (name.startsWith(prefix)) return Kind.SOFTWARE;
         }
+        for (String token : SOFTWARE_TOKENS) {
+            if (name.contains(token)) return Kind.SOFTWARE;
+        }
+        // Default to hardware so an unrecognized name under-reports rather than showing a
+        // wrong "running software" claim.
         return Kind.HARDWARE;
     }
 
