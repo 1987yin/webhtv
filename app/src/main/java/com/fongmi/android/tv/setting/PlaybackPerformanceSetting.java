@@ -415,6 +415,10 @@ public class PlaybackPerformanceSetting {
         return Prefers.getBoolean(KEY_DEFERRED_CUES, true);
     }
 
+    public static void putDeferredCuesEnabled(boolean value) {
+        putCustom(KEY_DEFERRED_CUES, value, PlaybackPerformanceCatalog.DEFERRED_CUES);
+    }
+
     /** HDR10 is used only when the user explicitly selects the HDR10 handling mode. */
     public static boolean isDv7FallbackAllowed() {
         ensureInitialized();

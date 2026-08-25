@@ -3,8 +3,8 @@
 - 任务 ID：`E-SP4`
 - 类别：Exo 性能专项
 - 唯一文档：`docs/E-SP4-exo-startup-stage-visibility.md`
-- 状态：第一单元已实施（诊断可见 + 设置读取 + 工厂 gate）；UI 入口接线为第二单元。
-- 下一动作：接 UI 开关入口，然后由用户在实机做 A/B 取证。
+- 状态：两个单元均已实施（诊断可见 + 工厂 gate + UI 开关入口）。
+- 下一动作：由用户在实机读「起播」行最慢阶段，并按下表做 A/B 取证。
 
 ## 用户观察到的失败
 
@@ -38,6 +38,12 @@
 只增加可观测性与一个默认不改变行为的开关读取点。不修改：缓冲阈值策略、解码器/渲染器选择、DV7→P8.1 与 HDR10 回退语义、音频直通、seek 精度、`E-SP2` 的按需建索引状态机本身。
 
 第一单元不含 UI 入口（`PlaybackPerformanceCatalog` 条目与 `PlaybackPerformanceDialog` 接线），因初次实施时越出已声明 scope 被 task guard 拦截，故按契约收回并拆为第二单元。此时开关读取点已生效且默认值等于现状，代码自洽。
+
+## 实现（第二单元）
+
+`PlaybackPerformanceCatalog.DEFERRED_CUES` 条目加入 `addExo()`（仅 EXO 档，因为该 flag 只作用于 Exo 的 `MatroskaExtractor`），`PlaybackPerformanceSetting.putDeferredCuesEnabled()` 与 `PlaybackPerformanceDialog` 的取值/切换分支按既有 `DECODER_FALLBACK` 模式接线。设置位置：播放器设置 → 性能 → 解码档「延后MKV索引」。
+
+验证：`compileLeanbackArm64_v8aDebugJavaWithJavac` 与 `compileMobileArm64_v8aDebugJavaWithJavac` 均 `BUILD SUCCESSFUL`；`git diff --check` 通过。
 
 ## 验证
 
