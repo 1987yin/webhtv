@@ -89,11 +89,11 @@
       --setting-border: #efeae5;
     }
 
-    /* ===== 棕色渐变主题（棕色 · #703020 → 白色） ===== */
+    /* ===== 棕色渐变主题（棕色 · 预设） ===== */
     [data-theme="brown"] {
-      --app-bg: #ffffff;               /* 下方纯白，消除拼接 */
-      --top-bg-start: #703020;          /* 指定深暖棕 */
-      --top-bg-end: #ffffff;            /* 渐变到白色 */
+      --app-bg: #ffffff;
+      --top-bg-start: #703020;
+      --top-bg-end: #ffffff;
       --text-primary: #2d1f14;
       --text-secondary: #3d2b1e;
       --text-muted: #8a7a6a;
@@ -135,20 +135,20 @@
 
     .app {
       max-width:480px; margin:0 auto; min-height:100vh;
-      background: var(--app-bg);        /* 保证下方纯白 */
+      background: var(--app-bg);
       position:relative; box-shadow:0 0 24px rgba(0,0,0,.08); overflow:hidden;
       padding-top: max(20px, env(safe-area-inset-top, 20px));
       transition: background .3s, color .3s;
     }
     .top-bg {
-      position:absolute; top:0; left:0; right:0; height:480px;  /* 增高渐变区域，消除拼接 */
+      position:absolute; top:0; left:0; right:0; height:480px;
       background:linear-gradient(180deg, var(--top-bg-start) 0%, var(--top-bg-end) 100%);
       pointer-events:none;
       transition: background .3s;
     }
     .content { position:relative; }
 
-    /* ===== 顶部搜索栏（透明背景，让渐变透出） ===== */
+    /* ===== 顶部搜索栏 ===== */
     .topbar {
       display:flex; align-items:center; gap:8px; padding:4px 12px 6px;
       position:relative; z-index:3; height:56px;
@@ -461,7 +461,7 @@
     }
     @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
 
-    /* 主题切换按钮 - 与 icon-btn 保持一致 */
+    /* ===== 主题切换按钮（调色盘） ===== */
     .theme-toggle {
       width:36px; height:36px; flex-shrink:0; border:none; border-radius:50%;
       background: var(--icon-btn-bg); color: var(--search-text); cursor:pointer;
@@ -473,6 +473,46 @@
       width:20px; height:20px; stroke: currentColor; stroke-width:2.2;
       fill:none; stroke-linecap:round; stroke-linejoin:round;
     }
+
+    /* ===== 调色面板（自定义渐变） ===== */
+    .palette-mask {
+      position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:100;
+      opacity:0; pointer-events:none; transition:opacity .25s;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .palette-mask.open { opacity:1; pointer-events:auto; }
+    .palette-panel {
+      background: #fff; border-radius:20px; padding:24px 28px 28px;
+      width: calc(100% - 40px); max-width:400px;
+      box-shadow:0 12px 48px rgba(0,0,0,.3);
+      transform:scale(.95); transition:transform .25s ease;
+      color:#222;
+    }
+    .palette-mask.open .palette-panel { transform:scale(1); }
+    .palette-panel h3 { margin-bottom:16px; font-size:18px; font-weight:700; text-align:center; }
+    .palette-row { display:flex; align-items:center; gap:14px; margin-bottom:14px; }
+    .palette-row label { font-size:14px; font-weight:600; min-width:50px; }
+    .palette-row input[type="color"] {
+      width:48px; height:48px; border:none; padding:0; border-radius:8px;
+      cursor:pointer; background:none;
+    }
+    .palette-row input[type="color"]::-webkit-color-swatch-wrapper { padding:0; }
+    .palette-row input[type="color"]::-webkit-color-swatch { border:none; border-radius:8px; }
+    .palette-actions {
+      display:flex; gap:10px; flex-wrap:wrap; justify-content:center;
+      margin-top:10px;
+    }
+    .palette-actions button {
+      padding:8px 16px; border-radius:999px; border:none;
+      font-weight:600; font-size:14px; cursor:pointer;
+      background:#f0f0f0; color:#222; transition:background .2s;
+    }
+    .palette-actions button.primary {
+      background:#222; color:#fff;
+    }
+    .palette-actions button.primary:hover { background:#444; }
+    .palette-actions button.preset { background:#f0e8e0; color:#5a3d2b; }
+    .palette-actions button.preset.brown { background:#d4b8a0; color:#2d1f14; }
   </style>
 </head>
 <body>
@@ -497,8 +537,8 @@
         </svg>
       </button>
 
-      <!-- ===== 主题切换按钮（调色板图标） ===== -->
-      <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换主题" title="切换主题">
+      <!-- ===== 主题切换按钮（调色盘） ===== -->
+      <button class="theme-toggle" id="themeToggle" type="button" aria-label="调色盘" title="自定义渐变颜色">
         <svg viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H5.78a1.65 1.65 0 0 0-1.51 1 1.65 1.65 0 0 0 .33 1.82l.04.04A8 8 0 0 0 12 21a8 8 0 0 0 6.36-3.6l.04-.04z"/>
@@ -519,7 +559,7 @@
       <nav class="cats-scroll" id="classTabs" aria-label="内容分类"></nav>
     </div>
 
-    <!-- ===== 行内筛选器已隐藏，改用悬浮面板 ===== -->
+    <!-- ===== 行内筛选器已隐藏 ===== -->
     <div class="filters-wrap" id="filtersWrap"><div class="filter-row" id="filters"></div></div>
 
     <!-- ===== Banner 轮播 ===== -->
@@ -550,6 +590,26 @@
 <!-- ===== 悬浮筛选面板 ===== -->
 <div class="filter-panel" id="filterPanel">
   <div id="filterPanelContent"></div>
+</div>
+
+<!-- ===== 调色盘面板（自定义渐变） ===== -->
+<div class="palette-mask" id="paletteMask">
+  <div class="palette-panel">
+    <h3>🎨 自定义顶部渐变</h3>
+    <div class="palette-row">
+      <label>起始色</label>
+      <input type="color" id="startColorPicker" value="#703020">
+    </div>
+    <div class="palette-row">
+      <label>结束色</label>
+      <input type="color" id="endColorPicker" value="#ffffff">
+    </div>
+    <div class="palette-actions">
+      <button class="primary" id="applyGradientBtn">应用</button>
+      <button class="preset" id="presetDefaultBtn">黑色</button>
+      <button class="preset brown" id="presetBrownBtn">棕色</button>
+    </div>
+  </div>
 </div>
 
 <!-- ===== 底部弹窗 ===== -->
@@ -589,39 +649,139 @@
 <script src="eclipse-category-diagnostics.js"></script>
 <script src="eclipse-category-state.js"></script>
 
-<!-- ===== 主脚本（含主题切换） ===== -->
+<!-- ===== 主脚本（含调色盘逻辑） ===== -->
 <script>
 (function (w, d) {
   'use strict';
 
-  // ===== 主题管理 =====
-  var currentTheme = 'default';
+  // ===== DOM 引用 =====
   var appRoot = d.getElementById('appRoot');
+  var topBg = d.querySelector('.top-bg');
+  var paletteMask = d.getElementById('paletteMask');
+  var startPicker = d.getElementById('startColorPicker');
+  var endPicker = d.getElementById('endColorPicker');
+  var applyBtn = d.getElementById('applyGradientBtn');
+  var presetDefault = d.getElementById('presetDefaultBtn');
+  var presetBrown = d.getElementById('presetBrownBtn');
 
-  function setTheme(theme) {
+  // ===== 从 localStorage 读取自定义颜色 =====
+  function loadCustomColors() {
+    try {
+      var data = localStorage.getItem('eclipse_custom_gradient');
+      if (data) {
+        var parsed = JSON.parse(data);
+        return { start: parsed.start || '#703020', end: parsed.end || '#ffffff' };
+      }
+    } catch(e) {}
+    return null;
+  }
+
+  function saveCustomColors(start, end) {
+    try {
+      localStorage.setItem('eclipse_custom_gradient', JSON.stringify({ start: start, end: end }));
+    } catch(e) {}
+  }
+
+  // ===== 应用渐变颜色到 CSS 变量 =====
+  function applyGradient(start, end, save) {
+    if (save !== false) save = true;
+    appRoot.style.setProperty('--top-bg-start', start);
+    appRoot.style.setProperty('--top-bg-end', end);
+    if (save) {
+      saveCustomColors(start, end);
+      // 移除预设主题标识，进入自定义模式
+      appRoot.removeAttribute('data-theme');
+    }
+    // 同步 picker 值
+    startPicker.value = start;
+    endPicker.value = end;
+  }
+
+  // ===== 应用预设主题 =====
+  function applyPreset(theme) {
     if (theme === 'brown') {
       appRoot.setAttribute('data-theme', 'brown');
-      currentTheme = 'brown';
-      try { localStorage.setItem('eclipse_theme', 'brown'); } catch(e) {}
+      // 从 CSS 变量读取值，并保存为自定义（以便下次打开时保持）
+      var computed = getComputedStyle(appRoot);
+      var start = computed.getPropertyValue('--top-bg-start').trim() || '#703020';
+      var end = computed.getPropertyValue('--top-bg-end').trim() || '#ffffff';
+      applyGradient(start, end, true);
+      // 但 data-theme 保留，以便其他样式生效
     } else {
+      // 默认（黑白）
       appRoot.removeAttribute('data-theme');
-      currentTheme = 'default';
-      try { localStorage.setItem('eclipse_theme', 'default'); } catch(e) {}
+      applyGradient('#000000', '#ffffff', true);
     }
+    closePalette();
+    toast('已切换主题');
   }
 
-  function toggleTheme() {
-    setTheme(currentTheme === 'default' ? 'brown' : 'default');
-    toast('已切换至' + (currentTheme === 'brown' ? '棕色' : '黑色') + '主题');
+  // ===== 打开 / 关闭调色面板 =====
+  function openPalette() {
+    // 读取当前使用的颜色
+    var computed = getComputedStyle(appRoot);
+    var start = computed.getPropertyValue('--top-bg-start').trim() || '#703020';
+    var end = computed.getPropertyValue('--top-bg-end').trim() || '#ffffff';
+    startPicker.value = start;
+    endPicker.value = end;
+    paletteMask.classList.add('open');
   }
 
-  function restoreTheme() {
-    try {
-      var saved = localStorage.getItem('eclipse_theme');
-      if (saved === 'brown') setTheme('brown');
-      else setTheme('default');
-    } catch(e) {
-      setTheme('default');
+  function closePalette() {
+    paletteMask.classList.remove('open');
+  }
+
+  // ===== 事件绑定 =====
+  function initPalette() {
+    // 点击调色盘按钮打开面板
+    d.getElementById('themeToggle').addEventListener('click', function(e) {
+      e.stopPropagation();
+      openPalette();
+    });
+
+    // 点击遮罩关闭
+    paletteMask.addEventListener('click', function(e) {
+      if (e.target === paletteMask) closePalette();
+    });
+
+    // 应用自定义颜色
+    applyBtn.addEventListener('click', function() {
+      var start = startPicker.value;
+      var end = endPicker.value;
+      applyGradient(start, end, true);
+      closePalette();
+      toast('渐变已更新');
+    });
+
+    // 预设：默认
+    presetDefault.addEventListener('click', function() {
+      applyPreset('default');
+    });
+
+    // 预设：棕色
+    presetBrown.addEventListener('click', function() {
+      applyPreset('brown');
+    });
+  }
+
+  // ===== 恢复自定义颜色（如果存在） =====
+  function restoreCustomGradient() {
+    var custom = loadCustomColors();
+    if (custom) {
+      applyGradient(custom.start, custom.end, false);
+      // 如果同时有 data-theme，移除它，因为自定义优先
+      appRoot.removeAttribute('data-theme');
+    } else {
+      // 否则尝试从 data-theme 读取，或使用默认
+      var theme = appRoot.getAttribute('data-theme');
+      if (theme === 'brown') {
+        var computed = getComputedStyle(appRoot);
+        var start = computed.getPropertyValue('--top-bg-start').trim() || '#703020';
+        var end = computed.getPropertyValue('--top-bg-end').trim() || '#ffffff';
+        applyGradient(start, end, true);
+      } else {
+        applyGradient('#000000', '#ffffff', true);
+      }
     }
   }
 
@@ -1521,9 +1681,10 @@
     state.domReady = true;
     w.__eclipseBoot.dom = true;
 
-    // 主题切换事件
-    listen(byId('themeToggle'), 'click', toggleTheme);
+    // 调色盘初始化
+    initPalette();
 
+    // 其他按钮事件
     listen(byId('filterFab'), 'click', toggleFilterPanel);
 
     listen(byId('searchForm'), 'submit', submitSearch);
@@ -1564,8 +1725,8 @@
     listen(w, 'scroll', scheduleAutoPageCheck);
     listen(w, 'resize', scheduleAutoPageCheck);
 
-    // 恢复主题
-    restoreTheme();
+    // 恢复自定义渐变（如果有）
+    restoreCustomGradient();
 
     applyHome(fallbackHome());
     w.setTimeout(function(){
