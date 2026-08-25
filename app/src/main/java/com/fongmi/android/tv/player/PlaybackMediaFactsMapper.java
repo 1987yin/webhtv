@@ -180,7 +180,9 @@ public final class PlaybackMediaFactsMapper {
                         PlaybackAutoContext.Confidence.HIGH, sampledAtElapsedMs));
     }
 
-    private static PlaybackAutoContext.Fact<PlaybackAutoContext.DecodeMode> decodeModeFact(
+    // Package-private so the classification can be asserted directly; it is the single source
+    // of truth for soft/hard decode across all three kernels.
+    static PlaybackAutoContext.Fact<PlaybackAutoContext.DecodeMode> decodeModeFact(
             PlayerEngine.DecoderKind kind,
             String decoderName,
             long sampledAtElapsedMs) {
