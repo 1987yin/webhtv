@@ -2610,10 +2610,13 @@ public class TmdbDetailActivityLayoutTest {
         assertTrue("TV fullscreen playback toggles must keep controls hidden like the native leanback player",
                 activity.substring(toggle, toggleEnd)
                         .contains("if (Util.isLeanback() && inlineFullscreen) hideInlineControls();"));
-        assertTrue("TV inline controls must expose an explicit play/retry action before playback starts",
-                activity.contains("private void toggleInlinePlayback()")
-                        && activity.contains("binding.playerPlaybackAction")
-                        && activity.contains("setButtonEnabled(binding.playerPlaybackAction, true)"));
+        // 控制栏不再放播放/暂停按钮：它会把"下一集"挤到第二位，拖慢遥控器连播。
+        // 播放/暂停仍由全屏隐藏控制栏时的确认键承担，与影视原生控制栏（首个按钮是"下一集"）一致。
+        assertTrue("TV inline playback toggle must stay reachable through the fullscreen confirm key",
+                activity.contains("private void toggleInlinePlayback()"));
+        assertFalse("detail inline control bar must not re-add a play/pause action ahead of 下一集",
+                activity.contains("playerPlaybackAction")
+                        || readLayout("activity_tmdb_detail.xml").contains("@+id/playerPlaybackAction"));
         assertTrue("TV inline confirm should enter fullscreen before falling back to the controls overlay",
                 helperBody.contains("if (Util.isLeanback() && canEnterInlineFullscreenOnConfirm())")
                         && helperBody.contains("enterInlineFullscreen();")
