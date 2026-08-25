@@ -168,7 +168,8 @@ public class PlayerManager implements ParseCallback {
     private static final long EXO_DV7_FIRST_FRAME_FALLBACK_DELAY_MS = 1200;
     private static final long MPV_AUTO_OUTPUT_PROBE_INTERVAL_MS = 250;
     private static final int LOCAL_PROXY_MAX_RETRY = 2;
-    private static final int PLAYER_COUNT = PlayerSetting.MPV + 1;
+    // 以内核常量为下标，长度随顺序表推导，避免新增内核时标记表长度漏改。
+    private static final int PLAYER_COUNT = PlayerSetting.kernelIndexSize();
     private static final int MPV_AUTO_OUTPUT_PROBE_MAX_ATTEMPTS = 20;
     private static final int LUT_WARMUP_RECOVERED_ERROR_REFRESH_THRESHOLD = 3;
     private static final long DANMAKU_FORCE_RELOAD_DEBOUNCE_MS = 10000;

@@ -180,6 +180,16 @@ public class PlayerSetting {
         return KERNEL_ORDER.length;
     }
 
+    /**
+     * 以内核常量为下标的数组该开多大（如回退已试标记表）。
+     * 由顺序表推导而非写死某个常量，新增内核时不会漏掉长度、把下标撑越界。
+     */
+    public static int kernelIndexSize() {
+        int max = 0;
+        for (int kernel : KERNEL_ORDER) if (kernel > max) max = kernel;
+        return max + 1;
+    }
+
     /** 内核在优先级顺序里的位次，用于对话框选中项与排序展示。 */
     public static int kernelRank(int player) {
         int target = sanitizePlayer(player);
@@ -213,8 +223,11 @@ public class PlayerSetting {
      * 所以无论从哪个内核失败，回退都按 EXO → IJK → MPV → 系统 推进，只是跳过自身。
      */
     public static int firstUntriedPlayer(boolean[] tried) {
+        if (tried == null) return kernelAt(0);
         for (int kernel : KERNEL_ORDER) {
-            if (tried != null && kernel < tried.length && tried[kernel]) continue;
+            // 越界的内核记不进 tried，返回它会让调用方标记不生效而反复拿到同一个，
+            // 因此按「已试过」跳过：宁可少一次回退，也不能让回退循环停不下来。
+            if (kernel >= tried.length || tried[kernel]) continue;
             return kernel;
         }
         return NONE;

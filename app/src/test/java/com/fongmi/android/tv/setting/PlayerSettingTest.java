@@ -70,6 +70,24 @@ public class PlayerSettingTest {
     }
 
     @Test
+    public void kernelIndexSize_coversEveryKernelConstant() {
+        int size = PlayerSetting.kernelIndexSize();
+        for (int kernel : PlayerSetting.KERNEL_ORDER) {
+            assertTrue("内核常量 " + kernel + " 必须能作为下标写进长度 " + size + " 的数组", kernel < size);
+        }
+    }
+
+    @Test
+    public void firstUntriedPlayer_treatsUntrackableKernelsAsTriedSoFallbackTerminates() {
+        // 标记表短于内核常量时，越界内核记不进去；若当成未试过返回，回退会拿到同一个内核不停循环。
+        assertEquals(PlayerSetting.NONE, PlayerSetting.firstUntriedPlayer(new boolean[0]));
+        boolean[] onlyExoTrackable = new boolean[PlayerSetting.EXO + 1];
+        assertEquals(PlayerSetting.EXO, PlayerSetting.firstUntriedPlayer(onlyExoTrackable));
+        onlyExoTrackable[PlayerSetting.EXO] = true;
+        assertEquals(PlayerSetting.NONE, PlayerSetting.firstUntriedPlayer(onlyExoTrackable));
+    }
+
+    @Test
     public void firstUntriedPlayer_startsFromExoWhateverKernelFailed() {
         boolean[] fromSystem = new boolean[PlayerSetting.MPV + 1];
         fromSystem[PlayerSetting.SYSTEM] = true;
