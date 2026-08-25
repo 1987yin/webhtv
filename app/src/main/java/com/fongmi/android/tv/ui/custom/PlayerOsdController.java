@@ -27,6 +27,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.player.DolbyVisionFormatLabel;
 import com.fongmi.android.tv.player.GpuLoadMonitor;
+import com.fongmi.android.tv.player.ijk.IjkDecodePressurePolicy;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.PlaybackPanelResourceMonitor;
 import com.fongmi.android.tv.player.PlaybackDiagnosticsSourcePolicy;
@@ -599,7 +600,14 @@ public class PlayerOsdController {
         // whenever the profile says hardware would conceal it in exactly the case where the
         // user needs to confirm it is active.
         if (player.isHardDecode() && !player.isHardProfileRunningSoftware()) return "";
-        if (player.isIjk()) return "软解降负载 IJK跳帧/滤波";
+        if (player.isIjk()) {
+            // Report what IJK actually applied. It forces TuneMode.OFF in the hard-decode
+            // profile even with a mode configured, so claiming shedding is active whenever
+            // this row is reachable would be false exactly in the fallback case.
+            IjkDecodePressurePolicy.TuneMode mode = player.getAppliedIjkTuneMode();
+            if (mode == null || mode == IjkDecodePressurePolicy.TuneMode.OFF) return "软解降负载 关";
+            return "软解降负载 IJK跳帧/滤波 " + mode.label();
+        }
         if (player.isMpv()) return "软解降负载 MPV hwdec=no";
         return PlaybackPerformanceSetting.isSoftVideoTuneEnabled() ? "软解降负载 EXO滤波/低分辨" : "软解降负载 关";
     }

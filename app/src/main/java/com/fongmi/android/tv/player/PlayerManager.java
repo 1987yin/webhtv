@@ -934,6 +934,18 @@ public class PlayerManager implements ParseCallback {
         return labels.length > PlayerEngine.SOFT ? labels[PlayerEngine.SOFT] : "";
     }
 
+    /**
+     * The load-shedding mode IJK actually applied, or null when not on IJK. Read from the
+     * engine rather than re-derived from settings: IJK forces {@code TuneMode.OFF} in the
+     * hard-decode profile even when a mode is configured, so re-deriving would claim shedding
+     * is active while it is not.
+     */
+    @Nullable
+    public IjkDecodePressurePolicy.TuneMode getAppliedIjkTuneMode() {
+        return engine instanceof IjkPlayerEngine ijk
+                ? ijk.getAppliedDecodeControlConfig().tuneMode() : null;
+    }
+
     /** Configured profile only; callers deciding behavior must not see the label adjustment. */
     public boolean isHardDecode() {
         return engine.isHard();

@@ -65,6 +65,14 @@ if (lower.startsWith("omx.google.") || lower.startsWith("c2.android.")
 
 - `DecodeLabelPolicyTest`：6 个用例，覆盖仅在硬解档遇软解才报不一致、`UNKNOWN`／`null` 绝不下判断、标签两侧显示、软解文案由调用方注入以保证语言一致、软解文案缺失时退回原标签、无判断时原样透传（保证内核无关）。
 
+### 去短路的副作用：IJK 分支虚假声明（评审发现并已修）
+
+去掉 Exo 专属短路后 `isHardProfileRunningSoftware()` 对 IJK 也可为真，于是 `getSoftDecodeTuneText()` 的 IJK 分支变为可达，输出「软解降负载 IJK跳帧/滤波」。但 IJK 在**硬解档下降负载是明确关闭**的：手动档走 `decode == PlayerEngine.SOFT ? configuredSoftTuneMode() : TuneMode.OFF`（`IjkSimplePlayer:1028-1032`，`IjkDecodePressurePolicy:40-43` 同理），自动档初值也是 `OFF`，须 runtime 见到 `actualDecode == SOFTWARE` 才升档。故在「IJK 硬解档 + 回退 avcodec + 手动降负载档」下，面板会声称生效而实际为 OFF。
+
+修法是**读引擎已应用的档位而非从设置反推**（反推正是产生错误声明的原因）：新增 `PlayerManager.getAppliedIjkTuneMode()` 转发 `IjkPlayerEngine.getAppliedDecodeControlConfig().tuneMode()`，`OFF` 或非 IJK 时显示「软解降负载 关」，否则附上实际档位标签。
+
+MPV 分支经评审确认本就正确：`applySoftDecodeOptions` 刻意不按解码档设限（源码注释说明 MPV 可能在引擎仍表示硬解请求时静默回退），默认 MILD，故硬解回退时降负载确实生效。
+
 ### 本地化缺陷（自查发现并已修）
 
 标签取自**本地化**数组 `select_decode`：默认（英文）为 `Soft`／`Hard`，`zh-rCN` 为 `软解`／`硬解`，`zh-rTW` 为 `軟解`／`硬解`。而首版在策略类里硬编码了中文 `"→软解"`，于是英文环境会显示 `Hard→软解`（中英混杂）、繁中会显示 `硬解→软解`（简繁混杂）。
