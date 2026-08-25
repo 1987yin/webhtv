@@ -924,7 +924,14 @@ public class PlayerManager implements ParseCallback {
      */
     public String getDecodeText() {
         return DecodeLabelPolicy.decodeLabel(
-                engine.getDecodeText(), engine.isHard(), getActualDecodeMode());
+                engine.getDecodeText(), getSoftDecodeLabel(),
+                engine.isHard(), getActualDecodeMode());
+    }
+
+    /** Index 0 of the same localized array every engine's label comes from. */
+    private String getSoftDecodeLabel() {
+        String[] labels = ResUtil.getStringArray(R.array.select_decode);
+        return labels.length > PlayerEngine.SOFT ? labels[PlayerEngine.SOFT] : "";
     }
 
     /** Configured profile only; callers deciding behavior must not see the label adjustment. */

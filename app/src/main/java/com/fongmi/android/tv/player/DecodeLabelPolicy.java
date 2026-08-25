@@ -31,12 +31,19 @@ public final class DecodeLabelPolicy {
     /**
      * Decode label reflecting reality. On a mismatch both sides are shown so it is visible at
      * a glance, rather than requiring the user to cross-read the video row's decoder name.
+     *
+     * <p>{@code softLabel} must be supplied by the caller from the same localized
+     * {@code select_decode} array the configured label came from. Hardcoding it here would
+     * emit mixed-language text such as {@code Hard→软解} on a non-Chinese locale, or mixed
+     * simplified/traditional text on zh-rTW.
      */
     public static String decodeLabel(
             String configuredLabel,
+            String softLabel,
             boolean hardwareProfile,
             @Nullable PlaybackAutoContext.DecodeMode actual) {
         if (!isHardwareProfileRunningSoftware(hardwareProfile, actual)) return configuredLabel;
-        return configuredLabel + "→软解";
+        if (softLabel == null || softLabel.isBlank()) return configuredLabel;
+        return configuredLabel + "→" + softLabel;
     }
 }

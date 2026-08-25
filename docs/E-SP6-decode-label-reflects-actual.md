@@ -63,7 +63,13 @@ if (lower.startsWith("omx.google.") || lower.startsWith("c2.android.")
 
 ## 验证
 
-- `DecodeLabelPolicyTest`：4 个用例，覆盖仅在硬解档遇软解才报不一致、`UNKNOWN`／`null` 绝不下判断、标签两侧显示、无判断时原样透传（保证内核无关）。
+- `DecodeLabelPolicyTest`：6 个用例，覆盖仅在硬解档遇软解才报不一致、`UNKNOWN`／`null` 绝不下判断、标签两侧显示、软解文案由调用方注入以保证语言一致、软解文案缺失时退回原标签、无判断时原样透传（保证内核无关）。
+
+### 本地化缺陷（自查发现并已修）
+
+标签取自**本地化**数组 `select_decode`：默认（英文）为 `Soft`／`Hard`，`zh-rCN` 为 `软解`／`硬解`，`zh-rTW` 为 `軟解`／`硬解`。而首版在策略类里硬编码了中文 `"→软解"`，于是英文环境会显示 `Hard→软解`（中英混杂）、繁中会显示 `硬解→软解`（简繁混杂）。
+
+改为由调用方注入软解文案：`decodeLabel(configuredLabel, softLabel, ...)`，`PlayerManager` 从**同一个**本地化数组取 `[PlayerEngine.SOFT]`。策略类因此仍保持纯逻辑、可单测，且两侧文案必然同语言。`softLabel` 为空时退回原标签，不产出残缺的 `硬解→`。
 - `FallbackDecodeLabelSyncTest` 仍通过 —— 它以源码字符串锁定各宿主的解码标签必须取引擎实时值，本改动只改实现未移动调用点，且使该值更「实时」。
 - `player` 全包 1242 用例，仅 2 个预存 MPV 失败（基线 `3d5165d3c0` 已复现）。
 - `compileLeanbackArm64_v8aDebugJavaWithJavac` 与 `compileMobileArm64_v8aDebugJavaWithJavac` 均 `BUILD SUCCESSFUL`。
