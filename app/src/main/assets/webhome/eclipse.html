@@ -45,7 +45,7 @@
       transition: background .3s, color .3s;
     }
 
-    /* ===== 主题变量：黑色（浅色） ===== */
+    /* ===== 主题变量：默认（浅色） ===== */
     :root {
       --app-bg: #ffffff;
       --top-bg-start: #000000;
@@ -87,50 +87,6 @@
       --toast-bg: rgba(30,22,18,.92);
       --toast-color: #fff;
       --setting-border: #efeae5;
-    }
-
-    /* ===== 棕色渐变主题（棕色 · 预设） ===== */
-    [data-theme="brown"] {
-      --app-bg: #ffffff;
-      --top-bg-start: #703020;
-      --top-bg-end: #ffffff;
-      --text-primary: #2d1f14;
-      --text-secondary: #3d2b1e;
-      --text-muted: #8a7a6a;
-      --card-bg: #d9cdc0;
-      --badge-bg: rgba(180, 140, 110, 0.3);
-      --badge-color: #2d1f14;
-      --rating-color: #c78a3c;
-      --search-bg: rgba(255, 240, 230, 0.4);
-      --search-text: #2d1f14;
-      --search-placeholder: rgba(60, 40, 30, 0.6);
-      --icon-btn-bg: rgba(180, 140, 110, 0.25);
-      --cat-bg: rgba(180, 140, 110, 0.25);
-      --cat-text: #2d1f14;
-      --cat-active-bg: #b58a6a;
-      --cat-active-text: #ffffff;
-      --sheet-bg: #f7f0e8;
-      --sheet-text: #2d1f14;
-      --sheet-muted: #8a7a6a;
-      --btn-primary-bg: #b58a6a;
-      --btn-primary-text: #ffffff;
-      --btn-ghost-bg: #e0d5ca;
-      --btn-ghost-text: #2d1f14;
-      --filter-chip-bg: rgba(255, 240, 230, 0.6);
-      --filter-chip-border: #c4b0a0;
-      --filter-chip-active-bg: #b58a6a;
-      --filter-chip-active-text: #fff;
-      --fab-bg: rgba(255, 240, 230, 0.6);
-      --fab-border: rgba(180, 140, 110, 0.3);
-      --fab-icon-stroke: #3d2b1e;
-      --banner-dot-bg: #c4b0a0;
-      --banner-dot-active: #b58a6a;
-      --tag-bg: #e0d5ca;
-      --tag-color: #3d2b1e;
-      --desc-color: #5a4a3a;
-      --toast-bg: rgba(60, 40, 30, .9);
-      --toast-color: #f7f0e8;
-      --setting-border: #d4c4b8;
     }
 
     .app {
@@ -511,8 +467,6 @@
       background:#222; color:#fff;
     }
     .palette-actions button.primary:hover { background:#444; }
-    .palette-actions button.preset { background:#f0e8e0; color:#5a3d2b; }
-    .palette-actions button.preset.brown { background:#d4b8a0; color:#2d1f14; }
   </style>
 </head>
 <body>
@@ -606,8 +560,7 @@
     </div>
     <div class="palette-actions">
       <button class="primary" id="applyGradientBtn">应用</button>
-      <button class="preset" id="presetDefaultBtn">黑色</button>
-      <button class="preset brown" id="presetBrownBtn">棕色</button>
+      <button class="preset" id="presetDefaultBtn">默认</button>
     </div>
   </div>
 </div>
@@ -649,7 +602,7 @@
 <script src="eclipse-category-diagnostics.js"></script>
 <script src="eclipse-category-state.js"></script>
 
-<!-- ===== 主脚本（含调色盘逻辑） ===== -->
+<!-- ===== 主脚本（含调色盘逻辑，修复背景拼接） ===== -->
 <script>
 (function (w, d) {
   'use strict';
@@ -662,7 +615,6 @@
   var endPicker = d.getElementById('endColorPicker');
   var applyBtn = d.getElementById('applyGradientBtn');
   var presetDefault = d.getElementById('presetDefaultBtn');
-  var presetBrown = d.getElementById('presetBrownBtn');
 
   // ===== 从 localStorage 读取自定义颜色 =====
   function loadCustomColors() {
@@ -682,14 +634,20 @@
     } catch(e) {}
   }
 
-  // ===== 应用渐变颜色到 CSS 变量 =====
+  // ===== 应用渐变颜色到 CSS 变量（同时设置背景色） =====
   function applyGradient(start, end, save) {
     if (save !== false) save = true;
+    // 设置渐变
     appRoot.style.setProperty('--top-bg-start', start);
     appRoot.style.setProperty('--top-bg-end', end);
+    // 关键：将 app 背景色设置为结束色，消除拼接
+    appRoot.style.setProperty('--app-bg', end);
+    // 同时更新 root 的变量，使其他依赖背景色的元素也跟随
+    document.documentElement.style.setProperty('--app-bg', end);
+
     if (save) {
       saveCustomColors(start, end);
-      // 移除预设主题标识，进入自定义模式
+      // 移除任何可能残留的预设主题标识
       appRoot.removeAttribute('data-theme');
     }
     // 同步 picker 值
@@ -697,23 +655,21 @@
     endPicker.value = end;
   }
 
-  // ===== 应用预设主题 =====
-  function applyPreset(theme) {
-    if (theme === 'brown') {
-      appRoot.setAttribute('data-theme', 'brown');
-      // 从 CSS 变量读取值，并保存为自定义（以便下次打开时保持）
-      var computed = getComputedStyle(appRoot);
-      var start = computed.getPropertyValue('--top-bg-start').trim() || '#703020';
-      var end = computed.getPropertyValue('--top-bg-end').trim() || '#ffffff';
-      applyGradient(start, end, true);
-      // 但 data-theme 保留，以便其他样式生效
-    } else {
-      // 默认（黑白）
-      appRoot.removeAttribute('data-theme');
-      applyGradient('#000000', '#ffffff', true);
-    }
+  // ===== 应用预设主题（仅默认） =====
+  function applyDefaultPreset() {
+    appRoot.removeAttribute('data-theme');
+    // 恢复默认：黑到白渐变，背景白色
+    appRoot.style.setProperty('--top-bg-start', '#000000');
+    appRoot.style.setProperty('--top-bg-end', '#ffffff');
+    appRoot.style.setProperty('--app-bg', '#ffffff');
+    document.documentElement.style.setProperty('--app-bg', '#ffffff');
+    // 保存自定义记录（为白色）
+    saveCustomColors('#000000', '#ffffff');
+    // 同步 picker
+    startPicker.value = '#000000';
+    endPicker.value = '#ffffff';
     closePalette();
-    toast('已切换主题');
+    toast('已恢复默认主题');
   }
 
   // ===== 打开 / 关闭调色面板 =====
@@ -755,12 +711,7 @@
 
     // 预设：默认
     presetDefault.addEventListener('click', function() {
-      applyPreset('default');
-    });
-
-    // 预设：棕色
-    presetBrown.addEventListener('click', function() {
-      applyPreset('brown');
+      applyDefaultPreset();
     });
   }
 
@@ -769,19 +720,10 @@
     var custom = loadCustomColors();
     if (custom) {
       applyGradient(custom.start, custom.end, false);
-      // 如果同时有 data-theme，移除它，因为自定义优先
       appRoot.removeAttribute('data-theme');
     } else {
-      // 否则尝试从 data-theme 读取，或使用默认
-      var theme = appRoot.getAttribute('data-theme');
-      if (theme === 'brown') {
-        var computed = getComputedStyle(appRoot);
-        var start = computed.getPropertyValue('--top-bg-start').trim() || '#703020';
-        var end = computed.getPropertyValue('--top-bg-end').trim() || '#ffffff';
-        applyGradient(start, end, true);
-      } else {
-        applyGradient('#000000', '#ffffff', true);
-      }
+      // 无自定义，使用默认
+      applyDefaultPreset();
     }
   }
 
