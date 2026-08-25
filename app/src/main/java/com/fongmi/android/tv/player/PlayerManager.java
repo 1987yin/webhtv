@@ -61,7 +61,6 @@ import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 import com.fongmi.android.tv.player.cache.PlaybackDiskBufferStore;
 import com.fongmi.android.tv.player.exo.TrackUtil;
 import com.fongmi.android.tv.player.exo.ExoBufferingStallWatchdog;
-import com.fongmi.android.tv.player.exo.ExoDecoderKindPolicy;
 import com.fongmi.android.tv.player.exo.ExoDecoderResourceRecoveryLimiter;
 import com.fongmi.android.tv.player.exo.ExoNetworkGuardBufferPolicy;
 import com.fongmi.android.tv.player.exo.ExoNetworkGuardController;
@@ -924,10 +923,8 @@ public class PlayerManager implements ParseCallback {
      * the configured value hides exactly the case a user needs when playback is slow.
      */
     public String getDecodeText() {
-        String configured = engine.getDecodeText();
-        if (!isExo()) return configured;
-        return ExoDecoderKindPolicy.decodeLabel(
-                configured, engine.isHard(), getActualVideoDecoderName());
+        return DecodeLabelPolicy.decodeLabel(
+                engine.getDecodeText(), engine.isHard(), getActualDecodeMode());
     }
 
     /** Configured profile only; callers deciding behavior must not see the label adjustment. */
@@ -937,12 +934,19 @@ public class PlayerManager implements ParseCallback {
 
     /** True when the profile says hardware but a software decoder is actually running. */
     public boolean isHardProfileRunningSoftware() {
-        return isExo() && ExoDecoderKindPolicy.isHardwareProfileRunningSoftware(
-                engine.isHard(), getActualVideoDecoderName());
+        return DecodeLabelPolicy.isHardwareProfileRunningSoftware(
+                engine.isHard(), getActualDecodeMode());
     }
 
-    public String getActualVideoDecoderName() {
-        return PlaybackAnalyticsListener.getSnapshot().videoDecoderName();
+    /**
+     * The decode mode already resolved by {@link PlaybackMediaFactsMapper}, which trusts each
+     * engine's self-reported decoder kind before falling back to name parsing. Reading it here
+     * keeps one source of truth and works for every kernel, not only Exo.
+     */
+    public PlaybackAutoContext.DecodeMode getActualDecodeMode() {
+        PlaybackAutoContext.Fact<PlaybackAutoContext.DecodeMode> fact =
+                playbackAutoContextStore.snapshot().media().decoder().videoDecodeMode();
+        return fact.hasValue() ? fact.value() : PlaybackAutoContext.DecodeMode.UNKNOWN;
     }
 
     public String getPlayerText() {

@@ -18,16 +18,35 @@
 
 实际解码器名字本就在同一面板可得（`PlayerOsdController` 的 `视频` 行已用 `snapshot.videoDecoderName()`），缺的只是判定与对照。
 
-## 实现
+## 实现（最终版：复用既有事实管线）
 
-新增纯逻辑类 `ExoDecoderKindPolicy`：
+**第一版是错的设计，已重做。** 我新建了 `ExoDecoderKindPolicy` 自己按解码器名前缀分类，但仓库里**早已有等价且更强的实现** —— `PlaybackMediaFactsMapper.decodeModeFact()`：
 
-- `classify(name)` 判定 `SOFTWARE`／`HARDWARE`／`UNKNOWN`，分两类规则：
-  - **前缀**匹配 `omx.google.`、`c2.android.`（平台自带软解）。
-  - **子串**匹配 `ffmpeg`、`libvpx`、`libgav1`。用子串而非前缀，是因为部分机型把 FFmpeg 包在 OMX 名字下暴露为 `OMX.ffmpeg.*`，只做前缀匹配会漏判成硬解，正好隐藏本策略要暴露的那种不一致。厂商硬解名字不含这些 token，故子串匹配不会造成误报（已用 `c2.mtk.`／`OMX.amlogic.`／`c2.qti.`／`OMX.SEC.`／`c2.rk.`／`OMX.hisi.` 六个真实厂商名做反向断言）。
-  - 大小写不敏感并去空白。默认判 `HARDWARE`，使无法识别的名字**漏报而非误报**。
-- 名字缺失时返回 `UNKNOWN` 且**绝不下判断** —— 起播早期尚无解码器名，不能据此误报。
-- `decodeLabel(configured, hardwareProfile, decoderName)` 仅在「配置为硬解且确认运行软解」时返回 `硬解→软解`，其余原样返回。
+```java
+if (kind == PlayerEngine.DecoderKind.HARDWARE) return ... HARDWARE ...;
+if (kind == PlayerEngine.DecoderKind.SOFTWARE) return ... SOFTWARE ...;
+String lower = normalize(decoderName);
+if (lower.startsWith("omx.google.") || lower.startsWith("c2.android.")
+        || lower.contains("ffmpeg") || lower.contains("libgav1")
+        || lower.contains("dav1d") || lower.contains("avcodec")) { ... SOFTWARE ... }
+```
+
+它先采信**引擎自己上报**的 `PlayerEngine.DecoderKind`（IJK 经 `FFP_PROPV_DECODER_MEDIACODEC`／`AVCODEC`，MPV 经 `hwdec`），只在引擎报 `UNKNOWN` 时才退回名字判定，且 token 比我的多 `dav1d`、`avcodec`。我那句 `if (!isExo()) return configured;` 短路之所以必须存在，恰恰是因为我没用引擎上报 —— 用了就不需要短路。
+
+契约要求「选设计前先识别既有等价或部分实现」，这一条我漏了，属实施流程上的失误。
+
+最终实现：
+
+- 新增 `DecodeLabelPolicy`，**只负责标签决策**，不做分类。判据：`hardwareProfile && actual == DecodeMode.SOFTWARE` 才返回 `硬解→软解`；`UNKNOWN` 与 `null` 一律不下判断（漏报而非误报）。
+- `PlayerManager.getActualDecodeMode()` 读 `playbackAutoContextStore.snapshot().media().decoder().videoDecodeMode()`，即已算好的事实。
+- 删除 `ExoDecoderKindPolicy` 及其 11 个用例。
+- 去掉 Exo 专属短路，**三个内核一并覆盖**。
+
+各内核的取值来源经核对：Exo 在 `ExoPlayerEngine:662` 传 `DecoderKind.UNKNOWN` 但在 `:660` 传了 `analytics.videoDecoderName()`，故走名字分支；IJK 与 MPV 走引擎权威上报。
+
+已知的一处覆盖缩小：既有 token 清单不含 `libvpx`，而被删掉的类里有。作为独立单元补入 `PlaybackMediaFactsMapper`，不在本单元扩范围。
+
+## 接线（不变）
 
 接入点选在 `PlayerManager.getDecodeText()` 这一处漏斗：全部六个控制栏调用点（leanback 的 `CastActivity:175`／`LiveActivity:256`／`VideoActivity:1624`，mobile 的 `LiveActivity:389`／`VideoActivity:1822`，以及 `TmdbDetailActivity:7399`）与 OSD `配置` 行都经由它，改一处即全部一致，无需逐个改动。
 
@@ -44,7 +63,9 @@
 
 ## 验证
 
-- `ExoDecoderKindPolicyTest`：11 个用例，覆盖 nextlib／平台软解／`OMX.ffmpeg.*` 包装／libvpx・libgav1 识别、六个真实厂商硬解名的反向断言、大小写与空白、名字缺失不下判断、仅在硬解档遇软解才报不一致、标签两侧显示。
+- `DecodeLabelPolicyTest`：4 个用例，覆盖仅在硬解档遇软解才报不一致、`UNKNOWN`／`null` 绝不下判断、标签两侧显示、无判断时原样透传（保证内核无关）。
+- `FallbackDecodeLabelSyncTest` 仍通过 —— 它以源码字符串锁定各宿主的解码标签必须取引擎实时值，本改动只改实现未移动调用点，且使该值更「实时」。
+- `player` 全包 1242 用例，仅 2 个预存 MPV 失败（基线 `3d5165d3c0` 已复现）。
 - `compileLeanbackArm64_v8aDebugJavaWithJavac` 与 `compileMobileArm64_v8aDebugJavaWithJavac` 均 `BUILD SUCCESSFUL`。
 - 空值安全：`PlaybackAnalyticsListener.snapshot` 为 `volatile` 且初始 `Snapshot.empty()`，永不为 null；内部名字为空时分类器返回 `UNKNOWN`。
 
