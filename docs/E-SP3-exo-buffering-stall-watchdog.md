@@ -161,6 +161,16 @@ public void close()                        // 移出缓存 + closeNative() + add
 
 经历两轮评审共修出四项：暂停误判（P0）、回退式 seek 基线失配（P0）、重新装载挂在不会派发的回调上（P0，复审发现）、重置基线无上界（P1，复审发现）。其中后两项与「任何回退即 re-arm 导致永不触发」都是我在修前一个问题时自己引入的，均由测试或复审拦下。
 
+## 与内核回退链的时间上界（合并 beta 后确认）
+
+合并 `origin/beta` 的 `0afdcbd7d1`（回退按 `KERNEL_ORDER` = EXO→IJK→MPV→系统 扫描）与 `7fe00bd7cf`（修标记表短于内核常量时的死循环）后，本看门狗成为该链的一个新触发点。终止性已逐环核对：
+
+- `nextFallbackPlayer()` 先 `markPlayerFallbackTried(playerType)` 标记自身，循环内每个候选**取出即标记**，故每内核最多进入一次；全部标记后 `PlayerSetting.firstUntriedPlayer()` 返回 `NONE`，`fallbackPlayer` 终止并走 `callback.onError`。
+- `playerFallbackTried` 仅在 `reset()`／`switchPlayer()`（手动切）／`start()`／`parse()` 重置，**不在 `fallbackPlayer()` 内重置**，故单个片源内不会反复耗尽整条链。
+- `7fe00bd7cf` 的修复位于 `PlayerSetting:228-230`（越界内核按「已试过」跳过）。本看门狗走的是同一个函数，自动受该修复保护，无法绕过。
+
+**已知时间上界（刻意接受，不加链级总时长上限）**：最坏情况四个内核各耗尽 `EPISODE_CEILING_MS` = 90s，约 6 分钟才向用户报错。但这不是典型值 —— 死源通常 `isLoading()` 为假，20s 即触发，四内核合计约 80s；90s 上限只在「反复大幅回退」的病态采样下生效，需四个内核全部落入该状态才凑出 6 分钟。且改动前 BUFFERING 停滞**永不报错**，故即便最坏值也是严格改进。加链级上限需引入跨会话状态与额外复杂度，收益不足，暂不做；若实机出现该长尾再单独处理。
+
 ## 回滚
 
 恢复本任务的原子提交即可。不涉及依赖锁、AAR、native 二进制或 patch。
