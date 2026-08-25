@@ -4,6 +4,7 @@ import android.content.Context;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.nodejs.NodeBridge;
 import com.fongmi.android.tv.utils.Notify;
 import com.github.catvod.Proxy;
@@ -87,24 +88,31 @@ public final class NodeRuntime {
     }
 
     private static void run(Context context, String url, Callback callback) {
+        NodeDialog dialog = null;
         try {
-            boolean first = !NodeLib.installed(context);
-            if (first) toast("猫源首次启动，需下载 Node 运行时");
-            step(context, callback, "准备 Node 运行时 ...", -1);
+            // 只有首次要下几十 MB 才值得弹窗；后续启动只有几秒，弹窗反而干扰
+            if (!NodeLib.installed(context)) {
+                dialog = NodeDialog.create();
+                dialog.show();
+            }
+            final NodeDialog ui = dialog;
+            step(context, ui, callback, context.getString(R.string.node_prepare), -1);
+            String downloading = context.getString(R.string.node_downloading);
             String error = NodeLib.ensure(context, (done, total) -> {
                 int percent = total > 0 ? (int) (done * 100 / total) : -1;
-                step(context, callback, percent >= 0
-                        ? String.format("下载 Node 运行时 %d%%（%s/%s）", percent, size(done), size(total))
-                        : "下载 Node 运行时 " + size(done), percent);
+                if (ui != null) ui.progress(downloading, done, total);
+                notifyOnly(context, percent >= 0
+                        ? String.format("%s %d%%（%s/%s）", downloading, percent, size(done), size(total))
+                        : downloading + " " + size(done), percent);
             });
             if (error != null) {
-                fail(context, callback, "Node 运行时不可用: " + error);
+                fail(context, ui, callback, "Node 运行时不可用: " + error);
                 return;
             }
-            step(context, callback, "检查猫源 bundle ...", -1);
+            step(context, ui, callback, context.getString(R.string.node_bundle), -1);
             error = NodeBundle.ensure(context, url);
             if (error != null) {
-                fail(context, callback, error);
+                fail(context, ui, callback, error);
                 return;
             }
             File bundle = NodeBundle.file(context);
@@ -114,7 +122,8 @@ public final class NodeRuntime {
             if (!LAUNCHED.get()) portFile.delete();
             int preferred = freePort();
             File script = NodeBoot.write(context, bundle, NodeBundle.config(context), Proxy.getPort(), preferred);
-            step(context, callback, preferred > 0 ? "启动服务（端口 " + preferred + "） ..." : "启动服务 ...", -1);
+            String starting = context.getString(R.string.node_starting);
+            step(context, ui, callback, preferred > 0 ? starting + "（" + preferred + "）" : starting, -1);
             if (LAUNCHED.compareAndSet(false, true)) {
                 new Thread(() -> {
                     int code = NodeBridge.start(script, "--max-old-space-size=256");
@@ -125,24 +134,26 @@ public final class NodeRuntime {
                 // 已经起过一次：不能重来，只能等它自己就绪或如实报错
                 SpiderDebug.log("node", "node already launched, skip second start");
             }
-            if (waitReady(context, portFile, callback)) {
+            if (waitReady(context, ui, portFile, callback)) {
                 running = true;
-                NodeNotify.done(context, "猫源已就绪，端口 " + port);
-                toast("猫源已就绪");
+                String ready = context.getString(R.string.node_ready);
+                if (ui != null) ui.dismiss();
+                NodeNotify.done(context, ready + "，端口 " + port);
+                toast(ready);
                 if (callback != null) callback.onReady(baseUrl());
             } else {
-                fail(context, callback, "服务未在预期时间内就绪");
+                fail(context, ui, callback, "服务未在预期时间内就绪");
             }
         } catch (Throwable e) {
             SpiderDebug.log("node", e);
-            fail(context, callback, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+            fail(context, dialog, callback, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         } finally {
             STARTING.set(false);
         }
     }
 
     /** 先等引导脚本把实际端口落盘，再轮询 /config 确认路由装配完成。 */
-    private static boolean waitReady(Context context, File portFile, Callback callback) {
+    private static boolean waitReady(Context context, NodeDialog dialog, File portFile, Callback callback) {
         for (int i = 0; i < 90; i++) {
             try {
                 Thread.sleep(500);
@@ -150,7 +161,7 @@ public final class NodeRuntime {
                     int value = readPort(portFile);
                     if (value <= 0) continue;
                     port = value;
-                    step(context, callback, "服务已监听 " + value + "，装配站点 ...", -1);
+                    step(context, dialog, callback, "服务已监听 " + value + "，装配站点 ...", -1);
                 }
                 String text = OkHttp.string(configUrl());
                 if (!TextUtils.isEmpty(text)) return true;
@@ -191,18 +202,25 @@ public final class NodeRuntime {
         }
     }
 
-    /** 进度同时进通知栏和回调；下载阶段量大，只在整数百分比变化时更新通知避免刷屏。 */
-    private static void step(Context context, Callback callback, String message, int percent) {
+    /** 阶段性进度：对话框、通知栏、回调三处同步。 */
+    private static void step(Context context, NodeDialog dialog, Callback callback, String message, int percent) {
+        if (dialog != null) dialog.status(message);
+        notifyOnly(context, message, percent);
+        if (callback != null) callback.onProgress(message);
+    }
+
+    /** 只更新通知栏——下载阶段回调很密，对话框那份由调用方单独刷。 */
+    private static void notifyOnly(Context context, String message, int percent) {
         if (percent < 0 || percent != lastPercent) {
             lastPercent = percent;
             NodeNotify.progress(context, message, percent);
         }
         SpiderDebug.log("node", "%s", message);
-        if (callback != null) callback.onProgress(message);
     }
 
-    private static void fail(Context context, Callback callback, String message) {
+    private static void fail(Context context, NodeDialog dialog, Callback callback, String message) {
         SpiderDebug.log("node", "start failed: %s", message);
+        if (dialog != null) dialog.dismiss();
         NodeNotify.done(context, "猫源启动失败：" + message);
         toast("猫源启动失败：" + message);
         if (callback != null) callback.onError(message);
