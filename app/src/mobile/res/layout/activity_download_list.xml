@@ -12,7 +12,6 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         app:menu="@menu/menu_download_list"
-        app:navigationIconTint="@android:color/white"
         app:title="@string/download_list"
         app:titleTextAppearance="@style/ToolbarTextAppearance" />
 
