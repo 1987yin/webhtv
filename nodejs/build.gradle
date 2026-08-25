@@ -1,0 +1,40 @@
+plugins {
+    alias libs.plugins.android.library
+}
+
+android {
+    namespace = 'com.fongmi.android.tv.nodejs'
+
+    compileSdk libs.versions.compileSdk.get().toInteger()
+    ndkVersion = '28.2.13676358'
+
+    defaultConfig {
+        minSdk libs.versions.minSdk.get().toInteger()
+        targetSdk libs.versions.targetSdk.get().toInteger()
+        externalNativeBuild {
+            cmake {
+                // libnode.so 是运行时下载的，编译期不链接，只用 dlopen/dlsym
+                arguments '-DANDROID_STL=c++_shared'
+                cppFlags '-std=c++17 -fexceptions'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file('src/main/cpp/CMakeLists.txt')
+            version = '3.22.1'
+        }
+    }
+
+    compileOptions {
+        coreLibraryDesugaringEnabled = true
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+}
+
+dependencies {
+    implementation project(':catvod')
+    coreLibraryDesugaring libs.desugar
+}
