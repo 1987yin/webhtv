@@ -1104,7 +1104,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     /**
      * 执行 select_home_menu_key 中某一项对应的动作，下标 1..9（0 是「选项弹窗」自身，不会走到这里）。
      */
-    @Override
+
     public void onHomeMenuItem(int index) {
         switch (index) {
             case 1 -> SiteDialog.create().action().show(this);
