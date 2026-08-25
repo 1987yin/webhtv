@@ -8681,15 +8681,17 @@ public void resetTrack(int type) {
         return false;
     }
 
+    /**
+     * 按内核优先级顺序（EXO → IJK → MPV → 系统）挑下一个没试过的内核。
+     * 当前内核先标记成已试，所以回退天然跳过自身：MPV 失败就走 EXO → IJK → 系统。
+     */
     private int nextFallbackPlayer() {
         markPlayerFallbackTried(playerType);
-        int next = PlayerSetting.nextPlayer(playerType);
-        while (next != playerType) {
-            if (!isPlayerFallbackTried(next)) {
-                markPlayerFallbackTried(next);
-                if (PlayerSetting.isPlayerAvailable(next)) return next;
-            }
-            next = PlayerSetting.nextPlayer(next);
+        int next = PlayerSetting.firstUntriedPlayer(playerFallbackTried);
+        while (next != PlayerSetting.NONE) {
+            markPlayerFallbackTried(next);
+            if (PlayerSetting.isPlayerAvailable(next)) return next;
+            next = PlayerSetting.firstUntriedPlayer(playerFallbackTried);
         }
         return PlayerSetting.NONE;
     }
@@ -8745,10 +8747,6 @@ public void resetTrack(int type) {
 
     private void markPlayerFallbackTried(int type) {
         if (type >= 0 && type < playerFallbackTried.length) playerFallbackTried[type] = true;
-    }
-
-    private boolean isPlayerFallbackTried(int type) {
-        return type >= 0 && type < playerFallbackTried.length && playerFallbackTried[type];
     }
 
     private void resetFfmpegModeFallback() {
