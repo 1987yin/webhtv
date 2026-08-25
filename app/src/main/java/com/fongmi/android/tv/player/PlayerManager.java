@@ -61,6 +61,7 @@ import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 import com.fongmi.android.tv.player.cache.PlaybackDiskBufferStore;
 import com.fongmi.android.tv.player.exo.TrackUtil;
 import com.fongmi.android.tv.player.exo.ExoBufferingStallWatchdog;
+import com.fongmi.android.tv.player.exo.ExoDecoderKindPolicy;
 import com.fongmi.android.tv.player.exo.ExoDecoderResourceRecoveryLimiter;
 import com.fongmi.android.tv.player.exo.ExoNetworkGuardBufferPolicy;
 import com.fongmi.android.tv.player.exo.ExoNetworkGuardController;
@@ -916,12 +917,32 @@ public class PlayerManager implements ParseCallback {
         return SPEED_FORMAT.format(getSpeed());
     }
 
+    /**
+     * Decode label that reflects the running decoder, not only the configured profile. In the
+     * hard-decode profile Exo still installs the FFmpeg renderer as a fallback for codecs
+     * MediaCodec refuses, so a session labelled 硬解 can be decoding in software; showing only
+     * the configured value hides exactly the case a user needs when playback is slow.
+     */
     public String getDecodeText() {
-        return engine.getDecodeText();
+        String configured = engine.getDecodeText();
+        if (!isExo()) return configured;
+        return ExoDecoderKindPolicy.decodeLabel(
+                configured, engine.isHard(), getActualVideoDecoderName());
     }
 
+    /** Configured profile only; callers deciding behavior must not see the label adjustment. */
     public boolean isHardDecode() {
         return engine.isHard();
+    }
+
+    /** True when the profile says hardware but a software decoder is actually running. */
+    public boolean isHardProfileRunningSoftware() {
+        return isExo() && ExoDecoderKindPolicy.isHardwareProfileRunningSoftware(
+                engine.isHard(), getActualVideoDecoderName());
+    }
+
+    public String getActualVideoDecoderName() {
+        return PlaybackAnalyticsListener.getSnapshot().videoDecoderName();
     }
 
     public String getPlayerText() {

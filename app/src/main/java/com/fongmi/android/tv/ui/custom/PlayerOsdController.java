@@ -594,10 +594,14 @@ public class PlayerOsdController {
     }
 
     private String getSoftDecodeTuneText(PlayerManager player) {
-        if (player.isHardDecode()) return "";
+        // The hard-decode profile still falls back to the FFmpeg renderer for codecs
+        // MediaCodec refuses, and that fallback now gets load shedding too. Hiding the status
+        // whenever the profile says hardware would conceal it in exactly the case where the
+        // user needs to confirm it is active.
+        if (player.isHardDecode() && !player.isHardProfileRunningSoftware()) return "";
         if (player.isIjk()) return "软解降负载 IJK跳帧/滤波";
         if (player.isMpv()) return "软解降负载 MPV hwdec=no";
-        return PlaybackPerformanceSetting.isSoftVideoTuneEnabled() ? "软解降负载 EXO跳帧/滤波/低分辨" : "软解降负载 关";
+        return PlaybackPerformanceSetting.isSoftVideoTuneEnabled() ? "软解降负载 EXO滤波/低分辨" : "软解降负载 关";
     }
 
     private boolean isDecodeError(PlaybackAnalyticsListener.Snapshot snapshot) {
