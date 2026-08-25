@@ -195,7 +195,8 @@ public final class PlaybackMediaFactsMapper {
         String lower = normalize(decoderName);
         if (lower.startsWith("omx.google.") || lower.startsWith("c2.android.")
                 || lower.contains("ffmpeg") || lower.contains("libgav1")
-                || lower.contains("dav1d") || lower.contains("avcodec")) {
+                || lower.contains("libvpx") || lower.contains("dav1d")
+                || lower.contains("avcodec")) {
             return PlaybackAutoContext.Fact.untilReplaced(PlaybackAutoContext.DecodeMode.SOFTWARE,
                     PlaybackAutoContext.ValueSource.ESTIMATOR, PlaybackAutoContext.Confidence.MEDIUM, sampledAtElapsedMs);
         }
