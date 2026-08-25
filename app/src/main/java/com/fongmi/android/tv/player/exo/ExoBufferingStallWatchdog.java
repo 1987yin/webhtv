@@ -106,8 +106,9 @@ public final class ExoBufferingStallWatchdog {
         // Small regressions must NOT re-arm. The buffered end can jitter down a little while
         // buffering, and re-arming on jitter would reset the clock on every dip, so an
         // oscillating-but-stalled session would never time out at all.
-        // Rebaseline only. The episode start is deliberately preserved so a repeating
-        // regression cycle cannot defer the timeout indefinitely.
+        // This re-anchors the progress clock AND its watermarks (a new continuity segment), while
+        // the episode's time anchor deliberately survives so a repeating regression cycle still
+        // cannot defer the ceiling indefinitely.
         if (positionMs < lastPositionMs - DISCONTINUITY_TOLERANCE_MS
                 || bufferedPositionMs < lastBufferedPositionMs - DISCONTINUITY_TOLERANCE_MS) {
             rebaseline(nowMs, positionMs, bufferedPositionMs);
