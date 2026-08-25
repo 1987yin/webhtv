@@ -169,7 +169,32 @@ public void close()                        // 移出缓存 + closeNative() + add
 - `playerFallbackTried` 仅在 `reset()`／`switchPlayer()`（手动切）／`start()`／`parse()` 重置，**不在 `fallbackPlayer()` 内重置**，故单个片源内不会反复耗尽整条链。
 - `7fe00bd7cf` 的修复位于 `PlayerSetting:228-230`（越界内核按「已试过」跳过）。本看门狗走的是同一个函数，自动受该修复保护，无法绕过。
 
-**已知时间上界（刻意接受，不加链级总时长上限）**：最坏情况四个内核各耗尽 `EPISODE_CEILING_MS` = 90s，约 6 分钟才向用户报错。但这不是典型值 —— 死源通常 `isLoading()` 为假，20s 即触发，四内核合计约 80s；90s 上限只在「反复大幅回退」的病态采样下生效，需四个内核全部落入该状态才凑出 6 分钟。且改动前 BUFFERING 停滞**永不报错**，故即便最坏值也是严格改进。加链级上限需引入跨会话状态与额外复杂度，收益不足，暂不做；若实机出现该长尾再单独处理。
+**已知时间上界（刻意接受，不加链级总时长上限）**：链长是 **8 步**而非 4 步 —— `getFailureFallback()` 默认 `FALLBACK_FULL`（`PlayerSetting:411`），故每个内核先降解码档再换内核，四内核 × HARD/SOFT 双档；且 `isAutoChange()` 默认 `true`（`PlayerSetting:402`），线路层面还有倍数。最坏情况八步各耗尽 `EPISODE_CEILING_MS` = 90s，约 **12 分钟**才向用户报错。
+
+但这不是典型值：死源通常 `isLoading()` 为假，20s 即触发，八步合计约 160s。且 90s 上限现在**要求净进展不足 `EPISODE_PROGRESS_MARGIN_MS`** 才生效（见下节），所以「慢但在推进」的会话不会被计入该长尾。改动前 BUFFERING 停滞**永不报错**，故即便最坏值仍是严格改进。加链级上限需引入跨会话状态与额外复杂度，收益不足，暂不做；若实机出现该长尾再单独处理。
+
+### 上限必须与进展联合判定（复审 P0，已修）
+
+初版的上限是**无条件**的：
+
+```java
+if (nowMs - episodeStartedAtMs >= EPISODE_CEILING_MS) return true;
+```
+
+于是「慢但在稳步推进」的会话也会在 90s 被杀 —— 大文件配慢链路完全可能花超过 90s 稳步填那 15s 阈值。这恰恰绕过了双条件判据本要保护的场景，是我加上限时引入的误杀。
+
+修法：上限改为**同时**要求「已过 90s」**且**「自 episode 起点起净进展 < `EPISODE_PROGRESS_MARGIN_MS` = 15_000」。净进展取 position 与 buffered 两者增量的较大值，起点水位在 `arm()` 时记录、`rebaseline()` **不动**（维持「回退只重置进展时钟、不重置 episode」的既有区分）。余量取 15s 量级与 `MAX_STREAMING_REBUFFER_MS` 对齐：既保住「正在填阈值」的会话，又不放过净进展仅 3s 的病态回退循环（`repeatingLargeRegressionCannotDeferTheTimeoutForever` 那条用例的净进展正是 3s，仍会触发）。
+
+同时更正上一节曾写下的错误论证 —— 「60s 档先触发、90s 上限轮不到」**只在无进展时成立**，而这正是本 P0 的根因。
+
+新增 `ceilingSparesAGenuinelyProgressingEpisode`（每 tick 双双 +200ms，跨越上限仍不得触发）与 `ceilingStillFiresWhenNetProgressIsBelowTheMargin` 两条锁定两侧。
+
+### 其余两项（复审 P1／P2，已修）
+
+- **手动切内核后停滞不得劫持用户选择**：`onBufferingStall` 原先直接走 `fallbackPlayback`，而 `onPlaybackTimeout` 对 `manualPlayerSwitchPending` 是单独报错的。已补同形分支，遥测理由用 `manual-switch-stall` 以便与 `manual-switch-timeout` 区分入口。
+- **新片源须失效旧基线**：`setMediaItemNow` 补 `cancelBufferingStallWatchdog()`，与紧邻的 `App.removeCallbacks(runnable)` 职责同构。只加在这个漏斗底部 —— `awaitLocalProxyAndSetMediaItem` 的异步路径最终也汇入此处，加在两处会让「取消发生在哪一刻」依赖代理是否就绪。
+
+三项均以 `PlayerManagerLifecycleSourceTest` 的源码字符串断言锁定（本仓库既有约定），并已反向验证：删掉 `setMediaItemNow` 里那行会令 `newMediaItemCancelsTheStallWatchdog` 变红。其中一条断言还专门守住 BUFFERING 分支的 `!isArmed()` 守卫，防止后人为「修」P2 而删掉它 —— 那会让 seek 路径的 cancel+arm 退化成重复装载并永久重置基线。
 
 ## 回滚
 

@@ -39,8 +39,18 @@ public final class ExoBufferingStallWatchdog {
      */
     public static final long EPISODE_CEILING_MS = 90_000L;
 
+    /**
+     * Net progress since the episode start that spares a session from the ceiling. Sized at the
+     * same order as {@code MAX_STREAMING_REBUFFER_MS} (15 s) so a session that is slowly but
+     * genuinely filling its rebuffer threshold survives, while a session whose only movement is
+     * jitter or a regression cycle does not.
+     */
+    static final long EPISODE_PROGRESS_MARGIN_MS = 15_000L;
+
     private boolean armed;
     private long episodeStartedAtMs;
+    private long episodeStartPositionMs;
+    private long episodeStartBufferedMs;
     private long lastProgressAtMs;
     private long lastPositionMs;
     private long lastBufferedPositionMs;
@@ -53,6 +63,8 @@ public final class ExoBufferingStallWatchdog {
     public void arm(long nowMs, long positionMs, long bufferedPositionMs) {
         armed = true;
         episodeStartedAtMs = nowMs;
+        episodeStartPositionMs = positionMs;
+        episodeStartBufferedMs = bufferedPositionMs;
         rebaseline(nowMs, positionMs, bufferedPositionMs);
     }
 
@@ -92,6 +104,8 @@ public final class ExoBufferingStallWatchdog {
     public void reset() {
         armed = false;
         episodeStartedAtMs = 0;
+        episodeStartPositionMs = 0;
+        episodeStartBufferedMs = 0;
         lastProgressAtMs = 0;
         lastPositionMs = 0;
         lastBufferedPositionMs = 0;
@@ -104,9 +118,23 @@ public final class ExoBufferingStallWatchdog {
     public boolean shouldTimeout(
             long nowMs, long positionMs, long bufferedPositionMs, boolean loading) {
         if (!armed) return false;
-        if (nowMs - episodeStartedAtMs >= EPISODE_CEILING_MS) return true;
+        // The ceiling bounds a regression cycle that keeps resetting the progress clock, but it
+        // must not kill a session that is genuinely advancing: a large file on a slow link can
+        // spend well over the ceiling steadily filling its rebuffer threshold. Require both the
+        // elapsed ceiling AND insufficient net progress since the episode start.
+        if (nowMs - episodeStartedAtMs >= EPISODE_CEILING_MS
+                && netEpisodeProgressMs(positionMs, bufferedPositionMs)
+                < EPISODE_PROGRESS_MARGIN_MS) {
+            return true;
+        }
         return positionMs <= lastPositionMs
                 && bufferedPositionMs <= lastBufferedPositionMs
                 && nowMs - lastProgressAtMs >= (loading ? LOADING_STALL_TIMEOUT_MS : STALL_TIMEOUT_MS);
+    }
+
+    private long netEpisodeProgressMs(long positionMs, long bufferedPositionMs) {
+        long position = Math.max(0, positionMs - episodeStartPositionMs);
+        long buffered = Math.max(0, bufferedPositionMs - episodeStartBufferedMs);
+        return Math.max(position, buffered);
     }
 }

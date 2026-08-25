@@ -21,6 +21,39 @@ public class PlayerManagerLifecycleSourceTest {
                 source.contains("public boolean isVod() {\n        return engine != null && engine.isVod();"));
     }
 
+    /**
+     * 以下三条锁的是实现文本（本仓库 source-text 断言约定）。若日后搬走或改名这些方法，
+     * 必须同步改这里的断言 —— 断言变红说明约定被破坏，而不是测试坏了。
+     */
+    @Test
+    public void bufferingStallMustNotHijackAManualKernelSwitch() throws Exception {
+        String source = readPlayerManager();
+        int start = source.indexOf("private void onBufferingStall(");
+        assertTrue("onBufferingStall must exist", start >= 0);
+        String body = source.substring(start, source.indexOf("\n    }", start));
+        assertTrue("onBufferingStall must report a manual switch instead of auto-falling back",
+                body.contains("manualPlayerSwitchPending"));
+    }
+
+    @Test
+    public void newMediaItemCancelsTheStallWatchdog() throws Exception {
+        String source = readPlayerManager();
+        int start = source.indexOf("private void setMediaItemNow(");
+        assertTrue("setMediaItemNow must exist", start >= 0);
+        String body = source.substring(start, source.indexOf("\n    }", start));
+        assertTrue("a new media item must invalidate the previous episode baseline",
+                body.contains("cancelBufferingStallWatchdog()"));
+    }
+
+    @Test
+    public void bufferingBranchKeepsTheAlreadyArmedGuard() throws Exception {
+        String source = readPlayerManager();
+        // Without this guard the seek path's cancel+arm degrades into a repeated re-arm that
+        // keeps resetting the baseline, so the stall would never be reported.
+        assertTrue("BUFFERING branch must only arm when not already armed",
+                source.contains("if (!bufferingStallWatchdog.isArmed()) armBufferingStallWatchdog();"));
+    }
+
     private static String readPlayerManager() throws IOException {
         Path root = Path.of("").toAbsolutePath();
         Path source = root.resolve(Path.of(

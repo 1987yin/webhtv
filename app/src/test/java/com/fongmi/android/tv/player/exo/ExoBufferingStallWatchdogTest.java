@@ -122,6 +122,33 @@ public class ExoBufferingStallWatchdogTest {
     }
 
     @Test
+    public void ceilingSparesAGenuinelyProgressingEpisode() {
+        ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
+        watchdog.arm(0, 5_000, 9_000);
+        // A large file on a slow link can spend well past the ceiling steadily filling its
+        // rebuffer threshold. The ceiling must not kill it just because time elapsed.
+        long now = 0;
+        long buffered = 9_000;
+        while (now < ExoBufferingStallWatchdog.EPISODE_CEILING_MS + 2_000) {
+            now += 1_000;
+            buffered += 200;
+            assertFalse("fired at " + now + "ms despite progress",
+                    watchdog.shouldTimeout(now, 5_000, buffered, true));
+            watchdog.observe(now, 5_000, buffered);
+        }
+    }
+
+    @Test
+    public void ceilingStillFiresWhenNetProgressIsBelowTheMargin() {
+        ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
+        watchdog.arm(0, 5_000, 9_000);
+        // Movement exists but is far below the margin, so this is not a working session.
+        long now = ExoBufferingStallWatchdog.EPISODE_CEILING_MS;
+        long buffered = 9_000 + ExoBufferingStallWatchdog.EPISODE_PROGRESS_MARGIN_MS - 1_000;
+        assertTrue(watchdog.shouldTimeout(now, 5_000, buffered, true));
+    }
+
+    @Test
     public void episodeCeilingDoesNotCountPausedTime() {
         ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
         // A paused session re-arms every tick, so the ceiling never accumulates.

@@ -5910,6 +5910,10 @@ public void resetTrack(int type) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "setMediaItem timeout=%d notify=%s spec=%s", timeout, notifyPrepare, debugSpec());
         resetNetworkProtectionSession("new-media");
         App.removeCallbacks(runnable);
+        // Same responsibility as the line above: a new media item invalidates the previous
+        // episode's baseline. This is the funnel every start path reaches, including the async
+        // awaitLocalProxyAndSetMediaItem route, so cancelling once here is sufficient.
+        cancelBufferingStallWatchdog();
         setDanmakus(spec.getDanmakus());
         prepareLutPipeline();
         initTrack = false;
@@ -8441,6 +8445,14 @@ public void resetTrack(int type) {
         if (SpiderDebug.isEnabled()) {
             SpiderDebug.log("player", "buffering stall position=%d buffered=%d spec=%s",
                     positionMs, bufferedPositionMs, debugSpec());
+        }
+        // A stall right after the user picked a kernel must report that choice's failure rather
+        // than silently walking the fallback chain away from it, matching onPlaybackTimeout.
+        if (manualPlayerSwitchPending) {
+            finishPlaybackProfileAbSession(
+                    "manual-switch-stall", SystemClock.elapsedRealtime());
+            callback.onError(ResUtil.getString(R.string.error_play_timeout));
+            return;
         }
         PlaybackException e = new PlaybackException(
                 ResUtil.getString(R.string.error_play_timeout), null, PlaybackException.ERROR_CODE_TIMEOUT);
