@@ -79,7 +79,9 @@ final class DolbyVisionP81ExtractorsFactory implements ExtractorsFactory {
     @Override
     public Extractor[] createExtractors(
             Uri uri, Map<String, List<String>> responseHeaders) {
-        return wrap(delegate.createExtractors(uri, responseHeaders), isRemoteUri(uri));
+        return wrap(
+                delegate.createExtractors(uri, responseHeaders),
+                isRemoteUri(uri) && PlaybackPerformanceSetting.isDeferredCuesEnabled());
     }
 
     private Extractor[] wrap(Extractor[] extractors, boolean deferSeekForCues) {

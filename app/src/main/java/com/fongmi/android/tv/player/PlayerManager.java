@@ -774,6 +774,19 @@ public class PlayerManager implements ParseCallback {
         return Math.max(0, getEffectiveBufferedPosition() - getPosition());
     }
 
+    /** Raw Exo buffered duration, free of the disk-range folding used for the progress bar. */
+    public long getNativeBufferedDuration() {
+        return player == null ? 0 : Math.max(0, player.getBufferedPosition() - getPosition());
+    }
+
+    public String getStartupSummary() {
+        return playbackTrace.startupSummary();
+    }
+
+    public String getSlowestStartupStage() {
+        return playbackTrace.slowestStage();
+    }
+
     public int getBufferedPercentage() {
         if (!isExo()) return player.getBufferedPercentage();
         long duration = player.getDuration();
