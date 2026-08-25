@@ -152,6 +152,7 @@ import com.fongmi.android.tv.ui.dialog.CodecCapabilityDialog;
 import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
 import com.fongmi.android.tv.ui.dialog.DisplayDialog;
 import com.fongmi.android.tv.ui.dialog.MultiThreadProxyDialog;
+import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleManualSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
@@ -8106,7 +8107,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private boolean showInlinePlayerChoice() {
         if (service() == null || player().isEmpty()) return false;
-        String[] kernels = ResUtil.getStringArray(R.array.select_player_kernel);
+        String[] kernels = PlayerKernelDialog.kernels(getResources());
         String[] items = Arrays.copyOf(kernels, kernels.length + 1);
         items[kernels.length] = getString(R.string.player_kernel_external);
         new MaterialAlertDialogBuilder(this).setItems(items, (dialog, which) -> onInlinePlayerChoice(kernels, which)).show();
@@ -8114,7 +8115,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void onInlinePlayerChoice(String[] kernels, int which) {
-        if (which < kernels.length) switchInlinePlayer(which);
+        if (which < kernels.length) switchInlinePlayer(PlayerSetting.kernelAt(which));
         else openInlineExternal();
     }
 

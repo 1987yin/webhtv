@@ -169,7 +169,8 @@ public class PlayerManager implements ParseCallback {
     private static final long EXO_DV7_FIRST_FRAME_FALLBACK_DELAY_MS = 1200;
     private static final long MPV_AUTO_OUTPUT_PROBE_INTERVAL_MS = 250;
     private static final int LOCAL_PROXY_MAX_RETRY = 2;
-    private static final int PLAYER_COUNT = PlayerSetting.MPV + 1;
+    // 以内核常量为下标，长度随顺序表推导，避免新增内核时标记表长度漏改。
+    private static final int PLAYER_COUNT = PlayerSetting.kernelIndexSize();
     private static final int MPV_AUTO_OUTPUT_PROBE_MAX_ATTEMPTS = 20;
     private static final int LUT_WARMUP_RECOVERED_ERROR_REFRESH_THRESHOLD = 3;
     private static final long DANMAKU_FORCE_RELOAD_DEBOUNCE_MS = 10000;
@@ -8945,15 +8946,17 @@ public void resetTrack(int type) {
         return false;
     }
 
+    /**
+     * 按内核优先级顺序（EXO → IJK → MPV → 系统）挑下一个没试过的内核。
+     * 当前内核先标记成已试，所以回退天然跳过自身：MPV 失败就走 EXO → IJK → 系统。
+     */
     private int nextFallbackPlayer() {
         markPlayerFallbackTried(playerType);
-        int next = PlayerSetting.nextPlayer(playerType);
-        while (next != playerType) {
-            if (!isPlayerFallbackTried(next)) {
-                markPlayerFallbackTried(next);
-                if (PlayerSetting.isPlayerAvailable(next)) return next;
-            }
-            next = PlayerSetting.nextPlayer(next);
+        int next = PlayerSetting.firstUntriedPlayer(playerFallbackTried);
+        while (next != PlayerSetting.NONE) {
+            markPlayerFallbackTried(next);
+            if (PlayerSetting.isPlayerAvailable(next)) return next;
+            next = PlayerSetting.firstUntriedPlayer(playerFallbackTried);
         }
         return PlayerSetting.NONE;
     }
@@ -9009,10 +9012,6 @@ public void resetTrack(int type) {
 
     private void markPlayerFallbackTried(int type) {
         if (type >= 0 && type < playerFallbackTried.length) playerFallbackTried[type] = true;
-    }
-
-    private boolean isPlayerFallbackTried(int type) {
-        return type >= 0 && type < playerFallbackTried.length && playerFallbackTried[type];
     }
 
     private void resetFfmpegModeFallback() {
