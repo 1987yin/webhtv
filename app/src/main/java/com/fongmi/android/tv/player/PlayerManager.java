@@ -60,6 +60,7 @@ import com.fongmi.android.tv.player.audio.PlaybackMediaSessionController;
 import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 import com.fongmi.android.tv.player.cache.PlaybackDiskBufferStore;
 import com.fongmi.android.tv.player.exo.TrackUtil;
+import com.fongmi.android.tv.player.exo.ExoBufferingStallWatchdog;
 import com.fongmi.android.tv.player.exo.ExoDecoderResourceRecoveryLimiter;
 import com.fongmi.android.tv.player.exo.ExoNetworkGuardBufferPolicy;
 import com.fongmi.android.tv.player.exo.ExoNetworkGuardController;
@@ -187,15 +188,19 @@ public class PlayerManager implements ParseCallback {
     private static final int MAX_AD_AUDIO_PIPELINE_REBUILDS = 2;
     private static final long MPV_FRAME_TIMING_LOG_INTERVAL_MS = 5000L;
     private static final long DISK_RANGE_GAP_TOLERANCE_MS = 2000L;
+    private static final long BUFFERING_STALL_POLL_INTERVAL_MS = 1000L;
     private static final long LUT_PREVIEW_FRAME_INTERVAL_MS = 16L;
     private static final float[] SPEED_PRESETS = new float[]{0.5f, 0.75f, 1f, 1.2f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f, 5f};
     private static final DecimalFormat SPEED_FORMAT = new DecimalFormat("0.##x");
     private static final Pattern HTTP_STATUS = Pattern.compile("(?i)(?:response code|http status|http error)\\D+(\\d{3})");
 
     private final Runnable runnable;
+    private final Runnable bufferingStallRunnable;
     private final Runnable liveDanmakuMetricsRunnable;
     private final Runnable networkProtectionRunnable;
     private final Runnable playbackTelemetryRunnable;
+    private final ExoBufferingStallWatchdog bufferingStallWatchdog =
+            new ExoBufferingStallWatchdog();
     private final Callback callback;
     private final PlaybackMediaSignalHub mediaSignals = new PlaybackMediaSignalHub(8);
     private final PlaybackMediaClock mediaClock = new PlaybackMediaClock(500L);
@@ -340,6 +345,7 @@ public class PlayerManager implements ParseCallback {
                 playbackExperimentCoordinator.addListener(update ->
                         App.post(() -> onPlaybackExperimentPolicyChanged(update)));
         this.runnable = this::onPlaybackTimeout;
+        this.bufferingStallRunnable = this::checkBufferingStall;
         this.liveDanmakuMetricsRunnable = () -> logLiveDanmakuMetrics("periodic", true);
         this.networkProtectionRunnable = this::evaluateNetworkProtection;
         this.playbackTelemetryRunnable = this::publishPlaybackTelemetryTick;
@@ -416,6 +422,7 @@ public class PlayerManager implements ParseCallback {
         clearExoDecoderResourceRecovery(true);
         player.removeListener(listener);
         App.removeCallbacks(runnable);
+        cancelBufferingStallWatchdog();
         App.removeCallbacks(networkProtectionRunnable);
         App.removeCallbacks(playbackTelemetryRunnable);
         mpvResourceMemoryRegistration.close();
@@ -768,6 +775,19 @@ public class PlayerManager implements ParseCallback {
         return Math.max(0, getEffectiveBufferedPosition() - getPosition());
     }
 
+    /** Raw Exo buffered duration, free of the disk-range folding used for the progress bar. */
+    public long getNativeBufferedDuration() {
+        return player == null ? 0 : Math.max(0, player.getBufferedPosition() - getPosition());
+    }
+
+    public String getStartupSummary() {
+        return playbackTrace.startupSummary();
+    }
+
+    public String getSlowestStartupStage() {
+        return playbackTrace.slowestStage();
+    }
+
     public int getBufferedPercentage() {
         if (!isExo()) return player.getBufferedPercentage();
         long duration = player.getDuration();
@@ -897,12 +917,56 @@ public class PlayerManager implements ParseCallback {
         return SPEED_FORMAT.format(getSpeed());
     }
 
+    /**
+     * Decode label that reflects the running decoder, not only the configured profile. In the
+     * hard-decode profile Exo still installs the FFmpeg renderer as a fallback for codecs
+     * MediaCodec refuses, so a session labelled 硬解 can be decoding in software; showing only
+     * the configured value hides exactly the case a user needs when playback is slow.
+     */
     public String getDecodeText() {
-        return engine.getDecodeText();
+        return DecodeLabelPolicy.decodeLabel(
+                engine.getDecodeText(), getSoftDecodeLabel(),
+                engine.isHard(), getActualDecodeMode());
     }
 
+    /** Index 0 of the same localized array every engine's label comes from. */
+    private String getSoftDecodeLabel() {
+        String[] labels = ResUtil.getStringArray(R.array.select_decode);
+        return labels.length > PlayerEngine.SOFT ? labels[PlayerEngine.SOFT] : "";
+    }
+
+    /**
+     * The load-shedding mode IJK actually applied, or null when not on IJK. Read from the
+     * engine rather than re-derived from settings: IJK forces {@code TuneMode.OFF} in the
+     * hard-decode profile even when a mode is configured, so re-deriving would claim shedding
+     * is active while it is not.
+     */
+    @Nullable
+    public IjkDecodePressurePolicy.TuneMode getAppliedIjkTuneMode() {
+        return engine instanceof IjkPlayerEngine ijk
+                ? ijk.getAppliedDecodeControlConfig().tuneMode() : null;
+    }
+
+    /** Configured profile only; callers deciding behavior must not see the label adjustment. */
     public boolean isHardDecode() {
         return engine.isHard();
+    }
+
+    /** True when the profile says hardware but a software decoder is actually running. */
+    public boolean isHardProfileRunningSoftware() {
+        return DecodeLabelPolicy.isHardwareProfileRunningSoftware(
+                engine.isHard(), getActualDecodeMode());
+    }
+
+    /**
+     * The decode mode already resolved by {@link PlaybackMediaFactsMapper}, which trusts each
+     * engine's self-reported decoder kind before falling back to name parsing. Reading it here
+     * keeps one source of truth and works for every kernel, not only Exo.
+     */
+    public PlaybackAutoContext.DecodeMode getActualDecodeMode() {
+        PlaybackAutoContext.Fact<PlaybackAutoContext.DecodeMode> fact =
+                playbackAutoContextStore.snapshot().media().decoder().videoDecodeMode();
+        return fact.hasValue() ? fact.value() : PlaybackAutoContext.DecodeMode.UNKNOWN;
     }
 
     public String getPlayerText() {
@@ -1599,6 +1663,11 @@ public class PlayerManager implements ParseCallback {
         ijkDecodePressureController.onUserSeek(playbackAutoSession, now);
         resetNetworkProtectionSession("user-seek");
         player.seekTo(time);
+        // A seek has no timeout of its own; without this the session can sit in
+        // BUFFERING indefinitely waiting on the rebuffer threshold. Arm after the
+        // seek so the baseline is the new position, not the old one.
+        cancelBufferingStallWatchdog();
+        armBufferingStallWatchdog();
     }
 
     public long getTextOffsetMs() {
@@ -1621,6 +1690,7 @@ public class PlayerManager implements ParseCallback {
 
     public void reset() {
         App.removeCallbacks(runnable);
+        cancelBufferingStallWatchdog();
         boolean activePlayback = player != null
                 && player.getPlaybackState() == Player.STATE_READY
                 && player.getPlayWhenReady();
@@ -5840,6 +5910,10 @@ public void resetTrack(int type) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "setMediaItem timeout=%d notify=%s spec=%s", timeout, notifyPrepare, debugSpec());
         resetNetworkProtectionSession("new-media");
         App.removeCallbacks(runnable);
+        // Same responsibility as the line above: a new media item invalidates the previous
+        // episode's baseline. This is the funnel every start path reaches, including the async
+        // awaitLocalProxyAndSetMediaItem route, so cancelling once here is sufficient.
+        cancelBufferingStallWatchdog();
         setDanmakus(spec.getDanmakus());
         prepareLutPipeline();
         initTrack = false;
@@ -8075,6 +8149,15 @@ public void resetTrack(int type) {
         @Override
         public void onPlaybackStateChanged(int state) {
             if (state != Player.STATE_IDLE) App.removeCallbacks(runnable);
+            // Entering BUFFERING disarms the startup timeout above, which would
+            // otherwise leave a stalled session with no guard at all. Hand it to
+            // the stall watchdog, which only fires when neither the position nor
+            // the buffered end advances, so a slow-but-progressing source is safe.
+            if (state == Player.STATE_BUFFERING) {
+                if (!bufferingStallWatchdog.isArmed()) armBufferingStallWatchdog();
+            } else {
+                cancelBufferingStallWatchdog();
+            }
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "state=%s spec=%s", stateName(state), debugSpec());
             publishPlaybackAutoContext(state != Player.STATE_IDLE);
             if (state == Player.STATE_READY) {
@@ -8200,8 +8283,14 @@ public void resetTrack(int type) {
             // A rendered video frame proves that the media and video decoder are
             // working even if a slow audio track keeps Exo in BUFFERING briefly.
             // Do not let the generic startup timer turn that valid playback into
-            // a false connection-timeout error.
-            if (isExo()) App.removeCallbacks(runnable);
+            // a false connection-timeout error. Hand the session to the stall
+            // watchdog instead of leaving it unguarded: a first frame is not
+            // STATE_READY, and without a guard a session that never reaches READY
+            // would buffer forever with no error and no fallback.
+            if (isExo() && player != null && player.getPlaybackState() != Player.STATE_READY) {
+                App.removeCallbacks(runnable);
+                armBufferingStallWatchdog();
+            }
             playbackTrace.mark(PlaybackTrace.Stage.FIRST_FRAME, "source=media3 player=" + playerType);
             publishPlaybackAutoContext(true);
             onIjkRuntimeFirstFrame(SystemClock.elapsedRealtime());
@@ -8279,7 +8368,101 @@ public void resetTrack(int type) {
         }
     };
 
+    /**
+     * Arms the stall watchdog for a session that is buffering, or that has shown a
+     * first frame without reaching {@link Player#STATE_READY} yet. This is the
+     * replacement guard for the startup timeout: a rendered frame proves the decoder
+     * works, but it does not prove playback can proceed, so the session must stay
+     * under some watch until READY actually arrives.
+     */
+    private void armBufferingStallWatchdog() {
+        if (player == null || spec == null) return;
+        bufferingStallWatchdog.arm(
+                SystemClock.elapsedRealtime(),
+                Math.max(0, player.getCurrentPosition()),
+                nativeBufferedPosition());
+        App.post(bufferingStallRunnable, BUFFERING_STALL_POLL_INTERVAL_MS);
+    }
+
+    private void cancelBufferingStallWatchdog() {
+        bufferingStallWatchdog.reset();
+        App.removeCallbacks(bufferingStallRunnable);
+    }
+
+    /**
+     * The stall criterion must read the raw Exo buffered position. {@code
+     * getEffectiveBufferedPosition()} folds in completed disk ranges, which would
+     * keep a stalled session looking like it were still making progress.
+     */
+    private long nativeBufferedPosition() {
+        return player == null ? 0 : Math.max(0, player.getBufferedPosition());
+    }
+
+    private void checkBufferingStall() {
+        if (player == null || spec == null) {
+            cancelBufferingStallWatchdog();
+            return;
+        }
+        int state = player.getPlaybackState();
+        if (state == Player.STATE_READY || state == Player.STATE_ENDED || state == Player.STATE_IDLE) {
+            cancelBufferingStallWatchdog();
+            return;
+        }
+        long now = SystemClock.elapsedRealtime();
+        // A paused session is not a stalled one: pausing while still buffering freezes the
+        // position by design, and once the buffer stops growing the criterion would fire and
+        // switch decoder or engine behind a user who only pressed pause.
+        //
+        // Keep polling and start a fresh episode every tick instead of cancelling. Resuming
+        // then gets a full window with no dependency on a resume callback — note that
+        // onIsPlayingChanged does NOT fire here, since isPlaying() requires STATE_READY and
+        // stays false in both directions while buffering.
+        if (!player.getPlayWhenReady()) {
+            bufferingStallWatchdog.arm(now,
+                    Math.max(0, player.getCurrentPosition()), nativeBufferedPosition());
+            App.post(bufferingStallRunnable, BUFFERING_STALL_POLL_INTERVAL_MS);
+            return;
+        }
+        long position = Math.max(0, player.getCurrentPosition());
+        long buffered = nativeBufferedPosition();
+        if (bufferingStallWatchdog.shouldTimeout(now, position, buffered, player.isLoading())) {
+            onBufferingStall(position, buffered);
+            return;
+        }
+        bufferingStallWatchdog.observe(now, position, buffered);
+        App.post(bufferingStallRunnable, BUFFERING_STALL_POLL_INTERVAL_MS);
+    }
+
+    /**
+     * Deliberately narrower than {@link #onPlaybackTimeout()}: the startup-only
+     * retries there (DV7 first-frame fallback, LUT warmup refresh, Ijk managed
+     * reload) must not run again for a session that already started playing.
+     */
+    private void onBufferingStall(long positionMs, long bufferedPositionMs) {
+        cancelBufferingStallWatchdog();
+        PlaybackTrace.log("buffering-stall", playbackTrace.current(),
+                "stalled position=%d buffered=%d player=%d", positionMs, bufferedPositionMs, playerType);
+        if (SpiderDebug.isEnabled()) {
+            SpiderDebug.log("player", "buffering stall position=%d buffered=%d spec=%s",
+                    positionMs, bufferedPositionMs, debugSpec());
+        }
+        // A stall right after the user picked a kernel must report that choice's failure rather
+        // than silently walking the fallback chain away from it, matching onPlaybackTimeout.
+        if (manualPlayerSwitchPending) {
+            finishPlaybackProfileAbSession(
+                    "manual-switch-stall", SystemClock.elapsedRealtime());
+            callback.onError(ResUtil.getString(R.string.error_play_timeout));
+            return;
+        }
+        PlaybackException e = new PlaybackException(
+                ResUtil.getString(R.string.error_play_timeout), null, PlaybackException.ERROR_CODE_TIMEOUT);
+        if (fallbackPlayback(e)) return;
+        finishPlaybackProfileAbSession("buffering-stall", SystemClock.elapsedRealtime());
+        callback.onError(ResUtil.getString(R.string.error_play_timeout));
+    }
+
     private void onPlaybackTimeout() {
+        cancelBufferingStallWatchdog();
         completeIjkBufferManagedReload(
                 false, "timeout", SystemClock.elapsedRealtime(), true);
         PlaybackException e = new PlaybackException(ResUtil.getString(R.string.error_play_timeout), null, PlaybackException.ERROR_CODE_TIMEOUT);
