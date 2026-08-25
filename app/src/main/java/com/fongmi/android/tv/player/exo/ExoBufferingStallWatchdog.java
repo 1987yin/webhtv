@@ -23,13 +23,40 @@ public final class ExoBufferingStallWatchdog {
      */
     public static final long LOADING_STALL_TIMEOUT_MS = 60_000L;
 
+    /**
+     * A regression smaller than this counts as jitter and is ignored; anything larger is
+     * treated as a seek or flush and re-arms the baseline. Well below the smallest useful
+     * seek step so a real jump is never mistaken for jitter.
+     */
+    static final long DISCONTINUITY_TOLERANCE_MS = 1_000L;
+
+    /**
+     * Absolute ceiling for one buffering episode. Re-arming on a discontinuity resets the
+     * progress clock, so a source that regresses by more than the tolerance on a repeating
+     * cycle could otherwise defer the timeout forever and resurrect the stall this class
+     * exists to catch. The episode start is preserved across those re-arms, which makes
+     * termination provable regardless of the sample pattern.
+     */
+    public static final long EPISODE_CEILING_MS = 90_000L;
+
     private boolean armed;
+    private long episodeStartedAtMs;
     private long lastProgressAtMs;
     private long lastPositionMs;
     private long lastBufferedPositionMs;
 
+    /**
+     * Starts a fresh episode. Use this at the real arming points (entering BUFFERING, a seek,
+     * a first frame before READY) and for every tick while paused, so paused time never
+     * accumulates toward {@link #EPISODE_CEILING_MS}.
+     */
     public void arm(long nowMs, long positionMs, long bufferedPositionMs) {
         armed = true;
+        episodeStartedAtMs = nowMs;
+        rebaseline(nowMs, positionMs, bufferedPositionMs);
+    }
+
+    private void rebaseline(long nowMs, long positionMs, long bufferedPositionMs) {
         lastProgressAtMs = nowMs;
         lastPositionMs = positionMs;
         lastBufferedPositionMs = bufferedPositionMs;
@@ -38,6 +65,21 @@ public final class ExoBufferingStallWatchdog {
     public void observe(long nowMs, long positionMs, long bufferedPositionMs) {
         if (!armed) {
             arm(nowMs, positionMs, bufferedPositionMs);
+            return;
+        }
+        // A large regression is a discontinuity, not a stall: a backward seek or a flush moves
+        // the position and the buffered end below the recorded baseline, and keeping the old
+        // baseline would make every later sample compare as "no progress" and time out a
+        // session that merely jumped. Re-arm on the new, lower baseline instead.
+        //
+        // Small regressions must NOT re-arm. The buffered end can jitter down a little while
+        // buffering, and re-arming on jitter would reset the clock on every dip, so an
+        // oscillating-but-stalled session would never time out at all.
+        // Rebaseline only. The episode start is deliberately preserved so a repeating
+        // regression cycle cannot defer the timeout indefinitely.
+        if (positionMs < lastPositionMs - DISCONTINUITY_TOLERANCE_MS
+                || bufferedPositionMs < lastBufferedPositionMs - DISCONTINUITY_TOLERANCE_MS) {
+            rebaseline(nowMs, positionMs, bufferedPositionMs);
             return;
         }
         if (positionMs > lastPositionMs || bufferedPositionMs > lastBufferedPositionMs) {
@@ -49,6 +91,7 @@ public final class ExoBufferingStallWatchdog {
 
     public void reset() {
         armed = false;
+        episodeStartedAtMs = 0;
         lastProgressAtMs = 0;
         lastPositionMs = 0;
         lastBufferedPositionMs = 0;
@@ -60,8 +103,9 @@ public final class ExoBufferingStallWatchdog {
 
     public boolean shouldTimeout(
             long nowMs, long positionMs, long bufferedPositionMs, boolean loading) {
-        return armed
-                && positionMs <= lastPositionMs
+        if (!armed) return false;
+        if (nowMs - episodeStartedAtMs >= EPISODE_CEILING_MS) return true;
+        return positionMs <= lastPositionMs
                 && bufferedPositionMs <= lastBufferedPositionMs
                 && nowMs - lastProgressAtMs >= (loading ? LOADING_STALL_TIMEOUT_MS : STALL_TIMEOUT_MS);
     }

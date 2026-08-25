@@ -8,6 +8,7 @@ import org.junit.Test;
 public class ExoBufferingStallWatchdogTest {
 
     private static final long TIMEOUT = ExoBufferingStallWatchdog.STALL_TIMEOUT_MS;
+    private static final long STALL = ExoBufferingStallWatchdog.STALL_TIMEOUT_MS;
     private static final long LOADING_TIMEOUT = ExoBufferingStallWatchdog.LOADING_STALL_TIMEOUT_MS;
 
     @Test
@@ -86,11 +87,100 @@ public class ExoBufferingStallWatchdogTest {
     }
 
     @Test
-    public void staleProgressDoesNotRearmTheClock() {
+    public void regressedSampleRearmsBecauseItIsADiscontinuity() {
+        ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
+        watchdog.arm(0, 300_000, 320_000);
+        // A backward seek drops position and buffered end well below the baseline. Treating
+        // that as "no progress" would make every later sample satisfy the criterion and time
+        // out a session that merely jumped, so the clock must restart on the lower baseline.
+        watchdog.observe(TIMEOUT / 2, 60_000, 62_000);
+        assertFalse(watchdog.shouldTimeout(TIMEOUT, 60_000, 62_000, false));
+        // Still stalled from the new baseline onward, so it must fire eventually.
+        assertTrue(watchdog.shouldTimeout(TIMEOUT / 2 + TIMEOUT, 60_000, 62_000, false));
+    }
+
+    @Test
+    public void repeatingLargeRegressionCannotDeferTheTimeoutForever() {
         ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
         watchdog.arm(0, 5_000, 9_000);
-        // A regressed sample (e.g. after a flush) must not count as progress.
-        watchdog.observe(TIMEOUT / 2, 4_000, 8_000);
-        assertTrue(watchdog.shouldTimeout(TIMEOUT, 4_000, 8_000, false));
+        // Alternating growth and a >tolerance regression rebaselines the clock every tick.
+        // Without an episode ceiling this defers the timeout indefinitely while the position
+        // stays frozen, which is exactly the stall this class exists to catch.
+        long now = 0;
+        boolean fired = false;
+        for (int i = 0; i < 300 && !fired; i++) {
+            now += 1_000;
+            long buffered = i % 2 == 0 ? 12_000 : 10_000;
+            if (watchdog.shouldTimeout(now, 5_000, buffered, false)) {
+                fired = true;
+                break;
+            }
+            watchdog.observe(now, 5_000, buffered);
+        }
+        assertTrue("episode ceiling must bound a repeating regression cycle", fired);
+        assertTrue(now <= ExoBufferingStallWatchdog.EPISODE_CEILING_MS + 2_000);
+    }
+
+    @Test
+    public void episodeCeilingDoesNotCountPausedTime() {
+        ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
+        // A paused session re-arms every tick, so the ceiling never accumulates.
+        long now = 0;
+        for (int i = 0; i < 300; i++) {
+            now += 1_000;
+            watchdog.arm(now, 5_000, 9_000);
+            assertFalse(watchdog.shouldTimeout(now, 5_000, 9_000, false));
+        }
+        // Resuming gets a full window rather than an immediately-expired one.
+        assertFalse(watchdog.shouldTimeout(now + STALL - 1, 5_000, 9_000, false));
+        assertTrue(watchdog.shouldTimeout(now + STALL, 5_000, 9_000, false));
+    }
+
+    @Test
+    public void toleranceDipWithGrowthKeepsTheHigherBaseline() {
+        ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
+        watchdog.arm(0, 5_000, 9_300);
+        // Position grows while buffered dips within tolerance: the growth branch runs, and it
+        // must not lower the buffered baseline, or the later rebound would count as progress
+        // and reset the clock on every sawtooth.
+        watchdog.observe(1_000, 6_000, 9_000);
+        watchdog.observe(2_000, 6_000, 9_300);
+        // The rebound was not progress, so the deadline still derives from the 1s sample.
+        assertTrue(watchdog.shouldTimeout(1_000 + STALL, 6_000, 9_300, false));
+    }
+
+    @Test
+    public void oscillatingBufferedEndStillTimesOut() {
+        ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
+        watchdog.arm(0, 5_000, 9_000);
+        // Buffered end dithers within the jitter tolerance while position stays frozen.
+        // Re-arming on each dip would reset the clock forever and never report the stall.
+        long now = 0;
+        for (int i = 0; i < 40; i++) {
+            now += 1_000;
+            watchdog.observe(now, 5_000, i % 2 == 0 ? 9_300 : 9_000);
+        }
+        assertTrue(watchdog.shouldTimeout(now, 5_000, 9_000, false));
+    }
+
+    @Test
+    public void jitterBelowToleranceDoesNotRearm() {
+        ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
+        watchdog.arm(0, 5_000, 9_000);
+        watchdog.observe(1_000, 5_000, 9_000 - (ExoBufferingStallWatchdog.DISCONTINUITY_TOLERANCE_MS - 1));
+        // Clock kept running from the original arm, so the original deadline still applies.
+        assertTrue(watchdog.shouldTimeout(TIMEOUT, 5_000, 9_000, false));
+    }
+
+    @Test
+    public void aBackwardSeekDoesNotInheritTheOldBaseline() {
+        ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
+        watchdog.arm(0, 600_000, 620_000);
+        // Seek from 10:00 back to 00:30 while buffering.
+        watchdog.observe(1_000, 30_000, 32_000);
+        assertFalse(watchdog.shouldTimeout(1_000 + TIMEOUT - 1, 30_000, 32_000, false));
+        // Progress from the new baseline keeps it quiet.
+        watchdog.observe(1_000 + TIMEOUT - 1, 31_000, 45_000);
+        assertFalse(watchdog.shouldTimeout(1_000 + TIMEOUT, 31_000, 45_000, false));
     }
 }

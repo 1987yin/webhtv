@@ -37,8 +37,8 @@ public class Spider extends com.github.catvod.crawler.Spider {
             }
             close(dependence);
         }
-        close(obj.put("siteKey", siteKey));
-        close(app.callAttr("init", obj, extend));
+        obj.put("siteKey", siteKey);
+        app.callAttr("init", obj, extend);
     }
 
     @Override
@@ -118,7 +118,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
     @Override
     public void destroy() {
         try {
-            close(app.callAttr("destroy", obj));
+            app.callAttr("destroy", obj);
         } catch (Exception ignored) {
         }
     }
@@ -126,16 +126,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
     private Map<String, String> getHeader(PyObject obj) {
         try {
             Map<String, String> header = new HashMap<>();
-            for (Map.Entry<PyObject, PyObject> entry : obj.asMap().entrySet()) {
-                PyObject key = entry.getKey();
-                PyObject value = entry.getValue();
-                try {
-                    header.put(key.toString(), value.toString());
-                } finally {
-                    close(key);
-                    close(value);
-                }
-            }
+            for (Map.Entry<PyObject, PyObject> entry : obj.asMap().entrySet()) header.put(entry.getKey().toString(), entry.getValue().toString());
             return header;
         } catch (Exception e) {
             return null;
@@ -144,25 +135,16 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     private ByteArrayInputStream getStream(PyObject o, boolean base64) {
         if (o == null) return null;
-        if (isBytes(o)) return new ByteArrayInputStream(o.toJava(byte[].class));
+        if (o.type().toString().contains("bytes")) return new ByteArrayInputStream(o.toJava(byte[].class));
         String content = o.toString();
         if (base64 && content.contains("base64,")) content = content.split("base64,")[1];
         return new ByteArrayInputStream(base64 ? Util.decode(content) : content.getBytes());
     }
 
-    private static boolean isBytes(PyObject o) {
-        PyObject type = o.type();
-        try {
-            return type.toString().contains("bytes");
-        } finally {
-            close(type);
-        }
-    }
-
     private void download(String name) {
         String path = Path.py(name).getAbsolutePath();
         String url = UriUtil.resolve(api, name);
-        close(app.callAttr("download", path, url));
+        app.callAttr("download", path, url);
     }
 
     private static String toStr(PyObject o) {

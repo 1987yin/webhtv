@@ -8360,6 +8360,20 @@ public void resetTrack(int type) {
             return;
         }
         long now = SystemClock.elapsedRealtime();
+        // A paused session is not a stalled one: pausing while still buffering freezes the
+        // position by design, and once the buffer stops growing the criterion would fire and
+        // switch decoder or engine behind a user who only pressed pause.
+        //
+        // Keep polling and start a fresh episode every tick instead of cancelling. Resuming
+        // then gets a full window with no dependency on a resume callback — note that
+        // onIsPlayingChanged does NOT fire here, since isPlaying() requires STATE_READY and
+        // stays false in both directions while buffering.
+        if (!player.getPlayWhenReady()) {
+            bufferingStallWatchdog.arm(now,
+                    Math.max(0, player.getCurrentPosition()), nativeBufferedPosition());
+            App.post(bufferingStallRunnable, BUFFERING_STALL_POLL_INTERVAL_MS);
+            return;
+        }
         long position = Math.max(0, player.getCurrentPosition());
         long buffered = nativeBufferedPosition();
         if (bufferingStallWatchdog.shouldTimeout(now, position, buffered, player.isLoading())) {

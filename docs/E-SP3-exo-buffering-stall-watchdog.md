@@ -81,7 +81,7 @@ public void onRenderedFirstFrame() {
 
 不在本任务修的已知问题（另立单元）：
 
-- `chaquo/src/main/java/com/fongmi/chaquo/Spider.java` 漏 close 的临时 PyObject（第 40/41/121/129/138/147 行）。dev2 与 beta 字节相同，非本次回归来源。
+- ~~`chaquo/src/main/java/com/fongmi/chaquo/Spider.java` 漏 close 的临时 PyObject~~ —— **已评审后撤销，见下节**。
 - `E-SP2` 延后 Cues 的实机性能/seek 验收（索引第 7 行标注仍未完成，却已随 beta 分发）。
 - `getBufferedPercentage()` 计入磁盘区间导致进度条显示「已缓存完毕」，与实际起播判据不一致；同时使 `PlayerOsdController` 的「缓冲偏少」提示不再触发。
 - `retryExoDv7FirstFrameTimeout()` 的 1200ms 延迟回调若命中 `seq != prepareSeq || spec != target || engine != exo || player == null` 提前返回，则既不 `engine.start()` 也不重投 `runnable`，而函数入口已执行 `App.removeCallbacks(runnable)` 与 `rebuildPlayer(true)`——播放器已重建但从未启动且无超时保护。缺一个补投看门狗的 else 分支。本任务的停滞看门狗不覆盖该路径（那里停在 IDLE 而非 BUFFERING）。
@@ -102,6 +102,64 @@ public void onRenderedFirstFrame() {
 - `git diff --check`：通过。
 
 代码层可证的装载覆盖：起播中（`setMediaItem` 的 `runnable` 撤除后由 BUFFERING 分支接手）、首帧未到 READY（`onRenderedFirstFrame` 换防）、seek 后（`seekTo` 尾部装载）、播放中途重缓冲（BUFFERING 分支）。`reset()` 与 `release()` 均已取消轮询，避免越过会话存活。
+
+## 评审后修正（合并 origin/beta 后的评审轮）
+
+合并 `origin/beta` 为空操作（无冲突、无新提交），但此前只在各单元内自查过，未对合并 diff 做系统评审，故补做一轮对抗性评审，改出三处：
+
+### 1. 暂停被误判为停滞（必修）
+
+`checkBufferingStall()` 原先只排除 `READY`/`ENDED`/`IDLE`，**没有 `playWhenReady` 守卫**。在缓冲中按暂停时状态仍是 BUFFERING、position 由设计冻结，缓冲填满后 `isLoading()` 转 false、buffered 也冻结，于是判据成立 → 在用户只是暂停的情况下擅自 `fallbackPlayback` 切解码器或换内核。已加暂停守卫。
+
+随之出现的连带缺口需要一并处理：暂停若 `cancel`，而恢复播放时状态并未离开 BUFFERING，看门狗将在该次缓冲的余下时间内一直缺失。
+
+第一版试图在 `onIsPlayingChanged` 内重新装载，**这是错的**（复审指出）：media3 的 `isPlaying()` 要求 `state == STATE_READY`，缓冲期间恒为 false，暂停与恢复都是 false→false，该回调**不会派发**，那段代码是死代码，缺口并未堵上。`PlayerManager` 的 `Player.Listener` 也没有覆写 `onPlayWhenReadyChanged`。
+
+最终改为**不依赖任何回调**：暂停时不 cancel，而是每轮开启一段新 episode（推平基线与计时）并继续轮询。恢复时天然获得完整窗口，且不必判断哪条恢复路径会触发哪个回调 —— UI 暂停键与 `PlaybackService` 的 `ActionEvent.PLAY`／`dispatchReplay` 最终都只是改 `playWhenReady`，走同一条路。
+
+### 2. 回退式 seek 使基线永久失配（必修）
+
+`observe()` 原先只把「增长」视为进展，回退不重置基线。而向后 seek 会让 position 与 buffered 双双低于已记录基线，于是 `shouldTimeout()` 里 `positionMs <= lastPositionMs` 恒成立，其后每个采样都被判为「无进展」，超时后误触发降级。
+
+已改为：**采样回退即视为不连续（seek/flush），以新的较低基线重新 arm 并重置计时**，而非计入停滞。
+
+原测试 `staleProgressDoesNotRearmTheClock` 锁的正是这个错误行为，已替换为 `regressedSampleRearmsBecauseItIsADiscontinuity` 与 `aBackwardSeekDoesNotInheritTheOldBaseline`。
+
+**但「任何回退即 re-arm」本身又引入了「永不触发」的新洞**（自查发现）：position 持平而 buffered 小幅抖动（例如 9000→9300→9000→…）时，每次下降都重新 arm、每次上升也重置计时，计时永远累积不起来，原本要修的停滞问题就复活了。原先的 `Math.max` 累积恰好挡住了抖动。
+
+故判据改为：**回退幅度超过 `DISCONTINUITY_TOLERANCE_MS = 1000` 才视为不连续并重置基线，小于该值按抖动忽略且不重置计时**；上升分支保留 `Math.max` 累积 —— 加了容差后它变成承重逻辑（容差内的小跌会落进上升分支，直接赋值会拉低基线，随后回弹又被当作进展形成锯齿）。
+
+### 4. 重置基线无上界导致可被无限推迟（复审 P1，已修）
+
+即便有容差，**周期性超过容差的回退**仍可每轮重置计时，使超时无限推迟，停滞问题复活。复审给出的数值序列：position 冻结、buffered 在 12000/10000 之间交替，每轮回退 2000ms > 容差，计时永远归零。
+
+修法：引入 `EPISODE_CEILING_MS = 90_000` 绝对上限。区分两种操作 —— `arm()` 开启**新 episode**（重置 `episodeStartedAtMs`），仅在真实装载点与暂停轮询时调用；`observe()` 命中大回退时只 `rebaseline()`（**保留** `episodeStartedAtMs`）。于是无论采样如何波动，一段 BUFFERING 最多持续 90 秒即无条件触发，终止性可证。
+
+暂停期间每轮 `arm()` 开新 episode，所以暂停时长不会累计进该上限。
+
+与 `LOADING_STALL_TIMEOUT_MS = 60_000` 的数值关系是刻意的：上限高于 loading 宽限，因此**正常的长时间抓取不会被上限抢先杀掉** —— loading 且无进展时 60s 先触发，上限根本轮不到。上限只在「计时被反复重置」时生效，也就是它唯一要防的那种情形。若远程 MKV 尾部 Cues 抓取真的超过 90s 且期间还伴随大幅回退，会被上限终止；此时体感已经是坏的，触发降级比继续干等更合理。
+
+测试：`repeatingLargeRegressionCannotDeferTheTimeoutForever`（锁定终止性）、`episodeCeilingDoesNotCountPausedTime`（锁定暂停不累计）、`toleranceDipWithGrowthKeepsTheHigherBaseline`（锁定 `Math.max` 承重行为 —— 复审指出此前无测试覆盖，改回直接赋值也能全绿）。
+
+补充事实：真实用户 seek 多数**绕过** `PlayerManager.seekTo()` —— `PlaybackActivity:375`、`CustomSeekView:250`、`VideoActivity`(leanback 6439 / mobile 6832) 都经 controller 直达。故 `seekTo()` 内的 arm 只覆盖部分内部调用方；覆盖不缺是因为 BUFFERING 状态变更这条装载点仍然生效。
+
+### 3. Spider.java 的 PyObject close 已整体撤销（必修）
+
+以 `javap -p -c` 反汇编 `chaquopy_java-17.0.0.jar` 确认：
+
+```java
+private static final Map<Long, WeakReference<PyObject>> cache;
+public static PyObject getInstance(long)   // 命中缓存返回同一实例
+public void close()                        // 移出缓存 + closeNative() + addr = 0
+```
+
+同一 native Python 对象在 Java 侧是**同一个 PyObject 实例**，因此 close 会替所有持有者一起关闭，之后任何使用都抛 `PyObject is closed`。而新增的六处 close 关的多是共享单例：`callAttr("init"/"destroy"/"download")` 返回 `None`；`obj.put()` 返回旧值（首次为 `None`）；`o.type()` 返回**类型对象**（该类型所有实例共享、长生命周期）；`asMap()` 的 key/value 仍被 dict 持有且字符串可能是 interned。
+
+该改动本是为「finalizer 压力」而加，而该假设**从未被证实**是本次故障成因（实测成因为停滞看门狗缺失与 FFmpeg 调优未启用）。收益未证实、风险已证实，故整体回退至 `origin/beta` 版本。若日后要重做，需先取得 finalizer 超时的实机证据，并逐个确认所关对象非共享单例。
+
+验证：`ExoBufferingStallWatchdogTest` `tests="16" failures="0" errors="0"`、`PlaybackTraceTest` `tests="12" failures="0"`、`ExoFfmpegFallbackTuneTest` `tests="10" failures="0"`；`compileLeanbackArm64_v8aDebugJavaWithJavac` 与 `:chaquo:compileArm64_v8aDebugSources` 均 `BUILD SUCCESSFUL`；`git diff --check` 通过。
+
+经历两轮评审共修出四项：暂停误判（P0）、回退式 seek 基线失配（P0）、重新装载挂在不会派发的回调上（P0，复审发现）、重置基线无上界（P1，复审发现）。其中后两项与「任何回退即 re-arm 导致永不触发」都是我在修前一个问题时自己引入的，均由测试或复审拦下。
 
 ## 回滚
 
