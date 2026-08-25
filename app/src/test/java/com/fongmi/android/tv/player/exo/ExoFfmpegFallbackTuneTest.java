@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.player.exo;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -44,6 +45,35 @@ public class ExoFfmpegFallbackTuneTest {
     @Test
     public void tuningStaysOffWhenTheRendererCannotDecode() {
         assertFalse(ExoUtil.shouldTuneFfmpegVideo(true, false));
+    }
+
+    @Test
+    public void decodeBuffersScaleWithThreadCount() {
+        // Frame-threaded decode needs roughly threads + 1 frames in flight.
+        assertTrue(ExoUtil.ffmpegDecodeBuffers(8) > ExoUtil.ffmpegDecodeBuffers(2));
+        assertEquals(10, ExoUtil.ffmpegDecodeBuffers(8));
+        assertEquals(6, ExoUtil.ffmpegDecodeBuffers(4));
+    }
+
+    @Test
+    public void decodeBuffersNeverDropBelowTheOldFixedFloor() {
+        // The previous behavior was a fixed 4; single-core must not regress below it.
+        assertEquals(4, ExoUtil.ffmpegDecodeBuffers(1));
+        assertEquals(4, ExoUtil.ffmpegDecodeBuffers(0));
+        assertEquals(4, ExoUtil.ffmpegDecodeBuffers(-3));
+    }
+
+    @Test
+    public void decodeBuffersAreCappedSoMemoryStaysBounded() {
+        assertEquals(12, ExoUtil.ffmpegDecodeBuffers(64));
+        assertEquals(12, ExoUtil.ffmpegDecodeBuffers(Integer.MAX_VALUE));
+    }
+
+    @Test
+    public void loadSheddingKeepsEveryFrame() {
+        // AVDISCARD_NONREF (8) would drop frames the renderer never sees, breaking motion
+        // continuity while still reporting zero dropped frames.
+        assertEquals(0, ExoUtil.ffmpegSkipFrame());
     }
 
     @Test

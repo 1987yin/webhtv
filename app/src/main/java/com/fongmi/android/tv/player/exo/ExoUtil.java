@@ -98,9 +98,12 @@ public class ExoUtil {
     private static final long ENHANCED_ADAPT_COOLDOWN_MS = 15_000L;
     private static final int ENHANCED_DROPPED_FRAMES_THRESHOLD = 24;
     private static final int ENHANCED_DROPPED_FRAMES_PER_SECOND_THRESHOLD = 4;
-    private static final int FFMPEG_SKIP_FRAME_NONREF = 8;
+    // FFmpeg AVDiscard values.
+    private static final int FFMPEG_SKIP_FRAME_DEFAULT = 0;
     private static final int FFMPEG_SKIP_LOOP_FILTER_ALL = 48;
     private static final int FFMPEG_LOWRES_HALF = 1;
+    private static final int FFMPEG_MIN_DECODE_BUFFERS = 4;
+    private static final int FFMPEG_MAX_DECODE_BUFFERS = 12;
     private static volatile EnhancedVideoProfile enhancedVideoProfile;
     private static volatile ExoPlaybackCapability.Report playbackCapabilityReport;
 
@@ -301,6 +304,32 @@ public class ExoUtil {
     static boolean isFfmpegVideoReachable(int videoRenderMode) {
         return getFfmpegVideoRenderMode(videoRenderMode)
                 != DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF;
+    }
+
+    /**
+     * Frame-threaded FFmpeg decode keeps roughly {@code threads + 1} frames in flight, and
+     * {@code numOutputBuffers} sizes that pool directly ({@code FfmpegVideoDecoder} passes it
+     * to {@code new VideoDecoderOutputBuffer[numOutputBuffers]}). A fixed pool smaller than the
+     * thread count throttles the decoder into periodic stalls even while CPU headroom remains,
+     * so the pool scales with the thread count instead.
+     */
+    static int ffmpegDecodeBuffers(int threads) {
+        // Clamp before adding: availableProcessors() is trusted here, but an overflowing
+        // addition would wrap negative and silently collapse back to the minimum.
+        int safeThreads = Math.max(1, Math.min(FFMPEG_MAX_DECODE_BUFFERS, threads));
+        return Math.max(FFMPEG_MIN_DECODE_BUFFERS,
+                Math.min(FFMPEG_MAX_DECODE_BUFFERS, safeThreads + 2));
+    }
+
+    /**
+     * Load shedding deliberately skips the loop filter but keeps every frame. Discarding
+     * non-reference frames ({@code AVDISCARD_NONREF}) removes frames the renderer never sees,
+     * which breaks motion continuity while reporting a zero dropped-frame count, and it is not
+     * warranted when the decode is buffer-throttled rather than CPU-bound. Loop-filter skipping
+     * costs image quality only.
+     */
+    static int ffmpegSkipFrame() {
+        return FFMPEG_SKIP_FRAME_DEFAULT;
     }
 
     private static int getVideoRenderMode(int decode) {
@@ -1039,7 +1068,9 @@ public class ExoUtil {
         private CompatFfmpegVideoRenderer buildFfmpegVideoRenderer(long allowedVideoJoiningTimeMs, Handler eventHandler, VideoRendererEventListener eventListener, MediaCodecSelector platformDecoderSelector) {
             boolean fallbackOnly = isFfmpegVideoFallbackOnly(videoRenderMode, videoPrefer);
             if (!ffmpegVideoTune) return new CompatFfmpegVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener, MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY, fallbackOnly, platformDecoderSelector);
-            return new CompatFfmpegVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener, MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY, Runtime.getRuntime().availableProcessors(), 4, 4, FFMPEG_SKIP_FRAME_NONREF, FFMPEG_SKIP_LOOP_FILTER_ALL, FFMPEG_LOWRES_HALF, fallbackOnly, platformDecoderSelector);
+            int threads = Runtime.getRuntime().availableProcessors();
+            int buffers = ffmpegDecodeBuffers(threads);
+            return new CompatFfmpegVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener, MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY, threads, buffers, buffers, ffmpegSkipFrame(), FFMPEG_SKIP_LOOP_FILTER_ALL, FFMPEG_LOWRES_HALF, fallbackOnly, platformDecoderSelector);
         }
 
         private MediaCodecSelector getVideoCodecSelector(MediaCodecSelector mediaCodecSelector) {

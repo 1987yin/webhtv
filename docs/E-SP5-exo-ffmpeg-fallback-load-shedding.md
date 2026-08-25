@@ -76,6 +76,36 @@ if (!softVideoTune) return new CompatFfmpegVideoRenderer(
 
 验证边界：单测覆盖调优判定与兜底语义不变；编译证明参数贯穿正确。**不等同于**实机卡顿已缓解——软解 4K60/4K25 HEVC 即使降负载后仍可能跑不满帧率，尤其在无硬解的 x86_64 模拟器上。
 
+## 第二轮：调优参数本身的两处问题
+
+第一轮生效后用户回报「好很多了，但时不时还是会卡画面」。同源对比读数：
+
+| 指标 | 第一轮前 | 第一轮后 |
+| --- | --- | --- |
+| CPU 10秒 / 峰值 | 25% / 88% | 50% / **167%** |
+| 网络 | 524 KB/s | 2.1 MB/s |
+| `tracks` | 2262ms | 1863ms |
+| `first-frame` 增量 | +1190ms | **+4305ms** |
+| 最慢阶段 | `tracks:2245ms` | `first-frame:4305ms` |
+
+峰值 88% → 167% 证明线程数确实生效。但两处参数本身有问题：
+
+### 1. 输出缓冲固定为 4，小于线程数
+
+`FfmpegVideoDecoder` 直接用它开池：`super(new DecoderInputBuffer[numInputBuffers], new VideoDecoderOutputBuffer[numOutputBuffers])`。而 FFmpeg 帧级并行需要约 `threads + 1` 帧同时在飞。池子小于线程数会把解码器压成周期性停顿 —— 与「CPU 峰值仅 167%（4 核可用 400%）却仍卡」完全吻合：瓶颈是流水线节流，不是算力。
+
+改为 `ffmpegDecodeBuffers(threads) = clamp(threads + 2, 4, 12)`，下限保持旧的固定值 4 以免单核回退，上限 12 限制内存。
+
+### 2. `skipFrame = AVDISCARD_NONREF` 在丢帧
+
+非参考帧根本不被解码，渲染器从未见过它们，因此运动连续性受损而掉帧计数仍为 0 —— 这正是用户「掉帧 0 却看得见卡」的来源。既然瓶颈是缓冲节流而非 CPU，这个牺牲不必要。
+
+改为 `AVDISCARD_DEFAULT`（保留每一帧）；`skipLoopFilter = AVDISCARD_ALL` 维持不变，它只牺牲画质、不丢帧，符合用户「不用管画质」的取向。
+
+`lowres = 1` 保留原样：HEVC 原生忽略它，对支持的编码仍有效。
+
+实现期间单测抓到我自己引入的整数溢出（`Integer.MAX_VALUE + 2` 回绕为负、结果坍回下限 4），已在加法前先夹取修正。
+
 ## 尚未解决的部分
 
 - **起播慢的主因未定。** 本次读数中 `tracks` 阶段占 2245ms（总 3500ms 的 64%）。但该片源 codec 为 `hvc1`（MP4 系 sample entry），而延后 Cues 只作用于 Matroska，故此例与 `E-SP2` 无关，更可能是读 moov 加网络（实测 524 KB/s ≈ 4.2Mbps，而片源 10.5Mbps）。需要 MKV 片源的读数才能判定延后 Cues。
