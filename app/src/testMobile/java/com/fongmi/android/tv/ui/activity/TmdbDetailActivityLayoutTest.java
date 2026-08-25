@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -2610,13 +2611,23 @@ public class TmdbDetailActivityLayoutTest {
         assertTrue("TV fullscreen playback toggles must keep controls hidden like the native leanback player",
                 activity.substring(toggle, toggleEnd)
                         .contains("if (Util.isLeanback() && inlineFullscreen) hideInlineControls();"));
-        // 控制栏不再放播放/暂停按钮：它会把"下一集"挤到第二位，拖慢遥控器连播。
-        // 播放/暂停仍由全屏隐藏控制栏时的确认键承担，与影视原生控制栏（首个按钮是"下一集"）一致。
-        assertTrue("TV inline playback toggle must stay reachable through the fullscreen confirm key",
-                activity.contains("private void toggleInlinePlayback()"));
-        assertFalse("detail inline control bar must not re-add a play/pause action ahead of 下一集",
-                activity.contains("playerPlaybackAction")
-                        || readLayout("activity_tmdb_detail.xml").contains("@+id/playerPlaybackAction"));
+        // 控制栏首个按钮必须是"下一集"：原先排在它前面的播放/暂停按钮会拖慢遥控器连播，
+        // 且从未登记进 PlayerButtonSetting 因而设置项管不到，已移除。播放/暂停由上面
+        // expectedEnter 钉住的全屏确认键路径承担，与影视原生控制栏首项为 next 一致。
+        // 钉"第一位"而非"旧 id 不存在"：在"下一集"前插任何新按钮都必须红。
+        String fusionLayout = readLayout("activity_tmdb_detail.xml");
+        String idAttribute = "android:id=\"@+id/";
+        int actionRow = fusionLayout.indexOf(idAttribute + "playerActionRow\"");
+        assertTrue("detail layout must contain playerActionRow", actionRow >= 0);
+        int firstControlId = fusionLayout.indexOf(idAttribute, actionRow + 1);
+        assertTrue("playerActionRow must contain at least one control", firstControlId > actionRow);
+        int firstControlStart = firstControlId + idAttribute.length();
+        String firstControl = fusionLayout.substring(firstControlStart, fusionLayout.indexOf('"', firstControlStart));
+        assertEquals("下一集 must stay the first inline control so the remote reaches it in one press",
+                "playerNext", firstControl);
+        // 匹配用法形态而非裸名字：否则一句提及旧按钮的注释就会误红。
+        assertFalse("removed play/pause action must not be re-wired in the detail activity",
+                activity.contains("binding.playerPlaybackAction"));
         assertTrue("TV inline confirm should enter fullscreen before falling back to the controls overlay",
                 helperBody.contains("if (Util.isLeanback() && canEnterInlineFullscreenOnConfirm())")
                         && helperBody.contains("enterInlineFullscreen();")
