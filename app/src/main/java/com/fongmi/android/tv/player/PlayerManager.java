@@ -58,6 +58,7 @@ import com.fongmi.android.tv.player.engine.SystemPlayerEngine;
 import com.fongmi.android.tv.player.audio.PlaybackMediaClock;
 import com.fongmi.android.tv.player.audio.PlaybackMediaSessionController;
 import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
+import com.fongmi.android.tv.player.cache.PlaybackDiskBufferStore;
 import com.fongmi.android.tv.player.exo.TrackUtil;
 import com.fongmi.android.tv.player.exo.ExoDecoderResourceRecoveryLimiter;
 import com.fongmi.android.tv.player.exo.ExoNetworkGuardBufferPolicy;
@@ -164,6 +165,7 @@ public class PlayerManager implements ParseCallback {
     private static final long EXO_TUNNELING_RETRY_DELAY_MS = 250;
     private static final long EXO_DECODER_RUNTIME_RETRY_DELAY_MS = 1200;
     private static final long EXO_DECODER_RESOURCE_RECOVERY_DELAY_MS = 500;
+    private static final long EXO_DV7_FIRST_FRAME_FALLBACK_DELAY_MS = 1200;
     private static final long MPV_AUTO_OUTPUT_PROBE_INTERVAL_MS = 250;
     private static final int LOCAL_PROXY_MAX_RETRY = 2;
     private static final int PLAYER_COUNT = PlayerSetting.MPV + 1;
@@ -183,6 +185,7 @@ public class PlayerManager implements ParseCallback {
      */
     private static final int MAX_AD_AUDIO_PIPELINE_REBUILDS = 2;
     private static final long MPV_FRAME_TIMING_LOG_INTERVAL_MS = 5000L;
+    private static final long DISK_RANGE_GAP_TOLERANCE_MS = 2000L;
     private static final long LUT_PREVIEW_FRAME_INTERVAL_MS = 16L;
     private static final float[] SPEED_PRESETS = new float[]{0.5f, 0.75f, 1f, 1.2f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f, 5f};
     private static final DecimalFormat SPEED_FORMAT = new DecimalFormat("0.##x");
@@ -480,6 +483,7 @@ public class PlayerManager implements ParseCallback {
                 policy.allows(PlaybackExperimentPolicy.Action
                         .SHARED_PROFILE_AB_VALIDATION));
     }
+
     private void resetLutRuntimeState(String reason, boolean clearEngineEffects) {
         lutApplySeq++;
         if (clearEngineEffects && engine != null && engine.supportsNativeLut()) {
@@ -614,13 +618,24 @@ public class PlayerManager implements ParseCallback {
         if (Math.abs(userPlaybackSpeed - 1f) > 0.001f) return "手动倍速时停用";
         if (!isVod()) return "仅支持点播";
         ExoNetworkGuardEligibility.Decision eligibility = getNetworkProtectionEligibility();
-        if (!eligibility.eligible()) return "未启用";
+        if (!eligibility.eligible()) return networkProtectionEligibilityText(eligibility.reason());
         return switch (networkProtectionState) {
             case NORMAL -> "正常";
             case WARNING -> "评估中";
             case PROTECT -> "降速中";
             case RECOVERY -> "恢复中";
             case UNSUSTAINABLE -> "网络不足";
+        };
+    }
+
+    private String networkProtectionEligibilityText(String reason) {
+        return switch (reason == null ? "" : reason) {
+            case "preserve-passthrough" -> "音频直通时停用";
+            case "preserve-tunneling" -> "隧道模式时停用";
+            case "speed-unsupported" -> "播放器不支持调速";
+            case "user-speed" -> "手动倍速时停用";
+            case "vod-only" -> "仅支持点播";
+            default -> "未启用";
         };
     }
 
@@ -749,11 +764,24 @@ public class PlayerManager implements ParseCallback {
     }
 
     public long getBufferedDuration() {
-        return Math.max(0, player.getBufferedPosition() - getPosition());
+        return Math.max(0, getEffectiveBufferedPosition() - getPosition());
     }
 
     public int getBufferedPercentage() {
-        return player.getBufferedPercentage();
+        if (!isExo()) return player.getBufferedPercentage();
+        long duration = player.getDuration();
+        if (duration == 0) return 100;
+        if (duration < 0) return 0;
+        return Math.max(0, Math.min(100, androidx.media3.common.util.Util.percentInt(
+                getEffectiveBufferedPosition(), duration)));
+    }
+
+    private long getEffectiveBufferedPosition() {
+        long nativeBuffered = Math.max(0, player.getBufferedPosition());
+        if (!isExo()) return nativeBuffered;
+        String mediaKey = PlaybackDiskBufferStore.mediaKey(player.getCurrentMediaItem());
+        return PlaybackDiskBufferStore.process().effectiveEnd(
+                mediaKey, nativeBuffered, player.getDuration(), DISK_RANGE_GAP_TOLERANCE_MS);
     }
 
     public boolean isLoading() {
@@ -5268,6 +5296,9 @@ public void resetTrack(int type) {
         boolean lutOrFilterActive = videoEffectsActive || videoEffectsDirty || lutAllowed && LutSetting.isEnabled() || MpvPerformanceSetting.isInterpolation();
         boolean customGpuProcessing = MpvConfigStore.hasGpuVideoProcessing();
         boolean forceNativeDv7 = isDv7NativeAttemptRequested();
+        boolean dv7Hdr10FallbackEnabled = dolbyVision
+                && videoDetails.dolbyVisionProfile() == 7
+                && PlaybackPerformanceSetting.isDv7Hdr10FallbackEnabled();
         MpvAutoOutputPolicy.DolbyVisionSupport dolbyVisionSupport = dolbyVision
                 ? CodecCapabilityInspector.dolbyVisionSupport(
                 App.get(), videoDetails, format, width, height)
@@ -5278,7 +5309,8 @@ public void resetTrack(int type) {
                 : MpvAutoOutputPolicy.evaluate(width, height, engine.isHard(),
                 Util.isLeanback(), lutOrFilterActive, customGpuProcessing,
                 dolbyVisionSupport,
-                dolbyVision ? videoDetails.dolbyVisionProfile() : C.INDEX_UNSET);
+                dolbyVision ? videoDetails.dolbyVisionProfile() : C.INDEX_UNSET,
+                dv7Hdr10FallbackEnabled);
         if (dolbyVision && decision.reason().startsWith("dolby-vision-hw-")) {
             mpvAutoGpuPinnedForSession = true;
         }
@@ -8006,6 +8038,9 @@ public void resetTrack(int type) {
         default void onPlayerOutputReady() {
         }
 
+        default void onExoFirstFrame() {
+        }
+
         void onPlayerRebuild(Player newPlayer, boolean resetVideoSurface);
     }
 
@@ -8161,11 +8196,17 @@ public void resetTrack(int type) {
 
         @Override
         public void onRenderedFirstFrame() {
+            // A rendered video frame proves that the media and video decoder are
+            // working even if a slow audio track keeps Exo in BUFFERING briefly.
+            // Do not let the generic startup timer turn that valid playback into
+            // a false connection-timeout error.
+            if (isExo()) App.removeCallbacks(runnable);
             playbackTrace.mark(PlaybackTrace.Stage.FIRST_FRAME, "source=media3 player=" + playerType);
             publishPlaybackAutoContext(true);
             onIjkRuntimeFirstFrame(SystemClock.elapsedRealtime());
             ijkFirstFrameWatchdog.onFirstFrame(playbackAutoSession);
             publishPlaybackTelemetry();
+            if (isExo()) callback.onExoFirstFrame();
         }
 
         @Override
@@ -8243,6 +8284,7 @@ public void resetTrack(int type) {
         PlaybackException e = new PlaybackException(ResUtil.getString(R.string.error_play_timeout), null, PlaybackException.ERROR_CODE_TIMEOUT);
         if (retryLutWarmupByRefresh("timeout")) return;
         if (retryMpvVulkanBackendTimeout()) return;
+        if (retryExoDv7FirstFrameTimeout()) return;
         if (manualPlayerSwitchPending) {
             finishPlaybackProfileAbSession(
                     "manual-switch-timeout", SystemClock.elapsedRealtime());
@@ -8519,10 +8561,17 @@ public void resetTrack(int type) {
     private boolean retryExoDecoderRuntimeFailure(PlaybackException e) {
         if (!(engine instanceof ExoPlayerEngine exo)
                 || player == null
-                || spec == null
-                || !experimentAllowed(
-                PlaybackExperimentPolicy.Action.EXO_DECODER_RUNTIME_REBUILD)
-                || !exo.prepareDecoderRuntimeFallback()) {
+                || spec == null) {
+            return false;
+        }
+        boolean dolbyVisionFallback =
+                exo.isDolbyVisionP81RuntimeFailurePending();
+        if (!dolbyVisionFallback
+                && !experimentAllowed(
+                PlaybackExperimentPolicy.Action.EXO_DECODER_RUNTIME_REBUILD)) {
+            return false;
+        }
+        if (!exo.prepareDecoderRuntimeFallback()) {
             return false;
         }
         hardDecodeSwitchRetryArmed = false;
@@ -8561,6 +8610,50 @@ public void resetTrack(int type) {
             App.post(runnable, Constant.TIMEOUT_PLAY);
             callback.onPrepare();
         }, EXO_DECODER_RUNTIME_RETRY_DELAY_MS);
+        return true;
+    }
+
+    private boolean retryExoDv7FirstFrameTimeout() {
+        if (!(engine instanceof ExoPlayerEngine exo)
+                || player == null
+                || spec == null
+                || !exo.prepareDv7Hdr10FallbackForFirstFrameTimeout()) {
+            return false;
+        }
+        int seq = ++prepareSeq;
+        PlaySpec target = spec;
+        long position = Math.max(0, player.getCurrentPosition());
+        float speed = getSpeed();
+        boolean repeat = isRepeatOne();
+        boolean wasPlayWhenReady = player.getPlayWhenReady();
+        App.removeCallbacks(runnable);
+        rebuildPlayer(true);
+        this.playWhenReady = wasPlayWhenReady;
+        initTrack = false;
+        if (SpiderDebug.isEnabled()) {
+            SpiderDebug.log(
+                    "exo-dv",
+                    "action=first-frame-timeout-fallback-scheduled delay=%d position=%d",
+                    EXO_DV7_FIRST_FRAME_FALLBACK_DELAY_MS,
+                    position);
+        }
+        App.post(() -> {
+            if (seq != prepareSeq || spec != target || engine != exo || player == null) return;
+            setDanmakus(target.getDanmakus());
+            waitingLutBeforePlay = false;
+            applySubtitleStyle();
+            engine.start(target.checkUa(), position, wasPlayWhenReady);
+            if (speed != 1f) setSpeed(speed);
+            setRepeatOne(repeat);
+            App.post(runnable, Constant.TIMEOUT_PLAY);
+            callback.onPrepare();
+            if (SpiderDebug.isEnabled()) {
+                SpiderDebug.log(
+                        "exo-dv",
+                        "action=first-frame-timeout-fallback-start position=%d",
+                        position);
+            }
+        }, EXO_DV7_FIRST_FRAME_FALLBACK_DELAY_MS);
         return true;
     }
 
