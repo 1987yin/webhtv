@@ -9,6 +9,8 @@ public class ExoBufferingStallWatchdogTest {
 
     private static final long TIMEOUT = ExoBufferingStallWatchdog.STALL_TIMEOUT_MS;
     private static final long STALL = ExoBufferingStallWatchdog.STALL_TIMEOUT_MS;
+    private static final long SEGMENT_PROGRESS_MARGIN_MS =
+            ExoBufferingStallWatchdog.SEGMENT_PROGRESS_MARGIN_MS;
     private static final long LOADING_TIMEOUT = ExoBufferingStallWatchdog.LOADING_STALL_TIMEOUT_MS;
 
     @Test
@@ -173,8 +175,32 @@ public class ExoBufferingStallWatchdogTest {
         watchdog.arm(0, 5_000, 9_000);
         // Movement exists but is far below the margin, so this is not a working session.
         long now = ExoBufferingStallWatchdog.EPISODE_CEILING_MS;
-        long buffered = 9_000 + ExoBufferingStallWatchdog.EPISODE_PROGRESS_MARGIN_MS - 1_000;
+        long buffered = 9_000 + ExoBufferingStallWatchdog.SEGMENT_PROGRESS_MARGIN_MS - 1_000;
         assertTrue(watchdog.shouldTimeout(now, 5_000, buffered, true));
+    }
+
+    @Test
+    public void oscillationWhollyAboveTheArmWatermarkStillTerminates() {
+        ExoBufferingStallWatchdog watchdog = new ExoBufferingStallWatchdog();
+        watchdog.arm(0, 5_000, 9_000);
+        // The severity case: a mid-playback rebuffer arms with buffered already high, and the
+        // oscillation sits entirely above arm + margin. If the progress watermarks stayed pinned
+        // to arm(), net progress would read above the margin on every sample and the ceiling
+        // would be deferred forever — the permanent spinner this class exists to catch.
+        long trough = 9_000 + SEGMENT_PROGRESS_MARGIN_MS + 30_000;
+        long peak = trough + 20_000;
+        long now = 0;
+        boolean fired = false;
+        for (int i = 0; i < 400 && !fired; i++) {
+            now += 1_000;
+            long buffered = i % 2 == 0 ? peak : trough;
+            if (watchdog.shouldTimeout(now, 5_000, buffered, false)) {
+                fired = true;
+                break;
+            }
+            watchdog.observe(now, 5_000, buffered);
+        }
+        assertTrue("a bounded oscillation above the arm watermark must still terminate", fired);
     }
 
     @Test

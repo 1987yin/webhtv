@@ -28,24 +28,34 @@ public final class ExoBufferingStallWatchdog {
      * treated as a seek or flush and re-arms the baseline. Well below the smallest useful
      * seek step so a real jump is never mistaken for jitter.
      */
-    static final long DISCONTINUITY_TOLERANCE_MS = 1_000L;
+    public static final long DISCONTINUITY_TOLERANCE_MS = 1_000L;
 
     /**
-     * Absolute ceiling for one buffering episode. Re-arming on a discontinuity resets the
-     * progress clock, so a source that regresses by more than the tolerance on a repeating
-     * cycle could otherwise defer the timeout forever and resurrect the stall this class
-     * exists to catch. The episode start is preserved across those re-arms, which makes
-     * termination provable regardless of the sample pattern.
+     * Absolute ceiling for one buffering episode. A discontinuity re-anchors the progress clock,
+     * so a source that regresses by more than the tolerance on a repeating cycle could otherwise
+     * defer the timeout forever and resurrect the stall this class exists to catch.
+     *
+     * <p>Only the episode's <em>time</em> anchor survives a re-anchor; the progress watermarks do
+     * not (see {@link #segmentStartPositionMs}). That split is what makes termination provable:
+     * each re-anchor raises the progress bar to the new low point, and a bounded signal's low
+     * points are bounded, so the bar eventually cannot be cleared. Keeping the watermarks pinned
+     * to {@code arm()} instead would let any oscillation whose trough sits above
+     * {@code arm + margin} defer the ceiling forever.
      */
     public static final long EPISODE_CEILING_MS = 90_000L;
 
     /**
-     * Net progress since the episode start that spares a session from the ceiling. Sized at the
-     * same order as {@code MAX_STREAMING_REBUFFER_MS} (15 s) so a session that is slowly but
-     * genuinely filling its rebuffer threshold survives, while a session whose only movement is
-     * jitter or a regression cycle does not.
+     * Net progress within the current continuity segment that spares a session from the ceiling.
+     * Sized at the same order as {@code MAX_STREAMING_REBUFFER_MS} (15 s) so a session that is
+     * slowly but genuinely filling its rebuffer threshold survives, while a session whose only
+     * movement is jitter or a regression cycle does not.
+     *
+     * <p>Its ratio to {@link #EPISODE_CEILING_MS} implies a floor on throughput: 15 s of media
+     * within 90 s means roughly one sixth of realtime. A stream that cannot sustain that will
+     * never catch up to playback, so falling back beats waiting. Adjusting either constant alone
+     * moves that floor, which is the property to reason about rather than the raw numbers.
      */
-    static final long EPISODE_PROGRESS_MARGIN_MS = 15_000L;
+    public static final long SEGMENT_PROGRESS_MARGIN_MS = 15_000L;
 
     private boolean armed;
     private long episodeStartedAtMs;
@@ -127,13 +137,13 @@ public final class ExoBufferingStallWatchdog {
     public boolean shouldTimeout(
             long nowMs, long positionMs, long bufferedPositionMs, boolean loading) {
         if (!armed) return false;
-        // The ceiling bounds a regression cycle that keeps resetting the progress clock, but it
+        // The ceiling bounds a regression cycle that keeps re-anchoring the progress clock, but it
         // must not kill a session that is genuinely advancing: a large file on a slow link can
         // spend well over the ceiling steadily filling its rebuffer threshold. Require both the
-        // elapsed ceiling AND insufficient net progress since the episode start.
+        // elapsed ceiling AND insufficient net progress within the current continuity segment.
         if (nowMs - episodeStartedAtMs >= EPISODE_CEILING_MS
                 && netSegmentProgressMs(positionMs, bufferedPositionMs)
-                < EPISODE_PROGRESS_MARGIN_MS) {
+                < SEGMENT_PROGRESS_MARGIN_MS) {
             return true;
         }
         return positionMs <= lastPositionMs

@@ -183,7 +183,7 @@ if (nowMs - episodeStartedAtMs >= EPISODE_CEILING_MS) return true;
 
 于是「慢但在稳步推进」的会话也会在 90s 被杀 —— 大文件配慢链路完全可能花超过 90s 稳步填那 15s 阈值。这恰恰绕过了双条件判据本要保护的场景，是我加上限时引入的误杀。
 
-修法：上限改为**同时**要求「已过 90s」**且**「净进展 < `EPISODE_PROGRESS_MARGIN_MS` = 15_000」。净进展取 position 与 buffered 两者增量的较大值（任一轴前进都是真实前进，要求两者同时增长会杀掉「仅在填缓冲」的会话）。余量取 15s 量级与 `MAX_STREAMING_REBUFFER_MS` 对齐：既保住「正在填阈值」的会话，又不放过净进展仅 3s 的病态回退循环（`repeatingLargeRegressionCannotDeferTheTimeoutForever` 的净进展正是 3s，仍会触发）。
+修法：上限改为**同时**要求「已过 90s」**且**「净进展 < `SEGMENT_PROGRESS_MARGIN_MS` = 15_000」。净进展取 position 与 buffered 两者增量的较大值（任一轴前进都是真实前进，要求两者同时增长会杀掉「仅在填缓冲」的会话）。余量取 15s 量级与 `MAX_STREAMING_REBUFFER_MS` 对齐：既保住「正在填阈值」的会话，又不放过净进展仅 3s 的病态回退循环（`repeatingLargeRegressionCannotDeferTheTimeoutForever` 的净进展正是 3s，仍会触发）。
 
 **水位必须随不连续重锚（自查发现，P0 从另一个门重回）。** 初次修 P0 时我把进展水位记在 `arm()`、`rebaseline()` 不动，理由是「维持回退只重置进展时钟、不重置 episode 的区分」。但这样一来，向后 seek 后水位仍是 seek **之前**的高位，`net = max(p - 旧高位, b - 旧高位)` 恒被 `Math.max(0, ...)` 夹成 0 —— 即使 position 一路上涨也永远读作零进展，90s 照样误杀。我用一个独立推演程序复现了它：`seek 后正常推进被误杀 = true 于 90000ms`。
 
@@ -192,6 +192,21 @@ if (nowMs - episodeStartedAtMs >= EPISODE_CEILING_MS) return true;
 修后同一程序四个场景全部正确：向后 seek 后推进不误杀、向后 seek 后停滞 21s 触发、病态回退循环 90s 终止、慢但在填缓冲不误杀。其中「回退循环终止」与「慢会话不被杀」是相互拉扯的一对，两者同时成立才说明判据到位。
 
 新增 `ceilingSparesProgressAfterABackwardSeek` 与 `stallAfterABackwardSeekStillFires` 锁定这两侧。
+
+**严重程度比我当时判断的高得多。** 复审以 35100 组有界振荡穷举对比两个版本：
+
+| 版本 | 有界振荡永不触发 |
+| --- | ---: |
+| 水位钉在 `arm()`（即上一提交） | **9477 / 35100（27%）** |
+| 水位随不连续重锚（当前） | **0 / 35100** |
+
+也就是说水位钉死时，**所有 trough 高于 `arm + 余量` 的有界振荡都永久不触发**，振幅从 1001ms 到 300s 全线失效。触发条件很日常 —— **播放中途的重缓冲**，此时 arm 时 buffered 已远高于 0，整段振荡都位于 `arm + 15s` 之上。我当时只从「向后 seek」这一面理解它，commit message 与文档也只写了那一面；实际修掉的是 E-SP3 立项要修的永久转圈从另一个门原样回归。**若按上一提交推送，等于推出一个比原 bug 更隐蔽的同类问题。**
+
+该严重区域此前只由 seek 用例间接守住，现补 `oscillationWhollyAboveTheArmWatermarkStillTerminates` 直测（trough 明确设在 `arm + 余量 + 30s` 之上）。反向验证：把水位改回钉在 `arm()`，该用例与 seek 用例双双变红。
+
+终止性可证的机制：上限要被持续阻断，需每个采样都满足「当前 > 段起点 + 余量」；而 `rebaseline()` 会把段起点重锚到每个新低点，于是每次大回退都把门槛抬到新低点之上。有界信号的低点有上界，门槛终会高到无法跨过。只有无界上升能永久豁免 —— 而那本就是真实进展。
+
+`SEGMENT_PROGRESS_MARGIN_MS / EPISODE_CEILING_MS = 15s/90s` 隐含一条吞吐门槛：**buffered 须维持 ≥ 1/6 实时速率**才能免于上限（复审实测边界卡在 +166ms/tick 触发、+167ms/tick 不触发）。持续低于该速率的流追不上播放，降级优于干等。该门槛此前完全隐式，现已写入 `SEGMENT_PROGRESS_MARGIN_MS` 的 javadoc —— 单独调任一常量改的就是这条门槛。
 
 同时更正上一节曾写下的错误论证 —— 「60s 档先触发、90s 上限轮不到」**只在无进展时成立**，而这正是本 P0 的根因。
 

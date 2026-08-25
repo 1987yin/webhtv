@@ -9,6 +9,13 @@ import java.nio.file.Path;
 
 import static org.junit.Assert.assertTrue;
 
+/**
+ * 本类断言的是 {@code PlayerManager} 的**实现文本**（仓库既有的 source-text 约定），用于锁定
+ * 那些无法从行为上便宜地观测、却容易被顺手改掉的不变量。
+ *
+ * <p>若日后搬走、改名或重排这些方法，断言会变红 —— 那说明约定被破坏需要同步更新断言，
+ * **不是**测试坏了。确认行为未变后请重新对齐断言，而不要删除用例。
+ */
 public class PlayerManagerLifecycleSourceTest {
 
     @Test
@@ -21,36 +28,48 @@ public class PlayerManagerLifecycleSourceTest {
                 source.contains("public boolean isVod() {\n        return engine != null && engine.isVod();"));
     }
 
-    /**
-     * 以下三条锁的是实现文本（本仓库 source-text 断言约定）。若日后搬走或改名这些方法，
-     * 必须同步改这里的断言 —— 断言变红说明约定被破坏，而不是测试坏了。
-     */
     @Test
     public void bufferingStallMustNotHijackAManualKernelSwitch() throws Exception {
         String source = readPlayerManager();
-        int start = source.indexOf("private void onBufferingStall(");
-        assertTrue("onBufferingStall must exist", start >= 0);
-        String body = source.substring(start, source.indexOf("\n    }", start));
+        String body = methodBody(source, "private void onBufferingStall(");
+        // Assert the telemetry reason rather than just the flag name: the reason string only
+        // exists inside the correct branch, so inverting the condition cannot keep it.
         assertTrue("onBufferingStall must report a manual switch instead of auto-falling back",
+                body.contains("manual-switch-stall"));
+        assertTrue("the manual-switch branch must be gated on the pending flag",
                 body.contains("manualPlayerSwitchPending"));
     }
 
     @Test
     public void newMediaItemCancelsTheStallWatchdog() throws Exception {
-        String source = readPlayerManager();
-        int start = source.indexOf("private void setMediaItemNow(");
-        assertTrue("setMediaItemNow must exist", start >= 0);
-        String body = source.substring(start, source.indexOf("\n    }", start));
+        String body = methodBody(readPlayerManager(), "private void setMediaItemNow(");
         assertTrue("a new media item must invalidate the previous episode baseline",
                 body.contains("cancelBufferingStallWatchdog()"));
+    }
+
+    /**
+     * Slices one method body. Relies on the body containing no closing brace at four-space
+     * indentation; every method asserted here satisfies that today. If a nested block ever
+     * breaks it, the slice truncates early and the assertion fails spuriously — re-align the
+     * helper rather than deleting the assertion.
+     */
+    private static String methodBody(String source, String signature) {
+        int start = source.indexOf(signature);
+        assertTrue("method must exist: " + signature, start >= 0);
+        int end = source.indexOf("\n    }", start);
+        assertTrue("method body must be delimited: " + signature, end > start);
+        return source.substring(start, end);
     }
 
     @Test
     public void bufferingBranchKeepsTheAlreadyArmedGuard() throws Exception {
         String source = readPlayerManager();
-        // Without this guard the seek path's cancel+arm degrades into a repeated re-arm that
-        // keeps resetting the baseline, so the stall would never be reported.
-        assertTrue("BUFFERING branch must only arm when not already armed",
+        // Deliberately asserts the whole line. Dropping this guard makes the BUFFERING branch
+        // re-arm on every state callback, which re-anchors the baseline and clock each time, so
+        // a genuine stall would never be reported. It is the kind of line a later cleanup
+        // removes as redundant, which is exactly why it is pinned verbatim here.
+        assertTrue("BUFFERING branch must only arm when not already armed; if you changed this"
+                        + " line intentionally, re-align this assertion rather than deleting it",
                 source.contains("if (!bufferingStallWatchdog.isArmed()) armBufferingStallWatchdog();"));
     }
 
