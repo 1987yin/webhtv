@@ -4,7 +4,7 @@
 
 文档状态：进行中。本文按检查点持续落盘；未标记“已完成逐提交审阅”的仓库，不应据此直接升级依赖。
 
-当前恢复入口：以“稳定任务 ID 与唯一文档索引”及各任务文档顶部状态为准。完整逐提交审计已完成至检查点 43；`E1`、`E2-2`、`E-SP1` 已实施，`E-SP2` 候选已接入但仍待实机性能/seek 验收，`E-SP3` 已实施并纠正 `E-SP1` 的记载偏差（该任务声明不改超时，实际撤销了启播超时），`E2-1` 的实施单元已完成，当前处于合并收尾与当前树验证阶段。后续仍按 Exo → MPV 顺序处理；`C2` 默认暂缓，`C3` 随 `E7-2` 联合处理。
+当前恢复入口：以“稳定任务 ID 与唯一文档索引”及各任务文档顶部状态为准。完整逐提交审计已完成至检查点 43；`E1`、`E2-2`、`E-SP1`、`E2-1` 已实施，`E-SP2` 候选已接入但仍待实机性能/seek 验收，`E-SP3` 已实施并纠正 `E-SP1` 的记载偏差（该任务声明不改超时，实际撤销了启播超时）。下一项待评估任务是 `E3-1a`；后续仍按 Exo → MPV 顺序处理，`C2` 默认暂缓，`C3` 随 `E7-2` 联合处理。
 
 ## 稳定任务 ID 与唯一文档索引
 
@@ -27,7 +27,7 @@
 | 3 | `E-SP1` | Exo 性能 | 首帧已渲染时立即解除遮罩 | 已完成 | [E-SP1-exo-first-frame-visible.md](E-SP1-exo-first-frame-visible.md) |
 | 4 | `E-SP2` | Exo 性能 | 远程大 MKV 延后 Cues、首次 seek 按需建索引 | 候选已实现，待实机性能/seek 验收 | [E-SP2-exo-remote-mkv-deferred-cues.md](E-SP2-exo-remote-mkv-deferred-cues.md) |
 | 4.1 | `E-SP3` | Exo 性能 | BUFFERING 停滞看门狗（修 `E-SP1`/DV7 撤超时导致的永久转圈） | 已实施，待实机验收 | [E-SP3-exo-buffering-stall-watchdog.md](E-SP3-exo-buffering-stall-watchdog.md) |
-| 5 | `E2-1` | Exo | HDR/Dolby Vision parser safety | **验证通过，待合并提交** | [E2-1-exo-hdr-parser-safety.md](E2-1-exo-hdr-parser-safety.md) |
+| 5 | `E2-1` | Exo | HDR/Dolby Vision parser safety | **已完成** | [E2-1-exo-hdr-parser-safety.md](E2-1-exo-hdr-parser-safety.md) |
 | 6 | `E3-1a` | Exo | Pixel E-AC3 JOC capability guard | 待处理 | `docs/E3-1a-exo-pixel-eac3-joc-guard.md` |
 | 7 | `E3-1b` | Exo | DTS 14-bit 解析 | 待处理 | `docs/E3-1b-exo-dts-14bit.md` |
 | 8 | `E4-1` | Exo | 字幕字节与边界安全 | 待处理 | `docs/E4-1-exo-subtitle-byte-safety.md` |
@@ -45,7 +45,7 @@
 | 20 | `C2` | 通用 | FFmpeg DV7→P8.1 BSF | 暂缓；不自动启用 | `docs/C2-dv7-p81-bsf.md` |
 | 21 | `C3` | 通用 | ISO multi-extent App resolver | 随 `E7-2` 联合评估/实施 | `docs/C3-iso-multi-extent-resolver.md` |
 
-`C1` 是跨播放器真实输入验收维度，不单独形成代码任务或文档；它写入对应的 E/P 任务文档。`E2-1` 已完成该文档列出的 parser safety 实施单元，当前只进行合并收尾和当前树验证。
+`C1` 是跨播放器真实输入验收维度，不单独形成代码任务或文档；它写入对应的 E/P 任务文档。`E2-1` 已完成；当前下一项是 `E3-1a`，开始前先更新其唯一文档并给出决策包，等待用户批准后再实施。
 
 ## 目标与决策顺序
 
@@ -4872,6 +4872,13 @@ C3 的触发来源主要是 media `990abc2368fd74779f525ee345734470659f3d53`（`
 - 合并稿保留本地检查点 44--47、`E-SP3`、E2-2/C2/MPV 诊断边界，并吸收上游 E2-1 完成记录；脚本、锁、补丁和 Media3 产物未在本轮文档合并中修改。
 - checkpoint: E2-1 current-tree verification passed
 - next: create the two-parent merge commit and recovery tag
+
+## 检查点 50：2026-08-26 E2-1 双亲合并完成
+
+- 双亲合并提交 `af28547d965fb862a4b8d005abe0eac07fe5196a` 的父提交为本地实施头 `1e96933f5fdc35e2eec49c474f5e5552cba4dd7a` 与上游收尾头 `c410bf4f40a0ef7babb5b6281b97fa4bc621c24d`。
+- annotated recovery tag：`recovery/E2-1-sync-closeout/20260826131620-af28547d965f`；E2-1 状态更新为已完成。
+- checkpoint: E2-1 merge and recovery point complete
+- next: wait for approval before assessing E3-1a
 
 ## 检查点 49：2026-08-26 E2-1 当前树验证
 

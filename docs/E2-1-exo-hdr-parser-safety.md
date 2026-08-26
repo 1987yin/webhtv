@@ -68,11 +68,13 @@
 ## 当前状态
 
 - 评估结论：E2-1 已完成，范围未超出批准的 parser-safety 窄适配。
-- 当前进度：parser patch、固定应用顺序、container/extractor publication、lock override 和上游双亲合并内容均已接入；当前树定向验证已通过，待创建最终双亲合并提交。
+- 当前进度：parser patch、固定应用顺序、container/extractor publication、lock override、当前树定向验证和上游双亲合并均已完成。
 - 实施提交：`c9ddcf2bbdf902b771694cabbf85930d467bd8ba`、`f2db5952ebec66e94e8cddce6230cff035202274`、`1e96933f5fdc35e2eec49c474f5e5552cba4dd7a`。
 - 恢复标签：`recovery/E2-1-sync-parser/20260826104622-c9ddcf2bbdf9`、`recovery/E2-1-sync-container/20260826105926-f2db5952ebec`、`recovery/E2-1-sync-extractor/20260826110557-1e96933f5fdc`。
+- 最终双亲合并提交：`af28547d965fb862a4b8d005abe0eac07fe5196a`；父提交为 `1e96933f5fdc35e2eec49c474f5e5552cba4dd7a` 与 `c410bf4f40a0ef7babb5b6281b97fa4bc621c24d`。
+- 最终恢复标签：`recovery/E2-1-sync-closeout/20260826131620-af28547d965f`。
 - 当前未解决风险：真实厂商 DV codec、设备级 HDR 输出和非标准文件兼容性仍需设备/样片验收；Java 编译不代表设备正确性。
-- 下一动作：由 task guard 创建双亲合并提交与恢复标签，并记录提交身份。
+- 下一动作：E2-1 已完成；进入队列中的下一项 Exo 任务 `E3-1a` 前先评估并等待用户批准。
 
 ## 评估检查点
 
@@ -115,3 +117,10 @@
 - 当前工作树无未解决冲突，验证范围未触及受保护的 `third_party/sources/media` 外部 checkout；Media3 单元测试仍以既有上游 JDK 21 验证记录为依据。
 - checkpoint: E2-1 current-tree verification passed
 - next: create the two-parent merge commit and recovery tag
+
+### 2026-08-26：双亲合并与恢复点完成
+
+- 双亲合并提交 `af28547d965fb862a4b8d005abe0eac07fe5196a` 已创建，父提交为本地 E2-1 实施头 `1e96933f5fdc35e2eec49c474f5e5552cba4dd7a` 与上游收尾头 `c410bf4f40a0ef7babb5b6281b97fa4bc621c24d`。
+- annotated recovery tag：`recovery/E2-1-sync-closeout/20260826131620-af28547d965f`。
+- checkpoint: E2-1 merge and recovery point complete
+- next: wait for approval before assessing E3-1a
