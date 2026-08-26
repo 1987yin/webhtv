@@ -239,13 +239,27 @@ apply_media_patches() {
     "$patch_dir/media3-upstream-playback-fixes-2026-08.patch"
     "$patch_dir/media3-deferred-cues.patch"
     "$patch_dir/media3-exo-hdr-parser-safety.patch"
+    "$patch_dir/media3-exo-eac3-joc-pixel-guard.patch"
   )
   for patch_file in "${patches[@]}"; do
     [[ -f "$patch_file" ]] || continue
     echo "Applying Media3 patch $(basename "$patch_file")"
-    git -C "$MEDIA_DIR" apply --check "$patch_file"
-    git -C "$MEDIA_DIR" apply "$patch_file"
+    apply_media_patch_lf "$patch_file" "$MEDIA_DIR"
   done
+
+}
+
+apply_media_patch_lf() {
+  local patch_file="$1"
+  local target_dir="$2"
+  # git apply on Windows cannot parse CRLF-formatted patches whose context
+  # lines contain a bare CR; GNU patch strips trailing CRs automatically.
+  if git -C "$target_dir" apply --check "$patch_file" 2>/dev/null; then
+    git -C "$target_dir" apply "$patch_file"
+  else
+    patch -p1 --dry-run -d "$target_dir" < "$patch_file" >/dev/null 2>&1 \
+      && patch -p1 -d "$target_dir" < "$patch_file"
+  fi
 }
 
 apply_nextlib_patches() {
@@ -260,8 +274,7 @@ apply_nextlib_patches() {
       exit 1
     fi
     echo "Applying nextlib patch $(basename "$patch_file")"
-    git -C "$NEXTLIB_DIR" apply --check "$patch_file"
-    git -C "$NEXTLIB_DIR" apply "$patch_file"
+    apply_media_patch_lf "$patch_file" "$NEXTLIB_DIR"
   done
 }
 
@@ -275,8 +288,7 @@ apply_media_build_mirrors() {
     exit 1
   fi
   echo "Applying temporary Media3 Gradle Aliyun mirrors"
-  git -C "$MEDIA_DIR" apply --check "$patch_file"
-  git -C "$MEDIA_DIR" apply "$patch_file"
+  apply_media_patch_lf "$patch_file" "$MEDIA_DIR"
 }
 
 prepare_android_env() {

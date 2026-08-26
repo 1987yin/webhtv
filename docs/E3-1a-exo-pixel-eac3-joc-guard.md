@@ -115,3 +115,43 @@ private static boolean supportsEac3JocFallbackDecoding() {
 - 决策包已就绪，等待用户批准。
 - checkpoint: E3-1a local assessment baseline complete
 - next: wait for user approval before implementation
+## 实施检查点
+
+### 2026-08-26：E3-1a 实施单元 A 完成（patch、build 脚本、lock）
+
+- 用户已批准 E3-1a 实施。
+- 创建 `third_party/patches/media3-exo-eac3-joc-pixel-guard.patch`，包含三个 hunk 修改 `MediaCodecUtil.java`（import Objects、JOC guard 分支、`supportsEac3JocFallbackDecoding()` 方法）和两个 hunk 修改 `MediaCodecUtilTest.java`（ShadowBuild import、两个 JOC test case）。
+- patch 在从 sources jar 提取的原始 fork 源码上通过 `git apply --check`；应用后源码验证确认所有修改正确。
+- `scripts/build_media_deps.sh` patch 数组末尾追加 `media3-exo-eac3-joc-pixel-guard.patch`。
+- `third_party/media-lock.json` 添加 patch 条目（SHA-256 `f36790e77d65cd2638c14eb38f23dbdd3125a2aec09acb031fe6baaa06ab7c41`）。`media3-exoplayer` artifact override 待构建后填入。
+- checkpoint: E3-1a unit A patch/script/lock complete
+- next: build media3-exoplayer AAR and update lock override SHA-256
+
+### 2026-08-27：E3-1a 实施单元 B 完成（AAR 构建与 lock 更新）
+
+- Media3 源码 clone 成功（`e3e922d5...`），6 个 patch 全部应用成功（含 E3-1a 新 patch）。
+- 构建脚本新增 `apply_media_patch_lf` 函数解决 Windows CRLF patch 兼容问题：`git apply` 在 Windows 无法解析 CRLF 格式 patch 的空行，fallback 到 GNU `patch` 命令自动 strip CR。
+- 使用 `--use-aliyun-mirrors` 和 JDK 21 构建，`BUILD SUCCESSFUL in 7m 3s`，474 个 task 全部执行，16 个 Media3 模块发布到 `third_party/maven`。
+- `media3-exoplayer` AAR SHA-256 `8cebe1b193a9bfe11bab60decf3b71cd593b9fd050a3073c5455e48f722c62d3`，sources SHA-256 `f630c00e913ae7f6720069eb38c3bcf25a7ee3b0dd2312aa7efa0eeddb62c4da`。
+- `third_party/media-lock.json` 添加 `media3-exoplayer` artifact override（reason: E3-1a adds Pixel E-AC3 JOC fallback guard）。
+- 其他 15 个 Media3 模块（common/container/extractor 等）也重新发布了，但 lock 只 override `media3-exoplayer`；其余模块内容与 E2-1 构建的产物一致（未改变其 patch）。
+- checkpoint: E3-1a unit B build and lock override complete
+- next: verify patch SHA-256 in lock matches final patch, then commit and tag
+
+### 2026-08-27：E3-1a 收敛为两个发布原子单元
+
+- 构建产生的其他 16 个 Media3 坐标共 385 个旁支文件已确认与本任务无关，并恢复到 `HEAD`；未触碰其他预先存在的脏文件。
+- `media3-exoplayer` 坐标的完整发布内容包含 AAR、sources、Gradle module、POM 校验旁车和 Maven metadata。由于 `upstream` task guard 单元上限为 16 个文件，将其拆为两个连续且可回滚的发布单元：第一单元提交运行时 AAR、sources 及校验文件并连同任务源码/lock；第二单元提交 module、POM 校验旁车和 Maven metadata。
+- 当前 guard 的安全门已恢复，第一单元将包含 14 个文件，第二单元将包含 14 个文件；两单元均保留同一 `media3-exoplayer` 坐标和 SHA-256 一致性。
+- checkpoint: E3-1a side-module outputs excluded and target artifact split bounded
+- next: commit first artifact unit with hash and patch validation, then restore and commit metadata unit
+
+### 2026-08-27：E3-1a 第一发布原子单元验证完成
+
+- 第一单元范围为任务文档、构建脚本、lock、E3-1a patch，以及 `media3-exoplayer` 的 AAR、sources 和对应校验旁车，共 14 个文件。
+- `bash -n scripts/build_media_deps.sh` 通过；`git diff --check` 通过。
+- `media-lock.json` 可解析；E3-1a patch SHA-256 为 `f36790e77d65cd2638c14eb38f23dbdd3125a2aec09acb031fe6baaa06ab7c41`，与 lock 一致。
+- AAR 的 SHA-256 为 `8cebe1b193a9bfe11bab60decf3b71cd593b9fd050a3073c5455e48f722c62d3`，sources 的 SHA-256 为 `f630c00e913ae7f6720069eb38c3bcf25a7ee3b0dd2312aa7efa0eeddb62c4da`；MD5/SHA-1/SHA-256/SHA-512 旁车全部匹配，且两项 SHA-256 与 lock override 一致。
+- sources JAR 包含 `androidx/media3/exoplayer/mediacodec/MediaCodecUtil.java`；未运行设备级 Pixel 播放验证，保留为后续设备验收风险。
+- checkpoint: E3-1a first artifact unit validation complete
+- next: finish first atomic commit and recovery tag, then restore the metadata unit
