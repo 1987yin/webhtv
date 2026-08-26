@@ -2,7 +2,7 @@
 
 - 任务 ID：`E3-1a`
 - 所属分类：Exo
-- 状态：评估完成，等待用户批准后实施
+- 状态：已实施，待实机验收
 - 唯一任务文档：docs/E3-1a-exo-pixel-eac3-joc-guard.md
 - FongMi Media 基线：`FongMi/media@e3e922d5c01bc0b564849940fe589daf37360d15`
 - WebHTV 基线分支：`dev2@6312c485f06346bb6205092c1909efa59bae7ac2`
@@ -169,3 +169,14 @@ private static boolean supportsEac3JocFallbackDecoding() {
 - module 中 AAR/sources 的文件大小和 SHA-256 与实际产物一致，metadata 包含 `1.11.0-alpha01-fongmi` 版本；`git diff --check` 和 task guard scope 检查通过。
 - checkpoint: E3-1a second artifact unit validation complete
 - next: finish second atomic commit and recovery tag, then close E3-1a implementation record
+
+## 检查点 2026-08-27：E3-1a 实施收尾
+
+- 已完成批准的 E3-1a 窄取适配：Google/Pixel 设备不再将 E-AC3 JOC 降级为平台 E-AC3 decoder；非 Google 设备保留既有 2D 降级路径。
+- 第一原子提交：`137fee9817be550391c1ec2054fc24840ad6a4b7`，恢复标签 `recovery/E3-1a-impl/20260826174024-137fee9817be`；包含 patch、build 脚本、lock、AAR/sources 及其校验旁车。
+- 第二原子提交：`4d5127b609558db20d81a9e2f7efa9f38bca2874`，恢复标签 `recovery/E3-1a-impl-metadata/20260826174413-4d5127b60955`；包含 module、POM 校验旁车和 Maven metadata。
+- 构建证据：Media3 1.11.0-alpha01-fongmi 在 JDK 21 下 `BUILD SUCCESSFUL in 7m 3s`，474 个 task 完成；目标 AAR SHA-256 为 `8cebe1b193a9bfe11bab60decf3b71cd593b9fd050a3073c5455e48f722c62d3`，sources SHA-256 为 `f630c00e913ae7f6720069eb38c3bcf25a7ee3b0dd2312aa7efa0eeddb62c4da`。
+- 结构化校验已通过：patch/lock SHA-256、AAR/sources/module/POM/metadata 的 MD5/SHA-1/SHA-256/SHA-512 旁车、module 内嵌产物大小与 SHA-256、sources JAR 中 `MediaCodecUtil.java`、脚本语法和 `git diff --check`。
+- 回滚锚点：实施前 `582fa66e090510b92cbf6630c8745f9afe5de236`；按两个恢复标签逆序回滚可移除 E3-1a 产物和 metadata，不影响 E1、E2-1、E2-2 或 E-SP 系列。
+- 未解决风险：尚未在真实 Pixel/Google 设备上播放 E-AC3 JOC 样片，也尚未完成非 Google 设备 2D 降级与 FFmpeg PCM 接管的实机验收；Java/产物校验不能替代设备行为验证。
+- 下一步：准备 Google/Pixel 与非 Google 设备的 E-AC3 JOC 样片验收，记录 decoder 选择、FFmpeg PCM 接管、播放结果和日志；在验收前不升级为完全发布完成。

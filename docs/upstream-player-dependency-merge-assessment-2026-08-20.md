@@ -28,7 +28,7 @@
 | 4 | `E-SP2` | Exo 性能 | 远程大 MKV 延后 Cues、首次 seek 按需建索引 | 候选已实现，待实机性能/seek 验收 | [E-SP2-exo-remote-mkv-deferred-cues.md](E-SP2-exo-remote-mkv-deferred-cues.md) |
 | 4.1 | `E-SP3` | Exo 性能 | BUFFERING 停滞看门狗（修 `E-SP1`/DV7 撤超时导致的永久转圈） | 已实施，待实机验收 | [E-SP3-exo-buffering-stall-watchdog.md](E-SP3-exo-buffering-stall-watchdog.md) |
 | 5 | `E2-1` | Exo | HDR/Dolby Vision parser safety | **已完成** | [E2-1-exo-hdr-parser-safety.md](E2-1-exo-hdr-parser-safety.md) |
-| 6 | `E3-1a` | Exo | Pixel E-AC3 JOC capability guard | 评估完成，待批准 | [E3-1a-exo-pixel-eac3-joc-guard.md](E3-1a-exo-pixel-eac3-joc-guard.md) |
+| 6 | `E3-1a` | Exo | Pixel E-AC3 JOC capability guard | **已实施，待实机验收** | [E3-1a-exo-pixel-eac3-joc-guard.md](E3-1a-exo-pixel-eac3-joc-guard.md) |
 | 7 | `E3-1b` | Exo | DTS 14-bit 解析 | 待处理 | `docs/E3-1b-exo-dts-14bit.md` |
 | 8 | `E4-1` | Exo | 字幕字节与边界安全 | 待处理 | `docs/E4-1-exo-subtitle-byte-safety.md` |
 | 9 | `E4-J1` | Exo | Cue 数据契约 | 待处理 | `docs/E4-J1-exo-cue-data-contract.md` |
@@ -4879,6 +4879,15 @@ C3 的触发来源主要是 media `990abc2368fd74779f525ee345734470659f3d53`（`
 - annotated recovery tag：`recovery/E2-1-sync-closeout/20260826131620-af28547d965f`；E2-1 状态更新为已完成。
 - checkpoint: E2-1 merge and recovery point complete
 - next: wait for approval before assessing E3-1a
+
+## 检查点 51：2026-08-27 E3-1a 实施与产物收尾
+
+- E3-1a 已按批准的窄取方案实施，源头为 `1066f642a64434e7c3c0be687d3e94a4ca2815d7`，只接入 Google/Pixel E-AC3 JOC fallback guard 和对应测试，不重复引入已被 fork 覆盖的多 alternative MIME 主体。
+- 实施提交为 `137fee9817be550391c1ec2054fc24840ad6a4b7` 与 `4d5127b609558db20d81a9e2f7efa9f38bca2874`，恢复标签分别为 `recovery/E3-1a-impl/20260826174024-137fee9817be` 和 `recovery/E3-1a-impl-metadata/20260826174413-4d5127b60955`。
+- `media3-exoplayer:1.11.0-alpha01-fongmi` AAR/sources、module/POM/metadata 已更新并通过摘要、lock、结构和发布元数据校验；构建为 JDK 21 下 474 task 成功。
+- E3-1a 状态改为“已实施，待实机验收”；尚未声称 Pixel 播放、非 Google 2D 降级或 FFmpeg PCM 接管已通过设备验收。
+- checkpoint: E3-1a implementation and artifact closeout recorded
+- 下一步：收集并执行 Google/Pixel 与非 Google 设备的 E-AC3 JOC 实机验收，之后再决定是否标记为完全完成。
 
 ## 检查点 49：2026-08-26 E2-1 当前树验证
 
