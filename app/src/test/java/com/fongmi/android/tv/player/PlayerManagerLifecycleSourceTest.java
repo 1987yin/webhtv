@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -71,6 +72,40 @@ public class PlayerManagerLifecycleSourceTest {
         assertTrue("BUFFERING branch must only arm when not already armed; if you changed this"
                         + " line intentionally, re-align this assertion rather than deleting it",
                 source.contains("if (!bufferingStallWatchdog.isArmed()) armBufferingStallWatchdog();"));
+    }
+
+    @Test
+    public void stallWatchdogStaysKernelAgnostic() throws Exception {
+        String arm = methodBody(readPlayerManager(), "private void armBufferingStallWatchdog()");
+        // E-SP3 wires this watchdog into the decode/kernel fallback chain, and that chain spans
+        // every kernel (KERNEL_ORDER = EXO -> IJK -> MPV -> SYSTEM). Gating the arming on isExo()
+        // therefore reintroduces, for MPV and Ijk, exactly the "spinner never clears and no
+        // fallback fires" gap the watchdog exists to close. Paused-session false positives are
+        // the playWhenReady guard's job in checkBufferingStall(), not a kernel exclusion.
+        assertFalse("armBufferingStallWatchdog() must not exclude non-Exo kernels;"
+                        + " see docs/E-SP3-exo-buffering-stall-watchdog.md",
+                arm.contains("isExo()"));
+    }
+
+    @Test
+    public void seekInducedBufferingIsExcludedFromTheRebufferCount() throws Exception {
+        String source = readPlayerManager();
+        String body = methodBody(source, "private void recordBufferingState(");
+        // MpvPlayer now publishes BUFFERING across a seek, which is what lets the UI keep its
+        // progress indicator up instead of freezing on the old frame. That state reaches
+        // PlaybackBufferingTracker, which counts every post-startup BUFFERING as a rebuffer,
+        // and the rebuffer count feeds the network guard and the HLS variant policy. Without
+        // this exclusion, scrubbing alone would look like collapsing throughput.
+        int exclusion = body.indexOf("isMpvSeekBuffering()");
+        int tracker = body.indexOf("playbackBufferingTracker.update(");
+        assertTrue("recordBufferingState must recognise seek-induced buffering", exclusion >= 0);
+        assertTrue("the seek exclusion must return before the rebuffer tracker is updated",
+                tracker > exclusion);
+        assertTrue("the exclusion must be traceable", body.contains("result=excluded-from-rebuffer"));
+        // Only the entering edge may be dropped. Swallowing the leaving edge as well would
+        // leave the tracker latched as buffering for the rest of the session.
+        assertTrue("the exclusion must only apply to the entering edge",
+                body.contains("!playbackBufferingTracker.isBuffering()"));
     }
 
     private static String readPlayerManager() throws IOException {
