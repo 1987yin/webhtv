@@ -2,7 +2,7 @@
 
 - 任务 ID：`E2-1`
 - 所属分类：Exo
-- 状态：实施中
+- 状态：已完成
 - 唯一任务文档：`docs/E2-1-exo-hdr-parser-safety.md`
 - WebHTV 同步目标：`fish2018/webhtv@c410bf4f40a0ef7babb5b6281b97fa4bc621c24d`
 - WebHTV 同步基线：共同祖先 `b2eccc357662065e02e49af4caff4c059cf508f3`
@@ -67,9 +67,12 @@
 
 ## 当前状态
 
-- 评估结论：已批准实施，范围已冻结。
-- 当前进度：单元 A 已导入 parser-safety patch、固定 Media3 patch 顺序和 patch SHA-256；AAR 产物与最终 artifact override 待后续单元完成后写入。
-- 下一动作：验证并提交单元 A，随后更新 `media3-container` publication。
+- 评估结论：E2-1 已完成，范围未超出批准的 parser-safety 窄适配。
+- 当前进度：parser patch、固定应用顺序、container/extractor publication、lock override 和上游双亲合并内容均已接入；当前树定向验证已通过，待创建最终双亲合并提交。
+- 实施提交：`c9ddcf2bbdf902b771694cabbf85930d467bd8ba`、`f2db5952ebec66e94e8cddce6230cff035202274`、`1e96933f5fdc35e2eec49c474f5e5552cba4dd7a`。
+- 恢复标签：`recovery/E2-1-sync-parser/20260826104622-c9ddcf2bbdf9`、`recovery/E2-1-sync-container/20260826105926-f2db5952ebec`、`recovery/E2-1-sync-extractor/20260826110557-1e96933f5fdc`。
+- 当前未解决风险：真实厂商 DV codec、设备级 HDR 输出和非标准文件兼容性仍需设备/样片验收；Java 编译不代表设备正确性。
+- 下一动作：由 task guard 创建双亲合并提交与恢复标签，并记录提交身份。
 
 ## 评估检查点
 
@@ -89,3 +92,26 @@
 - 当前进度：单元 A 的 parser patch、固定应用顺序和 lock patch 条目已写入，尚未提交。
 - checkpoint: unit A hash verification command corrected
 - next: run normalized blob and LF SHA-256 checks, then commit unit A
+
+### 2026-08-26：实施单元完成，进入合并收尾
+
+- parser 单元提交 `c9ddcf2bbdf902b771694cabbf85930d467bd8ba`，container publication 单元提交 `f2db5952ebec66e94e8cddce6230cff035202274`，extractor publication 单元提交 `1e96933f5fdc35e2eec49c474f5e5552cba4dd7a`；三个提交均已创建 annotated recovery tag。
+- container/extractor 的 AAR、sources、module、POM 及四类 sidecar 已按上游规范化 blob 校验；lock 中 patch、AAR 和 sources SHA-256 已对应更新。
+- 当前合并冲突只涉及本任务文档和主评估索引；脚本、锁、补丁与产物没有新增冲突。上游 `e19289a3c9871563f891500bdc2d42be6be23f3d`、`c410bf4f40a0ef7babb5b6281b97fa4bc621c24d` 的内容已吸收，未采用其覆盖本地诊断的文档版本。
+- checkpoint: E2-1 implementation units complete; merge closeout pending
+- next: stage the resolved documents and run current-tree verification
+
+### 2026-08-26：文档合并稿完成，进入当前树验证
+
+- 合并稿保留主评估索引的本地检查点、`E-SP3` 状态和 E2-2/C2/MPV 边界，同时吸收上游 E2-1 完成记录；未修改脚本、锁、补丁或 Media3 产物。
+- 当前合并仅待将两份文档标记为已解决，并运行既定的 Media3 定向测试与 Mobile/Leanback Java 编译。
+- checkpoint: E2-1 documentation merge draft complete
+- next: stage the two resolved documents and run current-tree verification
+
+### 2026-08-26：当前树定向验证通过
+
+- JDK 21 下运行 `:app:compileMobileArm64_v8aDebugJavaWithJavac` 与 `:app:compileLeanbackArm64_v8aDebugJavaWithJavac --no-daemon`，Gradle daemon 日志记录 `BUILD SUCCESSFUL in 6m 22s`。
+- 五个 Media3 patch 按 LF 规范化内容与 lock SHA-256 全部匹配；`media3-container` 与 `media3-extractor` 的 AAR、sources SHA-256 全部匹配 lock override。
+- 当前工作树无未解决冲突，验证范围未触及受保护的 `third_party/sources/media` 外部 checkout；Media3 单元测试仍以既有上游 JDK 21 验证记录为依据。
+- checkpoint: E2-1 current-tree verification passed
+- next: create the two-parent merge commit and recovery tag
