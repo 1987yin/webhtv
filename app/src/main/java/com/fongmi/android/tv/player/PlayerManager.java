@@ -1113,6 +1113,16 @@ public class PlayerManager implements ParseCallback {
     }
 
     /**
+     * True while MPV reports BUFFERING because a seek is in flight rather than because the
+     * source stalled. Scoped to {@link androidx.media3.mpvplayer.MpvPlayer} because it is the
+     * only engine that tracks the distinction; the other kernels keep whatever rebuffer
+     * accounting they had, so this cannot change their behaviour.
+     */
+    private boolean isMpvSeekBuffering() {
+        return engine instanceof MpvPlayerEngine mpv && mpv.isSeekBuffering();
+    }
+
+    /**
      * Keep the native player's shutter visible while automatic MPV output is
      * still being selected. This prevents a failed direct DV probe from
      * exposing a stale poster or the last frame before the GPU rebuild.
@@ -7906,6 +7916,17 @@ public void resetTrack(int type) {
 
     private void recordBufferingState(int state) {
         if (player == null) return;
+        if (state == Player.STATE_BUFFERING
+                && !playbackBufferingTracker.isBuffering()
+                && isMpvSeekBuffering()) {
+            // A seek is a user-requested discontinuity, not a network stall. Counting it
+            // would inflate the rebuffer count that the network guard and the HLS variant
+            // policy read, so every scrub would look like degrading throughput.
+            PlaybackTrace.log("mpv-seek",
+                    playbackTrace.current(),
+                    "action=seek-buffering result=excluded-from-rebuffer");
+            return;
+        }
         if ((mpvHlsManagedReload || ijkBufferManagedReload)
                 && state == Player.STATE_BUFFERING
                 && !playbackBufferingTracker.isBuffering()) {
@@ -8374,6 +8395,16 @@ public void resetTrack(int type) {
      * replacement guard for the startup timeout: a rendered frame proves the decoder
      * works, but it does not prove playback can proceed, so the session must stay
      * under some watch until READY actually arrives.
+     *
+     * <p>Deliberately not gated on the kernel. E-SP3 makes this watchdog a trigger of the
+     * decode/kernel fallback chain, and that chain covers every kernel, so restricting it to
+     * Exo would leave MPV and Ijk with the very "spins forever, never falls back" gap it was
+     * added to close. MPV publishes both signals the criterion reads through {@code
+     * SimpleBasePlayer.State} — {@code setIsLoading} mirrors {@code paused-for-cache} and the
+     * buffered end comes from the demuxer-cache observers — so they do advance there; a stalled
+     * MPV session simply keeps {@code isLoading()} true and gets the longer loading ceiling.
+     * False positives while paused are handled by the {@code playWhenReady} guard in
+     * {@link #checkBufferingStall()}, not by excluding a kernel.
      */
     private void armBufferingStallWatchdog() {
         if (player == null || spec == null) return;
