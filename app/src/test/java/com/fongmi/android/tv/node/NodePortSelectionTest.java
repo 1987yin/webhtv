@@ -70,7 +70,7 @@ public class NodePortSelectionTest {
         String source = read("com/fongmi/android/tv/node/NodeBoot.java");
         int ret = source.indexOf("return ports.includes(want)");
         assertTrue("附带服务可能比猫源晚绑定，publish 要到目标端口出现才算完成", ret >= 0);
-        assertTrue("轮询仍需有次数上限兜底", source.indexOf("++tries > 60", ret) > ret);
+        assertTrue("轮询仍需有次数上限兜底", source.indexOf("++tries > 150", ret) > ret);
     }
 
     @Test

@@ -164,11 +164,11 @@ public class NodeService extends Service {
     * 等引导脚本把候选端口落盘，再逐个探 /config 认准猫源服务。
     * 逻辑与原 NodeRuntime.waitReady 一致。
     */
-    private int waitReady(File portFile, Messenger reply) {
-        boolean reported = false;
-        for (int i = 0; i < 90; i++) {
+   private int waitReady(File portFile, Messenger reply) {
+       boolean reported = false;
+        for (int i = 0; i < 225; i++) {
             try {
-                Thread.sleep(500);
+                Thread.sleep(200);
                 List<Integer> candidates = NodeRuntime.readPorts(portFile);
                 if (candidates.isEmpty()) {
                     if (!reported) {
