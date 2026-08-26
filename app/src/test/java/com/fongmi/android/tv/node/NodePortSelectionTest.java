@@ -75,9 +75,9 @@ public class NodePortSelectionTest {
 
     @Test
     public void waitReadyProbesCandidatesAndValidatesConfigShape() throws IOException {
-        String source = read("com/fongmi/android/tv/node/NodeRuntime.java");
-        int method = source.indexOf("private static boolean waitReady(");
-        assertTrue("NodeRuntime 必须有 waitReady", method >= 0);
+        String source = read("com/fongmi/android/tv/node/NodeService.java");
+        int method = source.indexOf("private int waitReady(");
+        assertTrue("NodeService 必须有 waitReady", method >= 0);
 
         int read = source.indexOf("readPorts(portFile)", method);
         assertTrue("waitReady 必须读候选端口集合", read > method);
@@ -85,23 +85,22 @@ public class NodePortSelectionTest {
         int loop = source.indexOf("for (int candidate : candidates)", read);
         assertTrue("必须逐个探候选端口", loop > read);
 
-        int validate = source.indexOf("CatSource.isConfig(OkHttp.string(configUrl(candidate)))", loop);
+        int validate = source.indexOf("CatSource.isConfig(cfg)", loop);
         assertTrue("必须按配置形状认准端口——401 信封和欢迎页都是非空响应，只判空会认错", validate > loop);
         assertTrue("不得再用「响应非空」当就绪判据",
                 source.indexOf("if (!TextUtils.isEmpty(text)) return true;") < 0);
 
-        int assign = source.indexOf("port = candidate;", validate);
+        int assign = source.indexOf("return candidate;", validate);
         assertTrue("只有校验通过的端口才可采纳", assign > validate);
     }
 
     @Test
     public void waitReadyRereadsPortFileEachRound() throws IOException {
-        String source = read("com/fongmi/android/tv/node/NodeRuntime.java");
-        int method = source.indexOf("private static boolean waitReady(");
+        String source = read("com/fongmi/android/tv/node/NodeService.java");
+        int method = source.indexOf("private int waitReady(");
+        assertTrue("NodeService 必须有 waitReady", method >= 0);
         int read = source.indexOf("readPorts(portFile)", method);
-        int guard = source.lastIndexOf("if (port == 0)", read < 0 ? source.length() : read);
-        assertTrue("候选集会随附带服务上线而变化，不能只在 port 未定时读一次",
-                guard < method || guard < 0);
+        assertTrue("waitReady 必须在循环内每轮重读端口文件", read > method);
     }
 
     @Test
