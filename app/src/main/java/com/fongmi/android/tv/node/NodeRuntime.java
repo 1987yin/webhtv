@@ -86,41 +86,41 @@ public final class NodeRuntime {
             if (callback != null) callback.onReady(baseUrl());
             return;
         }
-        if (!STARTING.compareAndSet(false, true)) {
-            if (callback != null) callback.onError("正在启动中");
-            return;
+       if (!STARTING.compareAndSet(false, true)) {
+           if (callback != null) callback.onError("正在启动中");
+           return;
         }
         pendingCallback = callback;
         replyMessenger = new Messenger(new ReplyHandler());
-        // 换源：先杀旧子进程（如果有），再起新的
+       // 换源：先杀旧子进程（如果有），再起新的
         if (running || !TextUtils.isEmpty(servingUrl)) {
-           SpiderDebug.log("node", "switching source: stopping old node service (was=%s)", servingUrl);
+            SpiderDebug.log("node", "switching source: stopping old node service (was=%s)", servingUrl);
             notifyProgress(context, callback, context.getString(R.string.node_stopping));
-           NodeService.stop(context);
-           // stopService 是异步的，onDestroy 里的 killProcess 也需要时间生效。
-           // 不等的话 startForegroundService 会投递到还没死掉的旧进程，node::Start 第二次调用会 SIGSEGV。
-           waitForProcessDeath(context);
-           running = false;
-           port = 0;
+            NodeService.stop(context);
+            // stopService 是异步的，onDestroy 里的 killProcess 也需要时间生效。
+            // 不等的话 startForegroundService 会投递到还没死掉的旧进程，node::Start 第二次调用会 SIGSEGV。
+            waitForProcessDeath(context);
+            running = false;
+            port = 0;
             notifyProgress(context, callback, context.getString(R.string.node_switch_restart));
-       }
-       servingUrl = NodeBundle.bundleUrl(url);
-       NodeService.start(context, url, replyMessenger);
-   }
+        }
+        servingUrl = NodeBundle.bundleUrl(url);
+        NodeService.start(context, url, replyMessenger);
+    }
 
     /** 是否就是当前这个 bundle。 */
     private static boolean same(String url) {
         String requested = NodeBundle.bundleUrl(url);
-        return !TextUtils.isEmpty(requested) && requested.equals(servingUrl);
+       return !TextUtils.isEmpty(requested) && requested.equals(servingUrl);
     }
 
     /** 换源等主进程侧阶段进度：同时推通知栏和 callback。 */
-   private static void notifyProgress(Context context, Callback callback, String text) {
-       SpiderDebug.log("node", "%s", text);
-       NodeNotify.progress(context, text, -1);
+    private static void notifyProgress(Context context, Callback callback, String text) {
+        SpiderDebug.log("node", "%s", text);
+        NodeNotify.progress(context, text, -1);
         App.post(() -> Notify.show(text));
-       if (callback != null) callback.onProgress(text);
-   }
+        if (callback != null) callback.onProgress(text);
+    }
 
     /**
      * 等 :node 子进程真正死掉，最多等 3 秒。

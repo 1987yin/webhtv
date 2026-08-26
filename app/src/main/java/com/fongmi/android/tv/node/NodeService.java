@@ -156,16 +156,16 @@ public class NodeService extends Service {
             }
         } catch (Throwable e) {
             SpiderDebug.log("node", e);
-            sendError(reply, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
-        }
+           sendError(reply, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+       }
     }
 
     /**
-    * 等引导脚本把候选端口落盘，再逐个探 /config 认准猫源服务。
-    * 逻辑与原 NodeRuntime.waitReady 一致。
-    */
-   private int waitReady(File portFile, Messenger reply) {
-       boolean reported = false;
+     * 等引导脚本把候选端口落盘，再逐个探 /config 认准猫源服务。
+     * 逻辑与原 NodeRuntime.waitReady 一致。
+     */
+    private int waitReady(File portFile, Messenger reply) {
+        boolean reported = false;
         for (int i = 0; i < 225; i++) {
             try {
                 Thread.sleep(200);
