@@ -1334,10 +1334,16 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
                 throw new IOException(e == null ? "MPV native libraries are unavailable" : e.getMessage(), e);
             }
             copySupportAssets();
-            nativeContextOwner = this;
+            // Claim ownership only once the native context exists. Assigning before the
+            // attempt leaves a failed create owning the process-wide slot: this method's
+            // takeover branch above has already released the previous owner, so nothing
+            // else would ever reset it, and every later playback would take the takeover
+            // path against an instance whose initialized flag is still false.
             if (!mpvTryCreate(context)) {
+                nativeContextOwner = null;
                 throw new IOException("MPV native context creation is already in progress");
             }
+            nativeContextOwner = this;
             applyPreInitOptions();
             mpvInit();
             initialized = true;
