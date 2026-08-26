@@ -5,6 +5,7 @@ import android.os.Build;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.nodejs.NodeBridge;
+import com.fongmi.android.tv.utils.GithubProxy;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 
@@ -90,9 +91,11 @@ public final class NodeLib {
      * 先用 Range 只取需要的条目（省约三分之二流量）；服务端不支持时回退整包下载。
      */
     private static String fetch(Context context, Progress progress) {
-        String url = BASE + "nodejs-mobile-" + VERSION + "-android.zip";
         String entry = "bin/" + abi() + "/libnode.so";
         File out = file(context);
+        // 走 GithubProxy：这是 GitHub release 资源，直连在部分网络下不可达。
+        // 代理源与"关于"页的在线更新共用同一份用户配置（可选择、可自建）。
+        String url = GithubProxy.apply(origin());
         String error = NodeRangeZip.extract(url, entry, out,
                 progress == null ? null : progress::onProgress);
         if (error == null) {
@@ -104,7 +107,17 @@ public final class NodeLib {
             }
         }
         SpiderDebug.log("node", "range fetch failed (%s), fall back to full zip", error);
-        return fetchFull(context, url, entry, progress);
+        String full = fetchFull(context, url, entry, progress);
+        // 代理本身失效时（挂了、限流）退回直连，好过整个功能不可用
+        if (full != null && !url.equals(origin())) {
+            SpiderDebug.log("node", "proxy failed (%s), retry direct", full);
+            return fetchFull(context, origin(), entry, progress);
+        }
+        return full;
+    }
+
+    private static String origin() {
+        return BASE + "nodejs-mobile-" + VERSION + "-android.zip";
     }
 
     private static String fetchFull(Context context, String url, String entry, Progress progress) {
