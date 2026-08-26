@@ -390,7 +390,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private View mNightModeOverlay;
     private int mNightModeLevel = PlayerSetting.NIGHT_MODE_OFF;
     private boolean inlinePiPLayout;
-    private boolean inlinePiPLayoutRequested;
     private boolean inlinePiPSourceFrozen;
     private long inlineStartPosition = C.TIME_UNSET;
     private int selectedSeasonNumber = -1;
@@ -9153,9 +9152,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         hideInlineControls();
         hideInlineGestureOverlays();
         updateInlinePiPSource(binding.playerPanel);
-        inlinePiPLayoutRequested = !inlineFullscreen;
-        boolean entered = inlinePiP != null && inlinePiP.enter(this, player().getVideoWidth(), player().getVideoHeight(), getInlineScale(), force);
-        if (!entered) inlinePiPLayoutRequested = false;
+        if (inlinePiP != null) inlinePiP.enter(this, player().getVideoWidth(), player().getVideoHeight(), getInlineScale(), force);
     }
 
     private boolean canEnterInlinePiP() {
@@ -9475,7 +9472,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void enterInlinePiPLayout() {
-        if (inlinePiPLayout || inlineFullscreen || binding == null) return;
+        if (inlinePiPLayout || inlineFullscreen || !inlineStarted || binding == null) return;
         inlinePiPTranslationZ = binding.playerPanel.getTranslationZ();
         inlinePiPLayout = true;
         updateDetailThemeButtonVisibility();
@@ -10170,11 +10167,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (isInPictureInPictureMode) {
             hideInlineControls();
             hideInlineGestureOverlays();
-            if (inlinePiPLayoutRequested) enterInlinePiPLayout();
+            // 内嵌卡片状态进入 PiP（含 Android 12+ autoEnter / 手势回桌面）必须铺满窗口，
+            // 否则小窗里显示的是整页缩放（卡片圆角、描边、背景图都露出来）。全屏时布局已铺满，enterInlinePiPLayout 内部自带 guard。
+            enterInlinePiPLayout();
             return;
         }
         exitInlinePiPLayout();
-        inlinePiPLayoutRequested = false;
         updateInlineButtons(service() != null && player() != null && !player().isEmpty() && player().isPlaying());
         updateInlineDisplayPanel();
         updateDetailThemeButtonVisibility();
