@@ -2,7 +2,7 @@
 
 - 任务 ID：`E2-1`
 - 所属分类：Exo
-- 状态：已批准，待实施
+- 状态：实施中
 - 唯一任务文档：`docs/E2-1-exo-hdr-parser-safety.md`
 - WebHTV 同步目标：`fish2018/webhtv@c410bf4f40a0ef7babb5b6281b97fa4bc621c24d`
 - WebHTV 同步基线：共同祖先 `b2eccc357662065e02e49af4caff4c059cf508f3`
@@ -67,8 +67,9 @@
 
 ## 当前状态
 
-- 评估结论：建议实施，范围已冻结。
-- 下一动作：提交本决策记录，再按 A/B/C 三个 upstream guard 单元实施并记录每个 commit/tag；验证失败则停在对应单元，不扩大范围。
+- 评估结论：已批准实施，范围已冻结。
+- 当前进度：单元 A 已导入 parser-safety patch、固定 Media3 patch 顺序和 patch SHA-256；AAR 产物与最终 artifact override 待后续单元完成后写入。
+- 下一动作：验证并提交单元 A，随后更新 `media3-container` publication。
 
 ## 评估检查点
 
@@ -80,3 +81,11 @@
 - 已核对本地 Media3 消费路径、FongMi/media 源提交、Android AOSP `KEY_HDR_STATIC_INFO` 契约和上游提交关联状态；建议采用 E2-1 窄适配，不引入 E3-1a 或其他阶段。
 - checkpoint: E2-1 fongmi-sync head assessment complete
 - next: commit assessment record, then start implementation guard
+
+### 2026-08-26：单元 A 哈希验证修正
+
+- 发现：Windows `core.autocrlf=true` 下，`git hash-object` 默认输出 Git blob SHA-1，不能直接与 lock 的文件 SHA-256 比较；这不是补丁内容变化。
+- 修正：用 `git hash-object --path` 与上游 blob ID 验证规范化内容，再用上游 LF blob 的 `sha256sum` 验证 lock 值。
+- 当前进度：单元 A 的 parser patch、固定应用顺序和 lock patch 条目已写入，尚未提交。
+- checkpoint: unit A hash verification command corrected
+- next: run normalized blob and LF SHA-256 checks, then commit unit A

@@ -20,6 +20,10 @@
       {
         "path": "third_party/patches/media3-deferred-cues.patch",
         "sha256": "8bfcf98dadfd70e56ebec4c5fd49701ddc8ed66b02707a7f733b3aec1ed4b2c7"
+      },
+      {
+        "path": "third_party/patches/media3-exo-hdr-parser-safety.patch",
+        "sha256": "a6a8bbf95630e70938dacde7e36c97ed330c5c426644893090cfc3280dc6ed20"
       }
     ],
     "artifact_overrides": [
