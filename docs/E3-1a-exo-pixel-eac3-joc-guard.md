@@ -155,3 +155,17 @@ private static boolean supportsEac3JocFallbackDecoding() {
 - sources JAR 包含 `androidx/media3/exoplayer/mediacodec/MediaCodecUtil.java`；未运行设备级 Pixel 播放验证，保留为后续设备验收风险。
 - checkpoint: E3-1a first artifact unit validation complete
 - next: finish first atomic commit and recovery tag, then restore the metadata unit
+
+### 2026-08-27：E3-1a 第二发布原子单元换行修正
+
+- 恢复第二单元后发现 Windows `core.autocrlf=true` 将 `.module` 工作树内容转换为 CRLF，而其 sidecar 摘要针对发布时的 LF 字节；POM 和 Maven metadata sidecar 与当前字节一致。
+- 已仅将 `media3-exoplayer-1.11.0-alpha01-fongmi.module` 规范为 LF，未修改 AAR、sources、POM、metadata 或任何摘要值。
+- checkpoint: E3-1a metadata newline normalization applied
+- next: rerun metadata sidecar and embedded-artifact validation, then commit second atomic unit
+
+### 2026-08-27：E3-1a 第二发布原子单元验证完成
+
+- `media3-exoplayer` module、POM、Maven metadata 的 MD5/SHA-1/SHA-256/SHA-512 旁车全部匹配当前发布文件。
+- module 中 AAR/sources 的文件大小和 SHA-256 与实际产物一致，metadata 包含 `1.11.0-alpha01-fongmi` 版本；`git diff --check` 和 task guard scope 检查通过。
+- checkpoint: E3-1a second artifact unit validation complete
+- next: finish second atomic commit and recovery tag, then close E3-1a implementation record
