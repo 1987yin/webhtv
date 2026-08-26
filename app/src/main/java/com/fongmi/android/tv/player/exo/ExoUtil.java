@@ -98,9 +98,12 @@ public class ExoUtil {
     private static final long ENHANCED_ADAPT_COOLDOWN_MS = 15_000L;
     private static final int ENHANCED_DROPPED_FRAMES_THRESHOLD = 24;
     private static final int ENHANCED_DROPPED_FRAMES_PER_SECOND_THRESHOLD = 4;
-    private static final int FFMPEG_SKIP_FRAME_NONREF = 8;
+    // FFmpeg AVDiscard values.
+    private static final int FFMPEG_SKIP_FRAME_DEFAULT = 0;
     private static final int FFMPEG_SKIP_LOOP_FILTER_ALL = 48;
     private static final int FFMPEG_LOWRES_HALF = 1;
+    private static final int FFMPEG_MIN_DECODE_BUFFERS = 4;
+    private static final int FFMPEG_MAX_DECODE_BUFFERS = 12;
     private static volatile EnhancedVideoProfile enhancedVideoProfile;
     private static volatile ExoPlaybackCapability.Report playbackCapabilityReport;
 
@@ -281,6 +284,54 @@ public class ExoUtil {
         return videoRenderMode == DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF && !videoPrefer;
     }
 
+    /**
+     * Load shedding must also cover the hard-decode fallback, not just an explicit soft
+     * decode selection. In the hard-decode profile the FFmpeg video renderer is still
+     * installed as a fallback for codecs MediaCodec refuses ({@link
+     * #isFfmpegVideoFallbackOnly}); that content is by definition the heaviest, so leaving
+     * it untuned means single-threaded full-filter software decode, observed as continuous
+     * stutter with a zero dropped-frame count because frames arrive late rather than being
+     * dropped.
+     *
+     * <p>The decode profile is deliberately not a gate here. Kept separate from the flag
+     * handed to the FFmpeg audio renderer so audio behavior is unchanged.
+     */
+    static boolean shouldTuneFfmpegVideo(boolean tuneEnabled, boolean ffmpegVideoReachable) {
+        return tuneEnabled && ffmpegVideoReachable;
+    }
+
+    /** Whether the FFmpeg video renderer can decode at all for this profile. */
+    static boolean isFfmpegVideoReachable(int videoRenderMode) {
+        return getFfmpegVideoRenderMode(videoRenderMode)
+                != DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF;
+    }
+
+    /**
+     * Frame-threaded FFmpeg decode keeps roughly {@code threads + 1} frames in flight, and
+     * {@code numOutputBuffers} sizes that pool directly ({@code FfmpegVideoDecoder} passes it
+     * to {@code new VideoDecoderOutputBuffer[numOutputBuffers]}). A fixed pool smaller than the
+     * thread count throttles the decoder into periodic stalls even while CPU headroom remains,
+     * so the pool scales with the thread count instead.
+     */
+    static int ffmpegDecodeBuffers(int threads) {
+        // Clamp before adding: availableProcessors() is trusted here, but an overflowing
+        // addition would wrap negative and silently collapse back to the minimum.
+        int safeThreads = Math.max(1, Math.min(FFMPEG_MAX_DECODE_BUFFERS, threads));
+        return Math.max(FFMPEG_MIN_DECODE_BUFFERS,
+                Math.min(FFMPEG_MAX_DECODE_BUFFERS, safeThreads + 2));
+    }
+
+    /**
+     * Load shedding deliberately skips the loop filter but keeps every frame. Discarding
+     * non-reference frames ({@code AVDISCARD_NONREF}) removes frames the renderer never sees,
+     * which breaks motion continuity while reporting a zero dropped-frame count, and it is not
+     * warranted when the decode is buffer-throttled rather than CPU-bound. Loop-filter skipping
+     * costs image quality only.
+     */
+    static int ffmpegSkipFrame() {
+        return FFMPEG_SKIP_FRAME_DEFAULT;
+    }
+
     private static int getVideoRenderMode(int decode) {
         return getRenderMode(decode);
     }
@@ -358,7 +409,13 @@ public class ExoUtil {
         builder.setExceedVideoConstraintsIfNecessary(true);
         builder.setAllowVideoNonSeamlessAdaptiveness(true);
         builder.setAllowVideoMixedMimeTypeAdaptiveness(true);
-        builder.setForceHighestSupportedBitrate(false);
+        // 起播就选约束内画质最高的轨道，而不是把选择交给 media3 原生 ABR。原生 ABR 起播只有
+        // DefaultBandwidthMeter 的初始猜测（Wi-Fi 4.3Mbps 起、未知网络 1Mbps）可用，再乘
+        // bandwidthFraction，HLS 多码率直链必然落到最低几档；直播缓冲为 0 时还不允许向上切。
+        // 代价是同组只会选中一条轨道（eligibility 变成 FIXED），原生 ABR 不再兜底吞吐，
+        // 因此降级完全依赖 AutomaticVideoConstraintController / LegacyAdaptiveVideoProfileController
+        // 收紧上面这些 max 约束：温度、解码、网络计费之外，两者都必须自己按带宽和重缓冲降档。
+        builder.setForceHighestSupportedBitrate(true);
     }
 
     public static EnhancedVideoProfile getEnhancedVideoProfile() {
@@ -671,13 +728,17 @@ public class ExoUtil {
             @Nullable ExoDolbyVisionPlaybackState dolbyVisionPlaybackState,
             @Nullable PlaybackMediaSignalHub mediaSignals,
             @Nullable PlaybackMediaClock mediaClock) {
+        int videoRenderMode = getVideoRenderMode(decode);
         return buildRenderersFactory(
                 getAudioRenderMode(),
-                getVideoRenderMode(decode),
+                videoRenderMode,
                 isAudioPrefer(decode),
                 PlayerSetting.isVideoPrefer(PlayerSetting.EXO),
                 decode == PlayerEngine.SOFT
                         && PlaybackPerformanceSetting.isSoftVideoTuneEnabled(),
+                shouldTuneFfmpegVideo(
+                        PlaybackPerformanceSetting.isSoftVideoTuneEnabled(),
+                        isFfmpegVideoReachable(videoRenderMode)),
                 true,
                 decoderRuntimeSession,
                 decoderOutput,
@@ -696,6 +757,7 @@ public class ExoUtil {
                 DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER,
                 PlayerSetting.isAudioPrefer(PlayerSetting.EXO),
                 PlayerSetting.isVideoPrefer(PlayerSetting.EXO),
+                false,
                 false,
                 false,
                 null,
@@ -721,6 +783,7 @@ public class ExoUtil {
             boolean audioPrefer,
             boolean videoPrefer,
             boolean softVideoTune,
+            boolean ffmpegVideoTune,
             boolean realtimePipeline,
             @Nullable ExoDecoderRuntimeSession decoderRuntimeSession,
             ExoDecoderRuntimeSession.OutputConfig decoderOutput,
@@ -740,6 +803,7 @@ public class ExoUtil {
                     audioPrefer,
                     videoPrefer,
                     softVideoTune,
+                    ffmpegVideoTune,
                     decoderRuntimeSession,
                     decoderOutput,
                     frameSchedulingDecision,
@@ -910,6 +974,7 @@ public class ExoUtil {
         private final boolean audioPrefer;
         private final boolean videoPrefer;
         private final boolean softVideoTune;
+        private final boolean ffmpegVideoTune;
         @Nullable private final ExoDecoderRuntimeSession decoderRuntimeSession;
         private final ExoDecoderRuntimeSession.OutputConfig decoderOutput;
         private final ExoFrameSchedulingExperimentPolicy.Decision
@@ -924,6 +989,7 @@ public class ExoUtil {
                 boolean audioPrefer,
                 boolean videoPrefer,
                 boolean softVideoTune,
+                boolean ffmpegVideoTune,
                 @Nullable ExoDecoderRuntimeSession decoderRuntimeSession,
                 ExoDecoderRuntimeSession.OutputConfig decoderOutput,
                 ExoFrameSchedulingExperimentPolicy.Decision
@@ -936,6 +1002,7 @@ public class ExoUtil {
             this.audioPrefer = audioPrefer;
             this.videoPrefer = videoPrefer;
             this.softVideoTune = softVideoTune;
+            this.ffmpegVideoTune = ffmpegVideoTune;
             this.decoderRuntimeSession = decoderRuntimeSession;
             this.decoderOutput = decoderOutput;
             this.frameSchedulingDecision = frameSchedulingDecision;
@@ -1000,8 +1067,10 @@ public class ExoUtil {
 
         private CompatFfmpegVideoRenderer buildFfmpegVideoRenderer(long allowedVideoJoiningTimeMs, Handler eventHandler, VideoRendererEventListener eventListener, MediaCodecSelector platformDecoderSelector) {
             boolean fallbackOnly = isFfmpegVideoFallbackOnly(videoRenderMode, videoPrefer);
-            if (!softVideoTune) return new CompatFfmpegVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener, MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY, fallbackOnly, platformDecoderSelector);
-            return new CompatFfmpegVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener, MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY, Runtime.getRuntime().availableProcessors(), 4, 4, FFMPEG_SKIP_FRAME_NONREF, FFMPEG_SKIP_LOOP_FILTER_ALL, FFMPEG_LOWRES_HALF, fallbackOnly, platformDecoderSelector);
+            if (!ffmpegVideoTune) return new CompatFfmpegVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener, MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY, fallbackOnly, platformDecoderSelector);
+            int threads = Runtime.getRuntime().availableProcessors();
+            int buffers = ffmpegDecodeBuffers(threads);
+            return new CompatFfmpegVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener, MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY, threads, buffers, buffers, ffmpegSkipFrame(), FFMPEG_SKIP_LOOP_FILTER_ALL, FFMPEG_LOWRES_HALF, fallbackOnly, platformDecoderSelector);
         }
 
         private MediaCodecSelector getVideoCodecSelector(MediaCodecSelector mediaCodecSelector) {
@@ -1133,11 +1202,16 @@ public class ExoUtil {
             } finally {
                 pendingSourceFormat = null;
                 pendingOutputFormat = null;
-                if (playbackState != null) playbackState.reset();
+                if (playbackState != null) playbackState.resetAttempt();
             }
         }
 
-        private static Format asHdr10(Format format) {
+        private Format asHdr10(Format format) {
+            if (playbackState != null
+                    && playbackState.isHdr10FallbackRequested()
+                    && DolbyVisionP81ExtractorsFactory.isProfile7(format)) {
+                return DolbyVisionP81ExtractorsFactory.asHdr10Fallback(format);
+            }
             ColorInfo color = format.colorInfo == null
                     ? new ColorInfo.Builder().setColorSpace(C.COLOR_SPACE_BT2020).setColorRange(C.COLOR_RANGE_LIMITED).setColorTransfer(C.COLOR_TRANSFER_ST2084).build()
                     : format.colorInfo.buildUpon().setColorSpace(C.COLOR_SPACE_BT2020).setColorRange(C.COLOR_RANGE_LIMITED).setColorTransfer(C.COLOR_TRANSFER_ST2084).build();
@@ -1174,6 +1248,7 @@ public class ExoUtil {
         private Format selectedFormat;
         private int playbackState;
         private boolean playing;
+        private boolean everReady;
         private boolean adaptiveVideo;
         private int selectedVideoCandidates;
         private int availableVideoFormats;
@@ -1201,7 +1276,24 @@ public class ExoUtil {
 
         @Override
         public void onPlaybackStateChanged(EventTime eventTime, @Player.State int state) {
+            // 先对齐会话再判断：everReady 由 bindSession 重置，而 bindSession 原本只在
+            // buildInput 里才发生。换片时若先读 everReady，会把上一片的起播状态带过来，
+            // 让新片的首次缓冲被误判成重缓冲而白降一档。
+            bindEventSession();
+            boolean rebuffered = state == Player.STATE_BUFFERING && everReady;
+            if (state == Player.STATE_READY) everReady = true;
             playbackState = state;
+            // 已经起播过又退回缓冲，说明当前轨道的码率超出实际可用带宽。带宽估算可能仍然偏乐观，
+            // 因此把重缓冲本身也当作吞吐不足的证据，避免弱网锁在最高档反复重缓冲。
+            if (rebuffered) {
+                applyFault(
+                        ExoAutomaticVideoConstraintPolicy.Fault.THROUGHPUT,
+                        eventTime.currentPlaybackPositionMs,
+                        0,
+                        0,
+                        "rebuffer");
+                return;
+            }
             refresh("playback-state", eventTime.currentPlaybackPositionMs);
         }
 
@@ -1256,6 +1348,25 @@ public class ExoUtil {
                     0,
                     0,
                     videoCodecError == null ? "unknown" : videoCodecError.getClass().getSimpleName());
+        }
+
+        // 起播固定选约束内最高画质后原生 ABR 不再兜底吞吐，带宽撑不住当前轨道时解码器并无压力，
+        // 只会表现为持续重缓冲，掉帧与编解码错误都不会触发。这里按实测带宽独立降档，
+        // 否则弱网锁在最高档会一直重缓冲且无法恢复。
+        @Override
+        public void onBandwidthEstimate(EventTime eventTime, int totalLoadTimeMs, long totalBytesLoaded, long bitrateEstimate) {
+            // 只比对当前轨道自己申报的码率。轨道码率未知时不能退回 appliedLimit 的上限，
+            // 那是设备能力上限（4K 档可达 20Mbps），拿它比会让码率不高的正常片源也持续误降档；
+            // 这种情况交给重缓冲证据兜底。
+            int selectedBitrate = ExoPlaybackDiagnostics.trackConstraintBitrate(selectedFormat);
+            if (selectedBitrate <= 0) return;
+            if (!ExoAdaptiveVideoBitratePolicy.shouldDowngrade(selectedBitrate, bitrateEstimate)) return;
+            applyFault(
+                    ExoAutomaticVideoConstraintPolicy.Fault.THROUGHPUT,
+                    eventTime.currentPlaybackPositionMs,
+                    0,
+                    0,
+                    "bandwidth=" + bitrateEstimate);
         }
 
         @Override
@@ -1329,6 +1440,7 @@ public class ExoUtil {
             lastDecision = null;
             lastLoggedAction = null;
             selectedFormat = null;
+            everReady = false;
             adaptiveVideo = false;
             selectedVideoCandidates = 0;
             availableVideoFormats = 0;

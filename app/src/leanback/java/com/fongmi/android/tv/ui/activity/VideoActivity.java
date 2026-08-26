@@ -24,6 +24,7 @@ import androidx.leanback.widget.ArrayObjectAdapter;
 import androidx.leanback.widget.HorizontalGridView;
 import androidx.leanback.widget.ItemBridgeAdapter;
 import androidx.appcompat.widget.LinearLayoutCompat;
+import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.leanback.widget.OnChildViewHolderSelectedListener;
 import androidx.leanback.widget.VerticalGridView;
@@ -225,7 +226,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
-public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.Listener, TrackDialog.Listener, ArrayAdapter.OnClickListener, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, Clock.Callback, SubtitlePlaybackSession.Host, com.fongmi.android.tv.ui.host.TmdbDetailHost, ControlDialog.Listener, CastDialog.Listener {
+public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.Listener, TrackDialog.Listener, ArrayAdapter.OnClickListener, FlagAdapter.OnClickListener, EpisodeAdapter.OnClickListener, QualityAdapter.OnClickListener, QuickAdapter.OnClickListener, ParseAdapter.OnClickListener, Clock.Callback, SubtitlePlaybackSession.Host, com.fongmi.android.tv.ui.host.TmdbDetailHost, ControlDialog.Listener, CastDialog.Listener, com.fongmi.android.tv.ui.novel.NovelReaderHost {
     private static final long LYRICS_OFFSET_MIN_MS = -5000L;
     private static final long LYRICS_OFFSET_MAX_MS = 5000L;
     private static final long LYRICS_OFFSET_STEP_MS = 500L;
@@ -627,6 +628,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             SpiderDebug.log("video-flow", "dispatched to content handler key=%s", key);
             return;
         }
+        startSkippingDispatch(activity, key, id, name, pic, mark, collect, cast, tmdbItem, wallPic, content, launch);
+    }
+
+    /** 跳过 ContentDispatcher 的启动路径（供阅读器等 handler 判定内容不归自己管时回退）。 */
+    public static void startSkippingDispatch(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, com.fongmi.android.tv.bean.TmdbItem tmdbItem, String wallPic, String content, long launch) {
         if (tmdbItem == null && shouldOpenLegacyTmdbDetail(key, id, cast)) {
             TmdbDetailActivity.start(activity, key, id, name, pic, mark, null, Setting.getDetailOpenMode());
             return;
@@ -2199,6 +2205,16 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         long cost = System.currentTimeMillis() - detailStartTime;
         SpiderDebug.log("video-flow", "detail finish cost=%dms empty=%s msg=%s", cost, result.getList().isEmpty(), result.getMsg());
         recordDetailHealth(result, cost);
+        // 猫源设置项：点击的本意是开网页，detail 只是副产物。留在这儿会让内嵌页背后压着空白播放页，
+        // 也不能走 setEmpty——它在 intent 带 name 时会拿动作名去别的站搜索。
+        //
+        // 必须排在等播放服务之前：既然不打算播放，就没有等它的理由；等下去还会让判定所依赖的
+        // 时间关联窗口过期，重投时反而露出空白页。
+        if (com.fongmi.android.tv.api.CatAction.shouldYieldDetail(getKey(), detailStartTime, result)) {
+            SpiderDebug.log("video-flow", "detail yield to cat webview key=%s id=%s", getKey(), getId());
+            finish();
+            return;
+        }
         if (service() == null) {
             mPendingDetail = result;
             SpiderDebug.log("video-flow", "detail pending service key=%s id=%s", getKey(), getId());
@@ -2500,6 +2516,29 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private boolean isIntentTmdbPlayback() {
         ArrayList<String> values = getIntent().getStringArrayListExtra("tmdb_episode_titles");
         return values != null && !values.isEmpty();
+    }
+
+    @Override
+    protected Vod getReaderVod() {
+        // 把当前正在播放的 Vod（含章节列表）交给阅读器路由，支持小说/漫画章节导航
+        return mVod;
+    }
+
+    /**
+     * 小说/漫画阅读器切换章节时，由播放器执行解析任务（复用完整 playerContent 链路，
+     * 含 parse=1 二次解析）。解析结果经 NovelRouter.routeReaderEngine 回传给前台阅读页。
+     */
+    @Override
+    public void labPlayEpisode(String chapterUrl) {
+        if (chapterUrl == null || chapterUrl.isEmpty()) return;
+        Flag flag = getFlag();
+        if (flag == null || flag.getEpisodes() == null) return;
+        for (Episode ep : flag.getEpisodes()) {
+            if (chapterUrl.equals(ep.getUrl())) {
+                getPlayer(flag, ep);
+                return;
+            }
+        }
     }
 
     private void getPlayer(Flag flag, Episode episode) {
@@ -4774,6 +4813,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     protected void onPlayerRebuilt() {
         setPlayerKernel();
         setDecode();
+        refreshControlDialog();
+    }
+
+    // 设置弹窗自己不会跟着引擎重建刷新，回退期间开着弹窗就会一直显示旧的内核/解码。
+    private void refreshControlDialog() {
+        for (Fragment fragment : getSupportFragmentManager().getFragments()) {
+            if (fragment instanceof ControlDialog dialog) dialog.setPlayer();
+        }
     }
 
     @Override
@@ -4781,11 +4828,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         refreshLyrics();
         setTrackVisible();
         mClock.setCallback(this);
+        // 轨道要等新引擎 prepare 完才回来，重建那一刻按钮还是隐藏态，弹窗必须在这里再抄一次。
+        refreshControlDialog();
     }
 
     @Override
     protected void onTitlesChanged() {
         setTitleVisible();
+        refreshControlDialog();
     }
 
     @Override
@@ -6388,6 +6438,19 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     public void onConfigEvent(ConfigEvent event) {
         if (isRedirect() || !event.isVod() || mParseAdapter == null) return;
         mParseAdapter.addAll(VodConfig.get().getParses());
+    }
+
+    /**
+     * 猫源开了内嵌设置页：这次点击的本意就是开网页，本页立刻退场。
+     *
+     * <p>不能等 detail 结果再判定——那份结果可能被主线程堵住好几秒，这段时间里按返回就会
+     * 落回本页（空白播放页）。用请求时刻和本次 detail 起始时间比，确认是自己触发的才退。
+     */
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onCatWebEvent(com.fongmi.android.tv.event.CatWebEvent event) {
+        if (isRedirect() || !event.after(detailStartTime)) return;
+        SpiderDebug.log("video-flow", "detail yield to cat webview (event) key=%s id=%s", getKey(), getId());
+        finish();
     }
 
     private boolean applyPendingResumeSeek() {

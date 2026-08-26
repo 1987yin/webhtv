@@ -6,6 +6,8 @@ import android.provider.Settings;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.player.VideoAspectMode;
+import com.fongmi.android.tv.utils.BrightnessPolicy;
+import com.fongmi.android.tv.utils.Util;
 import com.github.catvod.utils.Prefers;
 
 public class PlayerSetting {
@@ -15,6 +17,12 @@ public class PlayerSetting {
     public static final int SYSTEM = 2;
     public static final int MPV = 3;
     public static final int NONE = -1;
+    /**
+     * 内核优先级顺序：EXO → IJK → MPV → 系统。下标是位次，元素是内核常量。
+     * 常量数值本身是持久化值（也是 select_player_kernel 等数组的下标），不能重排，
+     * 所以顺序只在这张表里表达：选择菜单按它排列，播放失败的内核回退也按它推进。
+     */
+    public static final int[] KERNEL_ORDER = {EXO, IJK, MPV, SYSTEM};
     public static final int RENDER_SURFACE = 0;
     public static final int RENDER_TEXTURE = 1;
     public static final int FFMPEG_MODE_NEXTLIB = 0;
@@ -57,6 +65,7 @@ public class PlayerSetting {
     private static final String KEY_FFMPEG_MODE = "ffmpeg_mode";
     private static final String KEY_CUSTOM_ASPECT_WIDTH = "custom_aspect_width";
     private static final String KEY_CUSTOM_ASPECT_HEIGHT = "custom_aspect_height";
+    private static final String KEY_BRIGHTNESS_MIGRATED = "player_brightness_migrated";
     private static final String KEY_DISPLAY_TIME = "display_time";
     private static final String KEY_DISPLAY_TRAFFIC = "display_traffic";
     private static final String KEY_DISPLAY_SIZE = "display_size";
@@ -70,6 +79,7 @@ public class PlayerSetting {
     private static final String KEY_OSD_TRAFFIC = "player_osd_traffic";
     private static final String KEY_OSD_MINI = "player_osd_mini";
     private static boolean legacyOsdMigrated;
+    private static boolean legacyBrightnessMigrated;
 
     public static int getPlayer() {
         int player = Prefers.getInt("player", EXO);
@@ -166,13 +176,61 @@ public class PlayerSetting {
         return true;
     }
 
+    public static int kernelCount() {
+        return KERNEL_ORDER.length;
+    }
+
+    /**
+     * 以内核常量为下标的数组该开多大（如回退已试标记表）。
+     * 由顺序表推导而非写死某个常量，新增内核时不会漏掉长度、把下标撑越界。
+     */
+    public static int kernelIndexSize() {
+        int max = 0;
+        for (int kernel : KERNEL_ORDER) if (kernel > max) max = kernel;
+        return max + 1;
+    }
+
+    /** 内核在优先级顺序里的位次，用于对话框选中项与排序展示。 */
+    public static int kernelRank(int player) {
+        int target = sanitizePlayer(player);
+        for (int i = 0; i < KERNEL_ORDER.length; i++) if (KERNEL_ORDER[i] == target) return i;
+        return 0;
+    }
+
+    /** 位次还原成内核常量，越界时退回 EXO。 */
+    public static int kernelAt(int rank) {
+        return rank >= 0 && rank < KERNEL_ORDER.length ? KERNEL_ORDER[rank] : EXO;
+    }
+
+    /** 按优先级顺序把标签数组重排成菜单顺序，入参下标是内核常量。 */
+    public static String[] orderKernels(String[] labels) {
+        if (labels == null) return new String[0];
+        String[] ordered = new String[KERNEL_ORDER.length];
+        for (int i = 0; i < KERNEL_ORDER.length; i++) {
+            int kernel = KERNEL_ORDER[i];
+            ordered[i] = kernel < labels.length ? labels[kernel] : "";
+        }
+        return ordered;
+    }
+
+    /** 手动轮换：沿优先级顺序取下一个，走到末尾回到开头。 */
     public static int nextPlayer(int player) {
-        return switch (sanitizePlayer(player)) {
-            case EXO -> IJK;
-            case IJK -> SYSTEM;
-            case SYSTEM -> MPV;
-            default -> EXO;
-        };
+        return kernelAt((kernelRank(player) + 1) % KERNEL_ORDER.length);
+    }
+
+    /**
+     * 回退用：从优先级顺序开头扫描，跳过已试过的内核（当前内核由调用方先标记）。
+     * 所以无论从哪个内核失败，回退都按 EXO → IJK → MPV → 系统 推进，只是跳过自身。
+     */
+    public static int firstUntriedPlayer(boolean[] tried) {
+        if (tried == null) return kernelAt(0);
+        for (int kernel : KERNEL_ORDER) {
+            // 越界的内核记不进 tried，返回它会让调用方标记不生效而反复拿到同一个，
+            // 因此按「已试过」跳过：宁可少一次回退，也不能让回退循环停不下来。
+            if (kernel >= tried.length || tried[kernel]) continue;
+            return kernel;
+        }
+        return NONE;
     }
 
     public static int getRender() {
@@ -498,11 +556,30 @@ public class PlayerSetting {
     }
 
     public static float getBrightness() {
+        migrateLegacyBrightness();
         return Math.min(Math.max(Prefers.getFloat("player_brightness", -1), -1), 1);
     }
 
     public static void putBrightness(float brightness) {
+        legacyBrightnessMigrated = true;
+        Prefers.put(KEY_BRIGHTNESS_MIGRATED, true);
         Prefers.put("player_brightness", Math.min(Math.max(brightness, 0), 1));
+    }
+
+    /**
+     * 旧版 Util.getBrightness() 把 Settings.System.SCREEN_BRIGHTNESS 写死除以 255，
+     * 在 1023/2047/4095 量程机型上算出的基准值远大于 1，手势结果被永久夹到 1.0 并持久化，
+     * 表现为「一进播放页屏幕自动变到最亮且调不下来」。这里一次性丢弃这个污染值，
+     * 让亮度回到跟随系统，用户重新调节即可。
+     */
+    private static void migrateLegacyBrightness() {
+        if (legacyBrightnessMigrated) return;
+        legacyBrightnessMigrated = true;
+        if (Prefers.getBoolean(KEY_BRIGHTNESS_MIGRATED)) return;
+        Prefers.put(KEY_BRIGHTNESS_MIGRATED, true);
+        float saved = Prefers.getFloat("player_brightness", -1);
+        // 只丢弃大量程机型上的 1.0：255 量程机型不会产生这个 bug，那里的 1.0 是用户主动设的最亮
+        if (BrightnessPolicy.isLegacyPollutedValue(saved, Util.getBrightnessScale())) Prefers.remove("player_brightness");
     }
 
     public static boolean isCaption() {
