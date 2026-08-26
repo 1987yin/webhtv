@@ -152,6 +152,7 @@ import com.fongmi.android.tv.ui.dialog.CodecCapabilityDialog;
 import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
 import com.fongmi.android.tv.ui.dialog.DisplayDialog;
 import com.fongmi.android.tv.ui.dialog.MultiThreadProxyDialog;
+import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleManualSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
@@ -1169,7 +1170,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         setupInlinePlayerSpacerSync();
         setupInlineControlFocus();
         setupInlineFocusNavigation();
-        binding.playerPlaybackAction.setOnClickListener(guarded(this::toggleInlinePlayback));
         binding.playerAdFeedback.setOnClickListener(guarded(this::onInlineAdFeedback));
         binding.playerMultiThreadProxy.setOnClickListener(guarded(this::showInlineMultiThreadProxy));
         binding.playerSearch.setOnClickListener(view -> openInlineSourceSearch());
@@ -1277,15 +1277,14 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerPanelSpacer.setFocusableInTouchMode(false);
         View timeBar = inlineSeek().findViewById(R.id.timeBar);
         if (timeBar != null) {
-            timeBar.setNextFocusUpId(R.id.playerPlaybackAction);
+            timeBar.setNextFocusUpId(R.id.playerNext);
             timeBar.setNextFocusRightId(R.id.timeBar);
         }
-        binding.playerPlaybackAction.setNextFocusDownId(R.id.timeBar);
+        binding.playerNext.setNextFocusDownId(R.id.timeBar);
         binding.playerFullscreenAction.setNextFocusDownId(R.id.timeBar);
         // 手动构建横向焦点链（按照布局顺序）
         setupHorizontalFocusChain();
         // 为所有控制栏按钮设置 nextFocusUp 指向自己，防止向上键导致焦点丢失
-        binding.playerPlaybackAction.setNextFocusUpId(R.id.playerPlaybackAction);
         binding.playerFullscreenAction.setNextFocusUpId(R.id.playerFullscreenAction);
         binding.playerNext.setNextFocusUpId(R.id.playerNext);
         binding.playerPrev.setNextFocusUpId(R.id.playerPrev);
@@ -1320,13 +1319,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void setupHorizontalFocusChain() {
-        // 按钮顺序：Playback → Next → Prev → Episodes → Refresh → ChangeSource → Fullscreen →
+        // 按钮顺序：Next → Prev → Episodes → Refresh → ChangeSource → Fullscreen →
         // External → Decode → PlayParams → Speed → Scale → Quality → Lut → Parse →
         // TextTrack → AudioTrack → VideoTrack → Opening → Ending → Danmaku → AdFeedback →
         // Chapter → Display → Repeat
 
         View[] buttons = {
-            binding.playerPlaybackAction, binding.playerNext, binding.playerPrev, binding.playerEpisodes,
+            binding.playerNext, binding.playerPrev, binding.playerEpisodes,
             binding.playerRefresh, binding.playerChangeSource, binding.playerSearch, binding.playerFullscreenAction,
             binding.playerExternal, binding.playerDecode, binding.playerPlayParams,
             binding.playerMultiThreadProxy, binding.playerCodecCapability,
@@ -1362,7 +1361,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void setupInlineControlFocus() {
-        setupInlineControl(binding.playerPlaybackAction);
         setupInlineControl(binding.playerCast);
         setupInlineControl(binding.playerInfo);
         setupInlineControl(binding.playerFullscreenAction);
@@ -1398,7 +1396,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void setupInlineControlColors() {
         // 设置所有控制按钮的默认文字颜色为白色
         int white = 0xFFFFFFFF;
-        binding.playerPlaybackAction.setTextColor(white);
         binding.playerNext.setTextColor(white);
         binding.playerPrev.setTextColor(white);
         binding.playerEpisodes.setTextColor(white);
@@ -7061,7 +7058,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         // TV模式：按顺序查找第一个可见且启用的按钮
         if (inlineControlFocus != null && isVisibleInHierarchy(inlineControlFocus) && inlineControlFocus.isEnabled()) return inlineControlFocus;
         View[] candidates = {
-            binding.playerPlaybackAction, binding.playerNext, binding.playerPrev, binding.playerEpisodes,
+            binding.playerNext, binding.playerPrev, binding.playerEpisodes,
             binding.playerRefresh, binding.playerChangeSource, binding.playerFullscreenAction
         };
         for (View candidate : candidates) {
@@ -7105,7 +7102,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             return;
         }
         boolean hasPlayer = service() != null && !player().isEmpty();
-        binding.playerPlaybackAction.setText(playing ? R.string.pause : R.string.play);
         setInlineSpeedText(service() == null || player().isEmpty() ? getString(R.string.play_speed) : player().getSpeedText());
         setInlineDecodeText(inlineDecodeText(hasPlayer));
         binding.playerExternal.setText(service() == null ? getString(R.string.play_exo) : player().getPlayerText());
@@ -7117,7 +7113,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         int episodeCount = selectedFlag == null || selectedFlag.getEpisodes() == null ? 0 : selectedFlag.getEpisodes().size();
         boolean hasTitle = hasPlayer && player().haveTitle();
         boolean inlineAdFeedback = hasPlayer && isInlineAdFeedbackEnabled();
-        setButtonEnabled(binding.playerPlaybackAction, true);
         // 上集/下集按钮始终可用，点击时如果没有相邻集数会显示提示（与影视原生模式保持一致）
         setButtonEnabled(binding.playerPrev, hasPlayer && episodeCount > 0);
         setButtonEnabled(binding.playerNext, hasPlayer && episodeCount > 0);
@@ -7185,7 +7180,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerDanmaku.setTextColor(danmakuShow ? yellow : white);
 
         // 其他所有按钮：白色
-        binding.playerPlaybackAction.setTextColor(white);
         binding.playerNext.setTextColor(white);
         binding.playerPrev.setTextColor(white);
         binding.playerEpisodes.setTextColor(white);
@@ -8105,7 +8099,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private boolean showInlinePlayerChoice() {
         if (service() == null || player().isEmpty()) return false;
-        String[] kernels = ResUtil.getStringArray(R.array.select_player_kernel);
+        String[] kernels = PlayerKernelDialog.kernels(getResources());
         String[] items = Arrays.copyOf(kernels, kernels.length + 1);
         items[kernels.length] = getString(R.string.player_kernel_external);
         new MaterialAlertDialogBuilder(this).setItems(items, (dialog, which) -> onInlinePlayerChoice(kernels, which)).show();
@@ -8113,7 +8107,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void onInlinePlayerChoice(String[] kernels, int which) {
-        if (which < kernels.length) switchInlinePlayer(which);
+        if (which < kernels.length) switchInlinePlayer(PlayerSetting.kernelAt(which));
         else openInlineExternal();
     }
 
