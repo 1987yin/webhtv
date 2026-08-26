@@ -45,7 +45,7 @@
       transition: background .3s, color .3s;
     }
 
-    /* ===== 主题变量：默认（浅色） ===== */
+    /* ===== 主题变量 ===== */
     :root {
       --app-bg: #ffffff;
       --top-bg-start: #000000;
@@ -65,7 +65,7 @@
       --cat-text: rgba(255,255,255,.9);
       --cat-active-bg: rgba(0,0,0,.25);
       --cat-active-text: #ffffff;
-      --sheet-bg: #fbfaf9;
+      --sheet-bg: rgba(255,255,255,0.5);
       --sheet-text: #222;
       --sheet-muted: #8a847d;
       --btn-primary-bg: #222;
@@ -93,7 +93,7 @@
       max-width:480px; margin:0 auto; min-height:100vh;
       background: var(--app-bg);
       position:relative; box-shadow:0 0 24px rgba(0,0,0,.08); overflow:hidden;
-      padding-top: max(20px, env(safe-area-inset-top, 20px));
+      padding-top: max(32px, calc(env(safe-area-inset-top, 20px) + 12px));
       transition: background .3s, color .3s;
     }
     .top-bg {
@@ -289,9 +289,11 @@
     .sheet {
       position:fixed; left:50%; transform:translate(-50%,100%); bottom:0;
       width:100%; max-width:480px; max-height:82vh; overflow-y:auto;
-      background: var(--sheet-bg); border-radius:18px 18px 0 0; z-index:41;
+      background: var(--sheet-bg); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+      border-radius:18px 18px 0 0; z-index:41;
       transition:transform .28s ease, background .3s; padding:18px 18px 28px;
       color: var(--sheet-text);
+      border: 1px solid rgba(255,255,255,0.3);
     }
     .sheet.open { transform:translate(-50%,0); }
     .sheet-bar { width:36px; height:4px; border-radius:2px; background: var(--text-muted); margin:0 auto 14px; }
@@ -352,14 +354,14 @@
     }
     .toast.show { opacity:1; }
 
-    /* ===== 悬浮筛选 ===== */
+    /* ===== 悬浮筛选按钮 ===== */
     .filter-fab {
       position:fixed; bottom:32px; right:20px; z-index:50;
       width:56px; height:56px; border-radius:50%;
-      background: var(--fab-bg);
+      background: rgba(255, 255, 255, 0.5);
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
-      border: 1px solid var(--fab-border);
+      border: 1px solid rgba(255, 255, 255, 0.3);
       cursor:pointer;
       display:flex; align-items:center; justify-content:center;
       transition:transform .25s ease, background .25s, border-color .25s;
@@ -377,37 +379,83 @@
       transition: stroke .3s;
     }
 
+    /* ===== 筛选面板（修复：移除嵌套 backdrop-filter 与合成提示属性，保证文字正常渲染） ===== */
     .filter-panel {
       position:fixed; bottom:100px; right:20px; z-index:51;
-      width:calc(100% - 40px); max-width:320px;
-      background: var(--sheet-bg); backdrop-filter:blur(12px);
-      border-radius:16px; box-shadow:0 8px 32px rgba(0,0,0,.2);
+      width:calc(100% - 40px); max-width:340px;
+      background: rgba(255, 255, 255, 0.5);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius:16px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      box-shadow:0 8px 32px rgba(0,0,0,.15);
       padding:16px 18px;
       display:none;
-      max-height:70vh; overflow-y:auto;
-      color: var(--sheet-text);
+      max-height:65vh;
+      overflow-y:auto;
+      color: #1a1a1a;
       transition: background .3s, color .3s;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
     }
     .filter-panel.open { display:block; }
     .filter-panel .filter-row {
-      display:flex; flex-wrap:wrap; gap:6px; align-items:center;
-      padding:6px 0; border-bottom:1px solid var(--setting-border);
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      align-items:center;
+      padding:6px 0;
+      border-bottom:1px solid rgba(0,0,0,.08);
     }
     .filter-panel .filter-row:last-child { border-bottom:none; }
     .filter-panel .filter-label {
-      flex:0 0 100%; font-size:13px; font-weight:600; color: var(--sheet-text);
+      flex:0 0 100%;
+      font-size:13px;
+      font-weight:600;
+      color: #1a1a1a;
       margin-bottom:2px;
+      text-shadow: 0 1px 2px rgba(255,255,255,0.3);
     }
     .filter-panel .filter-chip {
-      padding:4px 12px; border-radius:999px; border:1px solid var(--filter-chip-border);
-      background: var(--filter-chip-bg); font-size:12px; color: var(--sheet-text); cursor:pointer;
-      transition:all .2s; font-weight:500;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      min-height: 30px;
+      padding: 4px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(0,0,0,.12);
+      background: rgba(255,255,255,.3);
+      font-size: 12px;
+      font-weight: 500;
+      color: #1a1a1a !important;
+      cursor: pointer;
+      transition: all .2s;
+      flex-shrink: 0;
+      white-space: nowrap;
+      line-height: 1.4;
+      text-shadow: 0 1px 2px rgba(255,255,255,0.2);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      user-select: none;
+    }
+    .filter-panel .filter-chip span {
+      display: inline-block;
+      vertical-align: middle;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #1a1a1a !important;
     }
     .filter-panel .filter-chip:active { transform:scale(.94); }
     .filter-panel .filter-chip.active {
       background: var(--filter-chip-active-bg);
-      color: var(--filter-chip-active-text);
+      color: var(--filter-chip-active-text) !important;
       border-color: var(--filter-chip-active-bg);
+      text-shadow: none;
+    }
+    .filter-panel .filter-chip.active span {
+      color: var(--filter-chip-active-text) !important;
     }
 
     @media (max-width:420px) {
@@ -430,43 +478,169 @@
       fill:none; stroke-linecap:round; stroke-linejoin:round;
     }
 
-    /* ===== 调色面板（自定义渐变） ===== */
+    /* ===== 调色面板（透明80%背景，全宽延伸） ===== */
     .palette-mask {
-      position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:100;
-      opacity:0; pointer-events:none; transition:opacity .25s;
-      display:flex; align-items:center; justify-content:center;
+      position:fixed; inset:0;
+      background: rgba(0,0,0,0.15);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      z-index:100;
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .3s;
+      display:flex;
+      align-items:center;
+      justify-content:center;
     }
     .palette-mask.open { opacity:1; pointer-events:auto; }
     .palette-panel {
-      background: #fff; border-radius:20px; padding:24px 28px 28px;
-      width: calc(100% - 40px); max-width:400px;
-      box-shadow:0 12px 48px rgba(0,0,0,.3);
-      transform:scale(.95); transition:transform .25s ease;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius:20px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      width: calc(100% - 40px);
+      max-width:400px;
+      max-height:75vh;
+      display:flex;
+      flex-direction:column;
+      box-shadow:0 12px 48px rgba(0,0,0,.15);
+      transform:scale(.95);
+      transition:transform .25s ease;
       color:#222;
+      overflow:hidden;
+      padding:0; /* 无内边距，子元素全宽 */
     }
     .palette-mask.open .palette-panel { transform:scale(1); }
-    .palette-panel h3 { margin-bottom:16px; font-size:18px; font-weight:700; text-align:center; }
-    .palette-row { display:flex; align-items:center; gap:14px; margin-bottom:14px; }
-    .palette-row label { font-size:14px; font-weight:600; min-width:50px; }
-    .palette-row input[type="color"] {
-      width:48px; height:48px; border:none; padding:0; border-radius:8px;
-      cursor:pointer; background:none;
+
+    /* 标题区域：透明80% + 全宽 + 粘性定位 */
+    .palette-header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      width: 100%;
+      padding: 16px 20px;
+      /* 透明80%（alpha=0.2）；模糊只保留在遮罩层，避免嵌套 backdrop-filter 的合成缺陷 */
+      background: rgba(255, 255, 255, 0.2);
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+      text-align: center;
+      flex-shrink: 0;
+      box-sizing: border-box;
     }
-    .palette-row input[type="color"]::-webkit-color-swatch-wrapper { padding:0; }
-    .palette-row input[type="color"]::-webkit-color-swatch { border:none; border-radius:8px; }
-    .palette-actions {
-      display:flex; gap:10px; flex-wrap:wrap; justify-content:center;
-      margin-top:10px;
+    .palette-header h3 {
+      font-size:18px;
+      font-weight:700;
+      margin:0;
+      color: #222;
     }
-    .palette-actions button {
-      padding:8px 16px; border-radius:999px; border:none;
-      font-weight:600; font-size:14px; cursor:pointer;
-      background:#f0f0f0; color:#222; transition:background .2s;
+
+    /* 内容区域 */
+    .palette-body {
+      padding:12px 20px 8px;
+      overflow-y:auto;
+      flex:1;
     }
-    .palette-actions button.primary {
-      background:#222; color:#fff;
+    .palette-row {
+      display:flex;
+      align-items:center;
+      gap:12px;
+      margin-bottom:12px;
     }
-    .palette-actions button.primary:hover { background:#444; }
+    .palette-row label {
+      font-size:14px;
+      font-weight:600;
+      min-width:44px;
+      flex-shrink:0;
+      color: #222;
+    }
+    .palette-row .color-picker-wrap {
+      flex:1;
+      min-width:0;
+    }
+    .color-grid {
+      display:flex;
+      flex-wrap:wrap;
+      gap:5px;
+      margin-bottom:6px;
+    }
+    .color-swatch {
+      width:28px;
+      height:28px;
+      border-radius:6px;
+      border:2px solid transparent;
+      cursor:pointer;
+      transition:all .2s;
+      flex-shrink:0;
+    }
+    .color-swatch:hover { transform:scale(1.1); border-color:rgba(0,0,0,.2); }
+    .color-swatch.active { border-color:#222; box-shadow:0 0 0 2px #fff, 0 0 0 4px #222; }
+    .color-hex-input {
+      display:flex;
+      align-items:center;
+      gap:6px;
+    }
+    .color-hex-input input[type="text"] {
+      flex:1;
+      padding:4px 8px;
+      border-radius:6px;
+      border:1px solid rgba(0,0,0,.12);
+      background:rgba(255,255,255,.3);
+      font-size:13px;
+      font-weight:500;
+      color:#222;
+      outline:none;
+      font-family:monospace;
+      text-transform:uppercase;
+      min-width:0;
+      width:100%;
+    }
+    .color-hex-input input[type="text"]:focus {
+      border-color:#222;
+      background:rgba(255,255,255,.6);
+    }
+    .color-hex-input .color-preview {
+      width:30px;
+      height:30px;
+      border-radius:6px;
+      border:1px solid rgba(0,0,0,.08);
+      flex-shrink:0;
+    }
+
+    /* 底部按钮区域：透明80% + 全宽 + 粘性定位 */
+    .palette-footer {
+      position: sticky;
+      bottom: 0;
+      z-index: 10;
+      width: 100%;
+      padding: 10px 20px 16px;
+      /* 透明80%（alpha=0.2）；模糊只保留在遮罩层，避免嵌套 backdrop-filter 的合成缺陷 */
+      background: rgba(255, 255, 255, 0.2);
+      border-top: 1px solid rgba(255,255,255,0.2);
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      flex-shrink: 0;
+      align-items: center;
+      box-sizing: border-box;
+    }
+    .palette-footer button {
+      padding:6px 16px;
+      border-radius:999px;
+      border:1px solid rgba(0,0,0,.08);
+      font-weight:600;
+      font-size:14px;
+      cursor:pointer;
+      background:rgba(255,255,255,.4);
+      color:#222;
+      transition:background .2s;
+      line-height:1.4;
+    }
+    .palette-footer button.primary {
+      background:rgba(30,30,30,.7);
+      color:#fff;
+      border-color:rgba(255,255,255,.1);
+    }
+    .palette-footer button.primary:hover { background:rgba(30,30,30,.85); }
+    .palette-footer button:hover { background:rgba(255,255,255,.6); }
   </style>
 </head>
 <body>
@@ -546,19 +720,37 @@
   <div id="filterPanelContent"></div>
 </div>
 
-<!-- ===== 调色盘面板（自定义渐变） ===== -->
+<!-- ===== 调色盘面板（自定义渐变，强制透明背景） ===== -->
 <div class="palette-mask" id="paletteMask">
   <div class="palette-panel">
-    <h3>🎨 自定义顶部渐变</h3>
-    <div class="palette-row">
-      <label>起始色</label>
-      <input type="color" id="startColorPicker" value="#703020">
+    <div class="palette-header" style="background: rgba(255,255,255,0.2); width:100%;">
+      <h3>🎨 自定义顶部渐变</h3>
     </div>
-    <div class="palette-row">
-      <label>结束色</label>
-      <input type="color" id="endColorPicker" value="#ffffff">
+    <div class="palette-body">
+      <!-- 起始色 -->
+      <div class="palette-row">
+        <label>起始</label>
+        <div class="color-picker-wrap">
+          <div class="color-grid" id="startColorGrid"></div>
+          <div class="color-hex-input">
+            <input type="text" id="startColorHex" maxlength="7" placeholder="#703020" value="#703020">
+            <span class="color-preview" id="startColorPreview" style="background:#703020"></span>
+          </div>
+        </div>
+      </div>
+      <!-- 结束色 -->
+      <div class="palette-row">
+        <label>结束</label>
+        <div class="color-picker-wrap">
+          <div class="color-grid" id="endColorGrid"></div>
+          <div class="color-hex-input">
+            <input type="text" id="endColorHex" maxlength="7" placeholder="#ffffff" value="#ffffff">
+            <span class="color-preview" id="endColorPreview" style="background:#ffffff"></span>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="palette-actions">
+    <div class="palette-footer" style="background: rgba(255,255,255,0.2); width:100%;">
       <button class="primary" id="applyGradientBtn">应用</button>
       <button class="preset" id="presetDefaultBtn">默认</button>
     </div>
@@ -602,84 +794,124 @@
 <script src="eclipse-category-diagnostics.js"></script>
 <script src="eclipse-category-state.js"></script>
 
-<!-- ===== 主脚本（含调色盘逻辑，修复背景拼接） ===== -->
+<!-- ===== 主脚本（功能不变） ===== -->
 <script>
 (function (w, d) {
   'use strict';
 
   // ===== DOM 引用 =====
   var appRoot = d.getElementById('appRoot');
-  var topBg = d.querySelector('.top-bg');
   var paletteMask = d.getElementById('paletteMask');
-  var startPicker = d.getElementById('startColorPicker');
-  var endPicker = d.getElementById('endColorPicker');
+  var startColorGrid = d.getElementById('startColorGrid');
+  var endColorGrid = d.getElementById('endColorGrid');
+  var startHex = d.getElementById('startColorHex');
+  var endHex = d.getElementById('endColorHex');
+  var startPreview = d.getElementById('startColorPreview');
+  var endPreview = d.getElementById('endColorPreview');
   var applyBtn = d.getElementById('applyGradientBtn');
   var presetDefault = d.getElementById('presetDefaultBtn');
 
-  // ===== 从 localStorage 读取自定义颜色 =====
-  function loadCustomColors() {
-    try {
-      var data = localStorage.getItem('eclipse_custom_gradient');
-      if (data) {
-        var parsed = JSON.parse(data);
-        return { start: parsed.start || '#703020', end: parsed.end || '#ffffff' };
-      }
-    } catch(e) {}
+  // ===== 预定义颜色 =====
+  var presetColors = [
+    '#000000','#1a1a1a','#333333','#4d4d4d','#666666','#808080','#999999','#b3b3b3','#cccccc','#e6e6e6','#ffffff',
+    '#ff4d4d','#ff6b6b','#ff8a8a','#ffaaaa','#ffcaca','#ffebeb',
+    '#ff944d','#ffaa6b','#ffc08a','#ffd6aa','#ffebca','#fff5eb',
+    '#ffd24d','#ffdb6b','#ffe48a','#ffedaa','#fff5ca','#fffceb',
+    '#a8e64d','#bdee6b','#d2f58a','#e7fcaa','#f2ffca','#faffeb',
+    '#4de6a8','#6beebd','#8af5d2','#aafce7','#cafff2','#ebfffa',
+    '#4d9eff','#6bb3ff','#8ac8ff','#aaddff','#caeaff','#ebf5ff',
+    '#b34dff','#c86bff','#dd8aff','#f2aaff','#ffcaff','#ffebff',
+    '#ff4da6','#ff6bb8','#ff8aca','#ffaadd','#ffcaea','#ffebf5',
+    '#8a6e4d','#a8886b','#c6a28a','#e4bcaa','#f2d6ca','#f9f0eb',
+  ];
+
+  var currentStart = '#703020';
+  var currentEnd = '#ffffff';
+
+  function buildColorGrid(container, currentColor, onChange) {
+    container.innerHTML = '';
+    presetColors.forEach(function(color) {
+      var swatch = d.createElement('div');
+      swatch.className = 'color-swatch' + (color === currentColor ? ' active' : '');
+      swatch.style.background = color;
+      swatch.dataset.color = color;
+      swatch.addEventListener('click', function() {
+        container.querySelectorAll('.color-swatch').forEach(function(el) {
+          el.classList.remove('active');
+        });
+        swatch.classList.add('active');
+        onChange(color);
+      });
+      container.appendChild(swatch);
+    });
+  }
+
+  function updateStartColor(color) {
+    currentStart = color;
+    startHex.value = color.toUpperCase();
+    startPreview.style.background = color;
+    startColorGrid.querySelectorAll('.color-swatch').forEach(function(el) {
+      el.classList.toggle('active', el.dataset.color === color);
+    });
+  }
+
+  function updateEndColor(color) {
+    currentEnd = color;
+    endHex.value = color.toUpperCase();
+    endPreview.style.background = color;
+    endColorGrid.querySelectorAll('.color-swatch').forEach(function(el) {
+      el.classList.toggle('active', el.dataset.color === color);
+    });
+  }
+
+  function hexFromInput(input) {
+    var val = input.value.trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(val)) return val;
+    if (/^#[0-9a-fA-F]{3}$/.test(val)) {
+      return '#' + val[1]+val[1]+val[2]+val[2]+val[3]+val[3];
+    }
     return null;
   }
 
-  function saveCustomColors(start, end) {
-    try {
-      localStorage.setItem('eclipse_custom_gradient', JSON.stringify({ start: start, end: end }));
-    } catch(e) {}
-  }
-
-  // ===== 应用渐变颜色到 CSS 变量（同时设置背景色） =====
   function applyGradient(start, end, save) {
     if (save !== false) save = true;
-    // 设置渐变
     appRoot.style.setProperty('--top-bg-start', start);
     appRoot.style.setProperty('--top-bg-end', end);
-    // 关键：将 app 背景色设置为结束色，消除拼接
     appRoot.style.setProperty('--app-bg', end);
-    // 同时更新 root 的变量，使其他依赖背景色的元素也跟随
     document.documentElement.style.setProperty('--app-bg', end);
-
     if (save) {
-      saveCustomColors(start, end);
-      // 移除任何可能残留的预设主题标识
+      try {
+        localStorage.setItem('eclipse_custom_gradient', JSON.stringify({ start: start, end: end }));
+      } catch(e) {}
       appRoot.removeAttribute('data-theme');
     }
-    // 同步 picker 值
-    startPicker.value = start;
-    endPicker.value = end;
+    startHex.value = start.toUpperCase();
+    endHex.value = end.toUpperCase();
+    startPreview.style.background = start;
+    endPreview.style.background = end;
+    currentStart = start;
+    currentEnd = end;
+    startColorGrid.querySelectorAll('.color-swatch').forEach(function(el) {
+      el.classList.toggle('active', el.dataset.color === start);
+    });
+    endColorGrid.querySelectorAll('.color-swatch').forEach(function(el) {
+      el.classList.toggle('active', el.dataset.color === end);
+    });
   }
 
-  // ===== 应用预设主题（仅默认） =====
   function applyDefaultPreset() {
     appRoot.removeAttribute('data-theme');
-    // 恢复默认：黑到白渐变，背景白色
-    appRoot.style.setProperty('--top-bg-start', '#000000');
-    appRoot.style.setProperty('--top-bg-end', '#ffffff');
-    appRoot.style.setProperty('--app-bg', '#ffffff');
-    document.documentElement.style.setProperty('--app-bg', '#ffffff');
-    // 保存自定义记录（为白色）
-    saveCustomColors('#000000', '#ffffff');
-    // 同步 picker
-    startPicker.value = '#000000';
-    endPicker.value = '#ffffff';
+    applyGradient('#000000', '#ffffff', true);
     closePalette();
     toast('已恢复默认主题');
   }
 
-  // ===== 打开 / 关闭调色面板 =====
   function openPalette() {
-    // 读取当前使用的颜色
     var computed = getComputedStyle(appRoot);
     var start = computed.getPropertyValue('--top-bg-start').trim() || '#703020';
     var end = computed.getPropertyValue('--top-bg-end').trim() || '#ffffff';
-    startPicker.value = start;
-    endPicker.value = end;
+    updateStartColor(start);
+    updateEndColor(end);
     paletteMask.classList.add('open');
   }
 
@@ -687,47 +919,63 @@
     paletteMask.classList.remove('open');
   }
 
-  // ===== 事件绑定 =====
   function initPalette() {
-    // 点击调色盘按钮打开面板
+    buildColorGrid(startColorGrid, currentStart, updateStartColor);
+    buildColorGrid(endColorGrid, currentEnd, updateEndColor);
+
+    startHex.addEventListener('input', function() {
+      var color = hexFromInput(this);
+      if (color) updateStartColor(color);
+    });
+    endHex.addEventListener('input', function() {
+      var color = hexFromInput(this);
+      if (color) updateEndColor(color);
+    });
+
     d.getElementById('themeToggle').addEventListener('click', function(e) {
       e.stopPropagation();
       openPalette();
     });
 
-    // 点击遮罩关闭
     paletteMask.addEventListener('click', function(e) {
       if (e.target === paletteMask) closePalette();
     });
 
-    // 应用自定义颜色
     applyBtn.addEventListener('click', function() {
-      var start = startPicker.value;
-      var end = endPicker.value;
-      applyGradient(start, end, true);
+      applyGradient(currentStart, currentEnd, true);
       closePalette();
       toast('渐变已更新');
     });
 
-    // 预设：默认
     presetDefault.addEventListener('click', function() {
       applyDefaultPreset();
     });
   }
 
-  // ===== 恢复自定义颜色（如果存在） =====
   function restoreCustomGradient() {
-    var custom = loadCustomColors();
-    if (custom) {
-      applyGradient(custom.start, custom.end, false);
-      appRoot.removeAttribute('data-theme');
-    } else {
-      // 无自定义，使用默认
-      applyDefaultPreset();
-    }
+    try {
+      var data = localStorage.getItem('eclipse_custom_gradient');
+      if (data) {
+        var parsed = JSON.parse(data);
+        applyGradient(parsed.start || '#703020', parsed.end || '#ffffff', false);
+        appRoot.removeAttribute('data-theme');
+        return;
+      }
+    } catch(e) {}
+    applyGradient('#000000', '#ffffff', true);
+    appRoot.removeAttribute('data-theme');
   }
 
-  // ===== 原有状态 =====
+  function toast(msg) {
+    var el = d.getElementById('toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 2300);
+  }
+
+  // ===== 状态和演示数据 =====
   var state = {
     home: null,
     source: { key: '', name: '浏览器预览' },
@@ -776,7 +1024,6 @@
   function listen(el, name, fn) { if (el) el.addEventListener(name, fn, false); }
   function focusId(prefix, value) { return prefix + '-' + text(value).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48); }
 
-  // ===== 生成海报图片（SVG data URI） =====
   function posterData(title, index) {
     var colors = [
       ['#10172d','#6f5bff','#49e7ff'], ['#161126','#d84cff','#5a7bff'],
@@ -851,15 +1098,6 @@
       items: all,
       capabilities:{ category:true, filters:true, recommend:true }
     };
-  }
-
-  function toast(msg) {
-    var el = byId('toast');
-    if (!el) return;
-    el.textContent = text(msg);
-    el.classList.add('show');
-    w.clearTimeout(state.toastTimer);
-    state.toastTimer = w.setTimeout(function(){ el.classList.remove('show'); }, 2300);
   }
 
   function status(message, busy) {
@@ -1079,7 +1317,7 @@
     if (!append) scheduleAutoPageCheck();
   }
 
-  // ===== 筛选器渲染 =====
+  // ===== 筛选器渲染（强制文字用 span + 颜色） =====
   function renderFilters() {
     var host = byId('filters');
     var panelHost = byId('filterPanelContent');
@@ -1118,9 +1356,18 @@
         var button = d.createElement('button');
         button.type = 'button';
         button.className = 'filter-chip' + (selected ? ' active' : '');
-        button.textContent = choice.name || value || '全部';
+        // 强制用 span 包裹文字，并设置颜色
+        var span = d.createElement('span');
+        span.textContent = choice.name || value || '全部';
+        span.style.color = '#1a1a1a';
+        span.style.display = 'inline-block';
+        span.style.verticalAlign = 'middle';
+        button.appendChild(span);
         button.setAttribute('data-filter', filter.key);
         button.setAttribute('data-filter-value', value);
+        if (selected) {
+          span.style.color = '#ffffff';
+        }
         listen(button, 'click', function() {
           state.extend[filter.key] = value;
           renderFilters();
@@ -1248,6 +1495,34 @@
     return icons[id] || icons['__home__'];
   }
 
+  // ===== 切换分类时强制关闭筛选面板 =====
+  function selectClass(entry) {
+    if (!entry) return;
+    closeFilterPanel();
+    state.active = text(entry.typeId);
+    state.activeName = entry.typeName || entry.typeId || '分类';
+    state.extend = {};
+    renderClasses();
+    renderFilters();
+    updateBannerVisibility();
+
+    if (state.active === '__home__') {
+      if (w.EclipseCategoryState) w.EclipseCategoryState.invalidate(state);
+      state.items = state.homeItems.slice(0);
+      state.page = 1;
+      state.hasMore = false;
+      state.truncated = !!(state.home && state.home.truncated);
+      renderItems(false);
+      status(state.truncated ? '结果过多，已显示前 500 条' : '已显示推荐内容', false);
+      bannerState.initialized = false;
+      if (state.homeItems.length) {
+        initBanner();
+      }
+      return;
+    }
+    loadCategory(state.active, 1, false);
+  }
+
   function applyHome(data) {
     var safe = data && typeof data === 'object' ? data : fallbackHome();
     if (w.EclipseCategoryState) w.EclipseCategoryState.invalidate(state);
@@ -1279,30 +1554,27 @@
     if (!state.items.length && state.classes.length) selectClass(state.classes[0]);
   }
 
-  function selectClass(entry) {
-    if (!entry) return;
-    state.active = text(entry.typeId);
-    state.activeName = entry.typeName || entry.typeId || '分类';
-    state.extend = {};
-    renderClasses();
-    renderFilters();
-    updateBannerVisibility();
-
-    if (state.active === '__home__') {
-      if (w.EclipseCategoryState) w.EclipseCategoryState.invalidate(state);
-      state.items = state.homeItems.slice(0);
-      state.page = 1;
-      state.hasMore = false;
-      state.truncated = !!(state.home && state.home.truncated);
-      renderItems(false);
-      status(state.truncated ? '结果过多，已显示前 500 条' : '已显示推荐内容', false);
-      bannerState.initialized = false;
-      if (state.homeItems.length) {
-        initBanner();
-      }
-      return;
+  function loadCategory(typeId, page, append) {
+    if (!w.EclipseCategoryState) return;
+    var request = w.EclipseCategoryState.begin(state, typeId, page, append, state.extend);
+    request.activeName = state.activeName;
+    if (!request.append) clear(byId('contentGrid'));
+    status('正在载入 ' + request.activeName, true);
+    if (state.native && hasNative()) {
+      w.fm.vodCategory(request.typeId, request.page, { filter:true, extend:request.extend }).then(function(data) {
+        applyCategory(data, request);
+        renderFilters();
+      }).catch(function(error) {
+        if (!w.EclipseCategoryState.fail(state, request)) return;
+        status('分类载入失败', false);
+        toast(error && error.message ? error.message : '内容源暂时不可用');
+      });
+    } else {
+      w.setTimeout(function() {
+        applyCategory(fallbackCategory(request.typeId, request.page, request.extend), request);
+        renderFilters();
+      }, 160);
     }
-    loadCategory(state.active, 1, false);
   }
 
   function fallbackCategory(typeId, page, extend) {
@@ -1337,7 +1609,6 @@
     var pageItems = asArray(data && data.items);
     var queryTypeId = data && data.query ? text(data.query.typeId) : request.typeId;
     var duplicate = null;
-    var message, pairKey;
     if (!w.EclipseCategoryState || !w.EclipseCategoryState.commit(state, request, data)) return false;
     if (!request.append && state.native && w.EclipseCategoryDiagnostics && !state.truncated) {
       duplicate = w.EclipseCategoryDiagnostics.record(state.categorySnapshots, queryTypeId, request.activeName, pageItems);
@@ -1351,9 +1622,9 @@
       status('已载入 ' + request.activeName, false);
       return true;
     }
-    message = '当前源返回的“' + request.activeName + '”与“' + duplicate.typeName + '”分类内容完全相同';
+    var message = '当前源返回的“' + request.activeName + '”与“' + duplicate.typeName + '”分类内容完全相同';
     status(message, false);
-    pairKey = [queryTypeId, duplicate.typeId].sort().join('\u001f');
+    var pairKey = [queryTypeId, duplicate.typeId].sort().join('\u001f');
     if (!state.duplicateNotices[pairKey]) {
       state.duplicateNotices[pairKey] = true;
       toast(message + '，已按真实接口结果展示');
@@ -1361,52 +1632,10 @@
     return true;
   }
 
-  function loadCategory(typeId, page, append) {
-    if (!w.EclipseCategoryState) return;
-    var request = w.EclipseCategoryState.begin(state, typeId, page, append, state.extend);
-    request.activeName = state.activeName;
-    if (!request.append) clear(byId('contentGrid'));
-    status('正在载入 ' + request.activeName, true);
-    if (state.native && hasNative()) {
-      w.fm.vodCategory(request.typeId, request.page, { filter:true, extend:request.extend }).then(function(data) {
-        applyCategory(data, request);
-        renderFilters();
-      }).catch(function(error) {
-        if (!w.EclipseCategoryState.fail(state, request)) return;
-        status('分类载入失败', false);
-        toast(error && error.message ? error.message : '内容源暂时不可用');
-      });
-    } else {
-      w.setTimeout(function() {
-        applyCategory(fallbackCategory(request.typeId, request.page, request.extend), request);
-        renderFilters();
-      }, 160);
-    }
-  }
-
-  function requestNativeHome() {
-    if (!state.domReady || !hasNative() || state.nativeRequested) return;
-    state.nativeRequested = true;
-    state.native = true;
-    w.__eclipseBoot.native = true;
-    status('正在读取当前内容源', true);
-    w.fm.vodHome({}).then(function(data) {
-      applyHome(data);
-    }).catch(function(error) {
-      state.nativeRequested = false;
-      state.native = false;
-      applyHome(fallbackHome());
-      toast(error && error.message ? error.message : '无法读取当前内容源，已显示演示数据');
-    });
-  }
-
-  // ===== openItem =====
+  // ===== openItem / openDetail =====
   function openItem(item) {
     if (!item) return;
-    if (item.kind === 'action') {
-      toast('此入口需要由内容源应用处理');
-      return;
-    }
+    if (item.kind === 'action') { toast('此入口需要由内容源应用处理'); return; }
     if (item.kind === 'folder') {
       state.active = text(item.vodId);
       state.activeName = item.name || '分类';
@@ -1516,6 +1745,22 @@
     } else toast(fallbackMessage);
   }
 
+  function requestNativeHome() {
+    if (!state.domReady || !hasNative() || state.nativeRequested) return;
+    state.nativeRequested = true;
+    state.native = true;
+    w.__eclipseBoot.native = true;
+    status('正在读取当前内容源', true);
+    w.fm.vodHome({}).then(function(data) {
+      applyHome(data);
+    }).catch(function(error) {
+      state.nativeRequested = false;
+      state.native = false;
+      applyHome(fallbackHome());
+      toast(error && error.message ? error.message : '无法读取当前内容源，已显示演示数据');
+    });
+  }
+
   // ===== 焦点导航 =====
   function getFocusable() {
     var nodes = d.querySelectorAll('[data-focus]');
@@ -1623,10 +1868,8 @@
     state.domReady = true;
     w.__eclipseBoot.dom = true;
 
-    // 调色盘初始化
     initPalette();
 
-    // 其他按钮事件
     listen(byId('filterFab'), 'click', toggleFilterPanel);
 
     listen(byId('searchForm'), 'submit', submitSearch);
@@ -1667,7 +1910,6 @@
     listen(w, 'scroll', scheduleAutoPageCheck);
     listen(w, 'resize', scheduleAutoPageCheck);
 
-    // 恢复自定义渐变（如果有）
     restoreCustomGradient();
 
     applyHome(fallbackHome());
