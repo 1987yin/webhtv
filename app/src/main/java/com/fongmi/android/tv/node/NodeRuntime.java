@@ -94,19 +94,54 @@ public final class NodeRuntime {
         replyMessenger = new Messenger(new ReplyHandler());
         // 换源：先杀旧子进程（如果有），再起新的
         if (running || !TextUtils.isEmpty(servingUrl)) {
-            SpiderDebug.log("node", "switching source: stopping old node service (was=%s)", servingUrl);
-            NodeService.stop(context);
-            running = false;
-            port = 0;
-        }
-        servingUrl = NodeBundle.bundleUrl(url);
-        NodeService.start(context, url, replyMessenger);
-    }
+           SpiderDebug.log("node", "switching source: stopping old node service (was=%s)", servingUrl);
+            notifyProgress(context, callback, context.getString(R.string.node_stopping));
+           NodeService.stop(context);
+           // stopService 是异步的，onDestroy 里的 killProcess 也需要时间生效。
+           // 不等的话 startForegroundService 会投递到还没死掉的旧进程，node::Start 第二次调用会 SIGSEGV。
+           waitForProcessDeath(context);
+           running = false;
+           port = 0;
+            notifyProgress(context, callback, context.getString(R.string.node_switch_restart));
+       }
+       servingUrl = NodeBundle.bundleUrl(url);
+       NodeService.start(context, url, replyMessenger);
+   }
 
     /** 是否就是当前这个 bundle。 */
     private static boolean same(String url) {
         String requested = NodeBundle.bundleUrl(url);
         return !TextUtils.isEmpty(requested) && requested.equals(servingUrl);
+    }
+
+    /** 换源等主进程侧阶段进度：同时推通知栏和 callback。 */
+   private static void notifyProgress(Context context, Callback callback, String text) {
+       SpiderDebug.log("node", "%s", text);
+       NodeNotify.progress(context, text, -1);
+        App.post(() -> Notify.show(text));
+       if (callback != null) callback.onProgress(text);
+   }
+
+    /**
+     * 等 :node 子进程真正死掉，最多等 3 秒。
+     * stopService / killProcess 都是异步的，不等就 startForegroundService 会复用旧进程导致 node::Start 重入崩溃。
+     */
+    private static void waitForProcessDeath(Context context) {
+        String procName = context.getPackageName() + ":node";
+        for (int i = 0; i < 30; i++) {
+            if (!isProcessRunning(context, procName)) return;
+            try { Thread.sleep(100); } catch (InterruptedException e) { return; }
+        }
+        SpiderDebug.log("node", "old :node process still alive after 3s, proceeding anyway");
+    }
+
+    private static boolean isProcessRunning(Context context, String processName) {
+        android.app.ActivityManager am = (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        if (am == null) return false;
+        for (android.app.ActivityManager.RunningAppProcessInfo info : am.getRunningAppProcesses()) {
+            if (processName.equals(info.processName)) return true;
+        }
+        return false;
     }
 
     /** 主进程侧处理子进程通过 Messenger 回报的消息。 */

@@ -2490,8 +2490,10 @@
     <string name="node_extracting">解壓中…</string>
     <string name="node_bundle">檢查貓源 bundle…</string>
     <string name="node_starting">啟動服務…</string>
+    <string name="node_waiting">等待服務就緒…</string>
     <string name="node_ready">貓源已就緒</string>
-    <string name="node_switch_restart">正在切換貓源，請稍候...</string>
+    <string name="node_stopping">正在關閉舊貓源服務…</string>
+    <string name="node_switch_restart">正在切換貓源…</string>
     <string name="node_background">背景繼續</string>
     <string name="node_speed">%1$s/s</string>
     <string name="node_size_pair">%1$s / %2$s</string></resources>

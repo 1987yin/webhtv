@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
+import android.os.Process;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Message;
@@ -25,6 +26,7 @@ import com.github.catvod.crawler.SpiderDebug;
 
 import java.io.File;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 跑在 {@code :node} 子进程的前台 Service，承载 Node 运行时的全部生命周期。
@@ -49,6 +51,9 @@ public class NodeService extends Service {
 
     private static final int NOTIFICATION_ID = 9532;
 
+    /** node::Start 在一个进程里只能调一次，第二次会 SIGSEGV。 */
+    private final AtomicBoolean nodeLaunched = new AtomicBoolean(false);
+
     /** 主进程调用：启动子进程 Service。 */
     public static void start(Context context, String url, Messenger reply) {
         Intent intent = new Intent(context, NodeService.class)
@@ -71,7 +76,7 @@ public class NodeService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && intent.hasExtra(EXTRA_URL)) {
+        if (intent != null && intent.hasExtra(EXTRA_URL) && nodeLaunched.compareAndSet(false, true)) {
             String url = intent.getStringExtra(EXTRA_URL);
             Messenger reply = intent.getParcelableExtra(EXTRA_REPLY_MESSENGER);
             new Thread(() -> startNode(url, reply), "node-runtime").start();
@@ -82,6 +87,8 @@ public class NodeService extends Service {
     @Override
     public void onDestroy() {
         SpiderDebug.log("node", "NodeService destroyed pid=%s", android.os.Process.myPid());
+        // 主动杀进程，确保 node/V8 随进程彻底销毁，下次 startForegroundService 一定起新进程
+        android.os.Process.killProcess(android.os.Process.myPid());
         super.onDestroy();
     }
 
@@ -140,7 +147,7 @@ public class NodeService extends Service {
             }, "node-main").start();
 
             // 4) 等端口就绪
-            int port = waitReady(portFile);
+            int port = waitReady(portFile, reply);
             if (port > 0) {
                 sendReady(reply, port);
                 updateNotification(getString(R.string.node_ready) + "，端口 " + port);
@@ -154,15 +161,22 @@ public class NodeService extends Service {
     }
 
     /**
-     * 等引导脚本把候选端口落盘，再逐个探 /config 认准猫源服务。
-     * 逻辑与原 NodeRuntime.waitReady 一致。
-     */
-    private int waitReady(File portFile) {
+    * 等引导脚本把候选端口落盘，再逐个探 /config 认准猫源服务。
+    * 逻辑与原 NodeRuntime.waitReady 一致。
+    */
+    private int waitReady(File portFile, Messenger reply) {
+        boolean reported = false;
         for (int i = 0; i < 90; i++) {
             try {
                 Thread.sleep(500);
                 List<Integer> candidates = NodeRuntime.readPorts(portFile);
-                if (candidates.isEmpty()) continue;
+                if (candidates.isEmpty()) {
+                    if (!reported) {
+                        sendProgress(reply, getString(R.string.node_waiting));
+                        reported = true;
+                    }
+                    continue;
+                }
                 for (int candidate : candidates) {
                     String cfg = com.github.catvod.net.OkHttp.string("http://127.0.0.1:" + candidate + "/config");
                     if (com.fongmi.android.tv.api.CatSource.isConfig(cfg)) {
