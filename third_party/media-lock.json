@@ -35,9 +35,9 @@
       },
       {
         "coordinate": "androidx.media3:media3-extractor:1.11.0-alpha01-fongmi",
-        "aar_sha256": "ec3ac41088e496bdfe63925ca0751234e0178a9d92e8deedf8734dfe36fab8fe",
-        "sources_sha256": "a9a813622f10b4735f71ba3c8e535981adca4941bd0f6d832efe31e80b033295",
-        "reason": "E-SP2 defers tail Cues for known-length remote Matroska while preserving exact seek on demand"
+        "aar_sha256": "512160846b32c402f975489ca1499ecb4aa4bf6415050ba295db33274d95ee72",
+        "sources_sha256": "c94d5735f0f9dabea5fd53f42803a1de21b24294835cab0899f753873fe7ad39",
+        "reason": "E-SP2 deferred Cues plus E2-1 Dolby Vision parser safety"
       }
     ],
     "upstream_repo": "https://github.com/FongMi/media.git",
