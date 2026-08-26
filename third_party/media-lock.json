@@ -28,6 +28,12 @@
     ],
     "artifact_overrides": [
       {
+        "coordinate": "androidx.media3:media3-container:1.11.0-alpha01-fongmi",
+        "aar_sha256": "32c54bcb6113499267fadd75385d1a69a04eec3fcc34edf11e9bf6012d81ed91",
+        "sources_sha256": "9aee6336465f59a29efcadd5c72b26fd8cdaa3ee4ee88a74ad99de003ddc43b6",
+        "reason": "E2-1 adds Dolby Vision parser version/length safety"
+      },
+      {
         "coordinate": "androidx.media3:media3-extractor:1.11.0-alpha01-fongmi",
         "aar_sha256": "ec3ac41088e496bdfe63925ca0751234e0178a9d92e8deedf8734dfe36fab8fe",
         "sources_sha256": "a9a813622f10b4735f71ba3c8e535981adca4941bd0f6d832efe31e80b033295",
