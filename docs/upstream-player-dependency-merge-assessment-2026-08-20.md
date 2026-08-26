@@ -4,7 +4,7 @@
 
 文档状态：进行中。本文按检查点持续落盘；未标记“已完成逐提交审阅”的仓库，不应据此直接升级依赖。
 
-当前恢复入口：以“稳定任务 ID 与唯一文档索引”及各任务文档顶部状态为准。完整逐提交审计已完成至检查点 43；`E1`、`E2-2`、`E-SP1` 已实施，`E-SP2` 候选已接入但仍待实机性能/seek 验收，`E-SP3` 已实施并纠正 `E-SP1` 的记载偏差（该任务声明不改超时，实际撤销了启播超时），下一项待评估任务是 `E2-1`。后续仍按 Exo → MPV 顺序处理；`C2` 默认暂缓，`C3` 随 `E7-2` 联合处理。
+当前恢复入口：以“稳定任务 ID 与唯一文档索引”及各任务文档顶部状态为准。完整逐提交审计已完成至检查点 43；`E1`、`E2-2`、`E-SP1` 已实施，`E-SP2` 候选已接入但仍待实机性能/seek 验收，`E-SP3` 已实施并纠正 `E-SP1` 的记载偏差（该任务声明不改超时，实际撤销了启播超时），`E2-1` 已完成决策并获准同步 `fongmi-sync@c410bf4f40a0ef7babb5b6281b97fa4bc621c24d`，当前处于实施阶段。后续仍按 Exo → MPV 顺序处理；`C2` 默认暂缓，`C3` 随 `E7-2` 联合处理。
 
 ## 稳定任务 ID 与唯一文档索引
 
@@ -27,7 +27,7 @@
 | 3 | `E-SP1` | Exo 性能 | 首帧已渲染时立即解除遮罩 | 已完成 | [E-SP1-exo-first-frame-visible.md](E-SP1-exo-first-frame-visible.md) |
 | 4 | `E-SP2` | Exo 性能 | 远程大 MKV 延后 Cues、首次 seek 按需建索引 | 候选已实现，待实机性能/seek 验收 | [E-SP2-exo-remote-mkv-deferred-cues.md](E-SP2-exo-remote-mkv-deferred-cues.md) |
 | 4.1 | `E-SP3` | Exo 性能 | BUFFERING 停滞看门狗（修 `E-SP1`/DV7 撤超时导致的永久转圈） | 已实施，待实机验收 | [E-SP3-exo-buffering-stall-watchdog.md](E-SP3-exo-buffering-stall-watchdog.md) |
-| 5 | `E2-1` | Exo | HDR/Dolby Vision parser safety | **下一项待评估/决策** | `docs/E2-1-exo-hdr-parser-safety.md` |
+| 5 | `E2-1` | Exo | HDR/Dolby Vision parser safety | **已批准，实施中** | [E2-1-exo-hdr-parser-safety.md](E2-1-exo-hdr-parser-safety.md) |
 | 6 | `E3-1a` | Exo | Pixel E-AC3 JOC capability guard | 待处理 | `docs/E3-1a-exo-pixel-eac3-joc-guard.md` |
 | 7 | `E3-1b` | Exo | DTS 14-bit 解析 | 待处理 | `docs/E3-1b-exo-dts-14bit.md` |
 | 8 | `E4-1` | Exo | 字幕字节与边界安全 | 待处理 | `docs/E4-1-exo-subtitle-byte-safety.md` |
@@ -45,7 +45,7 @@
 | 20 | `C2` | 通用 | FFmpeg DV7→P8.1 BSF | 暂缓；不自动启用 | `docs/C2-dv7-p81-bsf.md` |
 | 21 | `C3` | 通用 | ISO multi-extent App resolver | 随 `E7-2` 联合评估/实施 | `docs/C3-iso-multi-extent-resolver.md` |
 
-`C1` 是跨播放器真实输入验收维度，不单独形成代码任务或文档；它写入对应的 E/P 任务文档。当前下一项是 `E2-1`，开始前先创建其唯一文档并给出功能目标、收益、代价和是否建议合并的决策包。
+`C1` 是跨播放器真实输入验收维度，不单独形成代码任务或文档；它写入对应的 E/P 任务文档。`E2-1` 已建立唯一任务文档并完成决策包；实施范围仅限该文档列出的 parser safety 单元。
 
 ## 目标与决策顺序
 
@@ -4856,3 +4856,12 @@ C3 的触发来源主要是 media `990abc2368fd74779f525ee345734470659f3d53`（`
 - MPV：需要修正本地输出策略；问题与上游 FFmpeg C2 是否合并无关，先修 App gate，再做 native 回归。
 - Exo：根因已定位为“P8.1 静态能力误判 + 非真正 HDR10 fallback”；在 A/B 前不改网络超时、不擅自回滚 A1-2。
 - 本检查点没有新的代码 commit/tag；后续代码实施必须重新建立阶段基线并按本文件记录原子 commit 与恢复 tag。
+
+## 检查点 47：2026-08-26 fongmi-sync 最新头 E2-1 合并评估
+
+- `gh api repos/fish2018/webhtv/branches/fongmi-sync` 返回 `c410bf4f40a0ef7babb5b6281b97fa4bc621c24d`；相对共同祖先 `b2eccc357662065e02e49af4caff4c059cf508f3` 只有 `e19289a3c9871563f891500bdc2d42be6be23f3d` 与 `c410bf4f40a0ef7babb5b6281b97fa4bc621c24d` 两个提交。
+- 评估结论：实施 E2-1 窄适配；保留本地后续检查点、E2-2/C2/MPV 边界，不原样覆盖主评估文档。
+- 合并预演只发现主评估索引内容冲突；媒体脚本、锁、parser patch 和 container/extractor 产物没有三方冲突。
+- `e19289a3c9871563f891500bdc2d42be6be23f3d` 的上游验证声明尚待当前分支复核，不能提前视为本地验证结果。
+- checkpoint: E2-1 fongmi-sync head assessment complete
+- next: commit assessment record, then start implementation guard
