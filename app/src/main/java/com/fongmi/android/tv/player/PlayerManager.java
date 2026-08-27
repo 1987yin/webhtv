@@ -42,6 +42,9 @@ import com.fongmi.android.tv.ad.audio.AdAudioSetting;
 import com.fongmi.android.tv.ad.audio.SpeechAdSetting;
 import com.fongmi.android.tv.ad.audio.AdSkipCoordinator;
 import com.fongmi.android.tv.ad.audio.AdSkipPolicyController;
+import com.fongmi.android.tv.ad.audio.PrioritizedAdAudioRuleSource;
+import com.fongmi.android.tv.ad.audio.ProbeRuleDownloader;
+import com.fongmi.android.tv.ad.audio.ProbeRuleStore;
 import com.fongmi.android.tv.bean.Danmaku;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Sub;
@@ -401,10 +404,12 @@ public class PlayerManager implements ParseCallback {
         this.playerFallbackTried = new boolean[PLAYER_COUNT];
         clearFfmpegModeFallbackState();
         this.adAudioRuntime = new AdAudioRuntimeController(
-                mediaSignals, mediaClock, AdAudioRuleStore.get()::load,
+                mediaSignals, mediaClock,
+                new PrioritizedAdAudioRuleSource(AdAudioRuleStore.get(), ProbeRuleStore.get()),
                 new AdAudioPlaybackPort(),
                 new RealtimeSubtitleSpeechRecognitionFactory());
         configureAdAudioRuntime();
+        ProbeRuleDownloader.refreshIfDue();
         mediaSession.begin(0L);
         this.engine = buildEngine(playerType, PlayerEngine.HARD);
         this.player = engine.getPlayer();
