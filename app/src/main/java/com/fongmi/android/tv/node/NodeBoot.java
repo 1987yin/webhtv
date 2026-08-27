@@ -115,7 +115,7 @@ final class NodeBoot {
                 + "      return false;\n"
                 + "    };\n"
                 + "    let tries = 0;\n"
-                + "    const timer = setInterval(() => { if (publish() || ++tries > 60) clearInterval(timer); }, 500);\n"
+                + "    const timer = setInterval(() => { if (publish() || ++tries > 150) clearInterval(timer); }, 200);\n"
                 + "    console.log('cat bundle started on " + listenPort + "');\n"
                 + "  } catch (e) {\n"
                 + "    console.error('cat bundle failed', e && e.stack ? e.stack : e);\n"
