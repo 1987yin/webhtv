@@ -2521,8 +2521,10 @@
     <string name="node_extracting">解压中…</string>
     <string name="node_bundle">检查猫源 bundle…</string>
     <string name="node_starting">启动服务…</string>
+    <string name="node_waiting">等待服务就绪…</string>
     <string name="node_ready">猫源已就绪</string>
-    <string name="node_switch_restart">已有猫源在运行，换源需重启应用后生效</string>
+    <string name="node_stopping">正在关闭旧猫源服务…</string>
+    <string name="node_switch_restart">正在切换猫源…</string>
     <string name="node_background">后台继续</string>
     <string name="node_speed">%1$s/s</string>
     <string name="node_size_pair">%1$s / %2$s</string></resources>

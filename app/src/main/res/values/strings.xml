@@ -2525,8 +2525,10 @@
     <string name="node_extracting">Extracting…</string>
     <string name="node_bundle">Checking cat source bundle…</string>
     <string name="node_starting">Starting service…</string>
+    <string name="node_waiting">Waiting for service to be ready…</string>
     <string name="node_ready">Cat source ready</string>
-    <string name="node_switch_restart">Another cat source is already running. Restart the app to switch.</string>
+    <string name="node_stopping">Stopping previous cat source…</string>
+    <string name="node_switch_restart">Switching cat source…</string>
     <string name="node_background">Run in background</string>
     <string name="node_speed">%1$s/s</string>
     <string name="node_size_pair">%1$s / %2$s</string></resources>
