@@ -308,15 +308,16 @@ public class SettingAdFragment extends BaseFragment {
 
     private void refreshProbeRules(View view) {
         mBinding.probeRuleRefreshText.setText(R.string.setting_ad_probe_refreshing);
-        ProbeRuleDownloader.refreshNow(new ProbeRuleDownloader.Callback() {
+        boolean started = ProbeRuleDownloader.refreshNow(new ProbeRuleDownloader.Callback() {
             @Override
             public void onSuccess(AdAudioRuleSnapshot snapshot) {
                 if (mBinding == null) return;
                 Notify.show(snapshot.hasRules()
                         ? getString(R.string.setting_ad_probe_refreshed, snapshot.version(), snapshot.ruleSet().rules().size())
                         : getString(R.string.setting_ad_probe_unchanged, 0));
+                // loadSnapshots() 自己会在后台读完后 post setText()，这里不能再直接调，
+                // 否则会用刷新前的 revision 覆盖掉「正在刷新」，闪一下旧值。
                 loadSnapshots();
-                setText();
                 notifyAdAudioRuntime();
             }
 
@@ -326,7 +327,16 @@ public class SettingAdFragment extends BaseFragment {
                 Notify.show(getString(R.string.setting_ad_probe_failed, String.valueOf(error.getMessage())));
                 setText();
             }
+
+            @Override
+            public void onDisabled() {
+                if (mBinding == null) return;
+                Notify.show(R.string.setting_ad_probe_source_disabled);
+                setText();
+            }
         });
+        // 已有刷新在跑时不会有回调，这里必须自己复位，否则文本永远停在「正在刷新」。
+        if (!started) setText();
     }
 
     private void toggleSpeechAdEnabled(View view) {

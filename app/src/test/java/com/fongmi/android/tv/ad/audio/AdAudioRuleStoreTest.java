@@ -55,6 +55,20 @@ public class AdAudioRuleStoreTest {
         assertFalse(stored.contains(ProbeRuleCodec.FORMAT));
     }
 
+    /**
+     * v2 的规则 id 是自由字符串，所以 id 里出现 Probe 的 format 值时不能被误判成 v1。
+     * 用子串匹配分流会让这个合法的 v2 文件整包被拒。
+     */
+    @Test
+    public void v2RuleIdContainingTheProbeFormatValueStillImportsAsV2() throws Exception {
+        Path directory = temporaryFolder.newFolder().toPath();
+
+        AdAudioRuleSnapshot imported =
+                new AdAudioRuleStore(directory).importJson(validRuleJson(ProbeRuleCodec.FORMAT));
+
+        assertEquals(ProbeRuleCodec.FORMAT, imported.ruleSet().rules().get(0).id());
+    }
+
     @Test
     public void invalidImportDoesNotReplaceLastGoodSnapshot() throws Exception {
         Path directory = temporaryFolder.newFolder().toPath();

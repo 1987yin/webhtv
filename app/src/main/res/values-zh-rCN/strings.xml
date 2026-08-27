@@ -2547,4 +2547,5 @@
     <string name="setting_ad_probe_failed">刷新失败：%1$s</string>
     <string name="setting_ad_probe_revision">revision %1$d · %2$d 条规则</string>
     <string name="setting_ad_probe_never">尚未拉取</string>
-    <string name="setting_ad_probe_url_invalid">规则源必须以 https:// 开头</string></resources>
+    <string name="setting_ad_probe_url_invalid">规则源必须以 https:// 开头</string>
+    <string name="setting_ad_probe_source_disabled">请先填写社区规则源地址</string></resources>

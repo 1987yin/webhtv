@@ -2551,4 +2551,5 @@
     <string name="setting_ad_probe_failed">Refresh failed: %1$s</string>
     <string name="setting_ad_probe_revision">Revision %1$d · %2$d rules</string>
     <string name="setting_ad_probe_never">Never fetched</string>
-    <string name="setting_ad_probe_url_invalid">The rule source must start with https://</string></resources>
+    <string name="setting_ad_probe_url_invalid">The rule source must start with https://</string>
+    <string name="setting_ad_probe_source_disabled">Set a community rule source first</string></resources>

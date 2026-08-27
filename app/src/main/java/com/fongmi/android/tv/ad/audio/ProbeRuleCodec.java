@@ -175,7 +175,9 @@ public final class ProbeRuleCodec {
         if (anchorOffsetMs + anchorDurationMs > durationMs) {
             throw invalid("anchor range is invalid: " + id);
         }
-        if (testAdStartMs != null && testAdStartMs + durationMs > MAX_SAFE_INTEGER) {
+        // 先卡 adStartMs 本身，否则 adStartMs + durationMs 会回绕成负数而绕过上限检查。
+        if (testAdStartMs != null && (testAdStartMs > MAX_SAFE_INTEGER
+                || testAdStartMs > MAX_SAFE_INTEGER - durationMs)) {
             throw invalid("test adStartMs is out of range: " + id);
         }
         int hashCount = 0;
