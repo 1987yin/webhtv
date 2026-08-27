@@ -36,7 +36,6 @@ public class AppBrandingActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
-        mBinding.name.setText(AppBranding.getCustomName());
         selectedIconMode = AppBranding.getIconMode(this);
         updateSelection();
         updateCustomPreview();
@@ -99,15 +98,13 @@ public class AppBrandingActivity extends BaseActivity {
     }
 
     private void save() {
-        String name = mBinding.name.getText().toString().trim();
         if (selectedIconMode == AppBranding.ICON_CUSTOM && !AppBranding.hasCustomIcon(this)) {
             Notify.show(R.string.app_branding_image_required);
             return;
         }
-        AppBranding.putName(name);
         AppBranding.putIconMode(selectedIconMode);
         AppBranding.applyLauncherIcon(this);
-        boolean shortcutNeeded = AppBranding.needsPinnedShortcut(name, selectedIconMode);
+        boolean shortcutNeeded = AppBranding.needsPinnedShortcut(selectedIconMode);
         boolean shortcutAdded = shortcutNeeded && AppBranding.requestPinnedShortcut(this);
         int feedback = AppBranding.saveFeedbackResource(shortcutNeeded, shortcutAdded);
         if (feedback == 0) Notify.show(AppBranding.getSummary(this));

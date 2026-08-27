@@ -12,16 +12,6 @@ import static org.junit.Assert.assertTrue;
 public class AppBrandingContractTest {
 
     @Test
-    public void normalizeNameTrimsAndCapsUnicodeCodePoints() {
-        assertEquals("", AppBranding.normalizeName("  \n  "));
-        assertEquals("自定义名称", AppBranding.normalizeName("  自定义名称  "));
-
-        String longName = "😀".repeat(40);
-        String normalized = AppBranding.normalizeName(longName);
-        assertEquals(32, normalized.codePointCount(0, normalized.length()));
-    }
-
-    @Test
     public void normalizeIconModeFallsBackToCurrentForUnknownValues() {
         assertEquals(AppBranding.ICON_CURRENT, AppBranding.normalizeIconMode(-1));
         assertEquals(AppBranding.ICON_CURRENT, AppBranding.normalizeIconMode(99));
@@ -43,19 +33,10 @@ public class AppBrandingContractTest {
     }
 
     @Test
-    public void customNameTakesPriorityOverHomeAndConfigNames() {
-        assertEquals("Custom", AppBranding.resolveDisplayName("Custom", "Home", "Config", "Default"));
-        assertEquals("Home", AppBranding.resolveDisplayName("", "Home", "Config", "Default"));
-        assertEquals("Config", AppBranding.resolveDisplayName("", "", "Config", "Default"));
-        assertEquals("Default", AppBranding.resolveDisplayName("", "", "", "Default"));
-    }
-
-    @Test
-    public void dynamicLauncherShortcutIsNeededForCustomNameOrIcon() {
-        assertTrue(AppBranding.needsPinnedShortcut("Custom", AppBranding.ICON_CURRENT));
-        assertTrue(AppBranding.needsPinnedShortcut("", AppBranding.ICON_CUSTOM));
-        assertTrue(!AppBranding.needsPinnedShortcut("", AppBranding.ICON_CURRENT));
-        assertTrue(!AppBranding.needsPinnedShortcut("", AppBranding.ICON_HISTORY));
+    public void dynamicLauncherShortcutIsNeededForCustomIconOnly() {
+        assertTrue(AppBranding.needsPinnedShortcut(AppBranding.ICON_CUSTOM));
+        assertTrue(!AppBranding.needsPinnedShortcut(AppBranding.ICON_CURRENT));
+        assertTrue(!AppBranding.needsPinnedShortcut(AppBranding.ICON_HISTORY));
     }
 
     @Test
@@ -89,14 +70,6 @@ public class AppBrandingContractTest {
 
         assertTrue(manifest.contains("com.android.launcher.permission.INSTALL_SHORTCUT"));
         assertTrue(manifest.contains("com.android.launcher.permission.UNINSTALL_SHORTCUT"));
-    }
-
-    @Test
-    public void chineseLauncherNamesDistinguishNewAndOriginalVersions() throws Exception {
-        String chinese = read("app/src/main/res/values-zh-rCN/strings.xml");
-
-        assertTrue(chinese.contains("<string name=\"app_name\">默影视新版</string>"));
-        assertTrue(chinese.contains("<string name=\"app_name_history\">影视原版</string>"));
     }
 
     @Test
@@ -135,6 +108,11 @@ public class AppBrandingContractTest {
 
         assertLauncherAliases(mobile, false);
         assertLauncherAliases(leanback, true);
+
+        assertEquals(2, countOccurrences(mobile, "android:label=\"@string/app_name\""));
+        assertEquals(2, countOccurrences(leanback, "android:label=\"@string/app_name\""));
+        assertEquals(0, countOccurrences(mobile, "@string/app_name_history"));
+        assertEquals(0, countOccurrences(leanback, "@string/app_name_history"));
     }
 
     private static void assertLauncherAliases(String manifest, boolean leanback) {
@@ -150,5 +128,15 @@ public class AppBrandingContractTest {
         Path path = Path.of(relative);
         if (!Files.exists(path) && relative.startsWith("app/")) path = Path.of(relative.substring(4));
         return Files.readString(path, StandardCharsets.UTF_8);
+    }
+
+    private static int countOccurrences(String text, String needle) {
+        int count = 0;
+        int index = 0;
+        while ((index = text.indexOf(needle, index)) >= 0) {
+            count++;
+            index += needle.length();
+        }
+        return count;
     }
 }

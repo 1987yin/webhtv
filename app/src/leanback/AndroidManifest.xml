@@ -117,7 +117,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@drawable/ic_launcher_history"
-            android:label="@string/app_name_history"
+            android:label="@string/app_name"
             android:roundIcon="@drawable/ic_launcher_history"
             android:targetActivity=".ui.activity.HomeActivity">
             <intent-filter>

@@ -39,7 +39,6 @@ public final class AppBranding {
     public static final int ICON_HISTORY = 1;
     public static final int ICON_CUSTOM = 2;
 
-    private static final String NAME_KEY = "app_branding_name";
     private static final String ICON_KEY = "app_branding_icon";
     private static final String CUSTOM_ICON_FILE = "app_branding_icon.png";
     private static final String CUSTOM_ICON_TEMP_FILE = ".app_branding_icon.tmp";
@@ -51,7 +50,6 @@ public final class AppBranding {
     private static final String ALIAS_SUFFIX_CURRENT = "Current";
     private static final String ALIAS_SUFFIX_HISTORY = "History";
 
-   private static final int MAX_NAME_CODE_POINTS = 32;
     private static final int MAX_ICON_BYTES = 5 * 1024 * 1024;
     private static final int MAX_ICON_DIMENSION = 4096;
     private static final int ICON_SIZE = 512;
@@ -59,48 +57,18 @@ public final class AppBranding {
     private AppBranding() {
     }
 
-    @NonNull
-    public static String normalizeName(@Nullable String value) {
-        if (value == null) return "";
-        String name = value.trim();
-        if (name.isEmpty()) return "";
-        int codePoints = name.codePointCount(0, name.length());
-        if (codePoints <= MAX_NAME_CODE_POINTS) return name;
-        return name.substring(0, name.offsetByCodePoints(0, MAX_NAME_CODE_POINTS));
-    }
-
     public static int normalizeIconMode(int mode) {
         return mode == ICON_HISTORY || mode == ICON_CUSTOM ? mode : ICON_CURRENT;
     }
 
     @NonNull
-    public static String getCustomName() {
-        return normalizeName(Prefers.getString(NAME_KEY));
-    }
-
-    @NonNull
     public static String getName(@NonNull Context context) {
-        String name = getCustomName();
-        return name.isEmpty() ? context.getString(R.string.app_name) : name;
+        return context.getString(R.string.app_name);
     }
 
     @NonNull
     public static String getDisplayName(@NonNull Context context, @Nullable String homeName, @Nullable String configName) {
-        return resolveDisplayName(getCustomName(), homeName, configName, context.getString(R.string.app_name));
-    }
-
-    @NonNull
-    static String resolveDisplayName(@Nullable String customName, @Nullable String homeName,
-                                     @Nullable String configName, @NonNull String defaultName) {
-        String custom = normalizeName(customName);
-        if (!custom.isEmpty()) return custom;
-        if (homeName != null && !homeName.isEmpty()) return homeName;
-        if (configName != null && !configName.isEmpty()) return configName;
-        return defaultName;
-    }
-
-    public static void putName(@Nullable String name) {
-        Prefers.put(NAME_KEY, normalizeName(name));
+        return getName(context);
     }
 
     public static int getIconMode() {
@@ -180,8 +148,7 @@ public final class AppBranding {
 
     @NonNull
     public static String getSummary(@NonNull Context context) {
-        return context.getString(R.string.app_branding_summary, getName(context),
-                context.getString(iconLabelResource(getIconMode(context))));
+        return context.getString(iconLabelResource(getIconMode(context)));
     }
 
     public static int iconLabelResource(int mode) {
@@ -205,18 +172,18 @@ public final class AppBranding {
                 ? ALIAS_SUFFIX_HISTORY : ALIAS_SUFFIX_CURRENT);
     }
 
-    public static boolean needsPinnedShortcut(@Nullable String customName, int iconMode) {
-        return !normalizeName(customName).isEmpty() || normalizeIconMode(iconMode) == ICON_CUSTOM;
+    public static boolean needsPinnedShortcut(int iconMode) {
+        return normalizeIconMode(iconMode) == ICON_CUSTOM;
     }
 
     public static int saveFeedbackResource(boolean shortcutNeeded, boolean shortcutAdded) {
         return shortcutNeeded && !shortcutAdded ? R.string.app_branding_shortcut_unsupported : 0;
     }
 
-    /** Requests a desktop shortcut when a dynamic name or icon cannot be represented by a manifest alias. */
+    /** Requests a desktop shortcut when a dynamic icon cannot be represented by a manifest alias. */
     public static boolean requestPinnedShortcut(@NonNull Activity activity) {
         int iconMode = getIconMode(activity);
-        if (!needsPinnedShortcut(getCustomName(), iconMode)) return false;
+        if (!needsPinnedShortcut(iconMode)) return false;
 
         IconCompat icon = shortcutIcon(activity, iconMode);
         if (icon == null) return false;
