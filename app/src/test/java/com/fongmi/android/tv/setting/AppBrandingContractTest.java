@@ -67,6 +67,16 @@ public class AppBrandingContractTest {
     }
 
     @Test
+    public void launcherNameHasLegacyShortcutFallback() throws Exception {
+        String source = read("app/src/main/java/com/fongmi/android/tv/setting/AppBranding.java");
+
+        assertTrue(source.contains("com.android.launcher.action.INSTALL_SHORTCUT"));
+        assertTrue(source.contains("Intent.EXTRA_SHORTCUT_NAME"));
+        assertTrue(source.contains("queryBroadcastReceivers(intent, 0)"));
+        assertTrue(source.contains("sendBroadcast"));
+    }
+
+    @Test
     public void chineseLauncherNamesDistinguishNewAndOriginalVersions() throws Exception {
         String chinese = read("app/src/main/res/values-zh-rCN/strings.xml");
 

@@ -6,6 +6,7 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -28,6 +29,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 
 /** Owns the user-facing app name/icon settings and their launcher integration. */
 public final class AppBranding {
@@ -40,7 +42,11 @@ public final class AppBranding {
     private static final String ICON_KEY = "app_branding_icon";
     private static final String CUSTOM_ICON_FILE = "app_branding_icon.png";
     private static final String CUSTOM_ICON_TEMP_FILE = ".app_branding_icon.tmp";
-   private static final String CUSTOM_SHORTCUT_ID = "app_branding_custom";
+    private static final String CUSTOM_SHORTCUT_ID = "app_branding_custom";
+    private static final String LEGACY_SHORTCUT_NAME_KEY = "app_branding_legacy_shortcut_name";
+    private static final String LEGACY_SHORTCUT_MODE_KEY = "app_branding_legacy_shortcut_mode";
+    private static final String ACTION_INSTALL_SHORTCUT = "com.android.launcher.action.INSTALL_SHORTCUT";
+    private static final String ACTION_UNINSTALL_SHORTCUT = "com.android.launcher.action.UNINSTALL_SHORTCUT";
     private static final String ALIAS_SUFFIX_CURRENT = "Current";
     private static final String ALIAS_SUFFIX_HISTORY = "History";
 
@@ -209,8 +215,7 @@ public final class AppBranding {
     /** Requests a desktop shortcut when a dynamic name or icon cannot be represented by a manifest alias. */
     public static boolean requestPinnedShortcut(@NonNull Activity activity) {
         int iconMode = getIconMode(activity);
-        if (!needsPinnedShortcut(getCustomName(), iconMode)
-                || !ShortcutManagerCompat.isRequestPinShortcutSupported(activity)) return false;
+        if (!needsPinnedShortcut(getCustomName(), iconMode)) return false;
 
         IconCompat icon = shortcutIcon(activity, iconMode);
         if (icon == null) return false;
@@ -222,7 +227,59 @@ public final class AppBranding {
                 .setIcon(icon)
                 .setIntent(launch)
                 .build();
-        return ShortcutManagerCompat.requestPinShortcut(activity, info, null);
+        if (ShortcutManagerCompat.isRequestPinShortcutSupported(activity)
+                && ShortcutManagerCompat.requestPinShortcut(activity, info, null)) return true;
+        return requestLegacyShortcut(activity, iconMode, getName(activity), launch);
+    }
+
+    private static boolean requestLegacyShortcut(@NonNull Activity activity, int iconMode,
+                                                 @NonNull String name, @NonNull Intent launch) {
+        Intent action = new Intent(ACTION_INSTALL_SHORTCUT);
+        ResolveInfo receiver = findLegacyShortcutReceiver(activity, action);
+        if (receiver == null || receiver.activityInfo == null) return false;
+
+        String previousName = Prefers.getString(LEGACY_SHORTCUT_NAME_KEY);
+        if (!previousName.isEmpty()) {
+            int previousMode = Prefers.getInt(LEGACY_SHORTCUT_MODE_KEY, iconMode);
+            Intent uninstall = new Intent(ACTION_UNINSTALL_SHORTCUT)
+                    .putExtra(Intent.EXTRA_SHORTCUT_NAME, previousName)
+                    .putExtra(Intent.EXTRA_SHORTCUT_INTENT, launcherIntent(activity, previousMode))
+                    .setComponent(new ComponentName(receiver.activityInfo.packageName, receiver.activityInfo.name));
+            try {
+                activity.sendBroadcast(uninstall);
+            } catch (SecurityException ignored) {
+                // A launcher may expose the receiver but deny legacy shortcut removal.
+            }
+        }
+
+        action.setComponent(new ComponentName(receiver.activityInfo.packageName, receiver.activityInfo.name))
+                .putExtra(Intent.EXTRA_SHORTCUT_NAME, name)
+                .putExtra(Intent.EXTRA_SHORTCUT_INTENT, launch);
+        putLegacyShortcutIcon(activity, action, iconMode);
+        try {
+            activity.sendBroadcast(action);
+            Prefers.put(LEGACY_SHORTCUT_NAME_KEY, name);
+            Prefers.put(LEGACY_SHORTCUT_MODE_KEY, iconMode);
+            return true;
+        } catch (SecurityException ignored) {
+            return false;
+        }
+    }
+
+    @Nullable
+    private static ResolveInfo findLegacyShortcutReceiver(@NonNull Context context, @NonNull Intent intent) {
+        List<ResolveInfo> receivers = context.getPackageManager().queryBroadcastReceivers(intent, 0);
+        return receivers.isEmpty() ? null : receivers.get(0);
+    }
+
+    private static void putLegacyShortcutIcon(@NonNull Context context, @NonNull Intent intent, int iconMode) {
+        if (iconMode == ICON_CUSTOM) {
+            Bitmap bitmap = loadCustomIcon(context);
+            if (bitmap != null) intent.putExtra(Intent.EXTRA_SHORTCUT_ICON, bitmap);
+            return;
+        }
+        int resource = iconMode == ICON_HISTORY ? R.drawable.ic_launcher_history : R.mipmap.ic_launcher;
+        intent.putExtra(Intent.EXTRA_SHORTCUT_ICON_RESOURCE, Intent.ShortcutIconResource.fromContext(context, resource));
     }
 
     @NonNull
