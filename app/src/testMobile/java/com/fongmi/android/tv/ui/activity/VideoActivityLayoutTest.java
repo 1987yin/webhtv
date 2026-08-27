@@ -3055,6 +3055,26 @@ public class VideoActivityLayoutTest {
         }
     }
 
+    @Test
+    public void bothPlayersInitializeEpisodesAndPlaybackFromPreselectedCachedFlags() throws Exception {
+        for (Path root : List.of(findMobileJavaPath(), findLeanbackJavaPath())) {
+            Path sourcePath = root.resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+            String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+            String click = methodBody(source, "public void onItemClick(Flag item)", "@Override");
+
+            assertFalse(sourcePath + " must not treat a cached selected flag as an initialized page",
+                    click.contains("if (resolved.isSelected()) return;"));
+            String initialBinding = root.equals(findMobileJavaPath())
+                    ? "boolean initialBinding = mEpisodeAdapter == null || mEpisodeAdapter.isEmpty();"
+                    : "boolean initialBinding = mEpisodeAdapter.getItemCount() == 0;";
+            assertTrue(sourcePath + " must distinguish an empty episode adapter from a user re-click",
+                    click.contains(initialBinding)
+                            && click.contains("if (resolved.isSelected() && !initialBinding) return;"));
+            assertTrue(sourcePath + " must start the inherited selected episode after rebuilding its list",
+                    click.contains("if (initialBinding && !episodeChanged) onRefresh();"));
+        }
+    }
+
     private static Path findMobileResPath() {
         Path moduleRelative = Path.of("src", "mobile", "res");
         if (Files.exists(moduleRelative)) return moduleRelative;

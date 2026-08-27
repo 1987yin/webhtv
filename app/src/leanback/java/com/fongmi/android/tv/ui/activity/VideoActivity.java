@@ -2651,7 +2651,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (mFlagAdapter.getItemCount() == 0 || item == null) return;
         int position = mFlagAdapter.indexOf(item);
         Flag resolved = mFlagAdapter.get(position < 0 ? 0 : position);
-        if (resolved.isSelected()) return;
+        boolean initialBinding = mEpisodeAdapter.getItemCount() == 0;
+        if (resolved.isSelected() && !initialBinding) return;
         Flag previous = getFlag();
         SpiderDebug.log("playback-action", "flag switch ui=leanback site=%s from=%s to=%s fullscreen=%s", getKey(), previous == null ? "" : previous.getFlag(), resolved.getFlag(), isFullscreen());
         int oldPosition = mFlagAdapter.getSelectedPosition();
@@ -2662,7 +2663,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         notifyItemsChanged(mBinding.flag, mFlagAdapter, oldPosition, newPosition);
         setEpisodeAdapter(resolved.getEpisodes());
         setQualityVisible(false);
-        seamless(resolved);
+        boolean episodeChanged = seamless(resolved);
+        if (initialBinding && !episodeChanged) onRefresh();
         loadTmdbRelatedVideosForCurrentEpisode();
     }
 
@@ -2808,11 +2810,12 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (position != RecyclerView.NO_POSITION) scrollToEpisode(position);
     }
 
-    private void seamless(Flag flag) {
+    private boolean seamless(Flag flag) {
         Episode episode = getMark().isEmpty() ? flag.find(mHistory.getEpisode(), true) : flag.find(mHistory.getVodRemarks(), false);
         setQualityVisible(episode != null && episode.isSelected() && mQualityAdapter.getItemCount() > 1);
-        if (episode == null || episode.isSelected()) return;
+        if (episode == null || episode.isSelected()) return false;
         selectEpisode(episode, false);
+        return true;
     }
 
     @Override
