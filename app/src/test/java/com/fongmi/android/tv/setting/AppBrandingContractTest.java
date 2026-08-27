@@ -77,6 +77,14 @@ public class AppBrandingContractTest {
     }
 
     @Test
+    public void mainManifestGrantsLegacyLauncherShortcutPermissions() throws Exception {
+        String manifest = read("app/src/main/AndroidManifest.xml");
+
+        assertTrue(manifest.contains("com.android.launcher.permission.INSTALL_SHORTCUT"));
+        assertTrue(manifest.contains("com.android.launcher.permission.UNINSTALL_SHORTCUT"));
+    }
+
+    @Test
     public void chineseLauncherNamesDistinguishNewAndOriginalVersions() throws Exception {
         String chinese = read("app/src/main/res/values-zh-rCN/strings.xml");
 
