@@ -13,6 +13,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.net.Uri;
+import android.os.Build;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -227,8 +228,10 @@ public final class AppBranding {
                 .setIcon(icon)
                 .setIntent(launch)
                 .build();
-        if (ShortcutManagerCompat.isRequestPinShortcutSupported(activity)
-                && ShortcutManagerCompat.requestPinShortcut(activity, info, null)) return true;
+        if (ShortcutManagerCompat.isRequestPinShortcutSupported(activity)) {
+            return ShortcutManagerCompat.requestPinShortcut(activity, info, null);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) return false;
         return requestLegacyShortcut(activity, iconMode, getName(activity), launch);
     }
 

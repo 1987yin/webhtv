@@ -77,6 +77,13 @@ public class AppBrandingContractTest {
     }
 
     @Test
+    public void legacyShortcutFallbackIsPreOOnly() throws Exception {
+        String source = read("app/src/main/java/com/fongmi/android/tv/setting/AppBranding.java");
+
+        assertTrue(source.contains("if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) return false;"));
+    }
+
+    @Test
     public void mainManifestGrantsLegacyLauncherShortcutPermissions() throws Exception {
         String manifest = read("app/src/main/AndroidManifest.xml");
 
