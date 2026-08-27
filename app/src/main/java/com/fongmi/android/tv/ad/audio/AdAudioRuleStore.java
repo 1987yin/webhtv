@@ -101,7 +101,7 @@ public final class AdAudioRuleStore implements AdAudioRuleSource {
     }
 
     private AdAudioRuleSnapshot persist(String json) {
-        AudioFingerprintRuleSet ruleSet = AudioFingerprintRuleCodec.fromJson(json);
+        AudioFingerprintRuleSet ruleSet = decodeImport(json);
         String canonicalJson = AudioFingerprintRuleCodec.toJson(ruleSet);
         byte[] data = canonicalJson.getBytes(StandardCharsets.UTF_8);
         if (data.length > MAX_IMPORT_BYTES) throw new IllegalArgumentException("rule JSON is too large");
@@ -123,6 +123,20 @@ public final class AdAudioRuleStore implements AdAudioRuleSource {
             }
             throw new IllegalStateException("failed to persist ad audio rules", e);
         }
+    }
+
+    /**
+     * 导入同时接受本项目 SDK v2 规则和社区 Probe Rules v1 规则；两种格式都会被规范化成 v2 后落盘，
+     * 因此 {@link #parse(String)} 只需处理 v2。
+     *
+     * <p>两个 codec 都拒绝未知根字段，格式互斥，所以按 {@code format} 标记分流即可；分流猜错只会
+     * 得到一条解析失败，不会静默按错误算法匹配。
+     */
+    private static AudioFingerprintRuleSet decodeImport(String json) {
+        if (json.contains("\"" + ProbeRuleCodec.FORMAT + "\"")) {
+            return ProbeRuleCodec.fromJson(json).ruleSet();
+        }
+        return AudioFingerprintRuleCodec.fromJson(json);
     }
 
     private static AdAudioRuleSnapshot parse(String json) {
