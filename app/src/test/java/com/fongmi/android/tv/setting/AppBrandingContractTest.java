@@ -54,6 +54,24 @@ public class AppBrandingContractTest {
     }
 
     @Test
+    public void sharedBrandingLayoutUsesResourcesAvailableToBothFlavors() throws Exception {
+        String layout = read("app/src/main/res/layout/activity_app_branding.xml");
+
+        assertTrue(layout.contains("android:background=\"?attr/selectableItemBackground\""));
+        assertTrue(layout.contains("@drawable/ic_action_back"));
+        assertTrue(layout.contains("@drawable/ic_action_choose"));
+        assertTrue(!layout.contains("@drawable/selector_item"));
+        assertTrue(!layout.contains("@drawable/ic_detail_back"));
+    }
+
+    @Test
+    public void mobileManifestRegistersSharedBrandingActivity() throws Exception {
+        String mobile = read("app/src/mobile/AndroidManifest.xml");
+
+        assertTrue(mobile.contains("android:name=\".ui.activity.AppBrandingActivity\""));
+    }
+
+    @Test
     public void bothProductManifestsExposeOnlyAliasLauncherEntries() throws Exception {
         String mobile = read("app/src/mobile/AndroidManifest.xml");
         String leanback = read("app/src/leanback/AndroidManifest.xml");
