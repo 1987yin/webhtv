@@ -19,22 +19,6 @@
             app:title="@string/setting_app_branding"
             app:titleTextAppearance="@style/ToolbarTextAppearance" />
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/nameLayout"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="@string/app_branding_name_hint">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/name"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="textCapSentences"
-                android:maxLines="1" />
-
-        </com.google.android.material.textfield.TextInputLayout>
-
         <com.google.android.material.textview.MaterialTextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

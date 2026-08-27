@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class AppBrandingContractTest {
@@ -92,6 +93,24 @@ public class AppBrandingContractTest {
         assertTrue(layout.contains("@drawable/ic_action_choose"));
         assertTrue(!layout.contains("@drawable/selector_item"));
         assertTrue(!layout.contains("@drawable/ic_detail_back"));
+    }
+
+    @Test
+    public void sharedBrandingUiIsIconOnly() throws Exception {
+        String layout = read("app/src/main/res/layout/activity_app_branding.xml");
+
+        assertTrue(layout.contains("@string/app_branding_icon_select"));
+        assertFalse(layout.contains("@+id/nameLayout"));
+        assertFalse(layout.contains("@string/app_branding_name_hint"));
+        assertFalse(layout.contains("@string/app_branding_summary"));
+
+        String chinese = read("app/src/main/res/values-zh-rCN/strings.xml");
+
+        assertTrue(chinese.contains("<string name=\"setting_app_branding\">APP 图标</string>"));
+        assertTrue(chinese.contains("<string name=\"app_name\">默影视</string>"));
+        assertFalse(chinese.contains("app_name_history"));
+        assertFalse(chinese.contains("app_branding_summary"));
+        assertFalse(chinese.contains("app_branding_name_hint"));
     }
 
     @Test

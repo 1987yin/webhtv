@@ -6,8 +6,8 @@
    <string name="setting_app_branding">App name &amp; icon</string>
    <string name="app_branding_summary">%1$s · %2$s</string>
    <string name="app_branding_name_hint">App name (optional)</string>
-    <string name="app_branding_icon_current">MO TV (New)</string>
-    <string name="app_branding_icon_history">MO TV Original</string>
+    <string name="app_branding_icon_current">Default icon</string>
+    <string name="app_branding_icon_history">Original icon</string>
    <string name="app_branding_icon_custom">Custom icon</string>
    <string name="app_branding_icon_select">Select icon</string>
    <string name="app_branding_select_image">Choose image</string>
