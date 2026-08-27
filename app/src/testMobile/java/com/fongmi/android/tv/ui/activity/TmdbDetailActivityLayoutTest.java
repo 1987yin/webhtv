@@ -532,6 +532,18 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void colorfulDetailDoesNotKeepPlaybackServiceBoundBetweenEpisodeLaunches() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int method = source.indexOf("protected boolean shouldBindPlaybackService()");
+        int methodEnd = source.indexOf("private ", method + 1);
+        String body = method >= 0 && methodEnd > method ? source.substring(method, methodEnd) : "";
+
+        assertTrue("detail page must decide whether its mode owns an inline player", method >= 0);
+        assertTrue("colorful detail must leave PlaybackService ownership to each standalone VideoActivity",
+                body.contains("return isFusionMode() || isPlayerMode();"));
+    }
+
+    @Test
     public void inlinePlaybackPublishesViewingRecordLifecycle() throws Exception {
         String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
         int update = source.indexOf("private void updateInlineHistory(Episode item)");

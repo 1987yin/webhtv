@@ -4,7 +4,7 @@
 
 文档状态：进行中。本文按检查点持续落盘；未标记“已完成逐提交审阅”的仓库，不应据此直接升级依赖。
 
-当前恢复入口：以“稳定任务 ID 与唯一文档索引”及各任务文档顶部状态为准。完整逐提交审计已完成至检查点 43；`E1`、`E2-2`、`E-SP1` 已实施，`E-SP2` 候选已接入但仍待实机性能/seek 验收，`E-SP3` 已实施并纠正 `E-SP1` 的记载偏差（该任务声明不改超时，实际撤销了启播超时），下一项待评估任务是 `E2-1`。后续仍按 Exo → MPV 顺序处理；`C2` 默认暂缓，`C3` 随 `E7-2` 联合处理。
+当前恢复入口：以“稳定任务 ID 与唯一文档索引”及各任务文档顶部状态为准。完整逐提交审计已完成至检查点 43；`E1`、`E2-2`、`E-SP1`、`E2-1` 已实施，`E-SP2` 候选已接入但仍待实机性能/seek 验收，`E-SP3` 已实施并纠正 `E-SP1` 的记载偏差（该任务声明不改超时，实际撤销了启播超时）。下一项待评估任务是 `E3-1a`；后续仍按 Exo → MPV 顺序处理，`C2` 默认暂缓，`C3` 随 `E7-2` 联合处理。
 
 ## 稳定任务 ID 与唯一文档索引
 
@@ -27,8 +27,8 @@
 | 3 | `E-SP1` | Exo 性能 | 首帧已渲染时立即解除遮罩 | 已完成 | [E-SP1-exo-first-frame-visible.md](E-SP1-exo-first-frame-visible.md) |
 | 4 | `E-SP2` | Exo 性能 | 远程大 MKV 延后 Cues、首次 seek 按需建索引 | 候选已实现，待实机性能/seek 验收 | [E-SP2-exo-remote-mkv-deferred-cues.md](E-SP2-exo-remote-mkv-deferred-cues.md) |
 | 4.1 | `E-SP3` | Exo 性能 | BUFFERING 停滞看门狗（修 `E-SP1`/DV7 撤超时导致的永久转圈） | 已实施，待实机验收 | [E-SP3-exo-buffering-stall-watchdog.md](E-SP3-exo-buffering-stall-watchdog.md) |
-| 5 | `E2-1` | Exo | HDR/Dolby Vision parser safety | **下一项待评估/决策** | `docs/E2-1-exo-hdr-parser-safety.md` |
-| 6 | `E3-1a` | Exo | Pixel E-AC3 JOC capability guard | 待处理 | `docs/E3-1a-exo-pixel-eac3-joc-guard.md` |
+| 5 | `E2-1` | Exo | HDR/Dolby Vision parser safety | **已完成** | [E2-1-exo-hdr-parser-safety.md](E2-1-exo-hdr-parser-safety.md) |
+| 6 | `E3-1a` | Exo | Pixel E-AC3 JOC capability guard | **已实施，待实机验收** | [E3-1a-exo-pixel-eac3-joc-guard.md](E3-1a-exo-pixel-eac3-joc-guard.md) |
 | 7 | `E3-1b` | Exo | DTS 14-bit 解析 | 待处理 | `docs/E3-1b-exo-dts-14bit.md` |
 | 8 | `E4-1` | Exo | 字幕字节与边界安全 | 待处理 | `docs/E4-1-exo-subtitle-byte-safety.md` |
 | 9 | `E4-J1` | Exo | Cue 数据契约 | 待处理 | `docs/E4-J1-exo-cue-data-contract.md` |
@@ -45,7 +45,7 @@
 | 20 | `C2` | 通用 | FFmpeg DV7→P8.1 BSF | 暂缓；不自动启用 | `docs/C2-dv7-p81-bsf.md` |
 | 21 | `C3` | 通用 | ISO multi-extent App resolver | 随 `E7-2` 联合评估/实施 | `docs/C3-iso-multi-extent-resolver.md` |
 
-`C1` 是跨播放器真实输入验收维度，不单独形成代码任务或文档；它写入对应的 E/P 任务文档。当前下一项是 `E2-1`，开始前先创建其唯一文档并给出功能目标、收益、代价和是否建议合并的决策包。
+`C1` 是跨播放器真实输入验收维度，不单独形成代码任务或文档；它写入对应的 E/P 任务文档。`E2-1` 已完成；当前下一项是 `E3-1a`，开始前先更新其唯一文档并给出决策包，等待用户批准后再实施。
 
 ## 目标与决策顺序
 
@@ -4856,3 +4856,43 @@ C3 的触发来源主要是 media `990abc2368fd74779f525ee345734470659f3d53`（`
 - MPV：需要修正本地输出策略；问题与上游 FFmpeg C2 是否合并无关，先修 App gate，再做 native 回归。
 - Exo：根因已定位为“P8.1 静态能力误判 + 非真正 HDR10 fallback”；在 A/B 前不改网络超时、不擅自回滚 A1-2。
 - 本检查点没有新的代码 commit/tag；后续代码实施必须重新建立阶段基线并按本文件记录原子 commit 与恢复 tag。
+
+## 检查点 47：2026-08-26 fongmi-sync 最新头 E2-1 合并评估
+
+- `gh api repos/fish2018/webhtv/branches/fongmi-sync` 返回 `c410bf4f40a0ef7babb5b6281b97fa4bc621c24d`；相对共同祖先 `b2eccc357662065e02e49af4caff4c059cf508f3` 只有 `e19289a3c9871563f891500bdc2d42be6be23f3d` 与 `c410bf4f40a0ef7babb5b6281b97fa4bc621c24d` 两个提交。
+- 评估结论：实施 E2-1 窄适配；保留本地后续检查点、E2-2/C2/MPV 边界，不原样覆盖主评估文档。
+- 合并预演只发现主评估索引内容冲突；媒体脚本、锁、parser patch 和 container/extractor 产物没有三方冲突。
+- `e19289a3c9871563f891500bdc2d42be6be23f3d` 的上游验证声明尚待当前分支复核，不能提前视为本地验证结果。
+- checkpoint: E2-1 fongmi-sync head assessment complete
+- next: commit assessment record, then start implementation guard
+
+## 检查点 48：2026-08-26 E2-1 文档合并收尾
+
+- 本地三个实施单元及其 recovery tag 已完成；上游双亲内容已接入，当前三方冲突仅剩 E2-1 任务文档与本索引的状态收口。
+- 合并稿保留本地检查点 44--47、`E-SP3`、E2-2/C2/MPV 诊断边界，并吸收上游 E2-1 完成记录；脚本、锁、补丁和 Media3 产物未在本轮文档合并中修改。
+- checkpoint: E2-1 current-tree verification passed
+- next: create the two-parent merge commit and recovery tag
+
+## 检查点 50：2026-08-26 E2-1 双亲合并完成
+
+- 双亲合并提交 `af28547d965fb862a4b8d005abe0eac07fe5196a` 的父提交为本地实施头 `1e96933f5fdc35e2eec49c474f5e5552cba4dd7a` 与上游收尾头 `c410bf4f40a0ef7babb5b6281b97fa4bc621c24d`。
+- annotated recovery tag：`recovery/E2-1-sync-closeout/20260826131620-af28547d965f`；E2-1 状态更新为已完成。
+- checkpoint: E2-1 merge and recovery point complete
+- next: wait for approval before assessing E3-1a
+
+## 检查点 51：2026-08-27 E3-1a 实施与产物收尾
+
+- E3-1a 已按批准的窄取方案实施，源头为 `1066f642a64434e7c3c0be687d3e94a4ca2815d7`，只接入 Google/Pixel E-AC3 JOC fallback guard 和对应测试，不重复引入已被 fork 覆盖的多 alternative MIME 主体。
+- 实施提交为 `137fee9817be550391c1ec2054fc24840ad6a4b7` 与 `4d5127b609558db20d81a9e2f7efa9f38bca2874`，恢复标签分别为 `recovery/E3-1a-impl/20260826174024-137fee9817be` 和 `recovery/E3-1a-impl-metadata/20260826174413-4d5127b60955`。
+- `media3-exoplayer:1.11.0-alpha01-fongmi` AAR/sources、module/POM/metadata 已更新并通过摘要、lock、结构和发布元数据校验；构建为 JDK 21 下 474 task 成功。
+- E3-1a 状态改为“已实施，待实机验收”；尚未声称 Pixel 播放、非 Google 2D 降级或 FFmpeg PCM 接管已通过设备验收。
+- checkpoint: E3-1a implementation and artifact closeout recorded
+- 下一步：收集并执行 Google/Pixel 与非 Google 设备的 E-AC3 JOC 实机验收，之后再决定是否标记为完全完成。
+
+## 检查点 49：2026-08-26 E2-1 当前树验证
+
+- JDK 21 下 Mobile 与 Leanback arm64-v8a Debug Java 编译均成功，Gradle daemon 日志记录 `BUILD SUCCESSFUL in 6m 22s`。
+- 五个 Media3 patch 的 LF 规范化 SHA-256、container/extractor AAR 与 sources SHA-256 均与 `third_party/media-lock.json` 匹配；当前三方冲突已解除。
+- Media3 源 checkout 不在当前工作树，未重复运行其单元测试；既有 E2-1 文档记录的上游 JDK 21 定向测试结果保留为独立证据，不与本次 App 编译混同。
+- checkpoint: E2-1 current-tree verification passed
+- next: create the two-parent merge commit and recovery tag

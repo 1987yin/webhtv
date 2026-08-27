@@ -1369,6 +1369,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         setAnimator();
         initNightModeOverlay();
         if (isShortDramaSource()) enterShortDramaFullscreen();
+        if (hasPendingImmersiveAudioLaunch()) setAudioStageVisible(true);
         setupIntroSkipConfirmListener();
     }
 
@@ -1479,10 +1480,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private WindowInsetsCompat setStatusBar(WindowInsetsCompat insets) {
         int top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
-        int bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
-        ViewGroup.LayoutParams lp = mBinding.statusBar.getLayoutParams();
-        lp.height = top;
-        mBinding.statusBar.setLayoutParams(lp);
+        Insets nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
+        int bottom = nav.bottom;
+        mStatusBarInset = top;
+        mNavigationRightInset = nav.right;
+        applyStatusBarSpacer();
         setEpisodeBottomInset(bottom);
         return insets;
     }
@@ -1491,6 +1493,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mEpisodeBottomInset = bottom;
         int padding = ResUtil.dp2px(12);
         mBinding.episode.setPaddingRelative(mBinding.episode.getPaddingStart(), mBinding.episode.getPaddingTop(), mBinding.episode.getPaddingEnd(), padding);
+        applyAudioStageInsets();
         mBinding.episode.post(this::updateEpisodeViewportHeight);
     }
 
@@ -5517,6 +5520,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mAudioStageVisible = visible;
         syncPiPForPlaybackMode();
         if (!visible) mAudioLightEffectAnimated = false;
+        applyStatusBarSpacer();
+        applyAudioStageInsets();
         mBinding.audioStage.setVisibility(visible ? View.VISIBLE : View.GONE);
         if (visible) mBinding.audioStage.bringToFront();
         if (visible) applyAudioBackground();
@@ -9053,6 +9058,11 @@ private boolean consumePendingPlaybackResult() {
 private AudioPlaybackResolver.Resolved takeImmersiveAudioLaunch() {
         String cacheKey = Objects.toString(getIntent().getStringExtra(EXTRA_IMMERSIVE_AUDIO_CACHE_KEY), "");
         return TextUtils.isEmpty(cacheKey) ? null : IMMERSIVE_AUDIO_LAUNCHES.remove(cacheKey);
+    }
+
+    private boolean hasPendingImmersiveAudioLaunch() {
+        String cacheKey = Objects.toString(getIntent().getStringExtra(EXTRA_IMMERSIVE_AUDIO_CACHE_KEY), "");
+        return !TextUtils.isEmpty(cacheKey) && IMMERSIVE_AUDIO_LAUNCHES.containsKey(cacheKey);
     }
 
 private boolean consumeImmersiveAudioLaunch() {

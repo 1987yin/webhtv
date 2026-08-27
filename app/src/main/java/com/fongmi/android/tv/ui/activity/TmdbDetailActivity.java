@@ -631,6 +631,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     @Override
+    protected boolean shouldBindPlaybackService() {
+        return isFusionMode() || isPlayerMode();
+    }
+
+    @Override
     protected void initView(Bundle savedInstanceState) {
         inflateMobileInlineControl();
         super.initView(savedInstanceState);
