@@ -77,6 +77,21 @@ public final class AppBranding {
         return name.isEmpty() ? context.getString(R.string.app_name) : name;
     }
 
+    @NonNull
+    public static String getDisplayName(@NonNull Context context, @Nullable String homeName, @Nullable String configName) {
+        return resolveDisplayName(getCustomName(), homeName, configName, context.getString(R.string.app_name));
+    }
+
+    @NonNull
+    static String resolveDisplayName(@Nullable String customName, @Nullable String homeName,
+                                     @Nullable String configName, @NonNull String defaultName) {
+        String custom = normalizeName(customName);
+        if (!custom.isEmpty()) return custom;
+        if (homeName != null && !homeName.isEmpty()) return homeName;
+        if (configName != null && !configName.isEmpty()) return configName;
+        return defaultName;
+    }
+
     public static void putName(@Nullable String name) {
         Prefers.put(NAME_KEY, normalizeName(name));
     }
@@ -183,21 +198,54 @@ public final class AppBranding {
                 ? ALIAS_SUFFIX_HISTORY : ALIAS_SUFFIX_CURRENT);
     }
 
-    /** Requests a desktop shortcut for the custom icon/name pair. */
-    public static boolean requestCustomShortcut(@NonNull Activity activity) {
-        if (!hasCustomIcon(activity) || !ShortcutManagerCompat.isRequestPinShortcutSupported(activity)) return false;
-        Bitmap bitmap = loadCustomIcon(activity);
-        if (bitmap == null) return false;
+    public static boolean needsPinnedShortcut(@Nullable String customName, int iconMode) {
+        return !normalizeName(customName).isEmpty() || normalizeIconMode(iconMode) == ICON_CUSTOM;
+    }
 
-        Intent launch = new Intent(Intent.ACTION_MAIN)
-                .setComponent(new ComponentName(activity, HomeActivity.class));
+    public static int saveFeedbackResource(boolean shortcutNeeded, boolean shortcutAdded) {
+        return shortcutNeeded && !shortcutAdded ? R.string.app_branding_shortcut_unsupported : 0;
+    }
+
+    /** Requests a desktop shortcut when a dynamic name or icon cannot be represented by a manifest alias. */
+    public static boolean requestPinnedShortcut(@NonNull Activity activity) {
+        int iconMode = getIconMode(activity);
+        if (!needsPinnedShortcut(getCustomName(), iconMode)
+                || !ShortcutManagerCompat.isRequestPinShortcutSupported(activity)) return false;
+
+        IconCompat icon = shortcutIcon(activity, iconMode);
+        if (icon == null) return false;
+
+        Intent launch = launcherIntent(activity, iconMode);
         ShortcutInfoCompat info = new ShortcutInfoCompat.Builder(activity, CUSTOM_SHORTCUT_ID)
                 .setShortLabel(getName(activity))
                 .setLongLabel(getName(activity))
-                .setIcon(IconCompat.createWithBitmap(bitmap))
+                .setIcon(icon)
                 .setIntent(launch)
                 .build();
         return ShortcutManagerCompat.requestPinShortcut(activity, info, null);
+    }
+
+    @NonNull
+    public static Intent launcherIntent(@NonNull Context context) {
+        return launcherIntent(context, getIconMode(context));
+    }
+
+    @NonNull
+    private static Intent launcherIntent(@NonNull Context context, int iconMode) {
+        String alias = launcherAliasClassName(HomeActivity.class.getName(), iconMode);
+        return new Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_LAUNCHER)
+                .setComponent(new ComponentName(context.getPackageName(), alias));
+    }
+
+    @Nullable
+    private static IconCompat shortcutIcon(@NonNull Context context, int iconMode) {
+        if (iconMode == ICON_CUSTOM) {
+            Bitmap bitmap = loadCustomIcon(context);
+            return bitmap == null ? null : IconCompat.createWithBitmap(bitmap);
+        }
+        int resource = iconMode == ICON_HISTORY ? R.drawable.ic_launcher_history : R.mipmap.ic_launcher;
+        return IconCompat.createWithResource(context, resource);
     }
 
    private static void setComponentEnabled(@NonNull Context context, @NonNull String className, boolean enabled) {

@@ -100,27 +100,22 @@ public class AppBrandingActivity extends BaseActivity {
 
     private void save() {
         String name = mBinding.name.getText().toString().trim();
-        AppBranding.putName(name);
         if (selectedIconMode == AppBranding.ICON_CUSTOM && !AppBranding.hasCustomIcon(this)) {
             Notify.show(R.string.app_branding_image_required);
             return;
         }
+        AppBranding.putName(name);
         AppBranding.putIconMode(selectedIconMode);
-        // 切换桌面图标 alias
         AppBranding.applyLauncherIcon(this);
-        // 自定义图标额外请求添加桌面快捷方式
-        if (selectedIconMode == AppBranding.ICON_CUSTOM) {
-            boolean added = AppBranding.requestCustomShortcut(this);
-            if (!added) Notify.show(R.string.app_branding_shortcut_unsupported);
-        }
-       Notify.show(AppBranding.getSummary(this));
-       setResult(RESULT_OK);
-        // 重启 App 让名称和图标生效
-        Intent intent = getPackageManager().getLaunchIntentForPackage(getPackageName());
-        if (intent != null) {
-            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(intent);
-        }
+        boolean shortcutNeeded = AppBranding.needsPinnedShortcut(name, selectedIconMode);
+        boolean shortcutAdded = shortcutNeeded && AppBranding.requestPinnedShortcut(this);
+        int feedback = AppBranding.saveFeedbackResource(shortcutNeeded, shortcutAdded);
+        if (feedback == 0) Notify.show(AppBranding.getSummary(this));
+        else Notify.show(feedback);
+        setResult(RESULT_OK);
+        Intent intent = AppBranding.launcherIntent(this)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
         finish();
     }
 }

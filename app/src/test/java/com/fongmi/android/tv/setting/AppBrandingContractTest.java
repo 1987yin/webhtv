@@ -43,6 +43,38 @@ public class AppBrandingContractTest {
     }
 
     @Test
+    public void customNameTakesPriorityOverHomeAndConfigNames() {
+        assertEquals("Custom", AppBranding.resolveDisplayName("Custom", "Home", "Config", "Default"));
+        assertEquals("Home", AppBranding.resolveDisplayName("", "Home", "Config", "Default"));
+        assertEquals("Config", AppBranding.resolveDisplayName("", "", "Config", "Default"));
+        assertEquals("Default", AppBranding.resolveDisplayName("", "", "", "Default"));
+    }
+
+    @Test
+    public void dynamicLauncherShortcutIsNeededForCustomNameOrIcon() {
+        assertTrue(AppBranding.needsPinnedShortcut("Custom", AppBranding.ICON_CURRENT));
+        assertTrue(AppBranding.needsPinnedShortcut("", AppBranding.ICON_CUSTOM));
+        assertTrue(!AppBranding.needsPinnedShortcut("", AppBranding.ICON_CURRENT));
+        assertTrue(!AppBranding.needsPinnedShortcut("", AppBranding.ICON_HISTORY));
+    }
+
+    @Test
+    public void unsupportedPinnedShortcutFeedbackIsNotOverwritten() {
+        assertEquals(com.fongmi.android.tv.R.string.app_branding_shortcut_unsupported,
+                AppBranding.saveFeedbackResource(true, false));
+        assertEquals(0, AppBranding.saveFeedbackResource(true, true));
+        assertEquals(0, AppBranding.saveFeedbackResource(false, false));
+    }
+
+    @Test
+    public void chineseLauncherNamesDistinguishNewAndOriginalVersions() throws Exception {
+        String chinese = read("app/src/main/res/values-zh-rCN/strings.xml");
+
+        assertTrue(chinese.contains("<string name=\"app_name\">默影视新版</string>"));
+        assertTrue(chinese.contains("<string name=\"app_name_history\">影视原版</string>"));
+    }
+
+    @Test
     public void bothPersonalSettingsExposeAppBrandingEntry() throws Exception {
         String mobile = read("app/src/mobile/res/layout/fragment_setting_personal.xml");
         String leanback = read("app/src/leanback/res/layout/activity_setting_personal.xml");
