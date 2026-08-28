@@ -74,6 +74,13 @@
 - 本地提交包含补丁、构建脚本、lock、`media3-extractor` AAR/sources、module 元数据及 sidecar；module 内嵌摘要按实际 artifact 重新生成并通过定向校验。
 - `fish2018/fongmi-sync` 当前完整头为 `cafd4f69e613a5db49df5e38e762b6bf4fe58819`。三方预演的 `-X theirs` 目标树会删除本任务文档并回退已验证的 module 摘要和 Windows patch fallback，因此不采用该目标树。
 - 合并边界：保留当前 WebHTV 验证树，以 `fish2018/fongmi-sync` 作为真实双亲提交的第二父；不以合并动作重新覆盖已验证产物，也不引入上游未批准的其他功能树。
-- Next action：create and verify the fongmi-sync two-parent merge commit。
+- 双亲合并提交：`130eac99f735f47284106621bad4795281724786`；父提交为本地 `1cf029bc77f791f8b6b992a004704f1d93e8fa82` 与上游 `cafd4f69e613a5db49df5e38e762b6bf4fe58819`。
+- 合并恢复标签：`recovery/fongmi-sync-merge-closeout/20260828013239-130eac99f735`。
+- Next action：E3-1b closeout complete; proceed to E4-1 assessment。
 
 - Merge closeout preparation：将以 `fish2018/fongmi-sync@cafd4f69e613a5db49df5e38e762b6bf4fe58819` 为第二父创建 `ours` 双亲提交；当前验证树保持不变。
+
+## Checkpoint 2026-08-28: E3-1b merge completed
+
+- 双亲提交 `130eac99f735f47284106621bad4795281724786` 已创建并打恢复标签；相对第一父仅增加本合并准备记录，关键功能、lock 和 artifact 树保持已验证状态。
+- Next action：E3-1b closeout complete; proceed to E4-1 assessment。

@@ -4905,3 +4905,12 @@ C3 的触发来源主要是 media `990abc2368fd74779f525ee345734470659f3d53`（`
 - Media3 源 checkout 不在当前工作树，未重复运行其单元测试；既有 E2-1 文档记录的上游 JDK 21 定向测试结果保留为独立证据，不与本次 App 编译混同。
 - checkpoint: E2-1 current-tree verification passed
 - next: create the two-parent merge commit and recovery tag
+
+## 检查点 53：2026-08-28 E3-1b 双亲合并完成
+
+- E3-1b 已完成窄适配、定向测试/Java 编译、publication 元数据和 sidecar/lock 校验；本地原子提交为 `b75ba0a5ca6e3ecf2e494f308c0296496c5a2332`，文档收尾提交为 `1cf029bc77f791f8b6b992a004704f1d93e8fa82`。
+- 双亲合并提交为 `130eac99f735f47284106621bad4795281724786`，父提交为本地 `1cf029bc77f791f8b6b992a004704f1d93e8fa82` 与 `fish2018/fongmi-sync@cafd4f69e613a5db49df5e38e762b6bf4fe58819`；恢复标签为 `recovery/fongmi-sync-merge-closeout/20260828013239-130eac99f735`。
+- 合并采用 `ours` 策略以保留当前已验证 WebHTV 树；`-X theirs` 三方目标树会删除 E3-1b 唯一文档并回退 extractor module 摘要与 Windows patch fallback，因此未采用。最终合并后 `HEAD^1..HEAD` 仅有合并准备文档记录。
+- E3-1b 状态更新为已实施并完成当前代码/产物验证；真实厂商设备播放验收仍属于后续设备风险，不在本单元虚报为已通过。
+- checkpoint: E3-1b two-parent merge and recovery point complete
+- next: assess E4-1; do not modify E3-1b implementation artifacts
