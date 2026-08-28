@@ -74,7 +74,6 @@ import com.fongmi.android.tv.ui.presenter.ProgressPresenter;
 import com.fongmi.android.tv.ui.presenter.VodPresenter;
 import com.fongmi.android.tv.utils.Clock;
 import com.fongmi.android.tv.utils.FileChooser;
-import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
@@ -788,7 +787,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     }
 
     private void setLogo() {
-        ImgUtil.logo(mBinding.logo);
+        AppBranding.applyLogo(mBinding.logo, () -> VodConfig.get().getConfig().getLogo());
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)

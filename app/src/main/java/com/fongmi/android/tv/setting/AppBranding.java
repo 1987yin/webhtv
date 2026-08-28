@@ -14,15 +14,18 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.net.Uri;
 import android.os.Build;
+import android.widget.ImageView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.pm.ShortcutInfoCompat;
 import androidx.core.content.pm.ShortcutManagerCompat;
 import androidx.core.graphics.drawable.IconCompat;
+import androidx.core.util.Supplier;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.ui.activity.HomeActivity;
+import com.fongmi.android.tv.utils.ImgUtil;
 import com.github.catvod.utils.Prefers;
 
 import java.io.ByteArrayOutputStream;
@@ -149,6 +152,27 @@ public final class AppBranding {
     @NonNull
     public static String getSummary(@NonNull Context context) {
         return context.getString(iconLabelResource(getIconMode(context)));
+    }
+
+    /** Applies the selected launcher branding when no remote config logo is available. */
+    public static void applyLogo(@NonNull ImageView view, @Nullable Supplier<String> remoteLogo) {
+        String logo = remoteLogo == null ? null : remoteLogo.get();
+        if (logo != null && !logo.trim().isEmpty()) {
+            ImgUtil.logo(view, logo);
+            return;
+        }
+
+        int mode = getIconMode(view.getContext());
+        if (mode == ICON_CUSTOM) {
+            Bitmap bitmap = loadCustomIcon(view.getContext());
+            if (bitmap != null) {
+                view.setImageBitmap(bitmap);
+                return;
+            }
+            mode = ICON_CURRENT;
+        }
+        view.setImageResource(mode == ICON_HISTORY
+                ? R.drawable.ic_launcher_history : R.mipmap.ic_launcher);
     }
 
     public static int iconLabelResource(int mode) {
