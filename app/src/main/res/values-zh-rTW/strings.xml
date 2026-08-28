@@ -1,20 +1,17 @@
 <resources xmlns:xliff="http://schemas.android.com/apk/res-auto">
 
     <!-- App -->
-    <string name="app_name">默影視新版</string>
-    <string name="app_name_history">影視原版</string>
-   <string name="setting_app_branding">APP 名稱與圖示</string>
-   <string name="app_branding_summary">%1$s · %2$s</string>
-   <string name="app_branding_name_hint">APP 名稱（可選）</string>
-    <string name="app_branding_icon_current">默影視新版</string>
-    <string name="app_branding_icon_history">影視原版</string>
+    <string name="app_name">默影視</string>
+   <string name="setting_app_branding">APP 圖示</string>
+    <string name="app_branding_icon_current">預設圖示</string>
+    <string name="app_branding_icon_history">原始圖示</string>
    <string name="app_branding_icon_custom">自訂圖示</string>
     <string name="app_branding_icon_select">選擇圖示</string>
     <string name="app_branding_select_image">選擇圖片</string>
     <string name="app_branding_image_required">儲存前請先選擇自訂圖片。</string>
     <string name="app_branding_image_error">圖片無效或檔案過大。</string>
     <string name="app_branding_shortcut_hint">請確認系統視窗，將自訂圖示加入桌面。</string>
-    <string name="app_branding_shortcut_unsupported">目前桌面不支援固定捷徑，名稱和圖片仍會儲存供應用程式內使用。</string>
+    <string name="app_branding_shortcut_unsupported">目前桌面不支援固定捷徑，圖片僅會儲存供應用程式內使用。</string>
     <string name="app_exit_confirm">再按一次退出應用</string>
 
     <!-- Live -->

@@ -105,12 +105,24 @@ public class AppBrandingContractTest {
         assertFalse(layout.contains("@string/app_branding_summary"));
 
         String chinese = read("app/src/main/res/values-zh-rCN/strings.xml");
+        String english = read("app/src/main/res/values/strings.xml");
+        String traditional = read("app/src/main/res/values-zh-rTW/strings.xml");
 
+        assertTrue(english.contains("<string name=\"setting_app_branding\">App icon</string>"));
         assertTrue(chinese.contains("<string name=\"setting_app_branding\">APP 图标</string>"));
+        assertTrue(traditional.contains("<string name=\"setting_app_branding\">APP 圖示</string>"));
         assertTrue(chinese.contains("<string name=\"app_name\">默影视</string>"));
+        assertTrue(english.contains("<string name=\"app_name\">默影视</string>"));
+        assertTrue(traditional.contains("<string name=\"app_name\">默影視</string>"));
         assertFalse(chinese.contains("app_name_history"));
+        assertFalse(english.contains("app_name_history"));
+        assertFalse(traditional.contains("app_name_history"));
         assertFalse(chinese.contains("app_branding_summary"));
         assertFalse(chinese.contains("app_branding_name_hint"));
+        assertFalse(english.contains("app_branding_summary"));
+        assertFalse(english.contains("app_branding_name_hint"));
+        assertFalse(traditional.contains("app_branding_summary"));
+        assertFalse(traditional.contains("app_branding_name_hint"));
     }
 
     @Test
