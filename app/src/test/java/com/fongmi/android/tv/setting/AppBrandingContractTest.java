@@ -157,11 +157,20 @@ public class AppBrandingContractTest {
     }
 
     @Test
-    public void leanbackStartupWindowFollowsSelectedIcon() throws Exception {
-        String manifest = read("app/src/leanback/AndroidManifest.xml");
-        String styles = read("app/src/leanback/res/values/styles.xml");
+    public void startupWindowFollowsSelectedIcon() throws Exception {
         String current = read("app/src/main/res/drawable/startup_window_current.xml");
         String history = read("app/src/main/res/drawable/startup_window_history.xml");
+
+        assertTrue(current.contains("@drawable/ic_logo"));
+        assertTrue(history.contains("@drawable/ic_launcher_history"));
+
+        assertStartupWindow("leanback");
+        assertStartupWindow("mobile");
+    }
+
+    private static void assertStartupWindow(String flavor) throws Exception {
+        String manifest = read("app/src/" + flavor + "/AndroidManifest.xml");
+        String styles = read("app/src/" + flavor + "/res/values/styles.xml");
 
         // An activity-alias cannot declare android:theme, so each branding needs a real entry.
         assertFalse(manifest.contains("activity-alias"));
@@ -174,9 +183,6 @@ public class AppBrandingContractTest {
         assertTrue(styles.contains("@drawable/startup_window_current"));
         assertTrue(styles.contains("@drawable/startup_window_history"));
         assertTrue(styles.contains("<style name=\"Theme.App.Startup\""));
-
-        assertTrue(current.contains("@drawable/ic_logo"));
-        assertTrue(history.contains("@drawable/ic_launcher_history"));
     }
 
     @Test
@@ -197,7 +203,6 @@ public class AppBrandingContractTest {
         assertTrue(manifest.contains("android:enabled=\"true\""));
         assertTrue(manifest.contains("android:enabled=\"false\""));
         if (leanback) assertTrue(manifest.contains("android.intent.category.LEANBACK_LAUNCHER"));
-        else assertTrue(manifest.contains("android:targetActivity=\".ui.activity.HomeActivity\""));
     }
 
     private static String read(String relative) throws Exception {

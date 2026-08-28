@@ -24,7 +24,7 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:screenOrientation="fullUser"
-            android:theme="@style/Theme.Splash"
+            android:theme="@style/Theme.App.Startup"
             android:windowSoftInputMode="adjustPan">
             <intent-filter>
                 <action android:name="android.intent.action.SEARCH" />
@@ -77,33 +77,35 @@
             </intent-filter>
         </activity>
 
-        <activity-alias
+        <activity
             android:name=".ui.activity.HomeActivityCurrent"
             android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:label="@string/app_name"
             android:roundIcon="@mipmap/ic_launcher_round"
-            android:targetActivity=".ui.activity.HomeActivity">
+            android:screenOrientation="fullUser"
+            android:theme="@style/Theme.Splash.Current">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity-alias>
+        </activity>
 
-        <activity-alias
+        <activity
             android:name=".ui.activity.HomeActivityHistory"
             android:enabled="false"
             android:exported="true"
             android:icon="@drawable/ic_launcher_history"
             android:label="@string/app_name"
             android:roundIcon="@drawable/ic_launcher_history"
-            android:targetActivity=".ui.activity.HomeActivity">
+            android:screenOrientation="fullUser"
+            android:theme="@style/Theme.Splash.History">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity-alias>
+        </activity>
 
         <activity
             android:name=".ui.activity.SearchActivity"
