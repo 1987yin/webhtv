@@ -143,12 +143,12 @@ public class AppBrandingContractTest {
     }
 
     @Test
-    public void bothProductManifestsExposeOnlyAliasLauncherEntries() throws Exception {
+    public void bothProductManifestsExposeExactlyTwoLauncherEntries() throws Exception {
         String mobile = read("app/src/mobile/AndroidManifest.xml");
         String leanback = read("app/src/leanback/AndroidManifest.xml");
 
-        assertLauncherAliases(mobile, false);
-        assertLauncherAliases(leanback, true);
+        assertLauncherEntries(mobile, false);
+        assertLauncherEntries(leanback, true);
 
         assertEquals(2, countOccurrences(mobile, "android:label=\"@string/app_name\""));
         assertEquals(2, countOccurrences(leanback, "android:label=\"@string/app_name\""));
@@ -156,13 +156,48 @@ public class AppBrandingContractTest {
         assertEquals(0, countOccurrences(leanback, "@string/app_name_history"));
     }
 
-    private static void assertLauncherAliases(String manifest, boolean leanback) {
+    @Test
+    public void leanbackStartupWindowFollowsSelectedIcon() throws Exception {
+        String manifest = read("app/src/leanback/AndroidManifest.xml");
+        String styles = read("app/src/leanback/res/values/styles.xml");
+        String current = read("app/src/main/res/drawable/startup_window_current.xml");
+        String history = read("app/src/main/res/drawable/startup_window_history.xml");
+
+        // An activity-alias cannot declare android:theme, so each branding needs a real entry.
+        assertFalse(manifest.contains("activity-alias"));
+        assertTrue(manifest.contains("android:theme=\"@style/Theme.Splash.Current\""));
+        assertTrue(manifest.contains("android:theme=\"@style/Theme.Splash.History\""));
+        assertTrue(manifest.contains("android:theme=\"@style/Theme.App.Startup\""));
+
+        assertTrue(styles.contains("<style name=\"Theme.Splash.Current\""));
+        assertTrue(styles.contains("<style name=\"Theme.Splash.History\""));
+        assertTrue(styles.contains("@drawable/startup_window_current"));
+        assertTrue(styles.contains("@drawable/startup_window_history"));
+        assertTrue(styles.contains("<style name=\"Theme.App.Startup\""));
+
+        assertTrue(current.contains("@drawable/ic_logo"));
+        assertTrue(history.contains("@drawable/ic_launcher_history"));
+    }
+
+    @Test
+    public void brandLauncherEntriesHandOffToHome() throws Exception {
+        String base = read("app/src/main/java/com/fongmi/android/tv/ui/activity/BrandLauncherActivity.java");
+        String current = read("app/src/main/java/com/fongmi/android/tv/ui/activity/HomeActivityCurrent.java");
+        String history = read("app/src/main/java/com/fongmi/android/tv/ui/activity/HomeActivityHistory.java");
+
+        assertTrue(base.contains("startActivity(new Intent(this, HomeActivity.class));"));
+        assertTrue(base.contains("finish();"));
+        assertTrue(current.contains("extends BrandLauncherActivity"));
+        assertTrue(history.contains("extends BrandLauncherActivity"));
+    }
+
+    private static void assertLauncherEntries(String manifest, boolean leanback) {
         assertTrue(manifest.contains(".ui.activity.HomeActivityCurrent"));
         assertTrue(manifest.contains(".ui.activity.HomeActivityHistory"));
-        assertTrue(manifest.contains("android:targetActivity=\".ui.activity.HomeActivity\""));
         assertTrue(manifest.contains("android:enabled=\"true\""));
         assertTrue(manifest.contains("android:enabled=\"false\""));
         if (leanback) assertTrue(manifest.contains("android.intent.category.LEANBACK_LAUNCHER"));
+        else assertTrue(manifest.contains("android:targetActivity=\".ui.activity.HomeActivity\""));
     }
 
     private static String read(String relative) throws Exception {

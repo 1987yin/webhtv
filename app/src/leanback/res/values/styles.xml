@@ -13,6 +13,20 @@
         <item name="android:windowBackground">@drawable/startup_window_background</item>
     </style>
 
+    <!-- 启动窗口必须跟随所选图标，别名无法带主题，所以每个品牌各有一个真实入口 -->
+    <style name="Theme.Splash.Current" parent="Theme.Base">
+        <item name="android:windowBackground">@drawable/startup_window_current</item>
+    </style>
+
+    <style name="Theme.Splash.History" parent="Theme.Base">
+        <item name="android:windowBackground">@drawable/startup_window_history</item>
+    </style>
+
+    <!-- Home 的启动窗口只用启动图底色，避免中转入口交接时出现黑帧 -->
+    <style name="Theme.App.Startup" parent="Theme.Base">
+        <item name="android:windowBackground">@color/startup_background</item>
+    </style>
+
     <style name="Theme.App" parent="Theme.Base" />
 
     <style name="Theme.Crash" parent="Theme.Base">
