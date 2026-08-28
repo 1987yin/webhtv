@@ -35,7 +35,7 @@ public class AppBrandingContractTest {
 
     @Test
     public void dynamicLauncherShortcutIsNeededForCustomIconOnly() {
-        assertTrue(AppBranding.needsPinnedShortcut(AppBranding.ICON_CUSTOM));
+        assertFalse(AppBranding.needsPinnedShortcut(AppBranding.ICON_CUSTOM));
         assertTrue(!AppBranding.needsPinnedShortcut(AppBranding.ICON_CURRENT));
         assertTrue(!AppBranding.needsPinnedShortcut(AppBranding.ICON_HISTORY));
     }
@@ -90,10 +90,16 @@ public class AppBrandingContractTest {
         String home = read("app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java");
 
         assertTrue(appBranding.contains("public static void applyLogo(@NonNull ImageView view)"));
-        assertTrue(appBranding.contains("Glide.with(view).clear(view);"));
+        assertTrue(appBranding.contains("Glide.with(view).load(circularBitmap(cropVisibleSquare(bitmap)))"));
+        assertTrue(appBranding.contains("private static Bitmap cropVisibleSquare(@NonNull Bitmap bitmap)"));
+        assertTrue(appBranding.contains("bitmap.getPixels(pixels, 0, width, 0, 0, width, height);"));
+        assertTrue(appBranding.contains("int contentWidth = maxX - minX + 1;"));
+        assertTrue(appBranding.contains("private static Bitmap circularBitmap(@NonNull Bitmap source)"));
+        assertTrue(appBranding.contains("new BitmapShader(square, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)"));
+        assertTrue(appBranding.contains("canvas.drawCircle(center, center, center, paint);"));
         assertFalse(appBranding.contains("ImgUtil.logo(view, logo);"));
         assertTrue(appBranding.contains("Bitmap bitmap = loadCustomIcon(view.getContext());"));
-        assertTrue(appBranding.contains("view.setImageResource(mode == ICON_HISTORY"));
+        assertTrue(appBranding.contains("Glide.with(view).asBitmap().load(resource)"));
         assertTrue(appBranding.contains("R.mipmap.ic_launcher"));
         assertTrue(appBranding.contains("R.drawable.ic_launcher_history"));
         assertTrue(home.contains("AppBranding.applyLogo(mBinding.logo);"));

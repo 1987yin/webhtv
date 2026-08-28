@@ -9,9 +9,12 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.Shader;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.widget.ImageView;
@@ -23,6 +26,8 @@ import androidx.core.content.pm.ShortcutManagerCompat;
 import androidx.core.graphics.drawable.IconCompat;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.request.transition.Transition;
+import com.bumptech.glide.request.target.CustomTarget;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.ui.activity.HomeActivity;
 import com.github.catvod.utils.Prefers;
@@ -130,15 +135,16 @@ public final class AppBranding {
             Bitmap source = BitmapFactory.decodeByteArray(data, 0, data.length, options);
             if (source == null) return false;
 
+            int side = Math.min(source.getWidth(), source.getHeight());
+            int left = (source.getWidth() - side) / 2;
+            int top = (source.getHeight() - side) / 2;
+            Bitmap square = Bitmap.createBitmap(source, left, top, side, side);
             Bitmap normalized = Bitmap.createBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(normalized);
-            float scale = Math.min((float) ICON_SIZE / source.getWidth(), (float) ICON_SIZE / source.getHeight());
-            float width = source.getWidth() * scale;
-            float height = source.getHeight() * scale;
-            RectF destination = new RectF((ICON_SIZE - width) / 2, (ICON_SIZE - height) / 2,
-                    (ICON_SIZE + width) / 2, (ICON_SIZE + height) / 2);
-            canvas.drawBitmap(source, null, destination, new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG));
+            canvas.drawBitmap(square, null, new RectF(0, 0, ICON_SIZE, ICON_SIZE),
+                    new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG));
             source.recycle();
+            square.recycle();
 
             boolean written = writeCustomIcon(context, normalized);
             normalized.recycle();
@@ -155,18 +161,29 @@ public final class AppBranding {
 
     /** Applies the selected launcher branding to the in-app home logo. */
     public static void applyLogo(@NonNull ImageView view) {
-        Glide.with(view).clear(view);
         int mode = getIconMode(view.getContext());
         if (mode == ICON_CUSTOM) {
             Bitmap bitmap = loadCustomIcon(view.getContext());
             if (bitmap != null) {
-                view.setImageBitmap(bitmap);
+                Glide.with(view).load(circularBitmap(cropVisibleSquare(bitmap)))
+                        .dontTransform()
+                        .into(view);
                 return;
             }
             mode = ICON_CURRENT;
         }
-        view.setImageResource(mode == ICON_HISTORY
-                ? R.drawable.ic_launcher_history : R.mipmap.ic_launcher);
+        int resource = mode == ICON_HISTORY ? R.drawable.ic_launcher_history : R.mipmap.ic_launcher;
+        Glide.with(view).asBitmap().load(resource).into(new CustomTarget<Bitmap>() {
+            @Override
+            public void onResourceReady(@NonNull Bitmap bitmap,
+                                        @Nullable Transition<? super Bitmap> transition) {
+                Glide.with(view).load(circularBitmap(bitmap)).dontTransform().into(view);
+            }
+
+            @Override
+            public void onLoadCleared(@Nullable Drawable placeholder) {
+            }
+        });
     }
 
     public static int iconLabelResource(int mode) {
@@ -191,7 +208,8 @@ public final class AppBranding {
     }
 
     public static boolean needsPinnedShortcut(int iconMode) {
-        return normalizeIconMode(iconMode) == ICON_CUSTOM;
+        // Custom bitmaps are in-app branding only; manifest aliases always use built-in icons.
+        return false;
     }
 
     public static int saveFeedbackResource(boolean shortcutNeeded, boolean shortcutAdded) {
@@ -307,6 +325,49 @@ public final class AppBranding {
     private static boolean validBounds(int width, int height) {
         return width > 0 && height > 0 && width <= MAX_ICON_DIMENSION && height <= MAX_ICON_DIMENSION
                 && (long) width * height <= (long) MAX_ICON_DIMENSION * MAX_ICON_DIMENSION;
+    }
+
+    private static Bitmap cropVisibleSquare(@NonNull Bitmap bitmap) {
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        int[] pixels = new int[width * height];
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+        int minX = width;
+        int minY = height;
+        int maxX = -1;
+        int maxY = -1;
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                if ((pixels[y * width + x] >>> 24) == 0) continue;
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+            }
+        }
+        if (maxX < 0) return bitmap;
+        int contentWidth = maxX - minX + 1;
+        int contentHeight = maxY - minY + 1;
+        int side = Math.min(contentWidth, contentHeight);
+        int left = minX + (contentWidth - side) / 2;
+        int top = minY + (contentHeight - side) / 2;
+        return Bitmap.createBitmap(bitmap, left, top, side, side);
+    }
+
+    private static Bitmap circularBitmap(@NonNull Bitmap source) {
+        int side = Math.min(source.getWidth(), source.getHeight());
+        int left = (source.getWidth() - side) / 2;
+        int top = (source.getHeight() - side) / 2;
+        Bitmap square = Bitmap.createBitmap(source, left, top, side, side);
+        Bitmap output = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(output);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        paint.setShader(new BitmapShader(square, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP));
+        float center = side / 2f;
+        canvas.drawCircle(center, center, center, paint);
+        paint.setShader(null);
+        if (square != source) square.recycle();
+        return output;
     }
 
     @NonNull
