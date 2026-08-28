@@ -5,13 +5,7 @@
    <string name="setting_app_branding">APP 图标</string>
     <string name="app_branding_icon_current">默认图标</string>
     <string name="app_branding_icon_history">原版图标</string>
-   <string name="app_branding_icon_custom">自定义图标</string>
     <string name="app_branding_icon_select">选择图标</string>
-    <string name="app_branding_select_image">选择图片</string>
-    <string name="app_branding_image_required">保存前请先选择自定义图片。</string>
-    <string name="app_branding_image_error">图片无效或文件过大。</string>
-    <string name="app_branding_shortcut_hint">请确认系统弹窗，将自定义图标添加到桌面。</string>
-    <string name="app_branding_shortcut_unsupported">当前桌面不支持固定快捷方式，图片仅会保存供应用内使用。</string>
     <string name="app_exit_confirm">再按一次退出应用</string>
 
     <!-- Live -->

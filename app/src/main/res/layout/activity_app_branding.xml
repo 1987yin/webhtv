@@ -32,7 +32,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:orientation="horizontal"
-            android:weightSum="3">
+            android:weightSum="2">
 
             <androidx.appcompat.widget.LinearLayoutCompat
                 android:id="@+id/iconCurrent"
@@ -94,57 +94,7 @@
 
             </androidx.appcompat.widget.LinearLayoutCompat>
 
-            <androidx.appcompat.widget.LinearLayoutCompat
-                android:id="@+id/iconCustom"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:background="?attr/selectableItemBackground"
-                android:focusable="true"
-                android:focusableInTouchMode="true"
-                android:gravity="center"
-                android:orientation="vertical"
-                android:padding="12dp">
-
-                <androidx.appcompat.widget.AppCompatImageView
-                    android:id="@+id/iconCustomPreview"
-                    android:layout_width="64dp"
-                    android:layout_height="64dp"
-                    android:contentDescription="@string/app_branding_icon_custom"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_action_choose" />
-
-                <com.google.android.material.textview.MaterialTextView
-                    android:id="@+id/iconCustomText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/app_branding_icon_custom"
-                    android:textColor="@color/white"
-                    android:textSize="14sp" />
-
-            </androidx.appcompat.widget.LinearLayoutCompat>
-
         </androidx.appcompat.widget.LinearLayoutCompat>
-
-        <androidx.appcompat.widget.AppCompatImageView
-            android:id="@+id/customPreview"
-            android:layout_width="120dp"
-            android:layout_height="120dp"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="20dp"
-            android:contentDescription="@string/app_branding_icon_custom"
-            android:scaleType="fitCenter"
-            android:visibility="gone" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/selectImage"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="12dp"
-            android:text="@string/app_branding_select_image"
-            app:icon="@drawable/ic_action_choose" />
 
         <androidx.appcompat.widget.LinearLayoutCompat
             android:layout_width="match_parent"

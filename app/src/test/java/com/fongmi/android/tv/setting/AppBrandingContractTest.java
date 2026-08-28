@@ -18,7 +18,7 @@ public class AppBrandingContractTest {
         assertEquals(AppBranding.ICON_CURRENT, AppBranding.normalizeIconMode(99));
         assertEquals(AppBranding.ICON_CURRENT, AppBranding.normalizeIconMode(AppBranding.ICON_CURRENT));
         assertEquals(AppBranding.ICON_HISTORY, AppBranding.normalizeIconMode(AppBranding.ICON_HISTORY));
-        assertEquals(AppBranding.ICON_CUSTOM, AppBranding.normalizeIconMode(AppBranding.ICON_CUSTOM));
+        assertEquals(AppBranding.ICON_CURRENT, AppBranding.normalizeIconMode(2));
     }
 
     @Test
@@ -30,47 +30,7 @@ public class AppBrandingContractTest {
         assertEquals(homeActivity + "History",
                 AppBranding.launcherAliasClassName(homeActivity, AppBranding.ICON_HISTORY));
         assertEquals(homeActivity + "Current",
-                AppBranding.launcherAliasClassName(homeActivity, AppBranding.ICON_CUSTOM));
-    }
-
-    @Test
-    public void dynamicLauncherShortcutIsNeededForCustomIconOnly() {
-        assertFalse(AppBranding.needsPinnedShortcut(AppBranding.ICON_CUSTOM));
-        assertTrue(!AppBranding.needsPinnedShortcut(AppBranding.ICON_CURRENT));
-        assertTrue(!AppBranding.needsPinnedShortcut(AppBranding.ICON_HISTORY));
-    }
-
-    @Test
-    public void unsupportedPinnedShortcutFeedbackIsNotOverwritten() {
-        assertEquals(com.fongmi.android.tv.R.string.app_branding_shortcut_unsupported,
-                AppBranding.saveFeedbackResource(true, false));
-        assertEquals(0, AppBranding.saveFeedbackResource(true, true));
-        assertEquals(0, AppBranding.saveFeedbackResource(false, false));
-    }
-
-    @Test
-    public void launcherNameHasLegacyShortcutFallback() throws Exception {
-        String source = read("app/src/main/java/com/fongmi/android/tv/setting/AppBranding.java");
-
-        assertTrue(source.contains("com.android.launcher.action.INSTALL_SHORTCUT"));
-        assertTrue(source.contains("Intent.EXTRA_SHORTCUT_NAME"));
-        assertTrue(source.contains("queryBroadcastReceivers(intent, 0)"));
-        assertTrue(source.contains("sendBroadcast"));
-    }
-
-    @Test
-    public void legacyShortcutFallbackIsPreOOnly() throws Exception {
-        String source = read("app/src/main/java/com/fongmi/android/tv/setting/AppBranding.java");
-
-        assertTrue(source.contains("if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) return false;"));
-    }
-
-    @Test
-    public void mainManifestGrantsLegacyLauncherShortcutPermissions() throws Exception {
-        String manifest = read("app/src/main/AndroidManifest.xml");
-
-        assertTrue(manifest.contains("com.android.launcher.permission.INSTALL_SHORTCUT"));
-        assertTrue(manifest.contains("com.android.launcher.permission.UNINSTALL_SHORTCUT"));
+                AppBranding.launcherAliasClassName(homeActivity, 2));
     }
 
     @Test
@@ -90,16 +50,10 @@ public class AppBrandingContractTest {
         String home = read("app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java");
 
         assertTrue(appBranding.contains("public static void applyLogo(@NonNull ImageView view)"));
-        assertTrue(appBranding.contains("Glide.with(view).load(circularBitmap(cropVisibleSquare(bitmap)))"));
-        assertTrue(appBranding.contains("private static Bitmap cropVisibleSquare(@NonNull Bitmap bitmap)"));
-        assertTrue(appBranding.contains("bitmap.getPixels(pixels, 0, width, 0, 0, width, height);"));
-        assertTrue(appBranding.contains("int contentWidth = maxX - minX + 1;"));
-        assertTrue(appBranding.contains("private static Bitmap circularBitmap(@NonNull Bitmap source)"));
-        assertTrue(appBranding.contains("new BitmapShader(square, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)"));
-        assertTrue(appBranding.contains("canvas.drawCircle(center, center, center, paint);"));
-        assertFalse(appBranding.contains("ImgUtil.logo(view, logo);"));
-        assertTrue(appBranding.contains("Bitmap bitmap = loadCustomIcon(view.getContext());"));
-        assertTrue(appBranding.contains("Glide.with(view).asBitmap().load(resource)"));
+        assertTrue(appBranding.contains("Glide.with(view).load(resource).circleCrop().into(view);"));
+        assertFalse(appBranding.contains("ICON_CUSTOM"));
+        assertFalse(appBranding.contains("Shortcut"));
+        assertFalse(appBranding.contains("CustomIcon"));
         assertTrue(appBranding.contains("R.mipmap.ic_launcher"));
         assertTrue(appBranding.contains("R.drawable.ic_launcher_history"));
         assertTrue(home.contains("AppBranding.applyLogo(mBinding.logo);"));
@@ -112,7 +66,6 @@ public class AppBrandingContractTest {
 
         assertTrue(layout.contains("android:background=\"?attr/selectableItemBackground\""));
         assertTrue(layout.contains("@drawable/ic_action_back"));
-        assertTrue(layout.contains("@drawable/ic_action_choose"));
         assertTrue(!layout.contains("@drawable/selector_item"));
         assertTrue(!layout.contains("@drawable/ic_detail_back"));
     }
@@ -122,6 +75,9 @@ public class AppBrandingContractTest {
         String layout = read("app/src/main/res/layout/activity_app_branding.xml");
 
         assertTrue(layout.contains("@string/app_branding_icon_select"));
+        assertFalse(layout.contains("iconCustom"));
+        assertFalse(layout.contains("selectImage"));
+        assertFalse(layout.contains("customPreview"));
         assertFalse(layout.contains("@+id/nameLayout"));
         assertFalse(layout.contains("@string/app_branding_name_hint"));
         assertFalse(layout.contains("@string/app_branding_summary"));
@@ -145,6 +101,21 @@ public class AppBrandingContractTest {
         assertFalse(english.contains("app_branding_name_hint"));
         assertFalse(traditional.contains("app_branding_summary"));
         assertFalse(traditional.contains("app_branding_name_hint"));
+    }
+
+    @Test
+    public void customIconFeatureIsRemoved() throws Exception {
+        String source = read("app/src/main/java/com/fongmi/android/tv/setting/AppBranding.java");
+        String activity = read("app/src/main/java/com/fongmi/android/tv/ui/activity/AppBrandingActivity.java");
+        String manifest = read("app/src/main/AndroidManifest.xml");
+
+        assertFalse(source.contains("ICON_CUSTOM"));
+        assertFalse(source.contains("Shortcut"));
+        assertFalse(source.contains("CustomIcon"));
+        assertFalse(activity.contains("imagePicker"));
+        assertFalse(activity.contains("iconCustom"));
+        assertFalse(manifest.contains("INSTALL_SHORTCUT"));
+        assertFalse(manifest.contains("UNINSTALL_SHORTCUT"));
     }
 
     @Test

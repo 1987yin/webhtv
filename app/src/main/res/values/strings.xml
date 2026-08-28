@@ -5,13 +5,7 @@
    <string name="setting_app_branding">App icon</string>
     <string name="app_branding_icon_current">Default icon</string>
     <string name="app_branding_icon_history">Original icon</string>
-   <string name="app_branding_icon_custom">Custom icon</string>
    <string name="app_branding_icon_select">Select icon</string>
-   <string name="app_branding_select_image">Choose image</string>
-    <string name="app_branding_image_required">Choose a custom image before saving.</string>
-    <string name="app_branding_image_error">This image is invalid or too large.</string>
-    <string name="app_branding_shortcut_hint">Confirm the system dialog to add the custom icon to your home screen.</string>
-    <string name="app_branding_shortcut_unsupported">This launcher does not support pinned shortcuts. The image is saved for in-app use only.</string>
     <string name="app_exit_confirm">Press back again to exit</string>
 
     <!-- Live -->

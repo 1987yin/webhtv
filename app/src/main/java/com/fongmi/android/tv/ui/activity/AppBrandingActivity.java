@@ -2,13 +2,9 @@ package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.net.Uri;
 import android.os.Bundle;
-import android.view.View;
 import android.widget.TextView;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.widget.LinearLayoutCompat;
 import androidx.viewbinding.ViewBinding;
 
@@ -16,14 +12,11 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.ActivityAppBrandingBinding;
 import com.fongmi.android.tv.setting.AppBranding;
 import com.fongmi.android.tv.ui.base.BaseActivity;
-import com.fongmi.android.tv.utils.Notify;
 
 public class AppBrandingActivity extends BaseActivity {
 
     private ActivityAppBrandingBinding mBinding;
     private int selectedIconMode;
-    private final ActivityResultLauncher<String> imagePicker =
-            registerForActivityResult(new ActivityResultContracts.GetContent(), this::onImagePicked);
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, AppBrandingActivity.class));
@@ -38,7 +31,6 @@ public class AppBrandingActivity extends BaseActivity {
     protected void initView(Bundle savedInstanceState) {
         selectedIconMode = AppBranding.getIconMode(this);
         updateSelection();
-        updateCustomPreview();
         mBinding.toolbar.setNavigationOnClickListener(v -> finish());
     }
 
@@ -46,8 +38,6 @@ public class AppBrandingActivity extends BaseActivity {
     protected void initEvent() {
         mBinding.iconCurrent.setOnClickListener(v -> selectIcon(AppBranding.ICON_CURRENT));
         mBinding.iconHistory.setOnClickListener(v -> selectIcon(AppBranding.ICON_HISTORY));
-        mBinding.iconCustom.setOnClickListener(v -> selectIcon(AppBranding.ICON_CUSTOM));
-        mBinding.selectImage.setOnClickListener(v -> imagePicker.launch("image/*"));
         mBinding.cancel.setOnClickListener(v -> finish());
         mBinding.save.setOnClickListener(v -> save());
     }
@@ -55,16 +45,11 @@ public class AppBrandingActivity extends BaseActivity {
     private void selectIcon(int mode) {
         selectedIconMode = mode;
         updateSelection();
-        if (mode == AppBranding.ICON_CUSTOM && !AppBranding.hasCustomIcon(this)) {
-            imagePicker.launch("image/*");
-        }
-        updateCustomPreview();
     }
 
     private void updateSelection() {
         setSelected(mBinding.iconCurrent, mBinding.iconCurrentText, selectedIconMode == AppBranding.ICON_CURRENT);
         setSelected(mBinding.iconHistory, mBinding.iconHistoryText, selectedIconMode == AppBranding.ICON_HISTORY);
-        setSelected(mBinding.iconCustom, mBinding.iconCustomText, selectedIconMode == AppBranding.ICON_CUSTOM);
     }
 
     private void setSelected(LinearLayoutCompat container, TextView label, boolean selected) {
@@ -72,43 +57,9 @@ public class AppBrandingActivity extends BaseActivity {
         label.setTextColor(selected ? getColor(R.color.display_option_bg_selected) : getColor(R.color.white));
     }
 
-    private void updateCustomPreview() {
-        if (selectedIconMode == AppBranding.ICON_CUSTOM && AppBranding.hasCustomIcon(this)) {
-            mBinding.customPreview.setVisibility(View.VISIBLE);
-            mBinding.customPreview.setImageBitmap(AppBranding.loadCustomIcon(this));
-            mBinding.iconCustomPreview.setImageBitmap(AppBranding.loadCustomIcon(this));
-        } else if (selectedIconMode == AppBranding.ICON_CUSTOM) {
-            mBinding.customPreview.setVisibility(View.GONE);
-            mBinding.iconCustomPreview.setImageResource(R.drawable.ic_action_choose);
-        } else {
-            mBinding.customPreview.setVisibility(View.GONE);
-        }
-    }
-
-    private void onImagePicked(Uri uri) {
-        if (uri == null) return;
-        boolean ok = AppBranding.copyCustomIcon(this, uri);
-        if (ok) {
-            selectedIconMode = AppBranding.ICON_CUSTOM;
-            updateSelection();
-            updateCustomPreview();
-        } else {
-            Notify.show(R.string.app_branding_image_error);
-        }
-    }
-
     private void save() {
-        if (selectedIconMode == AppBranding.ICON_CUSTOM && !AppBranding.hasCustomIcon(this)) {
-            Notify.show(R.string.app_branding_image_required);
-            return;
-        }
         AppBranding.putIconMode(selectedIconMode);
         AppBranding.applyLauncherIcon(this);
-        boolean shortcutNeeded = AppBranding.needsPinnedShortcut(selectedIconMode);
-        boolean shortcutAdded = shortcutNeeded && AppBranding.requestPinnedShortcut(this);
-        int feedback = AppBranding.saveFeedbackResource(shortcutNeeded, shortcutAdded);
-        if (feedback == 0) Notify.show(AppBranding.getSummary(this));
-        else Notify.show(feedback);
         setResult(RESULT_OK);
         Intent intent = AppBranding.launcherIntent(this)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
