@@ -67,3 +67,11 @@
 - Workspace：`dev2@c10670e2df54553229b8303f35e01ac2b9d247a6`；范围外无预先脏路径，E3-1b 任务文件均待本次原子提交。
 - Rollback anchor：`recovery/E3-1b-baseline/20260826-9c347cc688c2`；回滚时恢复 E3-1b 实现提交及 `media3-extractor` AAR/来源产物。
 - Next action：commit the verified E3-1b unit。
+
+## Checkpoint 2026-08-28: E3-1b implementation closeout
+
+- E3-1b 原子提交：`b75ba0a5ca6e3ecf2e494f308c0296496c5a2332`；恢复标签：`recovery/fongmi-sync-e3-1b-dts/20260828010623-b75ba0a5ca6e`。
+- 本地提交包含补丁、构建脚本、lock、`media3-extractor` AAR/sources、module 元数据及 sidecar；module 内嵌摘要按实际 artifact 重新生成并通过定向校验。
+- `fish2018/fongmi-sync` 当前完整头为 `cafd4f69e613a5db49df5e38e762b6bf4fe58819`。三方预演的 `-X theirs` 目标树会删除本任务文档并回退已验证的 module 摘要和 Windows patch fallback，因此不采用该目标树。
+- 合并边界：保留当前 WebHTV 验证树，以 `fish2018/fongmi-sync` 作为真实双亲提交的第二父；不以合并动作重新覆盖已验证产物，也不引入上游未批准的其他功能树。
+- Next action：create and verify the fongmi-sync two-parent merge commit。
