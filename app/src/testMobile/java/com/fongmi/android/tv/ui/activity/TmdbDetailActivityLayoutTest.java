@@ -60,11 +60,45 @@ public class TmdbDetailActivityLayoutTest {
                 queryFilter > helper && source.indexOf("shouldSkipRawTmdbQuery(rawTitle, resolution)", queryFilter) > queryFilter);
         int originalSearch = source.indexOf("AutoTmdbMatch match = searchResolvedTmdbMatch(rawTitle, resolution, attempted);", helper);
         int cleaned = source.indexOf("resolver.queryCleanedTitles(request, 4)", originalSearch);
-        int aiFallback = source.indexOf("resolver.resolveWithAiFallback(request)", originalSearch);
+        int aiFallback = source.indexOf("resolver.resolveWithAiFallback(aiRequest)", originalSearch);
         assertTrue("automatic TMDB detail matching must try code-cleaned title candidates before AI fallback",
                 originalSearch > helper && cleaned > originalSearch && aiFallback > cleaned);
         assertTrue("automatic TMDB detail matching must accept exact same-title ties from TMDB search order",
                 exactTie > 0 && source.indexOf("shouldAcceptFirstExactTmdbCandidate(best, second, keyword, sourceVod)", load) > load);
+    }
+
+    @Test
+    public void searchResultKeywordFlowsIntoBothTmdbAutoMatchPaths() throws Exception {
+        String collect = readFlavorJava("leanback", "com", "fongmi", "android", "tv", "ui", "activity", "CollectActivity.java");
+        assertTrue("search result cards must pass the original search keyword to VideoActivity",
+                collect.contains("VideoActivity.collect(this, item.getSiteKey(), item.getId(), item.getName(), pic, getWallPic(), getKeyword());"));
+
+        for (String flavor : List.of("leanback", "mobile")) {
+            String source = readFlavorJava(flavor, "com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java");
+            int keywordGetter = source.indexOf("getSearchKeyword()");
+            int autoMatch = source.indexOf("mTmdbUIAdapter.autoMatch(item.getName(), item, getSearchKeyword())");
+            int extra = source.indexOf("search_keyword");
+
+            assertTrue(flavor + " must read the search keyword from the detail Intent", keywordGetter >= 0 && extra >= 0);
+            assertTrue(flavor + " must pass the search keyword into TMDB auto matching", autoMatch > keywordGetter);
+        }
+    }
+
+    @Test
+    public void independentTmdbDetailUsesSearchKeywordAfterCardNameAndBeforeCleanedAiFallback() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        int getter = source.indexOf("private String getTmdbSearchKeyword()");
+        int match = source.indexOf("private AutoTmdbMatch searchResolvedTmdbMatch(String rawTitle, @Nullable Vod sourceVod)");
+        int card = source.indexOf("searchResolvedTmdbMatch(rawTitle, resolution, attempted)", match);
+        int keyword = source.indexOf("searchResolvedTmdbMatch(rawTitle, searchKeyword,", card);
+        int cleaned = source.indexOf("resolver.queryCleanedTitles(request, 4)", keyword);
+        int ai = source.indexOf("resolver.resolveWithAiFallback(aiRequest)", cleaned);
+
+        assertTrue("independent TMDB detail must read the search keyword extra", getter >= 0 && source.indexOf("search_keyword", getter) > getter);
+        assertTrue("independent TMDB detail must keep card-name matching first", match >= 0 && card > match);
+        assertTrue("independent TMDB detail must try the search keyword after card-name matching", keyword > card);
+        assertTrue("independent TMDB detail must clean titles after search-keyword matching", cleaned > keyword);
+        assertTrue("independent TMDB detail must keep AI as the last fallback", ai > cleaned);
     }
 
     @Test
