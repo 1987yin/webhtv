@@ -174,6 +174,7 @@ import com.fongmi.android.tv.ui.helper.TmdbSeasonResolver;
 import com.fongmi.android.tv.history.TmdbSeasonSourceAggregator;
 import com.fongmi.android.tv.ui.helper.TmdbEpisodeMatcher;
 import com.fongmi.android.tv.ui.helper.TmdbMatchPolicy;
+import com.fongmi.android.tv.ui.helper.TmdbMatcher;
 import com.fongmi.android.tv.ui.helper.TmdbRecommendationRows;
 import com.fongmi.android.tv.ui.helper.TmdbUIAdapter;
 import com.fongmi.android.tv.ui.player.VodPlayerChrome;
@@ -4155,9 +4156,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         List<TmdbItem> items = tmdbService.search(query, tmdbConfig);
         logTmdbMatch("TMDB 搜索：搜索词=%s，结果数=%d", query, items.size());
         String fallbackQuery = Objects.toString(fallback, "").trim();
-        if (!items.isEmpty() || TextUtils.isEmpty(fallbackQuery) || query.equals(fallbackQuery)) return items;
+        if (!items.isEmpty() || TextUtils.isEmpty(fallbackQuery) || query.equals(fallbackQuery)) {
+            new TmdbMatcher(tmdbService, tmdbConfig).sortSearchResults(items, query);
+            return items;
+        }
         List<TmdbItem> fallbackItems = tmdbService.search(fallbackQuery, tmdbConfig);
         logTmdbMatch("TMDB 搜索回退：清洗后无结果，原始词=%s，结果数=%d", fallbackQuery, fallbackItems.size());
+        new TmdbMatcher(tmdbService, tmdbConfig).sortSearchResults(fallbackItems, fallbackQuery);
         return fallbackItems;
     }
 
