@@ -73,6 +73,14 @@ public class TmdbDetailActivityLayoutTest {
         assertTrue("search result cards must pass the original search keyword to VideoActivity",
                 collect.contains("VideoActivity.collect(this, item.getSiteKey(), item.getId(), item.getName(), pic, getWallPic(), getKeyword());"));
 
+        String mobileFragment = readFlavorJava("mobile", "com", "fongmi", "android", "tv", "ui", "fragment", "CollectFragment.java");
+        assertTrue("mobile search result cards must pass the original search keyword to VideoActivity",
+                mobileFragment.contains("VideoActivity.collect(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), pic, getWallPic(), getKeyword());"));
+
+        String leanbackFragment = readFlavorJava("leanback", "com", "fongmi", "android", "tv", "ui", "fragment", "CollectFragment.java");
+        assertTrue("leanback search result cards must pass the original search keyword to VideoActivity",
+                leanbackFragment.contains("VideoActivity.collect(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), item.getPic(), null, getKeyword());"));
+
         for (String flavor : List.of("leanback", "mobile")) {
             String source = readFlavorJava(flavor, "com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java");
             int keywordGetter = source.indexOf("getSearchKeyword()");
