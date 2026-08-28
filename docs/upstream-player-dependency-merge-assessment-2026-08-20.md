@@ -29,7 +29,7 @@
 | 4.1 | `E-SP3` | Exo 性能 | BUFFERING 停滞看门狗（修 `E-SP1`/DV7 撤超时导致的永久转圈） | 已实施，待实机验收 | [E-SP3-exo-buffering-stall-watchdog.md](E-SP3-exo-buffering-stall-watchdog.md) |
 | 5 | `E2-1` | Exo | HDR/Dolby Vision parser safety | **已完成** | [E2-1-exo-hdr-parser-safety.md](E2-1-exo-hdr-parser-safety.md) |
 | 6 | `E3-1a` | Exo | Pixel E-AC3 JOC capability guard | **已实施，待实机验收** | [E3-1a-exo-pixel-eac3-joc-guard.md](E3-1a-exo-pixel-eac3-joc-guard.md) |
-| 7 | `E3-1b` | Exo | DTS 14-bit 解析 | 待处理 | `docs/E3-1b-exo-dts-14bit.md` |
+| 7 | `E3-1b` | Exo | DTS 14-bit 解析 | 已实施：`b75ba0a5ca6e3ecf2e494f308c0296496c5a2332` / `recovery/fongmi-sync-e3-1b-dts/20260828010623-b75ba0a5ca6e` | [E3-1b-exo-dts-14bit.md](E3-1b-exo-dts-14bit.md) |
 | 8 | `E4-1` | Exo | 字幕字节与边界安全 | 待处理 | `docs/E4-1-exo-subtitle-byte-safety.md` |
 | 9 | `E4-J1` | Exo | Cue 数据契约 | 待处理 | `docs/E4-J1-exo-cue-data-contract.md` |
 | 10 | `E6-1` | Exo | SMB/代理/缓存 correctness | 待处理 | `docs/E6-1-exo-smb-proxy-cache-correctness.md` |
@@ -4873,6 +4873,15 @@ C3 的触发来源主要是 media `990abc2368fd74779f525ee345734470659f3d53`（`
 - checkpoint: E2-1 current-tree verification passed
 - next: create the two-parent merge commit and recovery tag
 
+## 检查点 52：2026-08-28 E3-1b 实施与双亲合并收尾准备
+
+- E3-1b 已完成窄适配、定向测试/Java 编译、`media3-extractor` publication 摘要核对和 lock/sidecar 校验；本地原子提交为 `b75ba0a5ca6e3ecf2e494f308c0296496c5a2332`，恢复标签为 `recovery/fongmi-sync-e3-1b-dts/20260828010623-b75ba0a5ca6e`。
+- 上游来源完整身份：`fish2018/fongmi-sync@cafd4f69e613a5db49df5e38e762b6bf4fe58819`；相对共同祖先 `8962a63f227851dda718c2db4b2ba73d1dee922c` 的上游提交已在 E3-1a、E3-1b 和 JDK 21 文档单元中按窄范围适配。
+- `git merge-tree --write-tree --no-messages -X theirs HEAD fish2018/fongmi-sync` 可生成无冲突目标树，但会删除本地 E3-1b 唯一文档并回退已验证的 extractor module 摘要、patch helper fallback 和本地后续文档记录；该目标树不符合 WebHTV 保留契约。
+- 收尾决策：保留当前已验证树，使用 `git merge -s ours --no-commit fish2018/fongmi-sync` 创建真实双亲提交，把上游头作为第二父，仅表达 provenance，不重新覆盖本地功能、产物或文档。
+- checkpoint: E3-1b implementation closeout recorded
+- next: create the two-parent merge commit and recovery tag, then verify both parents and current-tree invariants
+
 ## 检查点 50：2026-08-26 E2-1 双亲合并完成
 
 - 双亲合并提交 `af28547d965fb862a4b8d005abe0eac07fe5196a` 的父提交为本地实施头 `1e96933f5fdc35e2eec49c474f5e5552cba4dd7a` 与上游收尾头 `c410bf4f40a0ef7babb5b6281b97fa4bc621c24d`。
@@ -4896,3 +4905,12 @@ C3 的触发来源主要是 media `990abc2368fd74779f525ee345734470659f3d53`（`
 - Media3 源 checkout 不在当前工作树，未重复运行其单元测试；既有 E2-1 文档记录的上游 JDK 21 定向测试结果保留为独立证据，不与本次 App 编译混同。
 - checkpoint: E2-1 current-tree verification passed
 - next: create the two-parent merge commit and recovery tag
+
+## 检查点 53：2026-08-28 E3-1b 双亲合并完成
+
+- E3-1b 已完成窄适配、定向测试/Java 编译、publication 元数据和 sidecar/lock 校验；本地原子提交为 `b75ba0a5ca6e3ecf2e494f308c0296496c5a2332`，文档收尾提交为 `1cf029bc77f791f8b6b992a004704f1d93e8fa82`。
+- 双亲合并提交为 `130eac99f735f47284106621bad4795281724786`，父提交为本地 `1cf029bc77f791f8b6b992a004704f1d93e8fa82` 与 `fish2018/fongmi-sync@cafd4f69e613a5db49df5e38e762b6bf4fe58819`；恢复标签为 `recovery/fongmi-sync-merge-closeout/20260828013239-130eac99f735`。
+- 合并采用 `ours` 策略以保留当前已验证 WebHTV 树；`-X theirs` 三方目标树会删除 E3-1b 唯一文档并回退 extractor module 摘要与 Windows patch fallback，因此未采用。最终合并后 `HEAD^1..HEAD` 仅有合并准备文档记录。
+- E3-1b 状态更新为已实施并完成当前代码/产物验证；真实厂商设备播放验收仍属于后续设备风险，不在本单元虚报为已通过。
+- checkpoint: E3-1b two-parent merge and recovery point complete
+- next: assess E4-1; do not modify E3-1b implementation artifacts
