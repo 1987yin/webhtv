@@ -21,11 +21,10 @@ import androidx.annotation.Nullable;
 import androidx.core.content.pm.ShortcutInfoCompat;
 import androidx.core.content.pm.ShortcutManagerCompat;
 import androidx.core.graphics.drawable.IconCompat;
-import androidx.core.util.Supplier;
 
+import com.bumptech.glide.Glide;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.ui.activity.HomeActivity;
-import com.fongmi.android.tv.utils.ImgUtil;
 import com.github.catvod.utils.Prefers;
 
 import java.io.ByteArrayOutputStream;
@@ -154,14 +153,9 @@ public final class AppBranding {
         return context.getString(iconLabelResource(getIconMode(context)));
     }
 
-    /** Applies the selected launcher branding when no remote config logo is available. */
-    public static void applyLogo(@NonNull ImageView view, @Nullable Supplier<String> remoteLogo) {
-        String logo = remoteLogo == null ? null : remoteLogo.get();
-        if (logo != null && !logo.trim().isEmpty()) {
-            ImgUtil.logo(view, logo);
-            return;
-        }
-
+    /** Applies the selected launcher branding to the in-app home logo. */
+    public static void applyLogo(@NonNull ImageView view) {
+        Glide.with(view).clear(view);
         int mode = getIconMode(view.getContext());
         if (mode == ICON_CUSTOM) {
             Bitmap bitmap = loadCustomIcon(view.getContext());

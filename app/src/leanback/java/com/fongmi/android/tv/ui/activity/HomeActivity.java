@@ -787,7 +787,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     }
 
     private void setLogo() {
-        AppBranding.applyLogo(mBinding.logo, () -> VodConfig.get().getConfig().getLogo());
+        AppBranding.applyLogo(mBinding.logo);
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)

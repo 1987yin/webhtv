@@ -85,16 +85,18 @@ public class AppBrandingContractTest {
     }
 
     @Test
-    public void homeLogoFallsBackToSelectedBrandingWhenRemoteLogoMissing() throws Exception {
+    public void homeLogoAlwaysUsesSelectedBranding() throws Exception {
         String appBranding = read("app/src/main/java/com/fongmi/android/tv/setting/AppBranding.java");
         String home = read("app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java");
 
-        assertTrue(appBranding.contains("public static void applyLogo(@NonNull ImageView view, @Nullable Supplier<String> remoteLogo)"));
-        assertTrue(appBranding.contains("ImgUtil.logo(view, logo);"));
+        assertTrue(appBranding.contains("public static void applyLogo(@NonNull ImageView view)"));
+        assertTrue(appBranding.contains("Glide.with(view).clear(view);"));
+        assertFalse(appBranding.contains("ImgUtil.logo(view, logo);"));
+        assertTrue(appBranding.contains("Bitmap bitmap = loadCustomIcon(view.getContext());"));
         assertTrue(appBranding.contains("view.setImageResource(mode == ICON_HISTORY"));
         assertTrue(appBranding.contains("R.mipmap.ic_launcher"));
         assertTrue(appBranding.contains("R.drawable.ic_launcher_history"));
-        assertTrue(home.contains("AppBranding.applyLogo(mBinding.logo, () -> VodConfig.get().getConfig().getLogo());"));
+        assertTrue(home.contains("AppBranding.applyLogo(mBinding.logo);"));
         assertFalse(home.contains("ImgUtil.logo(mBinding.logo);"));
     }
 
