@@ -173,6 +173,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
         mResult = Result.empty();
         mHomeResult = Result.empty();
         mClock = Clock.create(mBinding.clock);
+        setLogo();
         syncHomeSiteLock();
         mBinding.progressLayout.showProgress();
         setRecyclerView();

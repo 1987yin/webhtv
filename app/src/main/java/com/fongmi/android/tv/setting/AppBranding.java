@@ -4,12 +4,18 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
 import android.widget.ImageView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
+import androidx.core.graphics.drawable.RoundedBitmapDrawable;
+import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory;
 
-import com.bumptech.glide.Glide;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.ui.activity.HomeActivity;
 import com.github.catvod.utils.Prefers;
@@ -23,6 +29,10 @@ public final class AppBranding {
     private static final String ICON_KEY = "app_branding_icon";
     private static final String ALIAS_SUFFIX_CURRENT = "Current";
     private static final String ALIAS_SUFFIX_HISTORY = "History";
+    private static final int LOGO_RENDER_SIZE = 192;
+
+    private static int cachedLogoMode = -1;
+    private static Drawable cachedLogo;
 
     private AppBranding() {
     }
@@ -52,6 +62,8 @@ public final class AppBranding {
 
     public static void putIconMode(int mode) {
         Prefers.put(ICON_KEY, normalizeIconMode(mode));
+        cachedLogo = null;
+        cachedLogoMode = -1;
     }
 
     @NonNull
@@ -61,9 +73,39 @@ public final class AppBranding {
 
     /** Uses the selected built-in icon in the app UI with a circular presentation. */
     public static void applyLogo(@NonNull ImageView view) {
-        int resource = getIconMode(view.getContext()) == ICON_HISTORY
+        view.setImageDrawable(logoDrawable(view.getContext()));
+    }
+
+    /**
+     * Resolves the branded logo synchronously so the first frame never shows the other icon.
+     * Adaptive icons and vectors are rasterized once because a circular crop cannot clip them.
+     */
+    @Nullable
+    public static Drawable logoDrawable(@NonNull Context context) {
+        int mode = getIconMode(context);
+        if (cachedLogo != null && cachedLogoMode == mode) return cachedLogo;
+        Drawable source = ContextCompat.getDrawable(context, logoResource(mode));
+        if (source == null) return null;
+        cachedLogo = toCircle(context.getResources(), source);
+        cachedLogoMode = mode;
+        return cachedLogo;
+    }
+
+    static int logoResource(int mode) {
+        return normalizeIconMode(mode) == ICON_HISTORY
                 ? R.drawable.ic_launcher_history : R.mipmap.ic_launcher;
-        Glide.with(view).load(resource).circleCrop().into(view);
+    }
+
+    @NonNull
+    private static Drawable toCircle(@NonNull Resources resources, @NonNull Drawable source) {
+        Bitmap bitmap = Bitmap.createBitmap(LOGO_RENDER_SIZE, LOGO_RENDER_SIZE, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        source.setBounds(0, 0, LOGO_RENDER_SIZE, LOGO_RENDER_SIZE);
+        source.draw(canvas);
+        RoundedBitmapDrawable drawable = RoundedBitmapDrawableFactory.create(resources, bitmap);
+        drawable.setCircular(true);
+        drawable.setAntiAlias(true);
+        return drawable;
     }
 
     public static int iconLabelResource(int mode) {

@@ -50,7 +50,8 @@ public class AppBrandingContractTest {
         String home = read("app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java");
 
         assertTrue(appBranding.contains("public static void applyLogo(@NonNull ImageView view)"));
-        assertTrue(appBranding.contains("Glide.with(view).load(resource).circleCrop().into(view);"));
+        assertTrue(appBranding.contains("view.setImageDrawable(logoDrawable(view.getContext()));"));
+        assertFalse(appBranding.contains("Glide"));
         assertFalse(appBranding.contains("ICON_CUSTOM"));
         assertFalse(appBranding.contains("Shortcut"));
         assertFalse(appBranding.contains("CustomIcon"));
@@ -58,6 +59,22 @@ public class AppBrandingContractTest {
         assertTrue(appBranding.contains("R.drawable.ic_launcher_history"));
         assertTrue(home.contains("AppBranding.applyLogo(mBinding.logo);"));
         assertFalse(home.contains("ImgUtil.logo(mBinding.logo);"));
+    }
+
+    @Test
+    public void homeLogoIsBrandedBeforeFirstFrame() throws Exception {
+        String layout = read("app/src/leanback/res/layout/activity_home.xml");
+        String home = read("app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java");
+
+        assertFalse(layout.contains("android:src=\"@drawable/ic_logo\""));
+
+        int initView = home.indexOf("protected void initView(Bundle savedInstanceState)");
+        int firstFrame = home.indexOf("runAfterFirstFrame(this::initAfterFirstFrame);", initView);
+        int logo = home.indexOf("setLogo();", initView);
+
+        assertTrue(initView > 0);
+        assertTrue(logo > initView);
+        assertTrue(logo < firstFrame);
     }
 
     @Test
