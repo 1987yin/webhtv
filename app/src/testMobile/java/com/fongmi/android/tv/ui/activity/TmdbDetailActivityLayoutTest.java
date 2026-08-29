@@ -3306,6 +3306,22 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void automaticSeasonChoiceRestoresUnboundEpisodeResolution() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String seasonChoice = source.substring(source.indexOf("public void onSeason(int seasonNumber)"),
+                source.indexOf("private void analyzeTmdbSeasonWithAi"));
+        String clear = source.substring(source.indexOf("private void clearTmdbSeasonBinding"),
+                source.indexOf("private String selectedSeasonFlagKey"));
+
+        assertTrue("automatic choice must leave manual season state before episode re-render",
+                clear.contains("selectedSeasonNumber = -1;")
+                        && clear.indexOf("selectedSeasonNumber = -1;") < clear.indexOf("refreshEpisodesAfterSeasonBinding()"));
+        assertTrue("manual season choice must keep its explicit season selected",
+                seasonChoice.contains("selectedSeasonNumber = seasonNumber;")
+                        && seasonChoice.indexOf("selectedSeasonNumber = seasonNumber;") < seasonChoice.indexOf("refreshEpisodesAfterSeasonBinding()"));
+    }
+
+    @Test
     public void manualSeasonBindingClearsOnlySelectedFlagMetadata() throws Exception {
         String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
         String clear = source.substring(source.indexOf("private void clearBoundTmdbEpisodeMetadata"),
