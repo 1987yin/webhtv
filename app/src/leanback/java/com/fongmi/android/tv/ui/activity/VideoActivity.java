@@ -123,6 +123,7 @@ import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
+import com.fongmi.android.tv.ui.helper.EpisodeCardImagePolicy;
 import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
 
 import com.fongmi.android.tv.ui.helper.EpisodeSeasonPolicy;
@@ -3562,7 +3563,9 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         hideControl();
         Flag flag = getFlag();
         boolean tmdbCard = flag != null && EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(isTmdbSourceEnabled(), flag.getEpisodes());
-        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).tmdbCard(tmdbCard).fallbackStill(getEpisodeFallbackStillUrl()).seasons(getEpisodeDialogSeasons(), getEpisodeDialogSeasonCounts()).show(this);
+        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).tmdbCard(tmdbCard)
+                .fallbackStill(getEpisodeFallbackStillUrl())
+                .seasons(getEpisodeDialogSeasons(), getEpisodeDialogSeasonCounts()).show(this);
     }
 
     private java.util.List<Integer> getEpisodeDialogSeasons() {
@@ -4378,20 +4381,35 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private String getEpisodeFallbackStillUrl() {
-        // 分集无 TMDB 剧照时的兜底图，顺序对齐详情页 episodeFallbackStillUrl()：海报优先，再退 backdrop。
-        // getPosterUrl() 内部已带 tmdbItem.getPosterUrl() 兜底，比 getPhotos()（backdrops 列表，
-        // tmdbDetail 未就绪时为空）可靠。取当前 TMDB 条目自己的图，切换条目后兜底图才会跟随当前剧集，
-        // 而非停留在进场时固定的 getPic()/tmdb_vod_pic（那些切换条目不变，会显示切换前那部剧的海报）。
+        // 分集无专属剧照时的兜底图按设备比例选：宽屏优先横向 backdrop，窄屏优先纵向海报，
+        // 首选比例缺图时退到另一种，避免宽卡片被竖海报撑裂或窄卡片留大片空白。
+        return EpisodeCardImagePolicy.fallbackFor(
+                getEpisodeFallbackBackdropUrl(), getEpisodeFallbackPosterUrl(), isWideScreen());
+    }
+
+    private String getEpisodeFallbackPosterUrl() {
+        // getPosterUrl() 内部已带 tmdbItem.getPosterUrl() 兜底。取当前 TMDB 条目自己的图，
+        // 切换条目后兜底图才会跟随当前剧集，而非停留在进场时固定的 getPic()/tmdb_vod_pic。
         if (mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded()) {
             String poster = mTmdbUIAdapter.getPosterUrl();
             if (!TextUtils.isEmpty(poster)) return poster;
-            java.util.List<String> photos = mTmdbUIAdapter.getPhotos();
-            if (photos != null && !photos.isEmpty() && !TextUtils.isEmpty(photos.get(0))) return photos.get(0);
         }
         if (!TextUtils.isEmpty(getPic())) return getPic();
         if (!TextUtils.isEmpty(getTmdbVodPic())) return getTmdbVodPic();
         if (mVod != null && !TextUtils.isEmpty(mVod.getPic())) return mVod.getPic();
         return mHistory == null ? "" : mHistory.getVodPic();
+    }
+
+    private String getEpisodeFallbackBackdropUrl() {
+        if (mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded()) {
+            java.util.List<String> photos = mTmdbUIAdapter.getPhotos();
+            if (photos != null && !photos.isEmpty() && !TextUtils.isEmpty(photos.get(0))) return photos.get(0);
+        }
+        return firstNonEmpty(getWallPic(), mVod == null ? "" : mVod.getPic(), mHistory == null ? "" : mHistory.getWallPic());
+    }
+
+    private boolean isWideScreen() {
+        return ResUtil.getScreenWidth(this) >= ResUtil.getScreenHeight(this);
     }
 
     private boolean hasInitialPreview() {
