@@ -8234,6 +8234,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                         finishInlinePlayerSwitchRequest();
                         Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
                     } else {
+                        // 换内核重新解析出可能不同的 URL，与换画质同理
+                        resetAdFeedback();
                         currentInlineResult = result;
                         inlineHttpRefreshAttempted = false;
                         useParse = result.shouldUseParse();
@@ -8343,6 +8345,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
      * 「无基线不断言」而弃权 —— 整条通道等于没接。
      */
     private void recordAdFeedbackHost() {
+        // 关掉去广告或播直播时不建基线：这些域名会挤掉 LRU 里真正有用的条目
+        if (!isInlineAdFeedbackEnabled()) return;
         adFeedback();
         mAdFeedbackHost.recordPlaybackHost();
     }

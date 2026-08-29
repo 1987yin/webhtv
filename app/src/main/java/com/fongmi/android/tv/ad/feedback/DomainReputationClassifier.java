@@ -56,20 +56,15 @@ public final class DomainReputationClassifier {
 
         Set<String> foreignHosts = foreignHosts(evidence);
         if (foreignHosts.isEmpty()) return null;
-        // 必须有对照组：区间外存在属于 playlist 域名的切片，才能说明这些外域
-        // 切片是异常的。否则整站切片都在独立 CDN（api.site.com + cdn.site-x.com
-        // 这种常见拆分）会被整体判为广告，生成的规则命中全部切片 →
-        // HlsManifestCleaner 因 removedCount == segmentCount 回退原文，
-        // 而 HlsAdblockPipeline 的 fallback 会连带停掉 legacy 启发式，
-        // 结果比不加规则更差。与 HlsSegmentClassifier.detectCrossDomain 同一判据。
-        if (!hasSameDomainOutside(evidence)) return null;
 
         List<String> matchedBlacklist = matching(foreignHosts, safe.blacklistedHosts());
         List<String> matchedCandidates = matching(foreignHosts, safe.interfaceCandidateHosts());
 
         if (!matchedBlacklist.isEmpty()) {
             // 已在黑名单里却仍被用户看到：拦截路径没覆盖播放器直连的切片请求。
-            // 结论是诊断，落地方式应改用 HLS 结构化规则。
+            // 结论是诊断（NONE + 空载荷，actionable() 为 false），不会生成规则，
+            // 因此不受下面那道「需要同域对照」的约束 —— 整站切片都在独立 CDN
+            // 恰恰是这条诊断最该出现的场景。
             List<String> evidenceLines = new ArrayList<>();
             evidenceLines.add("切片域名已在广告黑名单中：" + String.join("、", matchedBlacklist));
             evidenceLines.add("黑名单主要在 WebView 请求拦截生效，不拦播放器直连的切片请求");
@@ -77,6 +72,15 @@ public final class DomainReputationClassifier {
             return new AdAttribution(CHANNEL_ID, AdCategory.ALREADY_HANDLED,
                     CONFIDENCE_KNOWN_HOST, RiskLevel.LOW, evidenceLines, RemediationKind.NONE);
         }
+
+        // 以下分支会生成规则，必须有对照组：区间外存在属于 playlist 域名的切片，
+        // 才能说明这些外域切片是异常的。否则整站切片都在独立 CDN
+        // （api.site.com + cdn.site-x.com 这种常见拆分）会被整体判为广告，
+        // 生成的规则命中全部切片 → HlsManifestCleaner 因
+        // removedCount == segmentCount 回退原文，而 HlsAdblockPipeline 的
+        // fallback 会连带停掉 legacy 启发式，比不加规则更差。
+        // 与 HlsSegmentClassifier.detectCrossDomain 同一判据。
+        if (!hasSameDomainOutside(evidence)) return null;
 
         // 无基线数据时不能断言「非本站域名」，避免首次播放即误判
         if (safe.siteBaselineHosts().isEmpty() && matchedCandidates.isEmpty()) return null;
@@ -101,16 +105,14 @@ public final class DomainReputationClassifier {
         // 请求拦截生效（RuleConfig.getAds() 的唯一消费者是 CustomWebView），
         // 拦不住播放器直连的切片请求。跨域按 foreignHosts 的定义天然成立，
         // 与 hostSuffixes 合起来正好满足 minimumSignals=2。
-        List<String> scope = evidence.playlistHost().isEmpty()
-                ? List.of() : List.of(evidence.playlistHost());
-        RemediationKind remediation = scope.isEmpty()
-                ? RemediationKind.HOST_BLACKLIST : RemediationKind.HLS_STRUCTURED_RULE;
-        RulePayload payload = scope.isEmpty()
-                ? RulePayload.ofHosts(List.copyOf(foreignHosts))
-                : RulePayload.ofHlsRule(scope, List.copyOf(foreignHosts),
-                        Double.NaN, Double.NaN, false, true, 2);
+        // playlistHost 必然非空 —— hasSameDomainOutside 在它为空时已经弃权，
+        // 所以这里不再有「无作用域」的退路。
+        List<String> scope = List.of(evidence.playlistHost());
+        RulePayload payload = RulePayload.ofHlsRule(scope, List.copyOf(foreignHosts),
+                Double.NaN, Double.NaN, false, true, 2);
         return new AdAttribution(CHANNEL_ID, AdCategory.THIRD_PARTY_CDN_SEGMENT,
-                confidence, RiskLevel.LOW, evidenceLines, remediation, payload);
+                confidence, RiskLevel.LOW, evidenceLines,
+                RemediationKind.HLS_STRUCTURED_RULE, payload);
     }
 
     /**

@@ -206,12 +206,15 @@ public class HlsSegmentClassifierTest {
     }
 
     @Test
-    public void positionSignalIsNotEncodableIntoRule() {
-        HlsSegmentClassifier.Signals signals =
-                new HlsSegmentClassifier.Signals(false, false, false, false, true);
+    public void positionSignalAloneCannotProduceARule() {
+        // 位置信号无法编码进 HlsAdRule，也没有区分度：单它成立时必须弃权
+        AdIntervalEvidence evidence = evidence(
+                segments(0, 3, PLAYLIST_HOST, "/seg/", 8.0, false),
+                outsideAround(0, 3, 20, PLAYLIST_HOST, 8.0));
 
-        // HlsAdRule 不支持位置条件，可编码信号数为 0
-        assertEquals(0, signals.encodableCount());
+        HlsSegmentClassifier.Signals signals = HlsSegmentClassifier.detect(evidence);
+        assertTrue(signals.headPosition());
+        assertNull(HlsSegmentClassifier.classify(evidence));
     }
 
     @Test

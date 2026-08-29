@@ -1,7 +1,9 @@
 package com.fongmi.android.tv.ad.feedback;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 import com.fongmi.android.tv.bean.HlsAdRule;
 import com.fongmi.android.tv.utils.HlsManifestCleaner;
@@ -116,5 +118,49 @@ public class GenRuleE2ETest {
                 List.of(toRule(plan.payload())));
 
         assertEquals("只能删广告块，不得误删断点后的正片", AD_COUNT, res.removedSegments());
+    }
+
+    /**
+     * 整站切片都在独立 CDN（api.site.com + cdn.site-x.com 这种常见拆分）。
+     * 没有同域切片作对照时，任何域名条件都命中全站 → cleaner 因
+     * removedCount == segmentCount 回退，而 HlsAdblockPipeline 的 fallback
+     * 会连带停掉 legacy 启发式，比不加规则更差。两个通道都必须弃权。
+     */
+    @Test
+    public void siteWideCdnMustNotProduceAnyRule() {
+        List<SegmentFact> inside = seg(AD_FROM, AD_COUNT, "cdn.site-x.com", "/seg/", 6.4, true);
+        List<SegmentFact> outside = new ArrayList<>(
+                seg(0, AD_FROM, "cdn.site-x.com", "/seg/", 8.0, false));
+        outside.addAll(seg(AD_FROM + AD_COUNT, TOTAL - AD_FROM - AD_COUNT,
+                "cdn.site-x.com", "/seg/", 8.0, true));
+        AdIntervalEvidence evidence = new AdIntervalEvidence(
+                80_000, 100_000, StartOrigin.USER_MARKED,
+                "site", "站点", "剧", "线", "1", "api.site.com", "/play/index.m3u8", true,
+                inside, outside, true, false, List.of(), false, List.of(),
+                AudioIntervalFact.unavailable(), SpeechIntervalFact.unavailable());
+
+        AdAttribution hls = HlsSegmentClassifier.classify(evidence);
+        if (hls != null) {
+            assertFalse("HLS 通道不得为全站 CDN 生成可落地规则", hls.actionable());
+        }
+        assertNull("域名通道必须弃权", DomainReputationClassifier.classify(evidence,
+                new DomainReputationClassifier.Input(
+                        List.of(), List.of("api.site.com"), List.of(), "")));
+    }
+
+    /** 用户框选覆盖整个 playlist 时无对照可用，同样不得生成规则。 */
+    @Test
+    public void intervalCoveringWholePlaylistMustNotProduceAnyRule() {
+        AdIntervalEvidence evidence = new AdIntervalEvidence(
+                0, 240_000, StartOrigin.USER_MARKED,
+                "site", "站点", "剧", "线", "1", "v.example.com", "/play/index.m3u8", true,
+                seg(0, TOTAL, "v.example.com", "/ads/", 8.0, true), List.of(),
+                true, false, List.of(), false, List.of(),
+                AudioIntervalFact.unavailable(), SpeechIntervalFact.unavailable());
+
+        AdAttribution hls = HlsSegmentClassifier.classify(evidence);
+        if (hls != null) {
+            assertFalse("无对照组时不得生成可落地规则", hls.actionable());
+        }
     }
 }

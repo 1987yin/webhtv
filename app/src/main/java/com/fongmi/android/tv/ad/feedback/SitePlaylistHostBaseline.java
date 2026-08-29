@@ -59,20 +59,27 @@ public final class SitePlaylistHostBaseline {
     public synchronized void record(String siteKey, String... hosts) {
         if (siteKey == null || siteKey.isBlank() || hosts == null) return;
         List<String> known = sites.computeIfAbsent(siteKey, key -> new ArrayList<>());
+        boolean seenAny = false;
         boolean changed = false;
         for (String host : hosts) {
             if (host == null || host.isBlank()) continue;
             String normalized = host.toLowerCase(Locale.US).trim();
+            seenAny = true;
+            // 已在末尾说明状态没变，跳过写盘 —— STATE_READY 会因 seek、
+            // 卡顿恢复反复触发，每次都 persist 是不必要的 I/O
+            int last = known.size() - 1;
+            if (last >= 0 && known.get(last).equals(normalized)) continue;
             // 已存在则移到末尾，表示最近使用
             known.remove(normalized);
             known.add(normalized);
             changed = true;
         }
-        if (!changed) {
+        if (!seenAny) {
             // 全部输入为空白：不能留下空条目占用站点配额
             if (known.isEmpty()) sites.remove(siteKey);
             return;
         }
+        if (!changed) return;
         while (known.size() > MAX_HOSTS_PER_SITE) known.remove(0);
         evictSites();
         persist();

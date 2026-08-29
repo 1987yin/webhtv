@@ -46,18 +46,19 @@ public final class HlsSegmentClassifier {
                           boolean pathHint, boolean headPosition) {
 
         /**
-         * 可编码进 {@code HlsAdRule} 的信号数。
+         * 观察到的信号数，仅供诊断展示。
          *
-         * <p>不计入位置信号（HlsAdRule 不支持）与断点信号：断点只对广告块首片
-         * 成立，编码进规则会导致只删首片，因此 payloadOf 刻意不编码它。
-         * 这里必须与 payloadOf 保持一致，否则 classify 的守卫会放过只有
-         * 断点+位置的场景，产出一条空载荷的归因。
+         * <p>刻意不用于判断能否落地 —— 信号命中不等于条件有区分度，
+         * 那件事由 {@code payloadOf} 的实际载荷决定。此前用它做守卫时，
+         * 「同域 + 路径特征区间外也有」的场景会产出一条空载荷的归因。
          */
-        public int encodableCount() {
+        public int signalCount() {
             int count = 0;
             if (crossDomain) count++;
+            if (discontinuity) count++;
             if (durationOutlier) count++;
             if (pathHint) count++;
+            if (headPosition) count++;
             return count;
         }
 
@@ -90,8 +91,8 @@ public final class HlsSegmentClassifier {
         if (payload.isEmpty()) return null;
 
         return new AdAttribution(CHANNEL_ID, categoryOf(signals), confidence,
-                RiskLevel.MEDIUM, describe(evidence, signals), RemediationKind.HLS_STRUCTURED_RULE,
-                payload);
+                RiskLevel.MEDIUM, describe(evidence, signals, payload),
+                RemediationKind.HLS_STRUCTURED_RULE, payload);
     }
 
     /**
@@ -107,13 +108,19 @@ public final class HlsSegmentClassifier {
      */
     private static RulePayload payloadOf(AdIntervalEvidence evidence, Signals signals) {
         String playlistHost = evidence.playlistHost();
-        // 只保留非本站域名 —— 同域 host 不是区分条件
-        List<String> hosts = evidence.inside().stream()
-                .map(SegmentFact::host)
-                .filter(host -> !host.isEmpty())
-                .filter(host -> playlistHost.isEmpty() || !hostMatches(host, playlistHost))
-                .distinct()
-                .toList();
+        // 域名只在跨域信号成立时才有区分度。crossDomain 自带对照校验
+        // （detectCrossDomain 要求区间外存在同域切片），少了这道门槛就会在
+        // 「整站切片都在独立 CDN」的架构上把全站域名写进规则 —— 规则命中所有
+        // 切片 → cleaner 因 removedCount == segmentCount 回退 → 连带停掉
+        // legacy 启发式，比不加规则更差。
+        List<String> hosts = signals.crossDomain()
+                ? evidence.inside().stream()
+                        .map(SegmentFact::host)
+                        .filter(host -> !host.isEmpty())
+                        .filter(host -> playlistHost.isEmpty() || !hostMatches(host, playlistHost))
+                        .distinct()
+                        .toList()
+                : List.of();
         List<String> pathPatterns = signals.pathHint()
                 ? pathPatternsOf(evidence.inside(), evidence.outside()) : List.of();
         // 没有任何区分条件时不得生成规则
@@ -158,8 +165,12 @@ public final class HlsSegmentClassifier {
      * <p>双向校验：区间内每片都含该目录段，且区间外**没有**任何切片含它。
      * 只查 inside 的话，站内正片路径恰好含 hint 时会被一起删掉 —— 规则是按
      * 切片独立匹配的，没有「只在这段区间内生效」的概念。
+     *
+     * <p>区间外为空时无法完成对照（用户框选覆盖了整个 playlist），一律弃权：
+     * 此时任何条件都命中全部切片，生成的规则会触发 cleaner 整体回退。
      */
     private static List<String> pathPatternsOf(List<SegmentFact> inside, List<SegmentFact> outside) {
+        if (outside.isEmpty()) return List.of();
         List<String> patterns = new ArrayList<>();
         for (String hint : PATH_HINTS) {
             boolean insideAll = inside.stream()
@@ -241,7 +252,15 @@ public final class HlsSegmentClassifier {
         return AdCategory.UNKNOWN;
     }
 
-    private static List<String> describe(AdIntervalEvidence evidence, Signals signals) {
+    /**
+     * 生成给用户看的证据。
+     *
+     * <p>分两段：先说观察到的现象（按 signals），再明确列出**实际写进规则**的
+     * 条件（按 payload）。两者不是一回事 —— 例如路径特征因区间外也含而未被编码时，
+     * 现象成立但规则里没有它。不列清规则条件，用户无法判断这条规则的杀伤范围。
+     */
+    private static List<String> describe(AdIntervalEvidence evidence, Signals signals,
+                                         RulePayload payload) {
         List<SegmentFact> inside = evidence.inside();
         List<String> lines = new ArrayList<>();
         lines.add(String.format(Locale.US, "区间内 %d 个切片，时长合计 %.1fs",
@@ -258,6 +277,27 @@ public final class HlsSegmentClassifier {
         if (signals.pathHint()) lines.add("切片路径包含广告目录特征");
         if (signals.headPosition()) lines.add("区间位于播放列表头部");
         lines.add("起点来源：" + evidence.startOrigin());
+        lines.addAll(describeRule(payload));
+        return lines;
+    }
+
+    /** 逐项列出规则实际生效的条件，让用户能判断杀伤范围。 */
+    private static List<String> describeRule(RulePayload payload) {
+        List<String> lines = new ArrayList<>();
+        if (payload.isEmpty()) return lines;
+        lines.add("规则生效范围：" + String.join("、", payload.playlistHostSuffixes()));
+        if (!payload.hosts().isEmpty()) {
+            lines.add("删除来自这些域名的切片：" + String.join("、", payload.hosts()));
+        }
+        if (!payload.regex().isEmpty()) {
+            lines.add("删除路径匹配的切片：" + String.join("、", payload.regex()));
+        }
+        if (payload.hasDurationRange()) {
+            lines.add(String.format(Locale.US, "限定切片时长 %.2f–%.2fs",
+                    payload.durationMin(), payload.durationMax()));
+        }
+        if (payload.requireCrossDomain()) lines.add("仅当切片域名与 playlist 不同时生效");
+        lines.add(String.format(Locale.US, "需同时满足其中 %d 个条件", payload.minimumSignals()));
         return lines;
     }
 

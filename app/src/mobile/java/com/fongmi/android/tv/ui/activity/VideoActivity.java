@@ -4438,6 +4438,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void switchPlayerKernelWithResult(int requestId, int type, Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
         if (requestId != playerKernelSwitchRequestId) return;
+        // 换内核会重新解析出可能不同的 URL，与换画质/换解码同理
+        resetAdFeedback();
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
         } else {
@@ -8774,6 +8776,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
      * 「无基线不断言」而弃权 —— 整条通道等于没接。
      */
     private void recordAdFeedbackHost() {
+        // 关掉去广告或播直播时不建基线：这些域名会挤掉 LRU 里真正有用的条目
+        if (!isAdFeedbackEnabled()) return;
         adFeedback();
         mAdFeedbackHost.recordPlaybackHost();
     }
