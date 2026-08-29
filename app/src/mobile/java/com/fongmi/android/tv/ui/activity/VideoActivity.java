@@ -297,6 +297,7 @@ private String mArtworkRequestUrl;
 private String mArtworkRequestOwner;
 private Vod mPendingDetailVod;
 private Result mPendingPlayerResult;
+private Result mAppliedPlayerResult;
 private AudioPlaybackResolver.Resolved mImmersiveAudioResolved;
 private int mAudioArtworkColor = Color.rgb(55, 45, 68);
 private final Map<String, String> mAudioQueueFlags = new HashMap<>();
@@ -2291,6 +2292,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             return;
         }
         SpiderDebug.log("video-flow", "player finish cost=%dms useParse=%s multi=%s msg=%s", System.currentTimeMillis() - playerStartTime, result.shouldUseParse(), result.getUrl().isMulti(), result.getMsg());
+        if (result == mAppliedPlayerResult && !player().isEmpty()) return;
+        mAppliedPlayerResult = result;
         mQualityAdapter.addAll(result);
         mQualityAdapter.setPosition(mQualityAdapter.getPosition());
         setUseParse(result.shouldUseParse());
@@ -2330,7 +2333,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         boolean handled = com.fongmi.android.tv.content.ContentDispatcher.dispatchResult(this, getHistoryKey(), getKey(), getFlag().getFlag(), mHistory.getVodName(), mHistory.getVodPic(), episodes, getSelectedEpisodePosition(episodes), result, getSite().getTimeout());
         if (handled) {
             stopPlayback();
-            finish();
+            // 阅读结果接管前台，但保留本页：一次返回回到来源播放页。
         }
         return handled;
     }
