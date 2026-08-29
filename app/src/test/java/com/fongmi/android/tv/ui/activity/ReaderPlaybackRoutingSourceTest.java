@@ -33,11 +33,12 @@ public class ReaderPlaybackRoutingSourceTest {
             int dispatch = source.indexOf("ContentDispatcher.dispatchResult(this");
             int stop = source.indexOf("stopPlayback();", dispatch);
             int finish = source.indexOf("finish();", stop);
+            int blockEnd = source.indexOf('}', stop);
 
             assertTrue(path + " must dispatch results through ContentDispatcher", dispatch >= 0);
             assertTrue(path + " must stop playback after reader dispatch", stop > dispatch);
             assertTrue(path + " must keep its page in the back stack after reader dispatch",
-                    finish < 0 || source.indexOf("}", stop) < finish);
+                    finish < 0 || finish > blockEnd);
         }
     }
 
@@ -54,22 +55,6 @@ public class ReaderPlaybackRoutingSourceTest {
             assertTrue(path + " must ignore a duplicate player result while playback remains active",
                     source.contains("if (result == mAppliedPlayerResult && !player().isEmpty()) return;"));
         }
-    }
-
-    private static String methodBody(String source, String startMarker) {
-        int start = source.indexOf(startMarker);
-        assertTrue("method marker not found: " + startMarker, start >= 0);
-        int braceStart = source.indexOf('{', start);
-        int depth = 0;
-        for (int i = braceStart; i < source.length(); i++) {
-            char c = source.charAt(i);
-            if (c == '{') depth++;
-            if (c == '}') {
-                depth--;
-                if (depth == 0) return source.substring(start, i + 1);
-            }
-        }
-        return source.substring(start);
     }
 
     private static String read(String path) throws Exception {

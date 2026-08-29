@@ -2593,12 +2593,12 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             onError(result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
             return;
         }
-        if (result == mAppliedPlayerResult && !player().isEmpty()) return;
-        mAppliedPlayerResult = result;
         if (!canApplyPlayerResult()) {
             SpiderDebug.log("video-flow", "drop player result before detail ready key=%s id=%s", getKey(), getId());
             return;
         }
+        if (result == mAppliedPlayerResult && !player().isEmpty()) return;
+        mAppliedPlayerResult = result;
         mQualityAdapter.addAll(result);
         mQualityAdapter.setPosition(mQualityAdapter.getPosition());
         setUseParse(result.shouldUseParse());
