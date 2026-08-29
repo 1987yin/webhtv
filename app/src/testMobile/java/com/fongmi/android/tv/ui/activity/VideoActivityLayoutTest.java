@@ -684,6 +684,22 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void playbackHistoryKeepsUnknownDurationUntilMediaReportsOne() throws Exception {
+        for (Path sourcePath : List.of(
+                findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")),
+                findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")))) {
+            String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+            String body = methodBody(source,
+                    "private void updatePlaybackHistoryPosition()",
+                    "PlaybackEventCollector.get().updateHistory(mHistory)");
+            assertTrue(sourcePath + " must ignore an unknown player duration",
+                    body.contains("if (duration > 0) mHistory.setDuration(duration);"));
+            assertFalse(sourcePath + " must not materialize an unknown duration as zero",
+                    body.contains("mHistory.setDuration(0)"));
+        }
+    }
+
+    @Test
     public void videoDetailTextKeepsInlineLyricsMetadata() throws Exception {
         Path leanbackPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String leanback = new String(Files.readAllBytes(leanbackPath), StandardCharsets.UTF_8);
@@ -3052,6 +3068,26 @@ public class VideoActivityLayoutTest {
                     click.contains("Flag resolved = mFlagAdapter.get(")
                             && click.contains("mTmdbUIAdapter.setActiveFlag(resolved)")
                             && click.contains("resolved.getEpisodes()"));
+        }
+    }
+
+    @Test
+    public void bothPlayersInitializeEpisodesAndPlaybackFromPreselectedCachedFlags() throws Exception {
+        for (Path root : List.of(findMobileJavaPath(), findLeanbackJavaPath())) {
+            Path sourcePath = root.resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+            String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+            String click = methodBody(source, "public void onItemClick(Flag item)", "@Override");
+
+            assertFalse(sourcePath + " must not treat a cached selected flag as an initialized page",
+                    click.contains("if (resolved.isSelected()) return;"));
+            String initialBinding = root.equals(findMobileJavaPath())
+                    ? "boolean initialBinding = mEpisodeAdapter == null || mEpisodeAdapter.isEmpty();"
+                    : "boolean initialBinding = mEpisodeAdapter.getItemCount() == 0;";
+            assertTrue(sourcePath + " must distinguish an empty episode adapter from a user re-click",
+                    click.contains(initialBinding)
+                            && click.contains("if (resolved.isSelected() && !initialBinding) return;"));
+            assertTrue(sourcePath + " must start the inherited selected episode after rebuilding its list",
+                    click.contains("if (initialBinding && !episodeChanged) onRefresh();"));
         }
     }
 

@@ -569,6 +569,10 @@ public class TmdbUIAdapter {
      * @param vod       待增强的 Vod；增强后通过事件推回 UI
      */
     public void autoMatch(String videoName, Vod vod) {
+        autoMatch(videoName, vod, "");
+    }
+
+    public void autoMatch(String videoName, Vod vod, String searchKeyword) {
         int generation = resetLoadState();
         captureSourceSeason(vod, videoName);
         cancelActivePrefetch();
@@ -601,7 +605,7 @@ public class TmdbUIAdapter {
                 }
                 if (matched == null) {
                     long searchStart = System.currentTimeMillis();
-                    matched = searchResolvedMatch(videoName, vod);
+                    matched = searchResolvedMatch(videoName, vod, searchKeyword);
                     SpiderDebug.log("tmdb", "auto match search cost=%dms hit=%s name=%s", System.currentTimeMillis() - searchStart, matched != null, videoName);
                 }
                 if (!isCurrentGeneration(generation)) return;
@@ -624,16 +628,8 @@ public class TmdbUIAdapter {
         });
     }
 
-    private TmdbItem searchResolvedMatch(String videoName, Vod vod) {
-        MediaTitleRequest request = MediaTitleRequest.builder()
-                .siteKey(cacheSiteKey(vod))
-                .vodId(cacheVodId(vod))
-                .rawTitle(videoName)
-                .rawRemarks(vod == null ? "" : vod.getRemarks())
-                .vodYear(vod == null ? "" : vod.getYear())
-                .source(MediaTitleLearningExample.SOURCE_TMDB_AUTO)
-                .allowAi(true)
-                .build();
+    private TmdbItem searchResolvedMatch(String videoName, Vod vod, String searchKeyword) {
+        MediaTitleRequest request = buildTitleRequest(videoName, vod, searchKeyword, false);
         MediaTitleResolver resolver = new MediaTitleResolver();
         MediaTitleResolution resolution = resolver.resolve(request);
         List<String> attempted = new ArrayList<>();
@@ -644,6 +640,9 @@ public class TmdbUIAdapter {
             if (item != null) return item;
             if (++attempts >= 4) break;
         }
+        TmdbItem keywordMatch = searchKeywordMatch(searchKeyword, vod, attempted);
+        if (keywordMatch != null) return keywordMatch;
+
         List<String> cleanedTitles = resolver.queryCleanedTitles(request, 4);
         SpiderDebug.log("tmdb", "auto match cleaned fallback raw=%s titles=%s", videoName, cleanedTitles);
         for (String title : cleanedTitles) {
@@ -651,7 +650,8 @@ public class TmdbUIAdapter {
             TmdbItem item = tmdbMatcher.searchAndMatch(title, vod);
             if (item != null) return item;
         }
-        MediaTitleResolution fallback = resolver.resolveWithAiFallback(request);
+        MediaTitleRequest aiRequest = buildTitleRequest(videoName, vod, searchKeyword, true);
+        MediaTitleResolution fallback = resolver.resolveWithAiFallback(aiRequest);
         SpiderDebug.log("tmdb", "auto match ai fallback source=%s raw=%s titles=%s", fallback.getSource(), videoName, fallback.queryTitles());
         for (String title : fallback.queryTitles()) {
             if (!addAttemptedTmdbQuery(attempted, title)) continue;
@@ -659,6 +659,26 @@ public class TmdbUIAdapter {
             if (item != null) return item;
         }
         return null;
+    }
+
+    private MediaTitleRequest buildTitleRequest(String videoName, Vod vod, String searchKeyword, boolean allowAi) {
+        return MediaTitleRequest.builder()
+                .siteKey(cacheSiteKey(vod))
+                .vodId(cacheVodId(vod))
+                .rawTitle(videoName)
+                .rawRemarks(vod == null ? "" : vod.getRemarks())
+                .searchKeyword(searchKeyword)
+                .vodYear(vod == null ? "" : vod.getYear())
+                .source(MediaTitleLearningExample.SOURCE_TMDB_AUTO)
+                .allowAi(allowAi)
+                .build();
+    }
+
+    private TmdbItem searchKeywordMatch(String searchKeyword, Vod vod, List<String> attempted) {
+        if (TextUtils.isEmpty(searchKeyword) || !addAttemptedTmdbQuery(attempted, searchKeyword)) return null;
+        TmdbItem item = tmdbMatcher.searchAndMatch(searchKeyword, vod);
+        SpiderDebug.log("tmdb", "auto match search keyword=%s hit=%s", searchKeyword, item != null);
+        return item;
     }
 
     private boolean addAttemptedTmdbQuery(List<String> attempted, String title) {

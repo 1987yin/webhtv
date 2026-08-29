@@ -331,6 +331,7 @@ private int mAudioBackgroundRandomNonce;
     private static final String EXTRA_TMDB_VOD_CACHE_KEY = "tmdb_vod_cache_key";
     private static final String EXTRA_TMDB_DETAIL_THEME = "tmdb_detail_theme";
     private static final String EXTRA_IMMERSIVE_AUDIO_CACHE_KEY = "immersive_audio_cache_key";
+    private static final String EXTRA_SEARCH_KEYWORD = "search_keyword";
     private static final java.util.concurrent.ConcurrentHashMap<String, AudioPlaybackResolver.Resolved> IMMERSIVE_AUDIO_LAUNCHES = new java.util.concurrent.ConcurrentHashMap<>();
     private static final int TMDB_TABLET_PLAYER_MIN_WIDTH_DP = 440;
     private static final int TMDB_TABLET_PLAYER_MAX_WIDTH_DP = 640;
@@ -537,6 +538,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         start(activity, key, id, name, pic, null, true, (TmdbItem) null, wallPic);
     }
 
+    /** 搜索结果进入详情：把用户输入的搜索关键词一路带到 TMDB 自动匹配。 */
+    public static void collect(Activity activity, String key, String id, String name, String pic, String wallPic, String searchKeyword) {
+        start(activity, key, id, name, pic, null, true, (TmdbItem) null, wallPic, null, searchKeyword);
+    }
+
     private static boolean canOpenLegacyTmdbDetail(String key, String id) {
         if (TextUtils.isEmpty(key)) return false;
         if (SiteApi.PUSH.equals(key)) return TmdbSitePolicy.isEnabled(key, id);
@@ -611,19 +617,28 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, com.fongmi.android.tv.bean.TmdbItem tmdbItem, String wallPic, String content) {
+        start(activity, key, id, name, pic, mark, collect, tmdbItem, wallPic, content, "");
+    }
+
+    public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, com.fongmi.android.tv.bean.TmdbItem tmdbItem, String wallPic, String content, String searchKeyword) {
         ImgUtil.preload(activity, pic);
         if (Setting.isPlaybackArtworkWall() && !TextUtils.isEmpty(wallPic) && !TextUtils.equals(wallPic, pic)) ImgUtil.preload(activity, wallPic);
         if (dispatchToContentHandler(activity, key, id, name, pic, mark)) return;
-        startSkippingDispatch(activity, key, id, name, pic, mark, collect, tmdbItem, wallPic, content);
+        startSkippingDispatch(activity, key, id, name, pic, mark, collect, tmdbItem, wallPic, content, searchKeyword);
     }
 
     /** 跳过 ContentDispatcher 的启动路径（供阅读器等 handler 判定内容不归自己管时回退）。 */
     public static void startSkippingDispatch(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, com.fongmi.android.tv.bean.TmdbItem tmdbItem, String wallPic, String content) {
+        startSkippingDispatch(activity, key, id, name, pic, mark, collect, tmdbItem, wallPic, content, "");
+    }
+
+    public static void startSkippingDispatch(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, com.fongmi.android.tv.bean.TmdbItem tmdbItem, String wallPic, String content, String searchKeyword) {
         if (tmdbItem == null && shouldOpenLegacyTmdbDetail(key, id)) {
-            TmdbDetailActivity.start(activity, key, id, name, pic, mark, null, Setting.getDetailOpenMode());
+            TmdbDetailActivity.start(activity, key, id, name, pic, mark, null, Setting.getDetailOpenMode(), searchKeyword);
             return;
         }
         Intent intent = new Intent(activity, VideoActivity.class);
+        if (!TextUtils.isEmpty(searchKeyword)) intent.putExtra(EXTRA_SEARCH_KEYWORD, searchKeyword);
         intent.putExtra("tmdbMode", tmdbItem != null);
         intent.putExtra("tmdbItem", tmdbItem);
         intent.putExtra("collect", collect);
@@ -909,6 +924,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private String getMark() {
         return Objects.toString(getIntent().getStringExtra("mark"), "");
+    }
+
+    private String getSearchKeyword() {
+        return Objects.toString(getIntent().getStringExtra(EXTRA_SEARCH_KEYWORD), "");
     }
 
     private String getIntentPlaybackFlag() {
@@ -1364,6 +1383,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         setAnimator();
         initNightModeOverlay();
         if (isShortDramaSource()) enterShortDramaFullscreen();
+        if (hasPendingImmersiveAudioLaunch()) setAudioStageVisible(true);
         setupIntroSkipConfirmListener();
     }
 
@@ -1473,10 +1493,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private WindowInsetsCompat setStatusBar(WindowInsetsCompat insets) {
         int top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
-        int bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
-        ViewGroup.LayoutParams lp = mBinding.statusBar.getLayoutParams();
-        lp.height = top;
-        mBinding.statusBar.setLayoutParams(lp);
+        Insets nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
+        int bottom = nav.bottom;
+        mStatusBarInset = top;
+        mNavigationRightInset = nav.right;
+        applyStatusBarSpacer();
         setEpisodeBottomInset(bottom);
         return insets;
     }
@@ -1485,6 +1506,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mEpisodeBottomInset = bottom;
         int padding = ResUtil.dp2px(12);
         mBinding.episode.setPaddingRelative(mBinding.episode.getPaddingStart(), mBinding.episode.getPaddingTop(), mBinding.episode.getPaddingEnd(), padding);
+        applyAudioStageInsets();
         mBinding.episode.post(this::updateEpisodeViewportHeight);
     }
 
@@ -2036,7 +2058,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                 SpiderDebug.log("tmdb-mobile", "direct load vodTitle=%s tmdbTitle=%s tmdbId=%d media=%s", item.getName(), tmdbItem.getTitle(), tmdbItem.getTmdbId(), tmdbItem.getMediaType());
                 mTmdbUIAdapter.load(tmdbItem, item);
             } else {
-                mTmdbUIAdapter.autoMatch(item.getName(), item);
+                mTmdbUIAdapter.autoMatch(item.getName(), item, getSearchKeyword());
             }
         }
     }
@@ -2337,7 +2359,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (item == null || mFlagAdapter.isEmpty()) return;
         int position = mFlagAdapter.indexOf(item);
         Flag resolved = mFlagAdapter.get(position < 0 ? 0 : position);
-        if (resolved.isSelected()) return;
+        boolean initialBinding = mEpisodeAdapter == null || mEpisodeAdapter.isEmpty();
+        if (resolved.isSelected() && !initialBinding) return;
         Flag previous = getFlag();
         SpiderDebug.log("playback-action", "flag switch ui=mobile site=%s from=%s to=%s fullscreen=%s", getKey(), previous == null ? "" : previous.getFlag(), resolved.getFlag(), isFullscreen());
         mFlagAdapter.setSelected(resolved);
@@ -2347,6 +2370,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (!episodeChanged) setEpisodeAdapter(resolved.getEpisodes());
         scrollEpisodeToSelected();
         setQualityVisible(false);
+        if (initialBinding && !episodeChanged) onRefresh();
         loadTmdbRelatedVideosForCurrentEpisode();
     }
 
@@ -5480,6 +5504,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mAudioStageVisible = visible;
         syncPiPForPlaybackMode();
         if (!visible) mAudioLightEffectAnimated = false;
+        applyStatusBarSpacer();
+        applyAudioStageInsets();
         mBinding.audioStage.setVisibility(visible ? View.VISIBLE : View.GONE);
         if (visible) mBinding.audioStage.bringToFront();
         if (visible) applyAudioBackground();
@@ -6729,7 +6755,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         long duration = player().getDuration();
         if (position > 0) mHistory.setPosition(position);
         if (duration > 0) mHistory.setDuration(duration);
-        else if (mHistory.getDuration() < 0) mHistory.setDuration(0);
         PlaybackEventCollector.get().updateHistory(mHistory);
     }
 
@@ -9011,6 +9036,11 @@ private boolean consumePendingPlaybackResult() {
 private AudioPlaybackResolver.Resolved takeImmersiveAudioLaunch() {
         String cacheKey = Objects.toString(getIntent().getStringExtra(EXTRA_IMMERSIVE_AUDIO_CACHE_KEY), "");
         return TextUtils.isEmpty(cacheKey) ? null : IMMERSIVE_AUDIO_LAUNCHES.remove(cacheKey);
+    }
+
+    private boolean hasPendingImmersiveAudioLaunch() {
+        String cacheKey = Objects.toString(getIntent().getStringExtra(EXTRA_IMMERSIVE_AUDIO_CACHE_KEY), "");
+        return !TextUtils.isEmpty(cacheKey) && IMMERSIVE_AUDIO_LAUNCHES.containsKey(cacheKey);
     }
 
 private boolean consumeImmersiveAudioLaunch() {
