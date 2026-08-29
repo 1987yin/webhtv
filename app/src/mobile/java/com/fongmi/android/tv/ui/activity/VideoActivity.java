@@ -185,6 +185,7 @@ import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -8158,9 +8159,16 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void restoreShortDramaControls() {
         if (!shortDramaControlsDocked) return;
-        for (ShortDramaControlItem item : getShortDramaControlItems()) {
+        // 先全部摘下再按记录索引升序插回：同一容器有多个搬迁项时（换源/画质/选集同属 action 栏），
+        // 按声明顺序逐个插入会让后来者挤掉前者的位置，且 PlayerButtonSetting.applyOrder 可能已重排过容器，
+        // 声明顺序不保证等于索引升序。升序插入与「摘下前的原始索引」语义一致。
+        List<ShortDramaControlItem> items = new ArrayList<>(getShortDramaControlItems());
+        for (ShortDramaControlItem item : items) {
             ViewGroup parent = (ViewGroup) item.view.getParent();
             if (parent != null) parent.removeView(item.view);
+        }
+        items.sort(Comparator.comparingInt(item -> item.index));
+        for (ShortDramaControlItem item : items) {
             item.parent.addView(item.view, Math.min(item.index, item.parent.getChildCount()), item.layoutParams);
         }
         if (mShortDramaControlDock != null && mShortDramaControlDock.getParent() instanceof ViewGroup) {

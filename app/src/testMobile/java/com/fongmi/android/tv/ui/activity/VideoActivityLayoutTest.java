@@ -907,13 +907,25 @@ public class VideoActivityLayoutTest {
         assertTrue("short drama dock must expose the quality button",
                 body.contains("mBinding.control.action.actionQuality,"));
 
-        // action 栏内控件必须按容器原始顺序排列：restoreShortDramaControls 按记录的 index 升序插回，
-        // 顺序颠倒会让后插入的控件落到错误位置。view_control_vod_action.xml 中三者顺序为 change2 -> actionQuality -> episodes。
-        int change = body.indexOf("action.change2,");
-        int quality = body.indexOf("action.actionQuality,");
-        int episodes = body.indexOf("action.episodes,");
-        assertTrue("docked action-bar views must follow their original container order",
-                change < quality && quality < episodes);
+    }
+
+    @Test
+    public void mobileShortDramaRestoreIsIndependentOfDeclarationOrder() throws Exception {
+        // 同一容器现在有多个搬迁项（换源/画质/选集同属 action 栏）。逐个「摘下并立刻插回」
+        // 会让后来者挤掉前者的位置，且 PlayerButtonSetting.applyOrder 可能已重排容器，
+        // 声明顺序不等于索引升序。还原必须先全部摘下、再按原始索引升序插回。
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int restore = source.indexOf("private void restoreShortDramaControls()");
+        assertTrue("restoreShortDramaControls must exist", restore >= 0);
+        String body = source.substring(restore, source.indexOf("\n    }", restore));
+
+        int detachLoop = body.indexOf("parent.removeView(item.view);");
+        int sort = body.indexOf("items.sort(Comparator.comparingInt(item -> item.index));");
+        int attachLoop = body.indexOf("item.parent.addView(item.view,");
+        assertTrue("restore must detach every docked view before re-attaching", detachLoop >= 0);
+        assertTrue("restore must re-attach in ascending original index order", sort > detachLoop);
+        assertTrue("restore must re-attach after sorting", attachLoop > sort);
     }
 
     @Test
