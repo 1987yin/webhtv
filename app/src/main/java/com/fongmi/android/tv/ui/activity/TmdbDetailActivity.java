@@ -162,6 +162,7 @@ import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.novel.NovelRouter;
 import com.fongmi.android.tv.ui.helper.DetailThemeVisibility;
 import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
+import com.fongmi.android.tv.ui.helper.EpisodeCardImagePolicy;
 import com.fongmi.android.tv.ui.helper.EpisodeSeasonPolicy;
 import com.fongmi.android.tv.ui.helper.EpisodeSeasonSnapshot;
 import com.fongmi.android.tv.ui.helper.PipExitDecision;
@@ -3821,12 +3822,33 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private String episodeFallbackStillUrl() {
+        // 分集无专属剧照时按设备比例选兜底：宽屏优先横向剧照，窄屏优先纵向海报，
+        // 首选比例缺图时退到另一种，避免宽卡片塞竖海报（只能看到人脸中段）。
+        return EpisodeCardImagePolicy.fallbackFor(
+                episodeFallbackLandscapeUrl(), episodeFallbackPortraitUrl(), preferLandscapeBackground());
+    }
+
+    private String episodeFallbackPortraitUrl() {
         String poster = tmdbPosterUrl();
         if (!TextUtils.isEmpty(poster)) return poster;
         if (vod != null && !TextUtils.isEmpty(vod.getPic())) return vod.getPic();
-        String backdrop = tmdbBackdropUrl();
-        if (!TextUtils.isEmpty(backdrop)) return backdrop;
         return getPicText();
+    }
+
+    /**
+     * 只认横向图：tmdbBackdropUrl() 内部已按设备比例在 backdrop/poster 间选过一次，
+     * 窄屏时它会回竖海报，直接复用会让「窄屏缺海报退剧照」永远拿不到横图。
+     */
+    private String episodeFallbackLandscapeUrl() {
+        if (matchedTmdbDetail != null && tmdbConfig != null) {
+            List<String> backdrops = TmdbImageSelector.backdrops(matchedTmdbDetail, tmdbConfig.getBackdropBase(), 1);
+            if (!backdrops.isEmpty()) return backdrops.get(0);
+        }
+        if (matchedTmdbItem != null) return TmdbImageSelector.originalUrl(matchedTmdbItem.getBackdropUrl());
+        // 已有匹配条目时到此为止：applyManualTmdb() 换条目不重建 intent，退 tmdb_backdrop 会让
+        // 上一条匹配的横图挡在当前条目的海报前面。完全没有匹配（原生源）才退它，此时它仍是进场
+        // 条目自己的横图，且换条目走 setIntent 会刷新，宽卡片靠它免吃竖海报。
+        return TmdbImageSelector.originalUrl(getBackdropText());
     }
 
     private void bindHeader() {
