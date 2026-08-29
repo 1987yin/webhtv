@@ -3322,6 +3322,22 @@ public class TmdbDetailActivityLayoutTest {
     }
 
     @Test
+    public void automaticEpisodeMetadataUsesResolvedFallbackSeason() throws Exception {
+        String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
+        String dataSeason = source.substring(source.indexOf("private int tmdbEpisodeDataSeason"),
+                source.indexOf("private void fetchSeasonIfNeeded(int seasonNumber)"));
+        String episodeDetail = source.substring(source.indexOf("private void showTmdbEpisodeDetail"),
+                source.indexOf("private EpisodePosition historyEpisodePosition"));
+
+        assertTrue("empty auto grouping must reuse the resolver's unique season for episode data",
+                dataSeason.contains("tmdbSeasonChoiceResolution().getSelectedSeason()"));
+        assertTrue("episode detail must use the same resolved fallback season as episode data",
+                episodeDetail.contains("int detailSeasonNumber = tmdbEpisodeDataSeason(")
+                        && episodeDetail.contains("int displaySeasonNumber = detailSeasonNumber;")
+                        && episodeDetail.contains("int seasonNumber = detailSeasonNumber;"));
+    }
+
+    @Test
     public void manualSeasonBindingClearsOnlySelectedFlagMetadata() throws Exception {
         String source = readJava("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java");
         String clear = source.substring(source.indexOf("private void clearBoundTmdbEpisodeMetadata"),
