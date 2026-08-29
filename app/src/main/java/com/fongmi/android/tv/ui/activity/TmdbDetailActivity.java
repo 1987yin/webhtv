@@ -5339,7 +5339,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private int tmdbEpisodeDataSeason(List<Episode> sourceEpisodes) {
         List<Integer> availableSeasons = availableSeasonNumbers(sourceEpisodes);
         if (availableSeasons.size() == 1) return availableSeasons.get(0);
-        return availableSeasons.contains(selectedSeasonNumber) ? selectedSeasonNumber : -1;
+        if (availableSeasons.contains(selectedSeasonNumber)) return selectedSeasonNumber;
+        Integer fallbackSeason = tmdbSeasonChoiceResolution().getSelectedSeason();
+        return fallbackSeason == null || !seasonNumbers.contains(fallbackSeason) ? -1 : fallbackSeason;
     }
 
     private void fetchSeasonIfNeeded(int seasonNumber) {
@@ -5959,15 +5961,16 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             return;
         }
         // 剧集场景：原有逻辑
-        if (matchedTmdbItem == null || !"tv".equalsIgnoreCase(matchedTmdbItem.getMediaType()) || selectedSeasonNumber < 0 || episodeNumber <= 0 || !canMatchTmdb()) {
+        int detailSeasonNumber = tmdbEpisodeDataSeason(selectedFlag == null ? null : selectedFlag.getEpisodes());
+        if (matchedTmdbItem == null || !"tv".equalsIgnoreCase(matchedTmdbItem.getMediaType()) || detailSeasonNumber < 0 || episodeNumber <= 0 || !canMatchTmdb()) {
             Notify.show(R.string.detail_tmdb_empty);
             return;
         }
         binding.loading.setVisibility(View.VISIBLE);
         int generation = loadGeneration;
         int detailGeneration = ++tmdbEpisodeDetailGeneration;
-        int displaySeasonNumber = selectedSeasonNumber;
-        int seasonNumber = tmdbEpisodeDataSeason(selectedFlag == null ? null : selectedFlag.getEpisodes());
+        int displaySeasonNumber = detailSeasonNumber;
+        int seasonNumber = detailSeasonNumber;
         TmdbItem item = matchedTmdbItem;
         JsonObject baseDetail = matchedTmdbDetail;
         TmdbConfig config = tmdbConfig;

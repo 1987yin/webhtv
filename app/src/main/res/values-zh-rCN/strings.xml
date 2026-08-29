@@ -2,6 +2,10 @@
 
     <!-- App -->
     <string name="app_name">默影视</string>
+   <string name="setting_app_branding">APP 图标</string>
+    <string name="app_branding_icon_current">默认图标</string>
+    <string name="app_branding_icon_history">原版图标</string>
+    <string name="app_branding_icon_select">选择图标</string>
     <string name="app_exit_confirm">再按一次退出应用</string>
 
     <!-- Live -->
