@@ -10,6 +10,8 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import java.util.concurrent.TimeUnit;
+
 /**
  * 把「猫源」（CatPawOpen 一类的 CatVod T4 服务端）返回的配置整形成标准 TVBox 配置。
  *
@@ -49,7 +51,9 @@ public class CatSource {
                 latch.countDown();
             }
         });
-        latch.await();
+        if (!latch.await(60, TimeUnit.SECONDS)) {
+            throw new Exception("猫源启动超时");
+        }
         if (error.get() != null) throw new Exception("猫源启动失败: " + error.get());
         return NodeRuntime.configUrl();
     }

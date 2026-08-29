@@ -104,6 +104,17 @@ public class NodePortSelectionTest {
     }
 
     @Test
+    public void runtimeStartHasBoundedFailureHandling() throws IOException {
+        String runtime = read("com/fongmi/android/tv/node/NodeRuntime.java");
+        String source = read("com/fongmi/android/tv/api/CatSource.java");
+
+        assertTrue("NodeRuntime 启动必须有超时", runtime.contains("START_TIMEOUT_MS"));
+        assertTrue("启动超时必须停止 NodeService", runtime.contains("NodeService.stop(context)"));
+        assertTrue("启动超时必须复位 STARTING", runtime.contains("STARTING.compareAndSet(true, false)"));
+        assertTrue("CatSource 等待必须有时间上限", source.contains("latch.await(60, TimeUnit.SECONDS)"));
+    }
+
+    @Test
     public void readPortsParsesListAndTolueratesLegacySingleValue() throws Exception {
         assertEquals("多端口按逗号解析，顺序保持落盘顺序（猫源在前）",
                 Arrays.asList(9988, 9321), readPorts("9988,9321"));
