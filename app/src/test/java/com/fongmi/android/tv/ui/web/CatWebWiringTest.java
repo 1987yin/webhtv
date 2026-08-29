@@ -256,8 +256,12 @@ public class CatWebWiringTest {
     public void undecodableTargetFallsBack() throws IOException {
         String action = read("com/fongmi/android/tv/api/CatAction.java");
         int target = action.indexOf("private static String target(");
+        int bodyEnd = action.indexOf("\n    }", target);
         assertTrue("要有地址解码", target >= 0);
         assertTrue("只接受 http(s)", action.indexOf("startsWith(\"http://\")", target) > target);
+        assertTrue("proxy 后的 Base64 必须整段解码，不能按 slash 截断",
+                action.indexOf("encoded.indexOf('/')", target) < 0
+                        || action.indexOf("encoded.indexOf('/')", target) > bodyEnd);
     }
 
     /**
