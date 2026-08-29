@@ -4401,10 +4401,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private String getEpisodeFallbackBackdropUrl() {
-        // 只取当前 TMDB 条目自己的横图。这里不能退到 intent 的 wallPic：那是进场时固定的值，
-        // 换条目后不会更新，宽屏优先横图会让它挡在当前条目的海报前面，显示上一部剧的背景图。
-        // 横图缺失时由 EpisodeCardImagePolicy 退到海报链，那条链本身就是当前条目优先。
-        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return "";
+        // 有 TMDB 条目时只认它自己的剧照：mHistory 的 wall 会被 cachedFastTmdbBackdrop() 写入，
+        // 重新匹配后残留的是上一条匹配的横图；退它等于让旧背景图挡在当前条目的海报前面。
+        // 没有 TMDB 条目（纯原生源）才退 intent 的 wallPic —— 它随 onNewIntent 的 putExtras
+        // 跟随条目刷新，且全仓只喂给 setContextWall，是这里唯一可信的横图，宽卡片靠它免吃竖海报。
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return getWallPic();
         java.util.List<String> photos = mTmdbUIAdapter.getPhotos();
         return photos == null || photos.isEmpty() ? "" : photos.get(0);
     }

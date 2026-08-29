@@ -3840,13 +3840,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
      * 窄屏时它会回竖海报，直接复用会让「窄屏缺海报退剧照」永远拿不到横图。
      */
     private String episodeFallbackLandscapeUrl() {
-        // 同样只取当前匹配条目的横图，不退 intent 的 tmdb_backdrop：换条目后它不更新，
-        // 宽屏优先横图会让旧值挡在当前条目的海报前面。
         if (matchedTmdbDetail != null && tmdbConfig != null) {
             List<String> backdrops = TmdbImageSelector.backdrops(matchedTmdbDetail, tmdbConfig.getBackdropBase(), 1);
             if (!backdrops.isEmpty()) return backdrops.get(0);
         }
-        return TmdbImageSelector.originalUrl(matchedTmdbItem == null ? "" : matchedTmdbItem.getBackdropUrl());
+        if (matchedTmdbItem != null) return TmdbImageSelector.originalUrl(matchedTmdbItem.getBackdropUrl());
+        // 已有匹配条目时到此为止：applyManualTmdb() 换条目不重建 intent，退 tmdb_backdrop 会让
+        // 上一条匹配的横图挡在当前条目的海报前面。完全没有匹配（原生源）才退它，此时它仍是进场
+        // 条目自己的横图，且换条目走 setIntent 会刷新，宽卡片靠它免吃竖海报。
+        return TmdbImageSelector.originalUrl(getBackdropText());
     }
 
     private void bindHeader() {
