@@ -123,6 +123,50 @@ public class AdFeedbackControllerTest {
     }
 
     @Test
+    public void prerollReportEarlyInPlaybackClampsStartToZero() {
+        // 片头广告是最常见场景：位置远小于回溯窗口，起点必须钳到 0 而非变负
+        FakeHost host = new FakeHost();
+        host.position = 12_000;
+        AdFeedbackController controller = new AdFeedbackController(host);
+
+        AdFeedbackSession session = controller.onQuickReport(null);
+
+        assertNotNull("片头位置也必须能反馈", session);
+        assertEquals(0L, session.startMs());
+        assertEquals(12_000L, session.endMs());
+        assertEquals(List.of("0-12000"), host.skipCalls);
+    }
+
+    @Test
+    public void unavailablePositionIsRejectedNotTreatedAsZero() {
+        // 播放器已释放时 safePositionMs 返回 -1，不能被当成合法的片头位置
+        FakeHost host = new FakeHost();
+        host.position = -1;
+        AdFeedbackController controller = new AdFeedbackController(host);
+
+        assertNull(controller.onQuickReport(null));
+        assertTrue(host.skipCalls.isEmpty());
+        assertTrue(host.shownSessions.isEmpty());
+    }
+
+    @Test
+    public void invalidateDropsInFlightAnalysisFromPreviousEpisode() {
+        // 换集后旧归因回来时不得覆盖 UI —— 否则用户会看到上一集的结论
+        FakeHost host = new FakeHost();
+        host.playlist = adBlockPlaylist();
+        host.deferBackground = true;
+        AdFeedbackController controller = new AdFeedbackController(host);
+
+        controller.onMarkedInterval(30_000, 60_000);
+        int shownBefore = host.shownSessions.size();
+        controller.invalidate();
+        host.deferBackground = false;
+        host.backgroundTasks.get(0).run();
+
+        assertEquals("过期归因不得再刷新界面", shownBefore, host.shownSessions.size());
+    }
+
+    @Test
     public void rejectsInvalidIntervals() {
         FakeHost host = new FakeHost();
         AdFeedbackController controller = new AdFeedbackController(host);
