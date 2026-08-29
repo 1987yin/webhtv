@@ -90,9 +90,20 @@ public final class DomainReputationClassifier {
         }
         evidenceLines.add("起点来源：" + evidence.startOrigin());
 
+        // 落地方式是 HLS 结构化规则而不是域名黑名单：黑名单只在 WebView
+        // 请求拦截生效（RuleConfig.getAds() 的唯一消费者是 CustomWebView），
+        // 拦不住播放器直连的切片请求。跨域按 foreignHosts 的定义天然成立，
+        // 与 hostSuffixes 合起来正好满足 minimumSignals=2。
+        List<String> scope = evidence.playlistHost().isEmpty()
+                ? List.of() : List.of(evidence.playlistHost());
+        RemediationKind remediation = scope.isEmpty()
+                ? RemediationKind.HOST_BLACKLIST : RemediationKind.HLS_STRUCTURED_RULE;
+        RulePayload payload = scope.isEmpty()
+                ? RulePayload.ofHosts(List.copyOf(foreignHosts))
+                : RulePayload.ofHlsRule(scope, List.copyOf(foreignHosts),
+                        Double.NaN, Double.NaN, false, true, 2);
         return new AdAttribution(CHANNEL_ID, AdCategory.THIRD_PARTY_CDN_SEGMENT,
-                confidence, RiskLevel.LOW, evidenceLines, RemediationKind.HOST_BLACKLIST,
-                RulePayload.ofHosts(List.copyOf(foreignHosts)));
+                confidence, RiskLevel.LOW, evidenceLines, remediation, payload);
     }
 
     /** 区间内不属于 playlist 域名的切片 host，去重保序。 */

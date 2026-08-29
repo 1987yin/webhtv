@@ -53,10 +53,19 @@ public class DomainReputationClassifierTest {
 
         assertNotNull(attribution);
         assertEquals(AdCategory.THIRD_PARTY_CDN_SEGMENT, attribution.category());
-        assertEquals(RemediationKind.HOST_BLACKLIST, attribution.remediation());
+        // 域名黑名单只在 WebView 层生效，拦不住播放器直连的切片；
+        // 要真正删掉这些切片必须落成 HLS 结构化规则
+        assertEquals(RemediationKind.HLS_STRUCTURED_RULE, attribution.remediation());
         assertEquals(RiskLevel.LOW, attribution.risk());
         assertEquals(DomainReputationClassifier.CONFIDENCE_UNKNOWN_HOST,
                 attribution.confidence(), 0.0001f);
+        // 规则必须限定到本站 playlist 域名，否则会污染其他站点
+        assertEquals(List.of(PLAYLIST_HOST), attribution.payload().playlistHostSuffixes());
+        assertEquals(List.of("ad-cdn.other.com"), attribution.payload().hosts());
+        // hostSuffixes + requireCrossDomain 两个信号，满足 minimumSignals >= 2
+        assertTrue(attribution.payload().requireCrossDomain());
+        assertEquals(2, attribution.payload().minimumSignals());
+        assertTrue(attribution.actionable());
     }
 
     @Test
