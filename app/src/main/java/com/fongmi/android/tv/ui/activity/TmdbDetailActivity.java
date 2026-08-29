@@ -174,6 +174,7 @@ import com.fongmi.android.tv.ui.helper.TmdbSeasonResolver;
 import com.fongmi.android.tv.history.TmdbSeasonSourceAggregator;
 import com.fongmi.android.tv.ui.helper.TmdbEpisodeMatcher;
 import com.fongmi.android.tv.ui.helper.TmdbMatchPolicy;
+import com.fongmi.android.tv.ui.helper.TmdbMatcher;
 import com.fongmi.android.tv.ui.helper.TmdbRecommendationRows;
 import com.fongmi.android.tv.ui.helper.TmdbUIAdapter;
 import com.fongmi.android.tv.ui.player.VodPlayerChrome;
@@ -448,6 +449,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private static final String EXTRA_PLAY_EPISODE_NAME = "tmdb_play_episode_name";
     private static final String EXTRA_PLAY_EPISODE_URL = "tmdb_play_episode_url";
     private static final String EXTRA_PLAY_SEASON_NUMBER = "tmdb_play_season_number";
+    private static final String SOURCE_SEARCH_KEYWORD = "SEARCH_KEYWORD";
 
     @Override
     public TmdbItem getMatchedTmdbItem() {
@@ -469,6 +471,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, @Nullable TmdbItem tmdbItem, int detailMode) {
         start(activity, key, id, name, pic, mark, tmdbItem, detailMode, false);
+    }
+
+    /** 搜索结果进入独立 TMDB 详情：带上用户输入的搜索关键词，供自动匹配与 AI 兜底使用。 */
+    public static void start(Activity activity, String key, String id, String name, String pic, String mark, @Nullable TmdbItem tmdbItem, int detailMode, String searchKeyword) {
+        start(activity, key, id, name, pic, mark, tmdbItem, detailMode, false, null, null, "", null, null, searchKeyword);
     }
 
     public static void startFusion(Activity activity, String key, String id, String name, String pic, String mark) {
@@ -522,6 +529,14 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                               @Nullable TmdbItem tmdbItem, int detailMode, boolean autoPlay,
                               @Nullable History resumeHistory, String playFlag, String playFlagKey,
                               String playEpisodeName, String playEpisodeUrl) {
+        start(activity, key, id, name, pic, mark, tmdbItem, detailMode, autoPlay, resumeHistory,
+                playFlag, playFlagKey, playEpisodeName, playEpisodeUrl, "");
+    }
+
+    private static void start(Activity activity, String key, String id, String name, String pic, String mark,
+                              @Nullable TmdbItem tmdbItem, int detailMode, boolean autoPlay,
+                              @Nullable History resumeHistory, String playFlag, String playFlagKey,
+                              String playEpisodeName, String playEpisodeUrl, String searchKeyword) {
         if (!TextUtils.isEmpty(key) && !SiteApi.PUSH.equals(key) && AudioUtil.isAudioSiteEnabled(key)) {
             startDirectFromHistory(activity, key, id, name, pic, mark, playFlag, playFlagKey, playEpisodeName, playEpisodeUrl, resumeHistory);
             return;
@@ -545,6 +560,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         intent.putExtra("name", name);
         intent.putExtra("pic", pic);
         intent.putExtra("mark", mark);
+        if (!TextUtils.isEmpty(searchKeyword)) intent.putExtra("search_keyword", searchKeyword);
         putTmdbItem(intent, tmdbItem);
         if (resumeHistory != null) {
             intent.putExtra(EXTRA_RESUME_FROM_HISTORY, true);
@@ -3264,22 +3280,34 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private AutoTmdbMatch searchResolvedTmdbMatch(String rawTitle, @Nullable Vod sourceVod) throws Exception {
-        MediaTitleRequest request = buildTmdbTitleRequest(rawTitle, sourceVod);
+        String searchKeyword = getTmdbSearchKeyword();
+        MediaTitleRequest request = buildTmdbTitleRequest(rawTitle, sourceVod, searchKeyword, false);
         MediaTitleResolver resolver = new MediaTitleResolver();
         List<String> attempted = new ArrayList<>();
         MediaTitleResolution resolution = resolver.resolve(request);
         AutoTmdbMatch match = searchResolvedTmdbMatch(rawTitle, resolution, attempted);
         if (match.item() != null) return match;
+        AutoTmdbMatch keywordMatch = searchResolvedTmdbMatch(rawTitle, searchKeyword, attempted);
+        if (keywordMatch.item() != null) return keywordMatch;
         List<String> cleanedTitles = resolver.queryCleanedTitles(request, 4);
         logTmdbMatch("清洗标题兜底：原始标题=%s，候选=%s", rawTitle, cleanedTitles);
         AutoTmdbMatch cleanedMatch = searchResolvedTmdbMatch(rawTitle, cleanedTitles, MediaTitleResolution.SOURCE_CLEANED, attempted);
         if (cleanedMatch.item() != null) return cleanedMatch;
-        MediaTitleResolution fallback = resolver.resolveWithAiFallback(request);
+        MediaTitleRequest aiRequest = buildTmdbTitleRequest(rawTitle, sourceVod, searchKeyword, true);
+        MediaTitleResolution fallback = resolver.resolveWithAiFallback(aiRequest);
         logTmdbMatch("AI 标题兜底：source=%s，原始标题=%s，候选=%s", fallback.getSource(), rawTitle, fallback.queryTitles());
         AutoTmdbMatch fallbackMatch = searchResolvedTmdbMatch(rawTitle, fallback, attempted);
         if (!fallbackMatch.items().isEmpty()) return fallbackMatch;
         if (!cleanedMatch.items().isEmpty()) return cleanedMatch;
+        if (!keywordMatch.items().isEmpty()) return keywordMatch;
         return !match.items().isEmpty() ? match : fallbackMatch;
+    }
+
+    /** 搜索关键词兜底：卡片名称匹配失败后，用用户当时输入的搜索词再匹配一次。 */
+    private AutoTmdbMatch searchResolvedTmdbMatch(String rawTitle, String searchKeyword, List<String> attempted) throws Exception {
+        if (TextUtils.isEmpty(searchKeyword)) return new AutoTmdbMatch(null, List.of());
+        logTmdbMatch("搜索词兜底：原始标题=%s，搜索关键词=%s", rawTitle, searchKeyword);
+        return searchResolvedTmdbMatch(rawTitle, List.of(searchKeyword), SOURCE_SEARCH_KEYWORD, attempted);
     }
 
     private AutoTmdbMatch searchResolvedTmdbMatch(String rawTitle, MediaTitleResolution resolution, List<String> attempted) throws Exception {
@@ -3308,21 +3336,26 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return new AutoTmdbMatch(null, lastItems);
     }
 
-    private MediaTitleRequest buildTmdbTitleRequest(String rawTitle, @Nullable Vod sourceVod) {
+    private MediaTitleRequest buildTmdbTitleRequest(String rawTitle, @Nullable Vod sourceVod, String searchKeyword, boolean allowAi) {
         Vod detailVod = sourceVod != null ? sourceVod : vod;
         return MediaTitleRequest.builder()
                 .siteKey(getKeyText())
                 .vodId(getIdText())
                 .rawTitle(rawTitle)
                 .rawRemarks(detailVod == null ? getMarkText() : coalesce(detailVod.getRemarks(), getMarkText()))
+                .searchKeyword(searchKeyword)
                 .vodYear(detailVod == null ? "" : detailVod.getYear())
                 .source(MediaTitleLearningExample.SOURCE_TMDB_AUTO)
-                .allowAi(true)
+                .allowAi(allowAi)
                 .build();
     }
 
     private String getTmdbRawTitle() {
         return !TextUtils.isEmpty(sourceVodName) ? sourceVodName : vod != null && !TextUtils.isEmpty(vod.getName()) ? vod.getName() : getNameText();
+    }
+
+    private String getTmdbSearchKeyword() {
+        return Objects.toString(getIntent().getStringExtra("search_keyword"), "");
     }
 
     private List<String> automaticTmdbQueries(MediaTitleResolution resolution, String rawTitle) {
@@ -4155,9 +4188,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         List<TmdbItem> items = tmdbService.search(query, tmdbConfig);
         logTmdbMatch("TMDB 搜索：搜索词=%s，结果数=%d", query, items.size());
         String fallbackQuery = Objects.toString(fallback, "").trim();
-        if (!items.isEmpty() || TextUtils.isEmpty(fallbackQuery) || query.equals(fallbackQuery)) return items;
+        if (!items.isEmpty() || TextUtils.isEmpty(fallbackQuery) || query.equals(fallbackQuery)) {
+            new TmdbMatcher(tmdbService, tmdbConfig).sortSearchResults(items, query);
+            return items;
+        }
         List<TmdbItem> fallbackItems = tmdbService.search(fallbackQuery, tmdbConfig);
         logTmdbMatch("TMDB 搜索回退：清洗后无结果，原始词=%s，结果数=%d", fallbackQuery, fallbackItems.size());
+        new TmdbMatcher(tmdbService, tmdbConfig).sortSearchResults(fallbackItems, fallbackQuery);
         return fallbackItems;
     }
 
