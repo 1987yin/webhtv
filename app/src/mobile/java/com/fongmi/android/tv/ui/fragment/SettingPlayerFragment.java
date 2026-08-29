@@ -89,6 +89,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         setPreloadText();
         mBinding.autoPlayText.setText(getSwitch(PlayerSetting.isAutoPlay()));
         mBinding.autoChangeText.setText(getSwitch(PlayerSetting.isAutoChange()));
+        mBinding.rememberBrightnessText.setText(getSwitch(PlayerSetting.isRememberBrightness()));
         mBinding.failureFallbackText.setText((failureFallback = ResUtil.getStringArray(R.array.select_player_failure_fallback))[PlayerSetting.getFailureFallback()]);
         mBinding.musicNotificationText.setText(getSwitch(PlayerSetting.isMusicNotification()));
         mBinding.audioBookNotificationText.setText(getSwitch(PlayerSetting.isAudioBookNotification()));
@@ -135,6 +136,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.preloadPause.setOnClickListener(this::onPreloadPause);
         mBinding.autoPlay.setOnClickListener(this::setAutoPlay);
         mBinding.autoChange.setOnClickListener(this::setAutoChange);
+        mBinding.rememberBrightness.setOnClickListener(this::setRememberBrightness);
         mBinding.failureFallback.setOnClickListener(this::setFailureFallback);
         mBinding.render.setOnClickListener(this::setRender);
         mBinding.tunnel.setOnClickListener(this::setTunnel);
@@ -431,6 +433,11 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     private void setAutoChange(View view) {
         PlayerSetting.putAutoChange(!PlayerSetting.isAutoChange());
         mBinding.autoChangeText.setText(getSwitch(PlayerSetting.isAutoChange()));
+    }
+
+    private void setRememberBrightness(View view) {
+        PlayerSetting.putRememberBrightness(!PlayerSetting.isRememberBrightness());
+        mBinding.rememberBrightnessText.setText(getSwitch(PlayerSetting.isRememberBrightness()));
     }
 
     private void setFailureFallback(View view) {
