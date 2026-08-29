@@ -3,6 +3,7 @@ package com.fongmi.android.tv.api;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.node.NodeBundle;
 import com.fongmi.android.tv.node.NodeRuntime;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Json;
@@ -21,11 +22,17 @@ import java.util.concurrent.TimeUnit;
  */
 public class CatSource {
 
-    /** 猫源地址指向 Node bundle 本身（如 {@code .../index.js.md5}），不是可直接解析的配置。 */
+    /**
+     * 猫源地址指向 Node bundle 本身（如 {@code .../index.js.md5}），不是可直接解析的配置。
+     *
+     * <p>本地包（用户自己解压的目录）也算：这时地址是路径而不是 URL，靠目录里有
+     * {@code index.js.md5} 认定，与 CatPawOpen 的发布约定一致。
+     */
     public static boolean isBundle(String url) {
         if (TextUtils.isEmpty(url)) return false;
         String value = url.trim().toLowerCase();
-        return value.endsWith(".js.md5") || value.endsWith("/index.js");
+        if (value.endsWith(".js.md5") || value.endsWith("/index.js")) return true;
+        return NodeBundle.isLocal(url);
     }
 
     /**
