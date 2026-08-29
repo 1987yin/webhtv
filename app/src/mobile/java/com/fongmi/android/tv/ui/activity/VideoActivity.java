@@ -4998,12 +4998,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private String getEpisodeFallbackBackdropUrl() {
-        if (mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded()) {
-            java.util.List<String> photos = mTmdbUIAdapter.getPhotos();
-            if (photos != null && !photos.isEmpty() && !TextUtils.isEmpty(photos.get(0))) return photos.get(0);
-        }
-        if (!TextUtils.isEmpty(getContextWall())) return getContextWall();
-        return getWallPic();
+        // 只取当前 TMDB 条目自己的横图。这里不能退到 getContextWall()/wallPic：那些以进场 intent
+        // 为起点、换条目后不更新，宽屏优先横图会让它挡在当前条目的海报前面，显示上一部剧的背景图。
+        // 横图缺失时由 EpisodeCardImagePolicy 退到海报链，那条链本身就是当前条目优先。
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return "";
+        java.util.List<String> photos = mTmdbUIAdapter.getPhotos();
+        return photos == null || photos.isEmpty() ? "" : photos.get(0);
     }
 
     private boolean hasInitialPreview() {
