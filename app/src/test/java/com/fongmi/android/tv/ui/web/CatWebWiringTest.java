@@ -296,6 +296,25 @@ public class CatWebWiringTest {
                 action.contains("192.168.") && action.contains("169.254."));
     }
 
+    /**
+     * 网页主题首页也要分流。
+     *
+     * <p>首页用 Web 主题渲染时，点击走的是 {@code navigation.openDetail} 桥而不是原生列表，
+     * 那条路不经 {@code ContentDispatcher}——只改原生入口会让动作项在这条路上原样闪详情页，
+     * 实测踩过（START 先是 TmdbDetailActivity，1 秒后才是 CatWebActivity）。
+     */
+    @Test
+    public void webThemeBridgeAlsoDispatches() throws IOException {
+        String bridge = read("com/fongmi/android/tv/web/WebHomeThemeBridge.java");
+        int open = bridge.indexOf("private String openDetail(");
+        assertTrue("桥必须有 openDetail", open >= 0);
+
+        int dispatch = bridge.indexOf("CatAction.openWebsite(", open);
+        int detail = bridge.indexOf("TmdbDetailActivity.start(", open);
+        assertTrue("openDetail 必须先分流猫源动作项", dispatch > open);
+        assertTrue("分流要排在打开详情页之前", dispatch < detail);
+    }
+
     private static String read(String relative) throws IOException {
         return text(mainJava().resolve(path(relative)));
     }
