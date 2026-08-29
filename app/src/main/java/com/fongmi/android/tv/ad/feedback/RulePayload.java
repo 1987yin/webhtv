@@ -67,11 +67,21 @@ public record RulePayload(List<String> playlistHostSuffixes, List<String> hosts,
 
     /** HLS 结构化条件全量。 */
     public static RulePayload ofHlsRule(List<String> playlistHostSuffixes, List<String> hosts,
+                                        List<String> regex,
                                         double durationMin, double durationMax,
                                         boolean requireDiscontinuity, boolean requireCrossDomain,
                                         int minimumSignals) {
-        return new RulePayload(playlistHostSuffixes, hosts, List.of(), List.of(), "",
+        return new RulePayload(playlistHostSuffixes, hosts, regex, List.of(), "",
                 durationMin, durationMax, requireDiscontinuity, requireCrossDomain, minimumSignals);
+    }
+
+    /** HLS 结构化条件，无 URL 正则。 */
+    public static RulePayload ofHlsRule(List<String> playlistHostSuffixes, List<String> hosts,
+                                        double durationMin, double durationMax,
+                                        boolean requireDiscontinuity, boolean requireCrossDomain,
+                                        int minimumSignals) {
+        return ofHlsRule(playlistHostSuffixes, hosts, List.of(), durationMin, durationMax,
+                requireDiscontinuity, requireCrossDomain, minimumSignals);
     }
 
     public boolean hasDurationRange() {

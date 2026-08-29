@@ -30,7 +30,7 @@ public class RulePayloadCompileContractTest {
                 payload.hasDurationRange() ? payload.durationMin() : null,
                 payload.hasDurationRange() ? payload.durationMax() : null,
                 payload.requireDiscontinuity(), payload.requireCrossDomain(),
-                Math.max(2, payload.minimumSignals()));
+                payload.minimumSignals());
         try {
             assertNotNull(label, rule.compile());
         } catch (RuntimeException e) {

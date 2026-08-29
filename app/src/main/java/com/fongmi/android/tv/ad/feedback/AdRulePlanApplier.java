@@ -71,7 +71,9 @@ public final class AdRulePlanApplier {
                 payload.hasDurationRange() ? payload.durationMin() : null,
                 payload.hasDurationRange() ? payload.durationMax() : null,
                 payload.requireDiscontinuity(), payload.requireCrossDomain(),
-                Math.max(2, payload.minimumSignals()));
+                // 门限由分类器按实际可编码信号数算好，不能在这里再抬高 ——
+                // 超过实际信号数会让 compile() 拒绝整条规则
+                payload.minimumSignals());
         return UserHlsRuleStore.add(rule) ? Outcome.APPLIED : Outcome.FAILED;
     }
 

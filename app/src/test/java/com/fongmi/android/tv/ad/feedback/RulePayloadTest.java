@@ -89,10 +89,12 @@ public class RulePayloadTest {
         // 作用域收窄到本站，避免规则污染其他站点
         assertEquals(List.of("v.example.com"), payload.playlistHostSuffixes());
         assertEquals(List.of("ad-cdn.other.com"), payload.hosts());
-        assertTrue(payload.requireDiscontinuity());
+        // requireDiscontinuity 只对广告块首片成立，编码进规则会导致只删首片、
+        // 留下其余广告，因此刻意不编码 —— 断点只在归因阶段用于定位区间
+        assertFalse(payload.requireDiscontinuity());
         assertTrue(payload.requireCrossDomain());
-        // 永不生成 minimumSignals=1 的宽泛规则
-        assertTrue(payload.minimumSignals() >= 2);
+        // 跨域 + 域名 + 时长离群三个信号，门限取 2
+        assertEquals(2, payload.minimumSignals());
         assertTrue(plan.actionable());
     }
 
