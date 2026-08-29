@@ -6773,7 +6773,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         long duration = player().getDuration();
         if (position > 0) mHistory.setPosition(position);
         if (duration > 0) mHistory.setDuration(duration);
-        else if (mHistory.getDuration() < 0) mHistory.setDuration(0);
         PlaybackEventCollector.get().updateHistory(mHistory);
     }
 

@@ -684,6 +684,22 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void playbackHistoryKeepsUnknownDurationUntilMediaReportsOne() throws Exception {
+        for (Path sourcePath : List.of(
+                findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")),
+                findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java")))) {
+            String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+            String body = methodBody(source,
+                    "private void updatePlaybackHistoryPosition()",
+                    "PlaybackEventCollector.get().updateHistory(mHistory)");
+            assertTrue(sourcePath + " must ignore an unknown player duration",
+                    body.contains("if (duration > 0) mHistory.setDuration(duration);"));
+            assertFalse(sourcePath + " must not materialize an unknown duration as zero",
+                    body.contains("mHistory.setDuration(0)"));
+        }
+    }
+
+    @Test
     public void videoDetailTextKeepsInlineLyricsMetadata() throws Exception {
         Path leanbackPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String leanback = new String(Files.readAllBytes(leanbackPath), StandardCharsets.UTF_8);
