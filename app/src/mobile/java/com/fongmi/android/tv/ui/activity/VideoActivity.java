@@ -416,6 +416,7 @@ private int mAudioBackgroundRandomNonce;
     private final List<ShortDramaControlItem> mShortDramaControlItems = new ArrayList<>();
     private ViewGroup mShortDramaControlDock;
     private boolean shortDramaControlsDocked;
+    private boolean shortDramaSession;
 
     // TMDB 模式相关字段
     private com.fongmi.android.tv.ui.helper.TmdbUIAdapter mTmdbUIAdapter;
@@ -1334,6 +1335,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (mTmdbUIAdapter != null) mTmdbUIAdapter.beginDetailRequest();
         mSourceEpisodeSeasonCache.clear();
         mSourceVodName = "";
+        // 换到新条目才重置会话形态；换源(getDetail)不走这里，见 isShortDramaSession()
+        shortDramaSession = false;
         setOrient();
         checkId();
     }
@@ -1385,7 +1388,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         else mBinding.progressLayout.showProgress();
         setAnimator();
         initNightModeOverlay();
-        if (isShortDramaSource()) enterShortDramaFullscreen();
+        if (isShortDramaSession()) enterShortDramaFullscreen();
         if (hasPendingImmersiveAudioLaunch()) setAudioStageVisible(true);
         setupIntroSkipConfirmListener();
     }
@@ -2910,7 +2913,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onBack() {
-        if (isFullscreen() && isShortDramaSource()) finishShortDrama();
+        if (isFullscreen() && isShortDramaSession()) finishShortDrama();
         else if (isFullscreen()) exitFullscreen();
         else finishVideoPlayback();
     }
@@ -3004,7 +3007,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onPiP() {
-        if (!canShowPiP(isShortDramaSource())) return;
+        if (!canShowPiP(isShortDramaSession())) return;
         hideControl();
         mPiP.enter(this, player().getVideoWidth(), player().getVideoHeight(), getScale(), true);
     }
@@ -4630,7 +4633,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     private void showControl() {
         if (service() == null || isInPictureInPictureMode()) return;
         setOsdSuppressed(true);
-        boolean shortDrama = isShortDramaSource();
+        boolean shortDrama = isShortDramaSession();
         boolean showPiP = canShowPiP(shortDrama);
         hideWidgetOverlay();
         // 顶部弹幕图标只根据锁定状态和弹幕可用性显示。
@@ -7145,6 +7148,19 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return Setting.isShortDramaSiteEnabled(site == null ? getKey() : site.getKey(), site == null ? "" : site.getName());
     }
 
+    /**
+     * 本次播放会话是否按短剧竖屏形态呈现。
+     * <p>
+     * 换源（onChange -> getDetail）会改写 intent 的 key，进而让 isShortDramaSource() 由 true 变 false，
+     * 于是同一个竖屏会话中途退回长视频布局：右侧 dock 被拆、横屏 action 栏露出，
+     * 就是用户看到的「换源后样式变了」。会话形态一旦按短剧进入就保持，
+     * 直到退出播放页（finishShortDrama / onDestroy）或换到新条目（onNewIntent）为止。
+     */
+    private boolean isShortDramaSession() {
+        if (isShortDramaSource()) shortDramaSession = true;
+        return shortDramaSession;
+    }
+
     private boolean isTmdbContentLoaded() {
         return mTmdbContentLoaded;
     }
@@ -8103,7 +8119,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void applyShortDramaMode() {
-        if (!isShortDramaSource()) return;
+        if (!isShortDramaSession()) return;
         enterShortDramaFullscreen();
         setShortDramaScale();
         mBinding.exo.postDelayed(this::setShortDramaScale, 250);
@@ -8572,7 +8588,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             return;
         } else if (isVisible(mBinding.control.getRoot())) {
             hideControl();
-        } else if (isFullscreen() && isShortDramaSource()) {
+        } else if (isFullscreen() && isShortDramaSession()) {
             finishShortDrama();
         } else if (isFullscreen() && !isLock()) {
             exitFullscreen();

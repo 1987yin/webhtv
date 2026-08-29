@@ -910,6 +910,30 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void mobileShortDramaPresentationSurvivesSourceChange() throws Exception {
+        // 反馈回归：换源(getDetail)会改写 intent 的 key，isShortDramaSource() 随之翻转为 false，
+        // 同一个竖屏会话中途退回长视频布局（右侧 dock 被拆、横屏 action 栏与全屏按钮露出）。
+        // 呈现形态与返回键行为必须读会话态，只有换到新条目(onNewIntent)才重置。
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+
+        assertTrue("session flag must latch once the site-based check passes",
+                source.contains("if (isShortDramaSource()) shortDramaSession = true;"));
+        assertTrue("changing source must not reset the session presentation",
+                source.contains("getIntent().putExtra(\"key\", item.getSiteKey());"));
+        assertTrue("switching to another title must reset the session presentation",
+                source.contains("shortDramaSession = false;"));
+
+        int showControl = source.indexOf("private void showControl()");
+        assertTrue("showControl must exist", showControl >= 0);
+        assertTrue("showControl must drive chrome from the session state",
+                source.indexOf("boolean shortDrama = isShortDramaSession();", showControl) > showControl);
+        assertFalse("presentation call sites must not re-derive short drama from the current site",
+                source.contains("canShowPiP(isShortDramaSource())")
+                        || source.contains("isFullscreen() && isShortDramaSource()"));
+    }
+
+    @Test
     public void mobileShortDramaRestoreIsIndependentOfDeclarationOrder() throws Exception {
         // 同一容器现在有多个搬迁项（换源/画质/选集同属 action 栏）。逐个「摘下并立刻插回」
         // 会让后来者挤掉前者的位置，且 PlayerButtonSetting.applyOrder 可能已重排容器，
