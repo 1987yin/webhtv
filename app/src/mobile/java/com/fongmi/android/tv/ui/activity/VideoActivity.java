@@ -65,8 +65,11 @@ import com.fongmi.android.tv.api.DanmakuApi;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.config.AdBlockStatsStore;
 import com.fongmi.android.tv.api.config.VodConfig;
-import com.fongmi.android.tv.bean.AdDetectionRequest;
-import com.fongmi.android.tv.bean.AdDetectionResult;
+import com.fongmi.android.tv.ad.feedback.AdFeedbackController;
+import com.fongmi.android.tv.ad.feedback.AdFeedbackHostAdapter;
+import com.fongmi.android.tv.ad.feedback.AdFeedbackSession;
+import com.fongmi.android.tv.ad.feedback.AdRulePlanApplier;
+import com.fongmi.android.tv.ui.dialog.AdFeedbackDialog;
 import com.fongmi.android.tv.bean.AiConfig;
 import com.fongmi.android.tv.bean.CastVideo;
 import com.fongmi.android.tv.bean.Danmaku;
@@ -103,7 +106,6 @@ import com.fongmi.android.tv.player.engine.PlaySpec;
 import com.fongmi.android.tv.player.lut.LutPreset;
 import com.fongmi.android.tv.player.lut.LutSetting;
 import com.fongmi.android.tv.player.lut.LutStore;
-import com.fongmi.android.tv.service.AiAdDetectionService;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.service.PersonalRecommendationService;
 import com.fongmi.android.tv.service.IntroSkipService;
@@ -439,7 +441,11 @@ private int mAudioBackgroundRandomNonce;
     private TmdbItem mPendingTmdbSeasonChoice;
     private int mPersonalRecommendationGeneration;
 private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.recommendationExecutor());
-    private int mAdFeedbackGeneration;
+    private AdFeedbackController mAdFeedback;
+    private AdFeedbackHostAdapter mAdFeedbackHost;
+    private AdFeedbackDialog mAdFeedbackDialog;
+    /** 标记模式下已打的起点，-1 表示未进入标记模式。 */
+    private long mAdMarkStartMs = -1;
     private final List<TmdbMovedView> mTmdbMovedViews = new ArrayList<>();
     private boolean pendingLutImport;
     private boolean skipPausePiP;
@@ -1483,6 +1489,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
         mBinding.control.action.danmaku.setOnClickListener(guarded(this::onDanmaku));
         mBinding.control.action.adFeedback.setOnClickListener(view -> onAdFeedback());
+        mBinding.control.action.adFeedback.setOnLongClickListener(view -> onAdFeedbackLongPress());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
         mBinding.control.action.text.setOnLongClickListener(view -> onTextLong());
         mBinding.control.action.speed.setOnLongClickListener(view -> onSpeedLong());
@@ -3050,7 +3057,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             return;
         }
         if (!isAdFeedbackEnabled()) {
-            Notify.show(R.string.ad_feedback_ai_disabled);
+            Notify.show(R.string.ad_interval_invalid);
             return;
         }
         hideControl();
@@ -8659,15 +8666,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private boolean isAdFeedbackEnabled() {
-        // 功能开关 + 仅支持解析的格式(HLS/m3u8)才可反馈,因为去广分析依赖切片列表
-        return Setting.isAiConfigReady() && Setting.isAdblock() && Setting.isAiAdDetection() && isAdFeedbackSupportedFormat();
-    }
-
-    private boolean isAdFeedbackSupportedFormat() {
-        if (player() == null) return false;
-        String url = player().getUrl();
-        if (TextUtils.isEmpty(url)) return false;
-        return com.fongmi.android.tv.player.exo.MediaSourceFactory.isHlsUrl(url);
+        // AI 不再是硬门槛：本地归因通道（切片结构/域名/既有规则）不依赖 AI 配置。
+        // 只要求可定位的时间轴 —— 直播和时长未知的内容无法框选区间。
+        if (player() == null || TextUtils.isEmpty(player().getUrl())) return false;
+        return Setting.isAdblock() && !player().isLive() && player().getDuration() > 0;
     }
 
     private void setAdFeedbackVisible() {
@@ -8675,76 +8677,137 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         applyActionButtonVisibility();
     }
 
+    private AdFeedbackController adFeedback() {
+        if (mAdFeedback == null) {
+            mAdFeedbackHost = new AdFeedbackHostAdapter(
+                    new AdFeedbackPlayback(), new AdFeedbackMetadata(), new AdFeedbackUi());
+            mAdFeedback = new AdFeedbackController(mAdFeedbackHost);
+        }
+        return mAdFeedback;
+    }
+
+    /** 短按：标记模式下第二次按下确定终点，否则以当前位置为终点回溯推断起点。 */
     private void submitAdFeedback() {
-        AdDetectionRequest request = buildAdDetectionRequest();
-        if (request == null) {
-            Notify.show(R.string.ad_feedback_no_url);
-            return;
+        AdFeedbackController controller = adFeedback();
+        AdBlockStatsStore.recordFeedback(getKey());
+        AdFeedbackSession session;
+        if (mAdMarkStartMs >= 0) {
+            long start = mAdMarkStartMs;
+            mAdMarkStartMs = -1;
+            session = controller.onMarkedInterval(start, player().getPosition());
+        } else {
+            session = controller.onQuickReport(mAdFeedbackHost.cachedEvidence());
         }
-        // 记录 AI 反馈统计
-        AdBlockStatsStore.recordFeedback(request.getSiteKey());
-
-        Notify.show(R.string.ad_feedback_analyzing);
-        int generation = ++mAdFeedbackGeneration;
-        AiConfig config = AiConfig.objectFrom(Setting.getAiConfig());
-        Task.execute(() -> {
-            // Parse m3u8 evidence (blocking I/O)
-            enrichRequestWithM3u8Evidence(request);
-            AdDetectionResult result = new AiAdDetectionService(config).analyze(request);
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed() || generation != mAdFeedbackGeneration) return;
-                onAdDetectionResult(request, result);
-            });
-        });
+        if (session == null) Notify.show(R.string.ad_interval_invalid);
     }
 
-    private AdDetectionRequest buildAdDetectionRequest() {
-        if (player() == null || TextUtils.isEmpty(player().getUrl())) return null;
-        String url = player().getUrl();
-        Uri uri = Uri.parse(url);
-        AdDetectionRequest request = new AdDetectionRequest();
+    /** 长按：打起点进入标记模式，再次长按取消。 */
+    private boolean onAdFeedbackLongPress() {
+        if (!isAdFeedbackEnabled()) return false;
+        if (mAdMarkStartMs >= 0) {
+            mAdMarkStartMs = -1;
+            Notify.show(R.string.ad_interval_mark_cancelled);
+        } else {
+            mAdMarkStartMs = player().getPosition();
+            Notify.show(R.string.ad_interval_mark_start);
+        }
+        return true;
+    }
+
+    private void showAdFeedbackSession(AdFeedbackSession session) {
+        if (isFinishing() || isDestroyed()) return;
+        if (mAdFeedbackDialog == null) mAdFeedbackDialog = new AdFeedbackDialog(this, this::applyAdRulePlan);
+        mAdFeedbackDialog.show(session);
+    }
+
+    private void applyAdRulePlan(com.fongmi.android.tv.ad.feedback.AdAttribution plan) {
         Site site = getSite();
-        request.setSiteKey(site == null ? getKey() : site.getKey());
-        request.setSiteName(site == null ? "" : site.getName());
-        request.setVodName(mHistory == null ? mBinding.name.getText().toString() : mHistory.getVodName());
-        request.setFlagName(getFlag() == null ? "" : getFlag().getFlag());
-        request.setEpisodeName(getEpisode() == null ? "" : getEpisode().getName());
-        request.setUrlHost(uri.getHost());
-        request.setUrlPath(uri.getPath());
-        return request;
-    }
-
-    private void enrichRequestWithM3u8Evidence(AdDetectionRequest request) {
-        if (player() == null || TextUtils.isEmpty(player().getUrl())) return;
-        String url = player().getUrl();
-        if (!url.contains(".m3u8")) return; // Only parse m3u8
-        try {
-            java.util.Map<String, String> headers = player().getHeaders();
-            com.fongmi.android.tv.bean.M3u8Evidence evidence = com.fongmi.android.tv.utils.M3u8Parser.parse(url, headers);
-            request.setEvidence(evidence);
-        } catch (Exception e) {
-            // Ignore parsing failures
-        }
-    }
-
-    private void onAdDetectionResult(AdDetectionRequest request, AdDetectionResult result) {
-        // 记录 AI 分析结果统计
-        AdBlockStatsStore.recordAiAnalysis(result != null && !result.isError());
-
-        if (result == null || result.isError()) {
-            Notify.show(result == null ? getString(R.string.ad_feedback_failed) : result.getErrorMessage());
-            return;
-        }
-        if (result.isEmpty()) {
-            Notify.show(R.string.ad_feedback_no_ad);
-            return;
-        }
-        // Show preview dialog
-        com.fongmi.android.tv.ui.dialog.AdRulePreviewDialog.create(result).show(this, confirmedResult -> {
-            UserAdRule rule = UserAdRule.fromAiResult(confirmedResult, request.getSiteKey());
-            com.fongmi.android.tv.api.config.UserAdRuleStore.add(rule);
-            Notify.show(R.string.ad_feedback_saved);
+        AdRulePlanApplier.Outcome outcome = AdRulePlanApplier.apply(
+                plan, site == null ? getKey() : site.getKey());
+        Notify.show(switch (outcome) {
+            case APPLIED -> R.string.ad_interval_rule_saved;
+            case SKIPPED -> R.string.ad_interval_rule_skipped;
+            case FAILED -> R.string.ad_interval_rule_failed;
         });
+    }
+
+    private final class AdFeedbackPlayback implements AdFeedbackHostAdapter.Playback {
+        @Override
+        public long positionMs() {
+            return player() == null ? 0 : player().getPosition();
+        }
+
+        @Override
+        public long durationMs() {
+            return player() == null ? 0 : player().getDuration();
+        }
+
+        @Override
+        public String playUrl() {
+            return player() == null ? "" : player().getUrl();
+        }
+
+        @Override
+        public java.util.Map<String, String> headers() {
+            return player() == null ? java.util.Map.of() : player().getHeaders();
+        }
+
+        @Override
+        public boolean hls() {
+            return player() != null
+                    && com.fongmi.android.tv.player.exo.MediaSourceFactory.isHlsUrl(player().getUrl());
+        }
+
+        @Override
+        public boolean skipInterval(long startMs, long endMs, String feedbackId) {
+            return player() != null && player().skipUserAdInterval(startMs, endMs, feedbackId);
+        }
+    }
+
+    private final class AdFeedbackMetadata implements AdFeedbackHostAdapter.Metadata {
+        @Override
+        public String siteKey() {
+            Site site = getSite();
+            return site == null ? getKey() : site.getKey();
+        }
+
+        @Override
+        public String siteName() {
+            Site site = getSite();
+            return site == null ? "" : site.getName();
+        }
+
+        @Override
+        public String vodName() {
+            return mHistory == null ? mBinding.name.getText().toString() : mHistory.getVodName();
+        }
+
+        @Override
+        public String flagName() {
+            return getFlag() == null ? "" : getFlag().getFlag();
+        }
+
+        @Override
+        public String episodeName() {
+            return getEpisode() == null ? "" : getEpisode().getName();
+        }
+    }
+
+    private final class AdFeedbackUi implements AdFeedbackHostAdapter.Ui {
+        @Override
+        public void runBackground(Runnable task) {
+            Task.execute(task);
+        }
+
+        @Override
+        public void runOnUi(Runnable task) {
+            runOnUiThread(task);
+        }
+
+        @Override
+        public void showSession(AdFeedbackSession session) {
+            showAdFeedbackSession(session);
+        }
     }
 
     private static class ShortDramaControlItem {

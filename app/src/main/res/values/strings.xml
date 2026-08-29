@@ -2162,6 +2162,9 @@
     <string name="ad_interval_mark_start">Ad start marked. Press again at the end.</string>
     <string name="ad_interval_mark_cancelled">Marking cancelled</string>
     <string name="ad_interval_invalid">Cannot report an ad at this position</string>
+    <string name="ad_interval_rule_saved">Rule saved and active</string>
+    <string name="ad_interval_rule_skipped">Nothing to save for this interval</string>
+    <string name="ad_interval_rule_failed">Could not save the rule</string>
     <string name="ad_rule_section_summary">AI/custom %1$d · source config %2$d · built-in HLS %3$d</string>
     <string name="ad_rule_hls_builtin_summary">Built-in HLS · v%1$d · %2$s</string>
     <string name="ad_rule_hls_enabled">Enabled</string>

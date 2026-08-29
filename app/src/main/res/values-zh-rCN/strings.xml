@@ -2495,6 +2495,9 @@
     <string name="ad_interval_mark_start">已标记广告起点，到结束处再按一次</string>
     <string name="ad_interval_mark_cancelled">已取消标记</string>
     <string name="ad_interval_invalid">当前位置无法反馈广告</string>
+    <string name="ad_interval_rule_saved">规则已保存并生效</string>
+    <string name="ad_interval_rule_skipped">该区间没有可保存的规则</string>
+    <string name="ad_interval_rule_failed">规则保存失败</string>
     <string name="ad_rule_section_summary">AI/自定义 %1$d 条 · 接口配置 %2$d 条 · 内置 HLS %3$d 条</string>
     <string name="ad_rule_hls_builtin_summary">内置 HLS · v%1$d · %2$s</string>
     <string name="ad_rule_hls_enabled">已启用</string>
