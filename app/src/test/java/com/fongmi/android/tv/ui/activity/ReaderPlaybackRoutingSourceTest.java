@@ -119,11 +119,14 @@ public class ReaderPlaybackRoutingSourceTest {
         assertFalse("rect.height is always 0 for content-visibility paragraphs; it must not gate the scan",
                 source.contains("if(rect.height <= 0) break;"));
         assertTrue("progress bar must read the current anchor, not the loaded count",
-                source.contains(": Math.min(total, currentAnchorIndex() + 1);"));
-        // 整章第一屏就全部露出时确实读完了，读数给总数；判据必须带上界，
-        // 否则往下滚后末锚点 bottom 变负会被误判成读完
-        assertTrue("a fully visible chapter must report every anchor as read",
-                source.contains("last.bottom > 0 && last.bottom <= window.innerHeight"));
+                source.contains("Math.min(total, effectiveAnchorIndex() + 1)"));
+        // 落库与进度条必须同一个真值，否则会出现「显示 33/33、重进回到第 30 段」的分叉
+        assertTrue("the saved anchor must come from the same source as the progress bar",
+                source.contains("effectiveAnchorIndex(), anchorTotal());"));
+        // 小说正文下方还有 140px 内边距和章节导航，光靠 currentAnchorIndex 够不到最后一段，
+        // 历史列表就永远到不了 100%
+        assertTrue("a chapter read to its end must be able to record the final anchor",
+                source.contains("if(last.bottom > 0 && last.bottom <= window.innerHeight) return total - 1;"));
     }
 
     /**
@@ -149,9 +152,17 @@ public class ReaderPlaybackRoutingSourceTest {
         assertEquals("every relaunch site must consult the suppression guard",
                 3, countOccurrences(router, "if (shouldSuppressRelaunch())"));
         assertTrue("the guard must combine the silence window and the stale check",
-                router.contains("return justClosed() || isStaleChapterResult();"));
+                router.contains("return justClosed() || stale;"));
         assertTrue("the reader must tag its chapter switch before handing it to the host",
                 reader.contains("NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl);"));
+        // parse=1 兜底才是实际会走到的宿主解析路径：loadChapter 里那条在 siteKey 非空时
+        // 不可达，而所有真实启动入口都会写 siteKey。漏了它标记永远不会被设上，整套判定失效。
+        assertTrue("the parse=1 host fallback must also tag its request",
+                reader.contains("{ NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }"));
+        // 两个判定都要执行：|| 短路会让一次性的 isStaleChapterResult 不执行、标记留存，
+        // 静默期后用户主动打开另一本书就会被误吞
+        assertTrue("the stale check must not be short-circuited by the silence window",
+                router.contains("boolean stale = isStaleChapterResult();"));
     }
 
     /**

@@ -1239,7 +1239,10 @@ public class WebReaderActivity extends AppCompatActivity {
                     return;
                 }
                 NovelReaderHost h = NovelRouter.getHost();
-                if (fh && h != null) h.labPlayEpisode(chapterUrl);
+                // 这条 parse=1 兜底才是实际会走到的宿主解析路径（loadChapter 里那条在
+                // siteKey 非空时不可达，而所有真实启动入口都会带 siteKey）。它要走二次解析、
+                // 耗时最长，最容易掉出关闭静默期，代号标记必须打在这里。
+                if (fh && h != null) { NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }
                 else chapterFailedWithToast();
                 // 解析失败：放开占位层，并丢掉待恢复位置 —— 否则它会残留到用户下一次手动切章，
                 // 把上一本/上一章的锚点套用到新章上（章短时直接跳到章末）。

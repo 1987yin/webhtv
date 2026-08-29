@@ -498,7 +498,10 @@ public final class NovelRouter {
 
     /** 前台没有阅读器时，判断这条结果该不该拉起新阅读器。 */
     private static boolean shouldSuppressRelaunch() {
-        return justClosed() || isStaleChapterResult();
+        // 两个判定都要执行，不能用 || 短路：isStaleChapterResult() 是一次性的读后清，
+        // 被短路掉标记就留了下来，等静默期过后用户主动打开另一本书时会被它误吞。
+        boolean stale = isStaleChapterResult();
+        return justClosed() || stale;
     }
 
     /**

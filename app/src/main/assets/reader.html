@@ -857,12 +857,7 @@ function updateProgressBar(){
     // 例外是整章第一屏就全部露出来了，此时确实全读到了，读数给总数。
     // 判据用「最后一个锚点的底边落在视口内」，不能用 body 是否可滚动 ——
     // #reader 的 min-height:105vh 让页面永远可滚动，那个判据恒为真。
-    var els = anchorEls();
-    var last = els.length >= total && total > 0 ? els[total - 1].getBoundingClientRect() : null;
-    // 上界必须一起判：往下滚之后末锚点的 bottom 会变成负数（已滚出视口上方），
-    // 只看 <= innerHeight 会把「读到中间」误判成「整章读完」。
-    var allVisible = last != null && last.bottom > 0 && last.bottom <= window.innerHeight;
-    var current = allVisible ? total : Math.min(total, currentAnchorIndex() + 1);
+    var current = Math.min(total, effectiveAnchorIndex() + 1);
     fill.style.width = Math.min(100, (current / total) * 100) + '%';
     text.textContent = current + ' / ' + total;
 }
@@ -965,11 +960,31 @@ function atDocumentEnd(){
     return (window.scrollY || window.pageYOffset || 0) + window.innerHeight >= document.body.scrollHeight - 2;
 }
 
+/**
+ * 落库与进度条共用的锚点序号：两边必须同一个真值，否则会出现
+ * 「进度条显示 33/33、退出再进却回到第 30 段」这种读数与记录分叉。
+ *
+ * 末锚点整体落在视口内就算读完本章：小说正文下方还有 140px 内边距和章节导航，
+ * 光靠 currentAnchorIndex() 永远够不到最后一段，历史列表也就永远到不了 100%。
+ */
+function effectiveAnchorIndex(){
+    var total = anchorTotal();
+    if(total <= 0) return 0;
+    var els = anchorEls();
+    if(els.length >= total){
+        var last = els[total - 1].getBoundingClientRect();
+        // 上界一起判：往下滚过头后末锚点 bottom 会变成负数，只看 <= innerHeight
+        // 会把「读到中间」误判成「整章读完」。
+        if(last.bottom > 0 && last.bottom <= window.innerHeight) return total - 1;
+    }
+    return Math.min(total - 1, currentAnchorIndex());
+}
+
 function reportProgress(){
     if(!window.AndroidReader || !AndroidReader.saveProgress) return;
     if(restoringPage || switchingChapter) return;
     var ch = (DATA.chapters || [])[DATA.current] || {};
-    try { AndroidReader.saveProgress(DATA.current|0, ch.url || '', ch.name || DATA.title || '', currentAnchorIndex(), anchorTotal()); } catch(e){}
+    try { AndroidReader.saveProgress(DATA.current|0, ch.url || '', ch.name || DATA.title || '', effectiveAnchorIndex(), anchorTotal()); } catch(e){}
 }
 
 /**
@@ -1024,9 +1039,10 @@ function restoreAnchor(index){
             console.log('[reader] restoreAnchor timeout index=' + index);
             restoringPage = false;
             updateProgressBar();
-            // 一次都没滚动成功（图全加载失败时 scrollTo 是空操作）就别上报：
-            // 此刻 currentAnchorIndex() 必然是 0，报出去等于把用户存好的位置清成开头。
-            if((window.scrollY || window.pageYOffset || 0) > 0) reportProgress();
+            // 只有确实到达（或超过）目标锚点才补报。部分加载时 seek 只能滚到已加载末尾，
+            // 此刻上报会把「存第 50 页」倒退成「第 9 页」；一次都没滚动成功时更是直接清成开头。
+            // 不报的代价仅是本次不刷新记录，用户存的位置原样保留。
+            if(effectiveAnchorIndex() >= index) reportProgress();
             return;
         }
         var els = anchorEls();
