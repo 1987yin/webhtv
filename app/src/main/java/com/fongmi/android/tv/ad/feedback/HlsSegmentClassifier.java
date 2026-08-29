@@ -178,9 +178,22 @@ public final class HlsSegmentClassifier {
             if (!insideAll) continue;
             boolean outsideNone = outside.stream()
                     .noneMatch(fact -> fact.path().toLowerCase(Locale.US).contains(hint));
-            if (outsideNone) patterns.add(Pattern.quote(hint));
+            if (outsideNone) patterns.add(pathOnlyPattern(hint));
         }
         return patterns;
+    }
+
+    /**
+     * 把目录段包成「只匹配 path 部分」的正则。
+     *
+     * <p>必须锚定：本类的双向校验读 {@code SegmentFact.path()}（已去 query，
+     * 见去敏要求），而 {@code HlsManifestCleaner.matchesPattern} 匹配的是
+     * 含 query 的完整 URL。正片带 {@code ?ref=/ads/} 这类参数时，校验认为
+     * 区间外干净而放行，运行时却命中全部切片 → cleaner 回退 → 连带停掉
+     * legacy 启发式。{@code [^?]*} 无法跨过 {@code ?}，从而把匹配限制在 path 内。
+     */
+    static String pathOnlyPattern(String hint) {
+        return "^[^?]*" + Pattern.quote(hint);
     }
 
     /** host 是否等于给定域名或为其子域。 */
