@@ -59,6 +59,10 @@ public class AppBrandingContractTest {
         assertTrue(appBranding.contains("R.drawable.ic_launcher_history"));
         assertTrue(home.contains("AppBranding.applyLogo(mBinding.logo);"));
         assertFalse(home.contains("ImgUtil.logo(mBinding.logo);"));
+
+        String mobile = read("app/src/mobile/java/com/fongmi/android/tv/ui/fragment/VodFragment.java");
+        assertTrue(mobile.contains("AppBranding.applyLogo(mBinding.logo);"));
+        assertFalse(mobile.contains("ImgUtil.logo(mBinding.logo);"));
     }
 
     @Test
