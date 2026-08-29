@@ -950,11 +950,17 @@ function currentAnchorIndex(){
         if(els[i].getBoundingClientRect().bottom > threshold){ idx = i; found = true; break; }
         idx = i;
     }
-    if(found || atDocumentEnd()) return lastAnchorIndex = idx;
+    if(found || (els.length >= anchorTotal() && atDocumentEnd())) return lastAnchorIndex = idx;
     return lastAnchorIndex;
 }
 
-/** 是否已滚到文档末尾（判定「最后一个锚点确实读到了」，而不是测量退化）。 */
+/**
+ * 是否已滚到文档末尾（判定「最后一个锚点确实读到了」，而不是测量退化）。
+ *
+ * 必须和「锚点已全部进 DOM」一起判：漫画图片全未解码时高度为 0，文档总高只剩
+ * #reader 的 min-height:105vh（视口 640 时仅 672），轻扫 32px 就满足本条件，
+ * 单用它会把退化值当成可信 —— 95 页漫画又变成 5 / 95。
+ */
 function atDocumentEnd(){
     return (window.scrollY || window.pageYOffset || 0) + window.innerHeight >= document.body.scrollHeight - 2;
 }

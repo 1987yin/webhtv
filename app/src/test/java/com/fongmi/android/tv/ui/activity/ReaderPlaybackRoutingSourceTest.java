@@ -105,13 +105,17 @@ public class ReaderPlaybackRoutingSourceTest {
         int fn = source.indexOf("function currentAnchorIndex()");
         int guard = source.indexOf("if(scrolled <= 0) return lastAnchorIndex = 0;", fn);
         int loop = source.indexOf("for(", fn);
-        int degraded = source.indexOf("if(found || atDocumentEnd()) return lastAnchorIndex = idx;", fn);
+        int degraded = source.indexOf("return lastAnchorIndex = idx;", loop);
 
         assertTrue("currentAnchorIndex must exist", fn >= 0);
         assertTrue("stopping at the top must short-circuit to anchor 0 before scanning",
                 guard > fn && guard < loop);
         assertTrue("a degraded measurement must not advance the anchor unless the document end is reached",
                 degraded > loop);
+        // #reader 的 min-height:105vh 让「图全未解码」时轻扫 32px 就到文末，
+        // 只判 atDocumentEnd 会把退化值当可信 —— 必须同时要求锚点已全部进 DOM
+        assertTrue("reaching the document end alone must not validate a degraded measurement",
+                source.contains("els.length >= anchorTotal() && atDocumentEnd()"));
         assertFalse("rect.height is always 0 for content-visibility paragraphs; it must not gate the scan",
                 source.contains("if(rect.height <= 0) break;"));
         assertTrue("progress bar must read the current anchor, not the loaded count",
