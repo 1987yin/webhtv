@@ -51,7 +51,9 @@ public class AppBrandingContractTest {
 
         assertTrue(appBranding.contains("public static void applyLogo(@NonNull ImageView view)"));
         assertTrue(appBranding.contains("view.setImageDrawable(logoDrawable(view.getContext()));"));
+        assertTrue(appBranding.contains("getActivityIcon(launcherIntent(context).getComponent())"));
         assertFalse(appBranding.contains("Glide"));
+        assertTrue(appBranding.contains("Prefers.getPrefers().edit().putInt(ICON_KEY, normalizeIconMode(mode)).commit();"));
         assertFalse(appBranding.contains("ICON_CUSTOM"));
         assertFalse(appBranding.contains("Shortcut"));
         assertFalse(appBranding.contains("CustomIcon"));

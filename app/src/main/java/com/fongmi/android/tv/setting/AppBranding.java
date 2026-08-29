@@ -61,7 +61,7 @@ public final class AppBranding {
     }
 
     public static void putIconMode(int mode) {
-        Prefers.put(ICON_KEY, normalizeIconMode(mode));
+        Prefers.getPrefers().edit().putInt(ICON_KEY, normalizeIconMode(mode)).commit();
         cachedLogo = null;
         cachedLogoMode = -1;
     }
@@ -84,7 +84,14 @@ public final class AppBranding {
     public static Drawable logoDrawable(@NonNull Context context) {
         int mode = getIconMode(context);
         if (cachedLogo != null && cachedLogoMode == mode) return cachedLogo;
-        Drawable source = ContextCompat.getDrawable(context, logoResource(mode));
+        int resource = logoResource(mode);
+        Drawable source;
+        try {
+            // Read the same alias icon that the launcher uses, keeping desktop and in-app branding identical.
+            source = context.getPackageManager().getActivityIcon(launcherIntent(context).getComponent());
+        } catch (PackageManager.NameNotFoundException ignored) {
+            source = ContextCompat.getDrawable(context, resource);
+        }
         if (source == null) return null;
         cachedLogo = toCircle(context.getResources(), source);
         cachedLogoMode = mode;
