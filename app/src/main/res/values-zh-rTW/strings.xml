@@ -838,6 +838,7 @@
     <string name="setting_about">關於</string>
     <string name="setting_version">版本</string>
     <string name="setting_choose">選擇</string>
+    <string name="setting_choose_dir">資料夾</string>
     <string name="setting_reset">重置</string>
     <string name="setting_delete">刪除</string>
     <string name="setting_disable">禁用</string>
@@ -1353,6 +1354,7 @@
     <string name="setting_hide">隱藏</string>
     <string name="dialog_select_title">選擇章節</string>
     <string name="dialog_config_hint">請輸入配置…</string>
+    <string name="dialog_config_choose_dir">選擇資料夾（貓源本地包）</string>
     <string name="dialog_config_name">請輸入名稱…</string>
     <string name="dialog_config_url">請輸入網址…</string>
 

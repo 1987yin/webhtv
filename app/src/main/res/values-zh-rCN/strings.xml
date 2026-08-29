@@ -879,6 +879,7 @@
     <string name="setting_about">关于</string>
     <string name="setting_version">版本</string>
     <string name="setting_choose">选择</string>
+    <string name="setting_choose_dir">文件夹</string>
     <string name="setting_reset">重置</string>
     <string name="setting_delete">删除</string>
     <string name="setting_disable">禁用</string>
@@ -1394,6 +1395,7 @@
     <string name="setting_hide">隐藏</string>
     <string name="dialog_select_title">选择章节</string>
     <string name="dialog_config_hint">请输入配置…</string>
+    <string name="dialog_config_choose_dir">选择文件夹（猫源本地包）</string>
     <string name="dialog_config_name">请输入名称…</string>
     <string name="dialog_config_url">请输入地址…</string>
 

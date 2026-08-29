@@ -882,6 +882,7 @@
     <string name="setting_about">About</string>
     <string name="setting_version">Version</string>
     <string name="setting_choose">Choose</string>
+    <string name="setting_choose_dir">Folder</string>
     <string name="setting_reset">Reset</string>
     <string name="setting_delete">Delete</string>
     <string name="setting_disable">Disable</string>
@@ -1425,6 +1426,7 @@
     <string name="setting_hide">Hide</string>
     <string name="dialog_select_title">Select chapter</string>
     <string name="dialog_config_hint">Please enter the config…</string>
+    <string name="dialog_config_choose_dir">Choose folder (cat source local package)</string>
     <string name="dialog_config_name">Please enter the name…</string>
     <string name="dialog_config_url">Please enter the url…</string>
 
