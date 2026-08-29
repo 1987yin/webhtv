@@ -91,7 +91,8 @@ public final class DomainReputationClassifier {
         evidenceLines.add("起点来源：" + evidence.startOrigin());
 
         return new AdAttribution(CHANNEL_ID, AdCategory.THIRD_PARTY_CDN_SEGMENT,
-                confidence, RiskLevel.LOW, evidenceLines, RemediationKind.HOST_BLACKLIST);
+                confidence, RiskLevel.LOW, evidenceLines, RemediationKind.HOST_BLACKLIST,
+                RulePayload.ofHosts(List.copyOf(foreignHosts)));
     }
 
     /** 区间内不属于 playlist 域名的切片 host，去重保序。 */

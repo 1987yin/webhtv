@@ -80,7 +80,36 @@ public final class HlsSegmentClassifier {
         if (signals.encodableCount() == 0) return null;
 
         return new AdAttribution(CHANNEL_ID, categoryOf(signals), confidence,
-                RiskLevel.MEDIUM, describe(evidence, signals), RemediationKind.HLS_STRUCTURED_RULE);
+                RiskLevel.MEDIUM, describe(evidence, signals), RemediationKind.HLS_STRUCTURED_RULE,
+                payloadOf(evidence, signals));
+    }
+
+    /**
+     * 生成可被 {@code HlsManifestCleaner.Rule} 执行的条件。
+     *
+     * <p>时长范围围绕区间内均值取 ±0.1s，仅在时长离群信号成立时给出 ——
+     * 否则会写出一条只靠固定时长删片的宽泛规则，这是内置规则策略明确禁止的。
+     * minimumSignals 取可编码信号数且不低于 2。
+     */
+    private static RulePayload payloadOf(AdIntervalEvidence evidence, Signals signals) {
+        List<String> hosts = evidence.inside().stream()
+                .map(SegmentFact::host)
+                .filter(host -> !host.isEmpty())
+                .distinct()
+                .toList();
+        double min = Double.NaN;
+        double max = Double.NaN;
+        if (signals.durationOutlier()) {
+            double mean = mean(evidence.inside());
+            min = Math.max(0d, mean - 0.1d);
+            max = mean + 0.1d;
+        }
+        // 作用域必须收窄到当前站点的 playlist 域名，否则规则会污染其他站点
+        List<String> scope = evidence.playlistHost().isEmpty()
+                ? List.of() : List.of(evidence.playlistHost());
+        return RulePayload.ofHlsRule(scope, hosts, min, max,
+                signals.discontinuity(), signals.crossDomain(),
+                Math.max(2, signals.encodableCount()));
     }
 
     /** 逐项检测五种信号。 */

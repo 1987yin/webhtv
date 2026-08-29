@@ -11,10 +11,12 @@ import java.util.List;
  * @param risk        采纳该结论的风险等级
  * @param evidence    人类可读的证据，直接进 UI
  * @param remediation 建议的去广机制
+ * @param payload     落地规则所需的机器可读数据
  */
 public record AdAttribution(
         String channelId, AdCategory category, float confidence,
-        RiskLevel risk, List<String> evidence, RemediationKind remediation) {
+        RiskLevel risk, List<String> evidence, RemediationKind remediation,
+        RulePayload payload) {
 
     public AdAttribution {
         if (channelId == null || channelId.isBlank()) {
@@ -25,6 +27,13 @@ public record AdAttribution(
         risk = risk == null ? RiskLevel.MEDIUM : risk;
         evidence = evidence == null ? List.of() : List.copyOf(evidence);
         remediation = remediation == null ? RemediationKind.NONE : remediation;
+        payload = payload == null ? RulePayload.empty() : payload;
+    }
+
+    /** 纯诊断结论没有可落地的数据。 */
+    public AdAttribution(String channelId, AdCategory category, float confidence,
+                         RiskLevel risk, List<String> evidence, RemediationKind remediation) {
+        this(channelId, category, confidence, risk, evidence, remediation, RulePayload.empty());
     }
 
     private static float clamp(float value) {
@@ -41,9 +50,13 @@ public record AdAttribution(
         return confidence * 0.7f + remediation.priorityWeight() * 0.3f;
     }
 
-    /** 是否能产出可落地的规则。 */
+    /**
+     * 是否能产出可落地的规则。除了机制本身要可执行，载荷也必须非空 ——
+     * 否则「保存规则」会写出一条空规则。
+     */
     public boolean actionable() {
         return remediation != RemediationKind.NONE
-                && remediation != RemediationKind.SESSION_SKIP_ONLY;
+                && remediation != RemediationKind.SESSION_SKIP_ONLY
+                && !payload.isEmpty();
     }
 }

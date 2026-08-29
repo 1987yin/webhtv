@@ -74,7 +74,8 @@ public final class ExistingRuleClassifier {
             lines.add("启用它即可拦掉这段广告，无需新建规则");
             return new AdAttribution(CHANNEL_ID, AdCategory.DISCONTINUITY_BLOCK,
                     CONFIDENCE_DISABLED_RULE, RiskLevel.LOW, lines,
-                    RemediationKind.ENABLE_EXISTING_RULE);
+                    RemediationKind.ENABLE_EXISTING_RULE,
+                    RulePayload.ofRuleKey(disabled.key()));
         }
 
         List<String> lines = new ArrayList<>();

@@ -111,7 +111,9 @@ public final class AdAttributionArbiter {
                 channels.add(attribution.channelId());
             }
             merged.add(new AdAttribution(String.join("+", channels), entry.getKey(),
-                    confidence, risk, List.copyOf(lines), cheapest.remediation()));
+                    confidence, risk, List.copyOf(lines), cheapest.remediation(),
+                    // 载荷必须跟随被选中的机制，否则会拿 A 的数据去执行 B 的动作
+                    cheapest.payload()));
         }
         return merged;
     }

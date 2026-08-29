@@ -15,7 +15,22 @@ public class AdAttributionArbiterTest {
     private static AdAttribution of(String channel, AdCategory category, float confidence,
                                     RemediationKind kind) {
         return new AdAttribution(channel, category, confidence, RiskLevel.MEDIUM,
-                List.of(channel + " 证据"), kind);
+                List.of(channel + " 证据"), kind, payloadFor(kind));
+    }
+
+    /**
+     * 可落地的机制必须带非空载荷，否则 {@link AdAttribution#actionable()} 为 false
+     * 并被仲裁器降级成诊断。诊断类机制本身就没有载荷。
+     */
+    private static RulePayload payloadFor(RemediationKind kind) {
+        return switch (kind) {
+            case ENABLE_EXISTING_RULE -> RulePayload.ofRuleKey("builtin|pkg|rule");
+            case HOST_BLACKLIST -> RulePayload.ofHosts(List.of("ad.example.com"));
+            case HLS_STRUCTURED_RULE -> RulePayload.ofHls(
+                    List.of("v.example.com"), List.of("ad.example.com"), 2);
+            case URL_REGEX_RULE -> RulePayload.ofRegex(List.of(".*/ad/.*"));
+            default -> RulePayload.empty();
+        };
     }
 
     @Test
