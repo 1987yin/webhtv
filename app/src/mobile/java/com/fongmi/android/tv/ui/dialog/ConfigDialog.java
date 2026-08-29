@@ -92,6 +92,9 @@ public class ConfigDialog extends BaseAlertDialog {
         binding.negative.setOnClickListener(v -> dismiss());
         binding.positive.setOnClickListener(v -> onPositive());
         binding.choose.setEndIconOnClickListener(this::onChoose);
+        // 猫源本地包是一整个文件夹（index.js + index.config.js），文件选择器选不到目录，
+        // 所以单独给一个入口。选 zip 仍走上面那个文件选择。
+        binding.choose.setStartIconOnClickListener(this::onChooseDir);
         binding.url.addTextChangedListener(new CustomTextListener() {
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
@@ -149,6 +152,10 @@ public class ConfigDialog extends BaseAlertDialog {
 
     private void onChoose(View view) {
         FileChooser.from(launcher).show();
+    }
+
+    private void onChooseDir(View view) {
+        FileChooser.from(launcher).showDirectory();
     }
 
     private void detect(String s) {
