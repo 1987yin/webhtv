@@ -1,7 +1,11 @@
 <resources xmlns:xliff="http://schemas.android.com/apk/res-auto">
 
     <!-- App -->
-    <string name="app_name">MO TV</string>
+   <string name="app_name">默影视</string>
+   <string name="setting_app_branding">App icon</string>
+    <string name="app_branding_icon_current">Default icon</string>
+    <string name="app_branding_icon_history">Original icon</string>
+   <string name="app_branding_icon_select">Select icon</string>
     <string name="app_exit_confirm">Press back again to exit</string>
 
     <!-- Live -->

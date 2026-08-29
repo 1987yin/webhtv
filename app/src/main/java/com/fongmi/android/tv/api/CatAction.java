@@ -233,9 +233,11 @@ public final class CatAction {
         int mark = pic.lastIndexOf(PROXY);
         if (mark < 0) return "";
         String encoded = pic.substring(mark + PROXY.length());
-        int slash = encoded.indexOf('/');
-        if (slash >= 0) encoded = encoded.substring(0, slash);
         if (TextUtils.isEmpty(encoded)) return "";
+        int query = TextUtils.indexOf(encoded, '?');
+        if (query >= 0) encoded = encoded.substring(0, query);
+        int fragment = TextUtils.indexOf(encoded, '#');
+        if (fragment >= 0) encoded = encoded.substring(0, fragment);
         try {
             String decoded = new String(android.util.Base64.decode(encoded, android.util.Base64.DEFAULT), "UTF-8").trim();
             return decoded.startsWith("http://") || decoded.startsWith("https://") ? decoded : "";
