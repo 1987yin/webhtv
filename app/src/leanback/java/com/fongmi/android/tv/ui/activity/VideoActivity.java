@@ -434,6 +434,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private View mDialogReturnFocus;
     private Result mPendingDetail;
     private Result mPendingPlayer;
+    private Result mAppliedPlayerResult;
     private AudioPlaybackResolver.Resolved mImmersiveAudioResolved;
     private boolean mImmersiveAudioRequested;
     private String mContextWallUrl;
@@ -2592,6 +2593,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             onError(result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
             return;
         }
+        if (result == mAppliedPlayerResult && !player().isEmpty()) return;
+        mAppliedPlayerResult = result;
         if (!canApplyPlayerResult()) {
             SpiderDebug.log("video-flow", "drop player result before detail ready key=%s id=%s", getKey(), getId());
             return;
@@ -2636,7 +2639,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         boolean handled = com.fongmi.android.tv.content.ContentDispatcher.dispatchResult(this, getHistoryKey(), getKey(), getFlag().getFlag(), mHistory.getVodName(), mHistory.getVodPic(), getFlag().getEpisodes(), getSelectedEpisodePosition(getFlag().getEpisodes()), result, getSite().getTimeout());
         if (handled) {
             stopPlayback();
-            finish();
+            // 阅读结果接管前台，但保留本页：一次返回回到来源播放页。
         }
         return handled;
     }
