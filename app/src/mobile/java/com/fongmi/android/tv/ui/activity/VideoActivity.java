@@ -55,9 +55,6 @@ import androidx.transition.ChangeBounds;
 import androidx.transition.TransitionManager;
 import androidx.viewbinding.ViewBinding;
 import com.bumptech.glide.request.transition.Transition;
-import com.google.android.flexbox.FlexWrap;
-import com.google.android.flexbox.FlexboxLayoutManager;
-import com.google.android.flexbox.JustifyContent;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.R;
@@ -2604,11 +2601,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     private void updateEpisodeLayout(List<Episode> items, boolean useTmdbCard) {
         if (!mEpisodeGridMode) {
             RecyclerView.LayoutManager manager = mBinding.episode.getLayoutManager();
-            if (!(manager instanceof FlexboxLayoutManager)) {
-                FlexboxLayoutManager layoutManager = new FlexboxLayoutManager(this);
-                layoutManager.setFlexWrap(FlexWrap.WRAP);
-                layoutManager.setJustifyContent(JustifyContent.CENTER);
-                mBinding.episode.setLayoutManager(layoutManager);
+            if (!(manager instanceof LinearLayoutManager) || manager instanceof GridLayoutManager || ((LinearLayoutManager) manager).getOrientation() != LinearLayoutManager.HORIZONTAL) {
+                mBinding.episode.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
             }
             updateEpisodeDecoration(new SpaceItemDecoration(8));
             return;

@@ -17,7 +17,10 @@ import androidx.core.graphics.drawable.RoundedBitmapDrawable;
 import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.config.VodConfig;
+import com.fongmi.android.tv.bean.Config;
 import com.fongmi.android.tv.ui.activity.HomeActivity;
+import com.fongmi.android.tv.utils.ImgUtil;
 import com.github.catvod.utils.Prefers;
 
 /** Owns the two supported built-in app branding choices. */
@@ -47,8 +50,14 @@ public final class AppBranding {
         return context.getString(R.string.app_name);
     }
 
+    /**
+     * 首页标题优先展示站点/配置自己的名字，只有两者都空时才回落到应用名。
+     * 固定返回应用名会让所有站源都显示成「默影视」，看不出当前在哪个源。
+     */
     @NonNull
     public static String getDisplayName(@NonNull Context context, @Nullable String homeName, @Nullable String configName) {
+        if (homeName != null && !homeName.trim().isEmpty()) return homeName;
+        if (configName != null && !configName.trim().isEmpty()) return configName;
         return getName(context);
     }
 
@@ -71,9 +80,15 @@ public final class AppBranding {
         return context.getString(iconLabelResource(getIconMode(context)));
     }
 
-    /** Uses the selected built-in icon in the app UI with a circular presentation. */
+    /**
+     * 首帧先落品牌图标，避免闪白；随后若线路配置带 logo 就异步覆盖上去。
+     * 只用品牌图标会让配置里自带的线路图标彻底失效。
+     */
     public static void applyLogo(@NonNull ImageView view) {
         view.setImageDrawable(logoDrawable(view.getContext()));
+        Config config = VodConfig.get().getConfig();
+        String logo = config == null ? null : config.getLogo();
+        if (logo != null && !logo.trim().isEmpty()) ImgUtil.logo(view, logo);
     }
 
     /**

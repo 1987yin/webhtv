@@ -849,13 +849,18 @@ function updateProgressBar(){
     var wrap = document.getElementById('progressBar'), fill = document.getElementById('progressFill'), text = document.getElementById('progressText');
     if(!wrap || !fill || !text) return;
     // 与进度记录用同一套锚点，保证进度条读数和恢复位置一致
-    var els = anchorEls(), total = anchorTotal();
+    var total = anchorTotal();
     if(total <= 0) return;
     wrap.style.display = 'flex';
-    var loaded = 0, vh = window.innerHeight;
-    for(var i = 0; i < els.length; i++){ if(els[i].getBoundingClientRect().top < vh) loaded++; else break; }
-    var current = Math.min(total, Math.max(1, loaded));
-    fill.style.width = Math.min(100, (loaded / total) * 100) + '%';
+    // 读数取「当前锚点」而不是「已加载数量」：漫画首批就挂 5 张 DOM，
+    // 按已加载算会在刚打开时显示 5 / 95，让人以为跳到了第 5 页。
+    // 例外是整章一屏就放得下（锚点全在 DOM 里且页面不产生滚动），此时确实全部可见，
+    // 读数给总数；漫画首批未加载完时锚点数少于总数，不会误判成读完。
+    var els = anchorEls();
+    var scrollable = document.body.scrollHeight - window.innerHeight > 1;
+    var current = els.length >= total && !scrollable
+            ? total : Math.min(total, currentAnchorIndex() + 1);
+    fill.style.width = Math.min(100, (current / total) * 100) + '%';
     text.textContent = current + ' / ' + total;
 }
 
@@ -919,13 +924,23 @@ function anchorTotal(){
 /**
  * 视口顶部所在的锚点序号（0 基）。
  * 小说取仍露在视口内的第一段（阈值 0）；漫画整页很高，取跨过视口中线的那页。
+ *
+ * 两道退化保护，缺一个都会把进度记到批次末尾（95 页漫画停在第 2 页却记成第 5 页、
+ * 33 段小说刚打开就记成第 33 段）：
+ * 1) 停在顶部时当前锚点必然是第 0 个，直接短路，不必依赖任何 rect；
+ * 2) 高度为 0 的锚点（漫画图片未解码）还没有真实位置，它和它之后的锚点一样不可信，
+ *    必须就地停止扫描 —— 继续扫下去循环末尾的 `idx = i` 会一路推到最后一个锚点。
  */
 function currentAnchorIndex(){
+    var scrolled = window.scrollY || window.pageYOffset || 0;
+    if(scrolled <= 0) return 0;
     var els = anchorEls();
     var threshold = DATA.kind === 1 ? 0 : window.innerHeight * 0.5;
     var idx = 0;
     for(var i = 0; i < els.length; i++){
-        if(els[i].getBoundingClientRect().bottom > threshold){ idx = i; break; }
+        var rect = els[i].getBoundingClientRect();
+        if(rect.height <= 0) break;
+        if(rect.bottom > threshold){ idx = i; break; }
         idx = i;
     }
     return idx;

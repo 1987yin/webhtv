@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 原版图标 fallback：白色背景 + 水晶立方体（API < 26 或按钮预览） -->
+<!-- 原版图标 fallback：白色背景 + 水晶立方体（API < 26 或按钮预览）
+
+     缩放不能照抄自适应图标前景层的 0.4278：那一层会被启动器裁成中心 72/108
+     可视区再显示，立方体占可视区约 64%。本文件是整幅直接显示（启动器别名
+     icon、应用内圆形 logo 都走这里），沿用 0.4278 会让立方体只占 43%，
+     看起来比原版小一圈。0.6417 = 0.4278 / (72/108)，与原版观感对齐。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -7,10 +12,10 @@
     android:viewportHeight="512">
     <path android:fillColor="#FFFFFF" android:pathData="M0,0h512v512h-512z" />
     <group
-        android:scaleX="0.42777777"
-        android:scaleY="0.42777777"
-        android:translateX="146.48889"
-        android:translateY="146.48889">
+        android:scaleX="0.6416667"
+        android:scaleY="0.6416667"
+        android:translateX="91.733337"
+        android:translateY="91.733337">
         <path android:fillColor="#2DD4AA" android:pathData="M470.63,132.08l-32.68,73.34l-214.63,-126.83l32.68,-70.42z" />
         <path android:fillColor="#4CF5CB" android:pathData="M256,8.17l0,70.42l-32.68,-51.55z" />
         <path android:fillColor="#4CF5CB" android:pathData="M437.95,150.95l-181.95,170.41l-65.36,-137.73l65.36,-137.73z" />

@@ -1394,7 +1394,21 @@ public class WebReaderActivity extends AppCompatActivity {
     protected void onPause() {
         // 切后台 / 返回都先落库，避免进程被回收后丢进度
         persistProgress();
+        // 关闭时间戳必须在这里打，不能等 onDestroy：Android 的生命周期顺序是
+        // 本页 onPause -> 宿主 onResume -> 本页 onStop -> 本页 onDestroy。
+        // 宿主 onResume 会因 shouldReclaim() 重新派发上一次的 playerContent 结果，
+        // 那一刻若时间戳还没写，NovelRouter 的两道防线同时失效（currentReader
+        // 已 isFinishing() 判不出「在前台」，时间戳又还是 0），于是立刻又拉起阅读器，
+        // 表现为返回键完全无效、只能强杀 APP。
+        if (isFinishing()) markClosed();
         super.onPause();
+    }
+
+    /** 交还前台：清掉阅读器注册并记下关闭时间，拦截返回后残留的解析回调。 */
+    private void markClosed() {
+        if (NovelRouter.currentReader != this) return;
+        NovelRouter.currentReader = null;
+        NovelRouter.readerClosedAt = System.currentTimeMillis();
     }
 
     @Override
@@ -1402,10 +1416,8 @@ public class WebReaderActivity extends AppCompatActivity {
         persistProgress();
         // 清理阅读器静态引用 + 标记关闭时间，避免残留的 playerContent 回调在返回后重新拉起阅读器。
         // 只在自己仍是「当前阅读器」时清：两个阅读器叠栈时，旧实例销毁不能把前台新实例的注册抹掉。
-        if (NovelRouter.currentReader == this) {
-            NovelRouter.currentReader = null;
-            NovelRouter.readerClosedAt = System.currentTimeMillis();
-        }
+        // onPause 已处理返回场景，这里兜住系统回收等不经过 finish() 的销毁。
+        markClosed();
         picTokens.clear();
         // 只在真正结束时清缓存：配置变更 / 系统回收导致的重建会再次用同一个 cacheKey
         // 读取正文与章节列表（Intent 里只带 key，不带数据），提前清掉会渲染成空章。
