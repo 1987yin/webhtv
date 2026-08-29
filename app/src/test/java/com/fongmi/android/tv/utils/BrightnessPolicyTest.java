@@ -6,6 +6,10 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 public class BrightnessPolicyTest {
 
     private static final float DELTA = 0.0001f;
@@ -148,5 +152,54 @@ public class BrightnessPolicyTest {
         assertEquals(1.0f, gesture, DELTA);
         float persisted = BrightnessPolicy.merge(gesture, 0.25f);
         assertEquals(0.25f, persisted, DELTA);
+    }
+
+    @Test
+    public void rememberBrightnessDefaultsOffAndGatesBothDirections() throws Exception {
+        // 反馈回归：「播放视频时自动调高亮度」的唯一成因是无条件套用持久化的 player_brightness。
+        // 开关必须默认关闭，且同时挡住读与写：只挡读会让手势继续落盘，重新打开开关时又跳回旧值。
+        String source = readMainSource("setting/PlayerSetting.java");
+        assertTrue("remember-brightness must default to off",
+                source.contains("Prefers.getBoolean(KEY_REMEMBER_BRIGHTNESS, false)"));
+        int getter = source.indexOf("public static float getBrightness()");
+        assertTrue("getBrightness must exist", getter >= 0);
+        assertTrue("getBrightness must return FOLLOW_SYSTEM while the switch is off",
+                source.indexOf("if (!isRememberBrightness()) return BrightnessPolicy.FOLLOW_SYSTEM;", getter) > getter);
+        int setter = source.indexOf("public static void putBrightness(");
+        assertTrue("putBrightness must exist", setter >= 0);
+        assertTrue("putBrightness must not persist while the switch is off",
+                source.indexOf("if (!isRememberBrightness()) return;", setter) > setter);
+        assertTrue("turning the switch off must drop the remembered value",
+                source.contains("if (!remember) Prefers.remove(\"player_brightness\");"));
+    }
+
+    @Test
+    public void playbackPagesHandBrightnessBackToSystemOnExit() throws Exception {
+        // 没有还原路径时，同一个 Activity 内关掉开关或退出播放后窗口仍停在旧覆盖值，
+        // 表现为「屏幕一直偏亮」。release() 必须写回 FOLLOW_SYSTEM，且两个宿主页都要调用。
+        String gesture = readMobileSource("ui/custom/CustomKeyDown.java");
+        int release = gesture.indexOf("public void release()");
+        assertTrue("CustomKeyDown must expose release()", release >= 0);
+        assertTrue("release must hand brightness back to the system",
+                gesture.indexOf("applyWindowBrightness(BrightnessPolicy.FOLLOW_SYSTEM);", release) > release);
+        for (String activity : new String[]{"VideoActivity", "LiveActivity"}) {
+            String source = readMobileSource("ui/activity/" + activity + ".java");
+            assertTrue(activity + " must release the gesture controller on destroy",
+                    source.contains("if (mKeyDown != null) mKeyDown.release();"));
+        }
+    }
+
+    private static String readMainSource(String file) throws Exception {
+        return readSource("main", file);
+    }
+
+    private static String readMobileSource(String file) throws Exception {
+        return readSource("mobile", file);
+    }
+
+    private static String readSource(String sourceSet, String file) throws Exception {
+        Path app = Files.exists(Path.of("src", "main")) ? Path.of(".") : Path.of("app");
+        Path path = app.resolve(Path.of("src", sourceSet, "java", "com", "fongmi", "android", "tv", file));
+        return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
     }
 }

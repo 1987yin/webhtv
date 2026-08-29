@@ -8607,6 +8607,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mViewModel.getPlayer().removeObserver(mObservePlayer);
         mViewModel.getSearch().removeObserver(mObserveSearch);
         SiteHealthStore.flush();
+        if (mKeyDown != null) mKeyDown.release();
         super.onDestroy();
     }
 

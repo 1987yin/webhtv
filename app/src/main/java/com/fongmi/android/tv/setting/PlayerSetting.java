@@ -66,6 +66,7 @@ public class PlayerSetting {
     private static final String KEY_CUSTOM_ASPECT_WIDTH = "custom_aspect_width";
     private static final String KEY_CUSTOM_ASPECT_HEIGHT = "custom_aspect_height";
     private static final String KEY_BRIGHTNESS_MIGRATED = "player_brightness_migrated";
+    private static final String KEY_REMEMBER_BRIGHTNESS = "player_remember_brightness";
     private static final String KEY_DISPLAY_TIME = "display_time";
     private static final String KEY_DISPLAY_TRAFFIC = "display_traffic";
     private static final String KEY_DISPLAY_SIZE = "display_size";
@@ -555,12 +556,32 @@ public class PlayerSetting {
         putOsdDiagnostics(valueAt(checked, 4, isOsdDiagnostics()));
     }
 
+    /**
+     * 是否记住播放页亮度。关闭时播放页完全不接管窗口亮度（跟随系统），
+     * 手势调节只在当次播放生效、不落盘，退出播放页即还原。
+     * <p>
+     * 默认关闭：历史上「一进播放页就自动变亮」的反馈都源于无条件套用记忆值，
+     * 而自动亮度机型的手势基准是固定的 0.5（见 Util.getBrightness），
+     * 随手一滑就会把偏高的值永久固化，用户没有任何入口关掉它。
+     */
+    public static boolean isRememberBrightness() {
+        return Prefers.getBoolean(KEY_REMEMBER_BRIGHTNESS, false);
+    }
+
+    public static void putRememberBrightness(boolean remember) {
+        Prefers.put(KEY_REMEMBER_BRIGHTNESS, remember);
+        // 关闭时立即丢弃记忆值，避免重新打开后又跳回旧的偏高亮度
+        if (!remember) Prefers.remove("player_brightness");
+    }
+
     public static float getBrightness() {
+        if (!isRememberBrightness()) return BrightnessPolicy.FOLLOW_SYSTEM;
         migrateLegacyBrightness();
         return Math.min(Math.max(Prefers.getFloat("player_brightness", -1), -1), 1);
     }
 
     public static void putBrightness(float brightness) {
+        if (!isRememberBrightness()) return;
         legacyBrightnessMigrated = true;
         Prefers.put(KEY_BRIGHTNESS_MIGRATED, true);
         Prefers.put("player_brightness", Math.min(Math.max(brightness, 0), 1));
