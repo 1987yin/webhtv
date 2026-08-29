@@ -140,13 +140,41 @@ public class ReaderPlaybackRoutingSourceTest {
                 router.contains("pendingChapterGen = readerCloseGen;"));
         assertTrue("a stale generation must be detected",
                 router.contains("return gen != readerCloseGen;"));
-        // 三个拉起阅读器的入口都必须过这道闸，只改一个仍会漏
+        // 三个拉起阅读器的入口都必须过这道闸，只改一个仍会漏。
+        // 只数 `if (...)` 调用点，避免把方法定义和注释里的提及也算进来。
         assertEquals("every relaunch site must consult the suppression guard",
-                3, countOccurrences(router, "shouldSuppressRelaunch()") - 1);
+                3, countOccurrences(router, "if (shouldSuppressRelaunch())"));
         assertTrue("the guard must combine the silence window and the stale check",
                 router.contains("return justClosed() || isStaleChapterResult();"));
         assertTrue("the reader must tag its chapter switch before handing it to the host",
                 reader.contains("NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl);"));
+    }
+
+    /**
+     * 切章成功送达前台后必须清掉在途标记。
+     *
+     * 「送达前台阅读器」这条路径提前 return，不经过 shouldSuppressRelaunch()，
+     * 所以标记不会被 isStaleChapterResult() 顺手清掉。留着它的后果是：
+     * 用户关掉阅读器、过一会儿主动打开另一本书时，那次合法打开会被误判成过期结果吞掉。
+     */
+    @Test
+    public void deliveredChapterResultClearsThePendingTag() throws Exception {
+        String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
+
+        assertTrue("a clear helper must exist", router.contains("private static void clearChapterRequest()"));
+        // 三个入口在把结果交给前台阅读器之前都要清，漏一个就会吞掉后续的合法打开
+        assertEquals("every foreground-delivery path must clear the pending tag",
+                3, countOccurrences(router, "            clearChapterRequest();"));
+        // 换行符按仓库检出方式可能是 CRLF，统一后再比对顺序
+        String normalized = router.replace("\r\n", "\n");
+        for (String delivery : new String[] {
+                "clearChapterRequest();\n            reader.onEpisodeResolved(kind, result.getRealUrl()",
+                "clearChapterRequest();\n            reader.onEpisodeResolved(kind, payload, title);",
+                "clearChapterRequest();\n            reader.onEpisodeResolved(kind, payload, extractTitle(payload));"
+        }) {
+            assertTrue("the tag must be cleared immediately before delivering: " + delivery,
+                    normalized.contains(delivery));
+        }
     }
 
     /**

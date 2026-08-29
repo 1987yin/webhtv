@@ -122,6 +122,7 @@ public final class NovelRouter {
         // 阅读器已在前台 → 回传解析结果，不重复启动（切换章节场景）
         WebReaderActivity reader = currentReader;
         if (reader != null && !reader.isFinishing() && !reader.isDestroyed()) {
+            clearChapterRequest();
             reader.onEpisodeResolved(kind, result.getRealUrl(), extractTitle(result.getRealUrl()));
             return true;
         }
@@ -236,6 +237,7 @@ public final class NovelRouter {
         // 阅读器已在前台 → 回传解析结果，不重复启动（切换章节场景）
         WebReaderActivity reader = currentReader;
         if (reader != null && !reader.isFinishing() && !reader.isDestroyed()) {
+            clearChapterRequest();
             reader.onEpisodeResolved(kind, payload, title);
             return true;
         }
@@ -467,6 +469,17 @@ public final class NovelRouter {
     }
 
     /**
+     * 在途切章请求已有归属（送达前台阅读器，或已判定过期）→ 清掉标记。
+     *
+     * 必须在「送达前台」这条成功路径上也清：那条路径提前 return，不经过
+     * shouldSuppressRelaunch()。不清的话标记会一直留着，等用户关掉阅读器
+     * 再主动打开另一本书时，它会把这次合法打开误判成过期结果而整个吞掉。
+     */
+    private static void clearChapterRequest() {
+        pendingChapterGen = -1L;
+    }
+
+    /**
      * 这条结果是否属于「已经被关掉的那个阅读器」发起的切章。
      * 是则必须丢弃：用户已经返回，重新拉起阅读器就是返回键失效的根因。
      * 一次性判定，判过即清，避免影响用户之后主动发起的新阅读。
@@ -536,6 +549,7 @@ public final class NovelRouter {
         // 阅读器已在前台 → 回传解析结果，不重复启动（解决「切换章节回不到播放器」）
         WebReaderActivity reader = currentReader;
         if (reader != null && !reader.isFinishing() && !reader.isDestroyed()) {
+            clearChapterRequest();
             reader.onEpisodeResolved(kind, payload, extractTitle(payload));
             return true;
         }
