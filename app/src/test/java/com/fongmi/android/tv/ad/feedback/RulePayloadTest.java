@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ad.feedback;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -117,6 +118,27 @@ public class RulePayloadTest {
         RulePayload payload = HlsSegmentClassifier.classify(evidence).payload();
 
         assertFalse(payload.hasDurationRange());
+    }
+
+    @Test
+    public void pathHintPresentOutsideTheIntervalIsNotADistinguishingCondition() {
+        // 站内正片路径也含 /ads/ 时，该特征无区分度：规则按切片独立匹配，
+        // 没有「只在这段区间内生效」的概念，编码它会连正片一起删。
+        List<SegmentFact> inside = List.of(
+                new SegmentFact(10, "v.example.com", "/ads/10.ts", 8.0, true),
+                new SegmentFact(11, "v.example.com", "/ads/11.ts", 8.0, false));
+        List<SegmentFact> outside = List.of(
+                new SegmentFact(0, "v.example.com", "/ads/0.ts", 8.0, false),
+                new SegmentFact(12, "v.example.com", "/seg/12.ts", 8.0, false));
+        AdIntervalEvidence evidence = new AdIntervalEvidence(
+                80_000, 96_000, StartOrigin.USER_MARKED,
+                "site", "站点", "剧名", "线路", "第 1 集",
+                "v.example.com", "/play/index.m3u8", true,
+                inside, outside, true, false, List.of(), false, List.of(),
+                AudioIntervalFact.unavailable(), SpeechIntervalFact.unavailable());
+
+        // 同域 + 时长一致 + 路径无区分度 → 无任何可编码条件，必须弃权
+        assertNull(HlsSegmentClassifier.classify(evidence));
     }
 
     @Test

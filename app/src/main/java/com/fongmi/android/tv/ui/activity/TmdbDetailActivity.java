@@ -6934,6 +6934,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         }
         currentInlineResult = result;
         useParse = result.shouldUseParse();
+        // 换画质走 changeInlineQuality → startInlinePlayer，不经
+        // stopInlinePlayerForReload，此处兜住同集换 URL 的作废
+        resetAdFeedback();
         if (result.hasPosition() && history != null) history.setPosition(result.getPosition());
         if (result.hasDesc() && !hasTmdbOverview()) {
             vod.setContent(result.getDesc());
@@ -8326,17 +8329,26 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         mAdMarkStartMs = -1;
         if (mAdFeedback != null) mAdFeedback.invalidate();
         if (mAdFeedbackHost != null) mAdFeedbackHost.invalidateEvidence();
+        // 作废后归因回调不再刷新界面，对话框会永久停在「分析中」
+        if (mAdFeedbackDialog != null) mAdFeedbackDialog.close();
+        mAdFeedbackDialog = null;
     }
 
-    /** 起播后记录本站域名，供域名信誉通道建立基线。 */
+    /**
+     * 起播后记录本站域名，供域名信誉通道建立基线。
+     *
+     * <p>必须强制初始化适配器：它原本只在用户首次按下「有广告」时懒创建，
+     * 若这里跳过未初始化的情况，首次反馈时基线仍为空，域名通道会因
+     * 「无基线不断言」而弃权 —— 整条通道等于没接。
+     */
     private void recordAdFeedbackHost() {
-        if (mAdFeedbackHost != null) mAdFeedbackHost.recordPlaybackHost();
+        adFeedback();
+        mAdFeedbackHost.recordPlaybackHost();
     }
 
     /** 短按：标记模式下第二次按下确定终点，否则以当前位置为终点回溯推断起点。 */
     private void submitInlineAdFeedback() {
         AdFeedbackController controller = adFeedback();
-        AdBlockStatsStore.recordFeedback(getKeyText());
         AdFeedbackSession session;
         if (mAdMarkStartMs >= 0) {
             // 先取位置再清标记：播放器已释放时保留标记，用户可重试而不必重新打点
@@ -8351,7 +8363,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         } else {
             session = controller.onQuickReport(mAdFeedbackHost.cachedEvidence());
         }
-        if (session == null) Notify.show(R.string.ad_interval_invalid);
+        if (session == null) {
+            Notify.show(R.string.ad_interval_invalid);
+            return;
+        }
+        // 统计放在成交之后，未成立的反馈不计入
+        AdBlockStatsStore.recordFeedback(getKeyText());
     }
 
     /** 长按：打起点进入标记模式，再次长按取消。 */

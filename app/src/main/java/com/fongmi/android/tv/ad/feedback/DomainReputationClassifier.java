@@ -56,6 +56,13 @@ public final class DomainReputationClassifier {
 
         Set<String> foreignHosts = foreignHosts(evidence);
         if (foreignHosts.isEmpty()) return null;
+        // 必须有对照组：区间外存在属于 playlist 域名的切片，才能说明这些外域
+        // 切片是异常的。否则整站切片都在独立 CDN（api.site.com + cdn.site-x.com
+        // 这种常见拆分）会被整体判为广告，生成的规则命中全部切片 →
+        // HlsManifestCleaner 因 removedCount == segmentCount 回退原文，
+        // 而 HlsAdblockPipeline 的 fallback 会连带停掉 legacy 启发式，
+        // 结果比不加规则更差。与 HlsSegmentClassifier.detectCrossDomain 同一判据。
+        if (!hasSameDomainOutside(evidence)) return null;
 
         List<String> matchedBlacklist = matching(foreignHosts, safe.blacklistedHosts());
         List<String> matchedCandidates = matching(foreignHosts, safe.interfaceCandidateHosts());
@@ -104,6 +111,16 @@ public final class DomainReputationClassifier {
                         Double.NaN, Double.NaN, false, true, 2);
         return new AdAttribution(CHANNEL_ID, AdCategory.THIRD_PARTY_CDN_SEGMENT,
                 confidence, RiskLevel.LOW, evidenceLines, remediation, payload);
+    }
+
+    /**
+     * 区间外是否存在属于 playlist 域名的切片。这是「外域切片异常」的对照前提：
+     * 没有同域切片作对照，说明该站本来就把切片放在独立 CDN 上。
+     */
+    private static boolean hasSameDomainOutside(AdIntervalEvidence evidence) {
+        String playlistHost = evidence.playlistHost();
+        if (playlistHost.isEmpty()) return false;
+        return evidence.outside().stream().anyMatch(fact -> fact.hostEndsWith(playlistHost));
     }
 
     /** 区间内不属于 playlist 域名的切片 host，去重保序。 */

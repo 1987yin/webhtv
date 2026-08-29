@@ -144,7 +144,13 @@ public final class AdFeedbackHostAdapter implements AdFeedbackController.Host {
 
     @Override
     public long durationMs() {
-        return playback.durationMs();
+        // 与 safePositionMs 对称：PlayerManager.getDuration() 也是裸
+        // player.getDuration()，播放器 release 后 player 为 null 会 NPE
+        try {
+            return playback.durationMs();
+        } catch (RuntimeException e) {
+            return 0L;
+        }
     }
 
     @Override

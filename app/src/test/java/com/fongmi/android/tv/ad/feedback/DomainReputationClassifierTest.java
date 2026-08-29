@@ -84,6 +84,29 @@ public class DomainReputationClassifierTest {
     }
 
     @Test
+    public void abstainsWhenSiteHasNoSameDomainSegmentsAtAll() {
+        // playlist 在 v.example.com、全部切片在独立 CDN，是常见的架构拆分。
+        // 没有同域切片作对照就断言「外域即广告」，生成的规则会命中全站切片 →
+        // cleaner 因 removedCount == segmentCount 回退原文，而
+        // HlsAdblockPipeline 的 fallback 会连带停掉 legacy 启发式，比不加规则更差。
+        List<SegmentFact> inside = List.of(
+                new SegmentFact(3, "cdn.site-x.com", "/seg/3.ts", 6.4, false));
+        List<SegmentFact> outside = List.of(
+                new SegmentFact(0, "cdn.site-x.com", "/seg/0.ts", 8.0, false),
+                new SegmentFact(9, "cdn.site-x.com", "/seg/9.ts", 8.0, false));
+        AdIntervalEvidence evidence = new AdIntervalEvidence(
+                10_000, 40_000, StartOrigin.USER_MARKED,
+                "site", "站点", "剧名", "线路", "第 1 集",
+                PLAYLIST_HOST, "/play/index.m3u8", true,
+                inside, outside, false, false, List.of(), false, List.of(),
+                AudioIntervalFact.unavailable(), SpeechIntervalFact.unavailable());
+
+        assertNull(DomainReputationClassifier.classify(evidence,
+                new DomainReputationClassifier.Input(
+                        List.of(), List.of(PLAYLIST_HOST), List.of(), "")));
+    }
+
+    @Test
     public void abstainsWithoutBaselineToAvoidFirstPlayMisjudgement() {
         // 首次播放该站，没有任何基线数据：不能断言域名异常
         DomainReputationClassifier.Input input = DomainReputationClassifier.Input.empty();

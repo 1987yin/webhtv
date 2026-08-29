@@ -45,11 +45,17 @@ public final class HlsSegmentClassifier {
     public record Signals(boolean crossDomain, boolean discontinuity, boolean durationOutlier,
                           boolean pathHint, boolean headPosition) {
 
-        /** 可编码进 {@code HlsAdRule} 的信号数。位置信号不被 HlsAdRule 支持，不计入。 */
+        /**
+         * 可编码进 {@code HlsAdRule} 的信号数。
+         *
+         * <p>不计入位置信号（HlsAdRule 不支持）与断点信号：断点只对广告块首片
+         * 成立，编码进规则会导致只删首片，因此 payloadOf 刻意不编码它。
+         * 这里必须与 payloadOf 保持一致，否则 classify 的守卫会放过只有
+         * 断点+位置的场景，产出一条空载荷的归因。
+         */
         public int encodableCount() {
             int count = 0;
             if (crossDomain) count++;
-            if (discontinuity) count++;
             if (durationOutlier) count++;
             if (pathHint) count++;
             return count;
@@ -77,12 +83,15 @@ public final class HlsSegmentClassifier {
         Signals signals = detect(evidence);
         float confidence = signals.weightSum();
         if (confidence < MIN_CONFIDENCE) return null;
-        // 无法编码进规则的结论没有落地价值
-        if (signals.encodableCount() == 0) return null;
+
+        // 以实际载荷为准判断能否落地：信号命中不等于条件有区分度
+        // （如站内正片路径也含 /ads/ 时，路径特征无法编码进规则）
+        RulePayload payload = payloadOf(evidence, signals);
+        if (payload.isEmpty()) return null;
 
         return new AdAttribution(CHANNEL_ID, categoryOf(signals), confidence,
                 RiskLevel.MEDIUM, describe(evidence, signals), RemediationKind.HLS_STRUCTURED_RULE,
-                payloadOf(evidence, signals));
+                payload);
     }
 
     /**
@@ -106,7 +115,7 @@ public final class HlsSegmentClassifier {
                 .distinct()
                 .toList();
         List<String> pathPatterns = signals.pathHint()
-                ? pathPatternsOf(evidence.inside()) : List.of();
+                ? pathPatternsOf(evidence.inside(), evidence.outside()) : List.of();
         // 没有任何区分条件时不得生成规则
         if (hosts.isEmpty() && pathPatterns.isEmpty()) return RulePayload.empty();
 
@@ -143,13 +152,22 @@ public final class HlsSegmentClassifier {
                 false, requireCrossDomain, minimumSignals);
     }
 
-    /** 命中的广告路径目录段转成正则，用 quote 避免元字符注入。 */
-    private static List<String> pathPatternsOf(List<SegmentFact> inside) {
+    /**
+     * 命中的广告路径目录段转成正则，用 quote 避免元字符注入。
+     *
+     * <p>双向校验：区间内每片都含该目录段，且区间外**没有**任何切片含它。
+     * 只查 inside 的话，站内正片路径恰好含 hint 时会被一起删掉 —— 规则是按
+     * 切片独立匹配的，没有「只在这段区间内生效」的概念。
+     */
+    private static List<String> pathPatternsOf(List<SegmentFact> inside, List<SegmentFact> outside) {
         List<String> patterns = new ArrayList<>();
         for (String hint : PATH_HINTS) {
-            boolean allMatch = inside.stream()
+            boolean insideAll = inside.stream()
                     .allMatch(fact -> fact.path().toLowerCase(Locale.US).contains(hint));
-            if (allMatch) patterns.add(Pattern.quote(hint));
+            if (!insideAll) continue;
+            boolean outsideNone = outside.stream()
+                    .noneMatch(fact -> fact.path().toLowerCase(Locale.US).contains(hint));
+            if (outsideNone) patterns.add(Pattern.quote(hint));
         }
         return patterns;
     }

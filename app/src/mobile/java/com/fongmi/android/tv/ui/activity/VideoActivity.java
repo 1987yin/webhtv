@@ -2759,6 +2759,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             updateActionQuality(result);
             return;
         }
+        // 换画质同集换 URL：切片结构与在途归因都属于上一画质
+        resetAdFeedback();
         mQualityAdapter.setPosition(position);
         updateActionQuality(result);
         onItemClick(result);
@@ -4301,6 +4303,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void switchDecodeWithResult(Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
         decodeSwitchRefreshing = false;
+        // 换解码可能重新解析出不同 URL，与换画质同理
+        resetAdFeedback();
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             player().toggleDecode();
         } else {
@@ -8757,17 +8761,26 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mAdMarkStartMs = -1;
         if (mAdFeedback != null) mAdFeedback.invalidate();
         if (mAdFeedbackHost != null) mAdFeedbackHost.invalidateEvidence();
+        // 作废后归因回调不再刷新界面，对话框会永久停在「分析中」
+        if (mAdFeedbackDialog != null) mAdFeedbackDialog.close();
+        mAdFeedbackDialog = null;
     }
 
-    /** 起播后记录本站域名，供域名信誉通道建立基线。 */
+    /**
+     * 起播后记录本站域名，供域名信誉通道建立基线。
+     *
+     * <p>必须强制初始化适配器：它原本只在用户首次按下「有广告」时懒创建，
+     * 若这里跳过未初始化的情况，首次反馈时基线仍为空，域名通道会因
+     * 「无基线不断言」而弃权 —— 整条通道等于没接。
+     */
     private void recordAdFeedbackHost() {
-        if (mAdFeedbackHost != null) mAdFeedbackHost.recordPlaybackHost();
+        adFeedback();
+        mAdFeedbackHost.recordPlaybackHost();
     }
 
     /** 短按：标记模式下第二次按下确定终点，否则以当前位置为终点回溯推断起点。 */
     private void submitAdFeedback() {
         AdFeedbackController controller = adFeedback();
-        AdBlockStatsStore.recordFeedback(getKey());
         AdFeedbackSession session;
         if (mAdMarkStartMs >= 0) {
             // 先取位置再清标记：播放器已释放时保留标记，用户可重试而不必重新打点
@@ -8782,7 +8795,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         } else {
             session = controller.onQuickReport(mAdFeedbackHost.cachedEvidence());
         }
-        if (session == null) Notify.show(R.string.ad_interval_invalid);
+        if (session == null) {
+            Notify.show(R.string.ad_interval_invalid);
+            return;
+        }
+        // 统计放在成交之后，未成立的反馈不计入
+        AdBlockStatsStore.recordFeedback(getKey());
     }
 
     /** 长按：打起点进入标记模式，再次长按取消。 */
