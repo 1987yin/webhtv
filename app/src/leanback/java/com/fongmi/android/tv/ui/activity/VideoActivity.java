@@ -324,6 +324,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private static final String EXTRA_RESUME_HISTORY_KEY = "resume_history_key";
     private static final String EXTRA_TMDB_VOD_CACHE_KEY = "tmdb_vod_cache_key";
     private static final String EXTRA_IMMERSIVE_AUDIO_CACHE_KEY = "immersive_audio_cache_key";
+    private static final String EXTRA_SEARCH_KEYWORD = "search_keyword";
     private static final java.util.concurrent.ConcurrentHashMap<String, AudioPlaybackResolver.Resolved> IMMERSIVE_AUDIO_LAUNCHES = new java.util.concurrent.ConcurrentHashMap<>();
 
     private ActivityVideoBinding mBinding;
@@ -546,6 +547,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         start(activity, key, id, name, pic, null, true, false, (TmdbItem) null, wallPic);
     }
 
+    /** 搜索结果进入详情：把用户输入的搜索关键词一路带到 TMDB 自动匹配。 */
+    public static void collect(Activity activity, String key, String id, String name, String pic, String wallPic, String searchKeyword) {
+        start(activity, key, id, name, pic, null, true, false, (TmdbItem) null, wallPic, null, searchKeyword);
+    }
+
     private static boolean canOpenLegacyTmdbDetail(String key, String id, boolean cast) {
         if (cast || TextUtils.isEmpty(key)) return false;
         if (SiteApi.PUSH.equals(key)) return TmdbSitePolicy.isEnabled(key, id);
@@ -620,6 +626,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, com.fongmi.android.tv.bean.TmdbItem tmdbItem, String wallPic, String content) {
+        start(activity, key, id, name, pic, mark, collect, cast, tmdbItem, wallPic, content, "");
+    }
+
+    public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, com.fongmi.android.tv.bean.TmdbItem tmdbItem, String wallPic, String content, String searchKeyword) {
         long launch = System.currentTimeMillis();
         SpiderDebug.log("video-flow", "launch request key=%s id=%s name=%s collect=%s cast=%s", key, id, name, collect, cast);
         ImgUtil.preload(activity, pic);
@@ -628,17 +638,22 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             SpiderDebug.log("video-flow", "dispatched to content handler key=%s", key);
             return;
         }
-        startSkippingDispatch(activity, key, id, name, pic, mark, collect, cast, tmdbItem, wallPic, content, launch);
+        startSkippingDispatch(activity, key, id, name, pic, mark, collect, cast, tmdbItem, wallPic, content, launch, searchKeyword);
     }
 
     /** 跳过 ContentDispatcher 的启动路径（供阅读器等 handler 判定内容不归自己管时回退）。 */
     public static void startSkippingDispatch(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, com.fongmi.android.tv.bean.TmdbItem tmdbItem, String wallPic, String content, long launch) {
+        startSkippingDispatch(activity, key, id, name, pic, mark, collect, cast, tmdbItem, wallPic, content, launch, "");
+    }
+
+    public static void startSkippingDispatch(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, com.fongmi.android.tv.bean.TmdbItem tmdbItem, String wallPic, String content, long launch, String searchKeyword) {
         if (tmdbItem == null && shouldOpenLegacyTmdbDetail(key, id, cast)) {
-            TmdbDetailActivity.start(activity, key, id, name, pic, mark, null, Setting.getDetailOpenMode());
+            TmdbDetailActivity.start(activity, key, id, name, pic, mark, null, Setting.getDetailOpenMode(), searchKeyword);
             return;
         }
         Intent intent = new Intent(activity, VideoActivity.class);
         intent.putExtra("launchTime", launch);
+        if (!TextUtils.isEmpty(searchKeyword)) intent.putExtra(EXTRA_SEARCH_KEYWORD, searchKeyword);
         intent.putExtra("tmdbMode", tmdbItem != null);
         intent.putExtra("tmdbItem", tmdbItem);
         intent.putExtra("collect", collect);
@@ -1049,6 +1064,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private String getTmdbVodCacheKey() {
         return Objects.toString(getIntent().getStringExtra(EXTRA_TMDB_VOD_CACHE_KEY), "");
+    }
+
+    private String getSearchKeyword() {
+        return Objects.toString(getIntent().getStringExtra(EXTRA_SEARCH_KEYWORD), "");
     }
 
     private String getKey() {
@@ -2284,7 +2303,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 SpiderDebug.log("tmdb-tv", "direct load vodTitle=%s tmdbTitle=%s tmdbId=%d media=%s cache=%s", item.getName(), tmdbItem.getTitle(), tmdbItem.getTmdbId(), tmdbItem.getMediaType(), mFastTmdbDetailCache != null);
                 mTmdbUIAdapter.load(tmdbItem, item, mFastTmdbDetailCache);
             } else {
-                mTmdbUIAdapter.autoMatch(item.getName(), item);
+                mTmdbUIAdapter.autoMatch(item.getName(), item, getSearchKeyword());
             }
         }
     }
