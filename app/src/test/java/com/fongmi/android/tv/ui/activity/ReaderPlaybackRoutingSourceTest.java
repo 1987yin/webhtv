@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.ui.activity;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -81,37 +83,98 @@ public class ReaderPlaybackRoutingSourceTest {
         assertTrue("markClosed must clear the reader registration",
                 source.contains("NovelRouter.currentReader = null;"));
         assertTrue("markClosed must stamp the close time",
-                source.contains("NovelRouter.readerClosedAt = System.currentTimeMillis();"));
+                source.contains("NovelRouter.markReaderClosed();"));
         assertTrue("onDestroy must still mark closed for non-finish teardown",
                 source.indexOf("markClosed();", destroy) > destroy);
     }
 
     /**
-     * 首帧不能把进度记成批次末尾锚点。
+     * 首帧不能把进度虚报到批次末尾。
      *
-     * 漫画首批只挂 5 张图（未解码高度为 0），小说屏外段落的 content-visibility 还没展开，
-     * 此时没有锚点能跨过阈值，遍历会退化成「最后一个锚点」——95 页漫画记成第 5 页、
-     * 33 段小说记成第 33 段，下次进来就直接跳到那里。
+     * 漫画首批只挂 5 张图，未解码时 bottom 全堆在同一 y 上，没有锚点跨过阈值，
+     * 循环末尾的 `idx = i` 就把序号推到最后一个锚点 —— 95 页漫画记成第 5 页、
+     * 33 段小说记成第 33 段，下次进来直接跳到那里。
+     *
+     * 注意不能用 rect.height 当「未就绪」信号：小说段落带 content-visibility:auto，
+     * 真机实测 height 恒为 0 而 bottom 有效，用 height 判断会让小说进度永远停在第 1 段。
      */
     @Test
     public void readerAnchorIndexShortCircuitsAtTopOfChapter() throws Exception {
         String source = read("app/src/main/assets/reader.html");
 
         int fn = source.indexOf("function currentAnchorIndex()");
-        int guard = source.indexOf("if(scrolled <= 0) return 0;", fn);
+        int guard = source.indexOf("if(scrolled <= 0) return lastAnchorIndex = 0;", fn);
         int loop = source.indexOf("for(", fn);
-        int heightBreak = source.indexOf("if(rect.height <= 0) break;", fn);
+        int degraded = source.indexOf("if(found || atDocumentEnd()) return lastAnchorIndex = idx;", fn);
 
         assertTrue("currentAnchorIndex must exist", fn >= 0);
         assertTrue("stopping at the top must short-circuit to anchor 0 before scanning",
                 guard > fn && guard < loop);
-        assertTrue("an undecoded (zero-height) anchor must stop the scan instead of advancing",
-                heightBreak > loop);
+        assertTrue("a degraded measurement must not advance the anchor unless the document end is reached",
+                degraded > loop);
+        assertFalse("rect.height is always 0 for content-visibility paragraphs; it must not gate the scan",
+                source.contains("if(rect.height <= 0) break;"));
         assertTrue("progress bar must read the current anchor, not the loaded count",
                 source.contains(": Math.min(total, currentAnchorIndex() + 1);"));
-        // 整章一屏放得下时确实全部可见，读数要给总数，不能因为没滚动就停在 1
+        // 整章第一屏就全部露出时确实读完了，读数给总数；判据必须带上界，
+        // 否则往下滚后末锚点 bottom 变负会被误判成读完
         assertTrue("a fully visible chapter must report every anchor as read",
-                source.contains("els.length >= total && !scrollable"));
+                source.contains("last.bottom > 0 && last.bottom <= window.innerHeight"));
+    }
+
+    /**
+     * 迟到的切章结果不能重新拉起已关闭的阅读器。
+     *
+     * 1500ms 静默期只挡得住紧随返回的那一拨回调；用户点了下一章又马上返回时，
+     * 爬虫可能几秒后才回，这条结果落在窗口外就会另起一个阅读器压在宿主上面，
+     * 表现仍然是返回键无效。用关闭代号比对才能识别它属于已经关掉的那个阅读器。
+     */
+    @Test
+    public void staleChapterResultDoesNotRelaunchClosedReader() throws Exception {
+        String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
+        String reader = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
+
+        assertTrue("closing the reader must bump a generation counter",
+                router.contains("readerCloseGen++;"));
+        assertTrue("a chapter request must record the generation it belongs to",
+                router.contains("pendingChapterGen = readerCloseGen;"));
+        assertTrue("a stale generation must be detected",
+                router.contains("return gen != readerCloseGen;"));
+        // 三个拉起阅读器的入口都必须过这道闸，只改一个仍会漏
+        assertEquals("every relaunch site must consult the suppression guard",
+                3, countOccurrences(router, "shouldSuppressRelaunch()") - 1);
+        assertTrue("the guard must combine the silence window and the stale check",
+                router.contains("return justClosed() || isStaleChapterResult();"));
+        assertTrue("the reader must tag its chapter switch before handing it to the host",
+                reader.contains("NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl);"));
+    }
+
+    /**
+     * 阅读器回到前台必须重新登记。
+     *
+     * onPause 交还前台时会清掉注册，只在 onCreate 注册的话，两个阅读器叠栈时
+     * 下层那个再次回到前台就永久失去注册，之后它自己的切章会另起一个实例压在自己上面。
+     */
+    @Test
+    public void readerReRegistersOnResume() throws Exception {
+        String source = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
+
+        int resume = source.indexOf("protected void onResume()");
+        int register = source.indexOf("NovelRouter.currentReader = this;", resume);
+        int pause = source.indexOf("protected void onPause()");
+
+        assertTrue("onResume must exist", resume > 0);
+        assertTrue("onResume must re-register the reader", register > resume && register < pause);
+    }
+
+    private static int countOccurrences(String text, String needle) {
+        int count = 0;
+        int index = 0;
+        while ((index = text.indexOf(needle, index)) >= 0) {
+            count++;
+            index += needle.length();
+        }
+        return count;
     }
 
     private static String read(String path) throws Exception {

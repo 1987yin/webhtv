@@ -125,8 +125,8 @@ public final class NovelRouter {
             reader.onEpisodeResolved(kind, result.getRealUrl(), extractTitle(result.getRealUrl()));
             return true;
         }
-        // 用户刚关闭阅读器（1.5 秒内）：这是返回后残留的回调，不再拉起
-        if (readerClosedAt > 0 && System.currentTimeMillis() - readerClosedAt < 1500) return false;
+        // 刚关闭 / 属于已关阅读器的在途切章：都是返回后残留的回调，不再拉起
+        if (shouldSuppressRelaunch()) return false;
 
         if (ctx instanceof NovelReaderHost) setHost((NovelReaderHost) ctx);
 
@@ -240,8 +240,8 @@ public final class NovelRouter {
             return true;
         }
 
-        // 用户刚关闭阅读器（1.5 秒内）：这是返回后残留的 playerContent 回调，不再拉起
-        if (readerClosedAt > 0 && System.currentTimeMillis() - readerClosedAt < 1500) return false;
+        // 刚关闭 / 属于已关阅读器的在途切章：都是返回后残留的 playerContent 回调，不再拉起
+        if (shouldSuppressRelaunch()) return false;
 
         ArrayList<Episode> ch = new ArrayList<>();
         if (episodes != null) ch.addAll(episodes);
@@ -444,6 +444,51 @@ public final class NovelRouter {
     public static volatile long readerClosedAt = 0L;
 
     /**
+     * 阅读器关闭代号：每次交还前台自增一次。
+     *
+     * 单靠 readerClosedAt 的 1500ms 窗口不够 —— 用户点了下一章又立刻返回时，爬虫可能几秒后才回，
+     * 这条迟到的结果落在窗口外就会重新拉起阅读器（就是「返回不了、只能强杀」的表现）。
+     * 阅读器发起切章时记下代号，结果回来时比对：代号变过说明这期间阅读器被关过，结果作废。
+     */
+    private static volatile long readerCloseGen = 0L;
+
+    /** 阅读器发起的在途切章请求所属代号；-1 表示当前没有在途请求。 */
+    private static volatile long pendingChapterGen = -1L;
+
+    /** 交还前台时调用：作废所有在途的切章结果。 */
+    public static void markReaderClosed() {
+        readerClosedAt = System.currentTimeMillis();
+        readerCloseGen++;
+    }
+
+    /** 阅读器把切章交给宿主解析前调用，记下本次请求所属的代号。 */
+    public static void noteChapterRequest() {
+        pendingChapterGen = readerCloseGen;
+    }
+
+    /**
+     * 这条结果是否属于「已经被关掉的那个阅读器」发起的切章。
+     * 是则必须丢弃：用户已经返回，重新拉起阅读器就是返回键失效的根因。
+     * 一次性判定，判过即清，避免影响用户之后主动发起的新阅读。
+     */
+    private static boolean isStaleChapterResult() {
+        long gen = pendingChapterGen;
+        if (gen < 0) return false;
+        pendingChapterGen = -1L;
+        return gen != readerCloseGen;
+    }
+
+    /** 关闭后的静默期：刚返回时残留的回调一律不再拉起阅读器。 */
+    private static boolean justClosed() {
+        return readerClosedAt > 0 && System.currentTimeMillis() - readerClosedAt < 1500;
+    }
+
+    /** 前台没有阅读器时，判断这条结果该不该拉起新阅读器。 */
+    private static boolean shouldSuppressRelaunch() {
+        return justClosed() || isStaleChapterResult();
+    }
+
+    /**
      * 播放入口汇聚点（PlaybackActivity.startPlayer）调用：
      * playerContent 已返回 novel:// / pics:// / manga:// 这类「阅读内容协议」时，
      * 把 JSON 内容注入到本地阅读器 Web 模板（WebReaderActivity）渲染，全屏阅读。
@@ -497,7 +542,7 @@ public final class NovelRouter {
 
         // 用户刚关闭阅读器（1.5 秒内），说明这是返回后残留的 playerContent 回调，
         // 不再拉起阅读器，让播放器页面正常展示。
-        if (readerClosedAt > 0 && System.currentTimeMillis() - readerClosedAt < 1500) {
+        if (shouldSuppressRelaunch()) {
             return false;
         }
 

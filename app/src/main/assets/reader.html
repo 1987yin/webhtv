@@ -854,12 +854,15 @@ function updateProgressBar(){
     wrap.style.display = 'flex';
     // 读数取「当前锚点」而不是「已加载数量」：漫画首批就挂 5 张 DOM，
     // 按已加载算会在刚打开时显示 5 / 95，让人以为跳到了第 5 页。
-    // 例外是整章一屏就放得下（锚点全在 DOM 里且页面不产生滚动），此时确实全部可见，
-    // 读数给总数；漫画首批未加载完时锚点数少于总数，不会误判成读完。
+    // 例外是整章第一屏就全部露出来了，此时确实全读到了，读数给总数。
+    // 判据用「最后一个锚点的底边落在视口内」，不能用 body 是否可滚动 ——
+    // #reader 的 min-height:105vh 让页面永远可滚动，那个判据恒为真。
     var els = anchorEls();
-    var scrollable = document.body.scrollHeight - window.innerHeight > 1;
-    var current = els.length >= total && !scrollable
-            ? total : Math.min(total, currentAnchorIndex() + 1);
+    var last = els.length >= total && total > 0 ? els[total - 1].getBoundingClientRect() : null;
+    // 上界必须一起判：往下滚之后末锚点的 bottom 会变成负数（已滚出视口上方），
+    // 只看 <= innerHeight 会把「读到中间」误判成「整章读完」。
+    var allVisible = last != null && last.bottom > 0 && last.bottom <= window.innerHeight;
+    var current = allVisible ? total : Math.min(total, currentAnchorIndex() + 1);
     fill.style.width = Math.min(100, (current / total) * 100) + '%';
     text.textContent = current + ' / ' + total;
 }
@@ -925,25 +928,35 @@ function anchorTotal(){
  * 视口顶部所在的锚点序号（0 基）。
  * 小说取仍露在视口内的第一段（阈值 0）；漫画整页很高，取跨过视口中线的那页。
  *
- * 两道退化保护，缺一个都会把进度记到批次末尾（95 页漫画停在第 2 页却记成第 5 页、
+ * 只能用 bottom 判断，不能用 height：小说段落带 content-visibility:auto，
+ * 实测 getBoundingClientRect().height 恒为 0 而 bottom 有效且单调递增，
+ * 拿 height 当「未就绪」信号会让所有小说章的进度永远停在第 1 段。
+ *
+ * 两道退化保护，缺一个都会把进度虚报到批次末尾（95 页漫画停在第 2 页却记成第 5 页、
  * 33 段小说刚打开就记成第 33 段）：
- * 1) 停在顶部时当前锚点必然是第 0 个，直接短路，不必依赖任何 rect；
- * 2) 高度为 0 的锚点（漫画图片未解码）还没有真实位置，它和它之后的锚点一样不可信，
- *    必须就地停止扫描 —— 继续扫下去循环末尾的 `idx = i` 会一路推到最后一个锚点。
+ * 1) 停在顶部时当前锚点必然是第 0 个，直接短路，不依赖任何 rect；
+ * 2) 没有任何锚点跨过阈值时，循环末尾的 `idx = i` 已经推到了最后一个锚点。
+ *    只有真的滚到文末才说明确实读到那里；否则是漫画图片尚未解码（高度 0、
+ *    全部堆在同一 y 上）造成的退化测量，沿用上一次可信值，既不虚报也不倒退。
  */
+var lastAnchorIndex = 0;
 function currentAnchorIndex(){
     var scrolled = window.scrollY || window.pageYOffset || 0;
-    if(scrolled <= 0) return 0;
+    if(scrolled <= 0) return lastAnchorIndex = 0;
     var els = anchorEls();
     var threshold = DATA.kind === 1 ? 0 : window.innerHeight * 0.5;
-    var idx = 0;
+    var idx = 0, found = false;
     for(var i = 0; i < els.length; i++){
-        var rect = els[i].getBoundingClientRect();
-        if(rect.height <= 0) break;
-        if(rect.bottom > threshold){ idx = i; break; }
+        if(els[i].getBoundingClientRect().bottom > threshold){ idx = i; found = true; break; }
         idx = i;
     }
-    return idx;
+    if(found || atDocumentEnd()) return lastAnchorIndex = idx;
+    return lastAnchorIndex;
+}
+
+/** 是否已滚到文档末尾（判定「最后一个锚点确实读到了」，而不是测量退化）。 */
+function atDocumentEnd(){
+    return (window.scrollY || window.pageYOffset || 0) + window.innerHeight >= document.body.scrollHeight - 2;
 }
 
 function reportProgress(){
@@ -1005,7 +1018,9 @@ function restoreAnchor(index){
             console.log('[reader] restoreAnchor timeout index=' + index);
             restoringPage = false;
             updateProgressBar();
-            reportProgress();
+            // 一次都没滚动成功（图全加载失败时 scrollTo 是空操作）就别上报：
+            // 此刻 currentAnchorIndex() 必然是 0，报出去等于把用户存好的位置清成开头。
+            if((window.scrollY || window.pageYOffset || 0) > 0) reportProgress();
             return;
         }
         var els = anchorEls();

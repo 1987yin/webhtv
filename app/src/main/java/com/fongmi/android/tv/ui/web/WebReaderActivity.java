@@ -1177,7 +1177,9 @@ public class WebReaderActivity extends AppCompatActivity {
                 return;
             }
             NovelReaderHost h = NovelRouter.getHost();
-            if (h != null) h.labPlayEpisode(chapterUrl);
+            // 记下本次切章所属的关闭代号：用户点了下一章又马上返回时，爬虫几秒后才回的结果
+            // 会落在 1500ms 静默期之外，靠代号比对才能认出它已过期，不该再拉起阅读器。
+            if (h != null) { NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }
             else chapterFailedWithToast();
         });
     }
@@ -1391,6 +1393,15 @@ public class WebReaderActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        // 重新登记：onPause 里交还前台时会把注册清掉（见 markClosed 的注释），
+        // 只在 onCreate 注册的话，两个阅读器叠栈时下层那个再次回到前台就永久失去注册，
+        // 之后它自己的切章会另起一个阅读器实例压在自己上面。
+        NovelRouter.currentReader = this;
+    }
+
+    @Override
     protected void onPause() {
         // 切后台 / 返回都先落库，避免进程被回收后丢进度
         persistProgress();
@@ -1404,11 +1415,11 @@ public class WebReaderActivity extends AppCompatActivity {
         super.onPause();
     }
 
-    /** 交还前台：清掉阅读器注册并记下关闭时间，拦截返回后残留的解析回调。 */
+    /** 交还前台：清掉阅读器注册并记下关闭时间/代号，拦截返回后残留的解析回调。 */
     private void markClosed() {
         if (NovelRouter.currentReader != this) return;
         NovelRouter.currentReader = null;
-        NovelRouter.readerClosedAt = System.currentTimeMillis();
+        NovelRouter.markReaderClosed();
     }
 
     @Override
