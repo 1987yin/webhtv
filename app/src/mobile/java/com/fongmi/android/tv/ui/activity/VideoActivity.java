@@ -8193,11 +8193,20 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return mShortDramaControlItems;
     }
 
+    /**
+     * 短剧模式下搬到右侧竖排 dock 的控件。
+     * <p>
+     * action 栏整条被隐藏（见 syncShortDramaControlLayout），只有搬进 dock 的控件才可达，
+     * 所以换源(change2)与画质(actionQuality)必须列在这里，否则短剧只能换线路、不能换站点和画质。
+     * action 栏内的控件要按其在容器中的原始顺序排列，restoreShortDramaControls 才能按升序索引还原回原位。
+     */
     private View[] getShortDramaControlViews() {
         return new View[]{
                 mBinding.control.danmaku,
                 mBinding.control.cast,
                 mBinding.control.keep,
+                mBinding.control.action.change2,
+                mBinding.control.action.actionQuality,
                 mBinding.control.action.episodes,
                 mBinding.control.setting,
         };

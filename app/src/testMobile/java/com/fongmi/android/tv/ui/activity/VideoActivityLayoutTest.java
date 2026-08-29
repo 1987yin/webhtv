@@ -894,6 +894,39 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void mobileShortDramaDocksChangeSourceAndQuality() throws Exception {
+        // 反馈回归：短剧模式把整条 action 栏 GONE 掉，换源与画质只有搬进 dock 才可达，
+        // 否则短剧只能在选集里换线路(flag)，无法换站点、无法切画质。
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int views = source.indexOf("private View[] getShortDramaControlViews()");
+        assertTrue("getShortDramaControlViews must exist", views >= 0);
+        String body = source.substring(views, source.indexOf("\n    }", views));
+        assertTrue("short drama dock must expose the change-source button",
+                body.contains("mBinding.control.action.change2,"));
+        assertTrue("short drama dock must expose the quality button",
+                body.contains("mBinding.control.action.actionQuality,"));
+
+        // action 栏内控件必须按容器原始顺序排列：restoreShortDramaControls 按记录的 index 升序插回，
+        // 顺序颠倒会让后插入的控件落到错误位置。view_control_vod_action.xml 中三者顺序为 change2 -> actionQuality -> episodes。
+        int change = body.indexOf("action.change2,");
+        int quality = body.indexOf("action.actionQuality,");
+        int episodes = body.indexOf("action.episodes,");
+        assertTrue("docked action-bar views must follow their original container order",
+                change < quality && quality < episodes);
+    }
+
+    @Test
+    public void mobileQualityButtonStaysGatedByMultiUrlResult() throws Exception {
+        // 画质入口只在站点返回多个播放地址时出现；短剧同走这条判定，
+        // 不能为了让按钮常驻而绕开 isMulti()，否则会弹出只有一个选项的空面板。
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        assertTrue("quality visibility must stay driven by Url.isMulti()",
+                source.contains("setQualityVisible(result.getUrl().isMulti());"));
+    }
+
+    @Test
     public void mobileFullscreenButtonRevealsControlsAfterNativeEnhancedLayoutSettles() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
