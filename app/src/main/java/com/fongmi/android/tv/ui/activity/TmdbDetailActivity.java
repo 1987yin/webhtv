@@ -6934,9 +6934,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         }
         currentInlineResult = result;
         useParse = result.shouldUseParse();
-        // 换画质走 changeInlineQuality → startInlinePlayer，不经
-        // stopInlinePlayerForReload，此处兜住同集换 URL 的作废
-        resetAdFeedback();
         if (result.hasPosition() && history != null) history.setPosition(result.getPosition());
         if (result.hasDesc() && !hasTmdbOverview()) {
             vod.setContent(result.getDesc());
@@ -7789,6 +7786,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             return;
         }
         saveInlineHistory();
+        // 换画质同集换 URL：切片结构与在途归因都属于上一画质。
+        // 放在这里而不是 startInlinePlayer，因为后者也承担断连恢复，
+        // 那条路径不该关掉用户正在看的反馈对话框。
+        resetAdFeedback();
         currentInlineResult.getUrl().set(position);
         updateInlineButtons(service() != null && player() != null && !player().isEmpty() && player().isPlaying());
         startInlinePlayer(currentInlineResult);
