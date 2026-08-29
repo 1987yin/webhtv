@@ -74,8 +74,11 @@ public final class AdFeedbackController {
 
     private final Host host;
     private final AdFeedbackDiagnostics diagnostics;
-    /** 防止过期回调覆盖新一次反馈的结果。 */
-    private int generation;
+    /**
+     * 防止过期回调覆盖新一次反馈的结果。写在主线程（{@link #submit}）、
+     * 读在后台线程投递回主线程的 lambda 里，故必须 volatile。
+     */
+    private volatile int generation;
 
     public AdFeedbackController(Host host) {
         this(host, new AdFeedbackDiagnostics());
@@ -92,6 +95,15 @@ public final class AdFeedbackController {
     }
 
     /**
+     * 作废所有在途归因。换源、换集或播放器重建时必须调用 —— 否则后台
+     * {@code fetchEvidence()} 返回后仍会用上一集的证据弹窗，用户按「保存规则」
+     * 写入的是上一集的域名与切片条件。
+     */
+    public void invalidate() {
+        generation++;
+    }
+
+    /**
      * 短按：以当前位置为终点，回溯推断起点。
      *
      * @return 本次反馈的会话，播放状态不允许时返回 null
@@ -104,7 +116,12 @@ public final class AdFeedbackController {
         return submit(start.startMs(), endMs, start.origin());
     }
 
-    /** 长按标记模式：用户显式框选的区间。 */
+    /**
+     * 长按标记模式：用户显式框选的区间。
+     *
+     * @param startMs 标记模式下打的起点
+     * @param endMs   终点，由调用方取当前播放位置；取不到时传负数即被拒绝
+     */
     public AdFeedbackSession onMarkedInterval(long startMs, long endMs) {
         return submit(startMs, endMs, StartOrigin.USER_MARKED);
     }

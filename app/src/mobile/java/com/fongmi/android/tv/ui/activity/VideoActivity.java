@@ -2290,6 +2290,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void getPlayer(Flag flag, Episode episode) {
+        resetAdFeedback();
         mBinding.control.title.setText(getPlaybackControlTitle(episode));
         playerStartTime = System.currentTimeMillis();
         beginPlayHealth();
@@ -6721,6 +6722,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                 requestIntroSkipPlan();
                 if (!pendingResumeSeekApplied) applyAutoIntroSkip();
                 setAdFeedbackVisible(); // 播放地址确定后按格式刷新"有广告"按钮
+                recordAdFeedbackHost(); // 播放地址已确定，记入本站域名基线
                 break;
             case Player.STATE_ENDED:
                 checkEnded(true);
@@ -8656,6 +8658,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
     @Override
     protected void onDestroy() {
+        if (mAdFeedbackDialog != null) mAdFeedbackDialog.close();
         cancelAiSeasonAnalysis(false);
         dismissKaraokeResultDialogForRecreation();
         mLyricsSearchSeq++;
@@ -8749,15 +8752,33 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return mAdFeedback;
     }
 
+    /** 换源换集：作废在途归因、清标记模式与上一集的切片证据缓存。 */
+    private void resetAdFeedback() {
+        mAdMarkStartMs = -1;
+        if (mAdFeedback != null) mAdFeedback.invalidate();
+        if (mAdFeedbackHost != null) mAdFeedbackHost.invalidateEvidence();
+    }
+
+    /** 起播后记录本站域名，供域名信誉通道建立基线。 */
+    private void recordAdFeedbackHost() {
+        if (mAdFeedbackHost != null) mAdFeedbackHost.recordPlaybackHost();
+    }
+
     /** 短按：标记模式下第二次按下确定终点，否则以当前位置为终点回溯推断起点。 */
     private void submitAdFeedback() {
         AdFeedbackController controller = adFeedback();
         AdBlockStatsStore.recordFeedback(getKey());
         AdFeedbackSession session;
         if (mAdMarkStartMs >= 0) {
+            // 先取位置再清标记：播放器已释放时保留标记，用户可重试而不必重新打点
+            long end = mAdFeedbackHost.safePositionMs();
+            if (end < 0) {
+                Notify.show(R.string.ad_interval_invalid);
+                return;
+            }
             long start = mAdMarkStartMs;
             mAdMarkStartMs = -1;
-            session = controller.onMarkedInterval(start, player().getPosition());
+            session = controller.onMarkedInterval(start, end);
         } else {
             session = controller.onQuickReport(mAdFeedbackHost.cachedEvidence());
         }

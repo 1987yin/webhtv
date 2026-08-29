@@ -450,9 +450,24 @@ public class TmdbDetailActivityLayoutTest {
                 source.contains("Setting.isAiConfigReady() && Setting.isAdblock() && Setting.isAiAdDetection()"));
         assertTrue("detail inline playback must route ad feedback through the shared controller",
                 source.contains("private void submitInlineAdFeedback()")
-                        && source.contains("controller.onMarkedInterval(start, player().getPosition())")
+                        && source.contains("controller.onMarkedInterval(start, end)")
                         && source.contains("controller.onQuickReport(mAdFeedbackHost.cachedEvidence())")
                         && source.contains("new AdFeedbackController(mAdFeedbackHost)"));
+        assertTrue("marked interval must read the position before clearing the mark so a released player keeps it",
+                source.contains("long end = mAdFeedbackHost.safePositionMs();")
+                        && source.indexOf("long end = mAdFeedbackHost.safePositionMs();")
+                                < source.indexOf("long start = mAdMarkStartMs;"));
+        assertTrue("source or episode switch must invalidate in-flight attribution",
+                source.contains("private void resetAdFeedback()")
+                        && source.contains("mAdFeedback.invalidate();")
+                        && source.contains("mAdFeedbackHost.invalidateEvidence();")
+                        && source.contains("resetAdFeedback();"));
+        assertTrue("playback host must feed the site baseline or the domain channel stays dead",
+                source.contains("private void recordAdFeedbackHost()")
+                        && source.contains("mAdFeedbackHost.recordPlaybackHost();")
+                        && source.contains("recordAdFeedbackHost(); // 播放地址已确定，记入本站域名基线"));
+        assertTrue("the feedback dialog must be closed on destroy to avoid leaking the activity",
+                source.contains("if (mAdFeedbackDialog != null) mAdFeedbackDialog.close();"));
         assertTrue("long press must arm the interval marking mode",
                 source.contains("private boolean onInlineAdFeedbackLongPress()")
                         && source.contains("binding.playerAdFeedback.setOnLongClickListener(view -> onInlineAdFeedbackLongPress());")

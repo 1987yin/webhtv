@@ -6894,9 +6894,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void stopInlinePlayerForReload() {
-        // 换源换集：作废标记模式并清掉上一集的切片证据缓存
-        mAdMarkStartMs = -1;
-        if (mAdFeedbackHost != null) mAdFeedbackHost.invalidateEvidence();
+        // 换源换集：作废在途归因，避免用上一集的证据弹窗并写错规则
+        resetAdFeedback();
         subtitlePlaybackSession.stop(this);
         inlineStartPosition = C.TIME_UNSET;
         inlineStartPositionApplied = false;
@@ -8322,15 +8321,33 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return mAdFeedback;
     }
 
+    /** 换源换集：作废在途归因、清标记模式与上一集的切片证据缓存。 */
+    private void resetAdFeedback() {
+        mAdMarkStartMs = -1;
+        if (mAdFeedback != null) mAdFeedback.invalidate();
+        if (mAdFeedbackHost != null) mAdFeedbackHost.invalidateEvidence();
+    }
+
+    /** 起播后记录本站域名，供域名信誉通道建立基线。 */
+    private void recordAdFeedbackHost() {
+        if (mAdFeedbackHost != null) mAdFeedbackHost.recordPlaybackHost();
+    }
+
     /** 短按：标记模式下第二次按下确定终点，否则以当前位置为终点回溯推断起点。 */
     private void submitInlineAdFeedback() {
         AdFeedbackController controller = adFeedback();
         AdBlockStatsStore.recordFeedback(getKeyText());
         AdFeedbackSession session;
         if (mAdMarkStartMs >= 0) {
+            // 先取位置再清标记：播放器已释放时保留标记，用户可重试而不必重新打点
+            long end = mAdFeedbackHost.safePositionMs();
+            if (end < 0) {
+                Notify.show(R.string.ad_interval_invalid);
+                return;
+            }
             long start = mAdMarkStartMs;
             mAdMarkStartMs = -1;
-            session = controller.onMarkedInterval(start, player().getPosition());
+            session = controller.onMarkedInterval(start, end);
         } else {
             session = controller.onQuickReport(mAdFeedbackHost.cachedEvidence());
         }
@@ -10270,6 +10287,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             player().reset();
             applyInlineStartPosition();
             updateInlineButtons(player().isPlaying());
+            recordAdFeedbackHost(); // 播放地址已确定，记入本站域名基线
             applyInlineShortDramaMode();
             requestIntroSkipPlan();
             applyAutoIntroSkip();
@@ -10430,6 +10448,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     @Override
     protected void onDestroy() {
+        if (mAdFeedbackDialog != null) mAdFeedbackDialog.close();
         loadGeneration++;
         cancelAiSeasonAnalysis(false);
         detailTasks.close();

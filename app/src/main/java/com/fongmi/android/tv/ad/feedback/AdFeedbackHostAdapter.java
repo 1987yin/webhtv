@@ -108,16 +108,38 @@ public final class AdFeedbackHostAdapter implements AdFeedbackController.Host {
         cachedEvidence = null;
     }
 
-    /** 记录一次成功播放的域名，喂给站点基线。 */
+    /**
+     * 当前播放位置，取不到时返回 -1 而非 0 —— 0 会被误当成合法的
+     * 「片头位置」，而 -1 会让 {@code AdFeedbackController.submit} 直接拒绝。
+     */
+    public long safePositionMs() {
+        try {
+            long position = playback.positionMs();
+            return position > 0 ? position : -1L;
+        } catch (RuntimeException e) {
+            return -1L;
+        }
+    }
+
+    /**
+     * 记录一次成功播放的域名，喂给站点基线。
+     *
+     * <p>必须在播放起播后调用：{@link DomainReputationClassifier} 无基线数据时
+     * 一律弃权（避免首次播放即误判），不接线会让整条域名通道成为死代码。
+     */
     public void recordPlaybackHost() {
-        String host = AdEvidenceCollector.hostOf(playback.playUrl());
-        if (host.isEmpty()) return;
-        deps.baseline().record(metadata.siteKey(), host);
+        try {
+            String host = AdEvidenceCollector.hostOf(playback.playUrl());
+            if (host.isEmpty()) return;
+            deps.baseline().record(metadata.siteKey(), host);
+        } catch (RuntimeException ignored) {
+            // 基线只是归因的辅助输入，记录失败不应影响播放
+        }
     }
 
     @Override
     public long positionMs() {
-        return playback.positionMs();
+        return safePositionMs();
     }
 
     @Override
