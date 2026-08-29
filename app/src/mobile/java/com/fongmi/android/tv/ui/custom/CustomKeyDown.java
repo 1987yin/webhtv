@@ -89,6 +89,16 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
         applyBrightness();
     }
 
+    /**
+     * 退出播放页时把窗口亮度交还系统。
+     * <p>
+     * 窗口销毁本身会让覆盖值失效，但同一个 Activity 内（切到详情、关闭「记住亮度」后）
+     * 不还原就会一直停在旧的覆盖值上，表现为「屏幕莫名一直偏亮」。
+     */
+    public void release() {
+        applyWindowBrightness(BrightnessPolicy.FOLLOW_SYSTEM);
+    }
+
     private void applyWindowBrightness(float brightness) {
         WindowManager.LayoutParams attributes = activity.getWindow().getAttributes();
         // 值没变就不要回写，避免无谓的窗口属性更新；也保证「从未接管」的页面

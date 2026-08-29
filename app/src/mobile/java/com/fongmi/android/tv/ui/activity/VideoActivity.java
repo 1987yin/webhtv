@@ -188,6 +188,7 @@ import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -418,6 +419,9 @@ private int mAudioBackgroundRandomNonce;
     private final List<ShortDramaControlItem> mShortDramaControlItems = new ArrayList<>();
     private ViewGroup mShortDramaControlDock;
     private boolean shortDramaControlsDocked;
+    private boolean shortDramaSession;
+    /** setQualityVisible 最近一次的结论，供短剧 dock 图标复用，避免两个真值来源。 */
+    private boolean mQualityVisible;
 
     // TMDB 模式相关字段
     private com.fongmi.android.tv.ui.helper.TmdbUIAdapter mTmdbUIAdapter;
@@ -1336,6 +1340,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (mTmdbUIAdapter != null) mTmdbUIAdapter.beginDetailRequest();
         mSourceEpisodeSeasonCache.clear();
         mSourceVodName = "";
+        // 换到新条目才重置会话形态；换源(getDetail)不走这里，见 isShortDramaSession()。
+        // 此处 intent 已更新（上面 putExtras），故 isShortDramaSource() 读到的是新条目的站点：
+        // 新条目不再是短剧时必须交还 enterShortDramaFullscreen 锁定的竖屏方向与全屏布局参数，
+        // 否则长视频会卡在竖屏全屏且无法旋转。仍是短剧则保持形态，避免无谓的进出全屏抖动。
+        if (shortDramaSession && !isShortDramaSource()) exitFullscreen();
+        shortDramaSession = false;
         setOrient();
         checkId();
     }
@@ -1387,7 +1397,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         else mBinding.progressLayout.showProgress();
         setAnimator();
         initNightModeOverlay();
-        if (isShortDramaSource()) enterShortDramaFullscreen();
+        if (isShortDramaSession()) enterShortDramaFullscreen();
         if (hasPendingImmersiveAudioLaunch()) setAudioStageVisible(true);
         setupIntroSkipConfirmListener();
     }
@@ -1453,6 +1463,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.action.player.setOnClickListener(guarded(this::onPlayerKernel));
         mBinding.control.action.player.setOnLongClickListener(view -> onPlayerKernelLong());
         mBinding.control.action.change2.setOnClickListener(view -> onChange());
+        mBinding.control.shortDramaChangeSource.setOnClickListener(view -> onChange());
+        mBinding.control.shortDramaQuality.setOnClickListener(guarded(this::onQuality));
+        mBinding.control.shortDramaEpisodes.setOnClickListener(guarded(this::onEpisodes));
         mBinding.control.action.fullscreen.setOnClickListener(guarded(this::onFullscreen));
         mBinding.control.action.playParams.setOnClickListener(guarded(this::onPlayParams));
         mBinding.control.action.multiThreadProxy.setOnClickListener(guarded(this::onMultiThreadProxy));
@@ -2690,11 +2703,16 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void setQualityVisible(boolean visible) {
+        mQualityVisible = visible;
         mBinding.qualityText.setVisibility(visible ? View.VISIBLE : View.GONE);
         mBinding.quality.setVisibility(visible ? View.VISIBLE : View.GONE);
         mBinding.control.action.actionQuality.setVisibility(visible ? View.VISIBLE : View.GONE);
         applyActionButtonVisibility();
         updateActionQuality(mViewModel.getPlayer().getValue());
+        // 短剧 dock 的画质图标与 action 栏按钮同源。未 dock 时这个图标还在顶部栏里，
+        // 此时置 VISIBLE 会让非短剧场景多出一个图标，所以只在已 dock 时同步。
+        // dock 建立时会由 syncShortDramaControlLayout 用 mQualityVisible 补齐。
+        if (shortDramaControlsDocked) mBinding.control.shortDramaQuality.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
 
     private void updateActionQuality(Result result) {
@@ -2915,7 +2933,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onBack() {
-        if (isFullscreen() && isShortDramaSource()) finishShortDrama();
+        if (isFullscreen() && isShortDramaSession()) finishShortDrama();
         else if (isFullscreen()) exitFullscreen();
         else finishVideoPlayback();
     }
@@ -3009,7 +3027,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onPiP() {
-        if (!canShowPiP(isShortDramaSource())) return;
+        if (!canShowPiP(isShortDramaSession())) return;
         hideControl();
         mPiP.enter(this, player().getVideoWidth(), player().getVideoHeight(), getScale(), true);
     }
@@ -4635,7 +4653,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     private void showControl() {
         if (service() == null || isInPictureInPictureMode()) return;
         setOsdSuppressed(true);
-        boolean shortDrama = isShortDramaSource();
+        boolean shortDrama = isShortDramaSession();
         boolean showPiP = canShowPiP(shortDrama);
         hideWidgetOverlay();
         // 顶部弹幕图标只根据锁定状态和弹幕可用性显示。
@@ -7150,6 +7168,19 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return Setting.isShortDramaSiteEnabled(site == null ? getKey() : site.getKey(), site == null ? "" : site.getName());
     }
 
+    /**
+     * 本次播放会话是否按短剧竖屏形态呈现。
+     * <p>
+     * 换源（onChange -> getDetail）会改写 intent 的 key，进而让 isShortDramaSource() 由 true 变 false，
+     * 于是同一个竖屏会话中途退回长视频布局：右侧 dock 被拆、横屏 action 栏露出，
+     * 就是用户看到的「换源后样式变了」。会话形态一旦按短剧进入就保持，
+     * 直到退出播放页（finishShortDrama / onDestroy）或换到新条目（onNewIntent）为止。
+     */
+    private boolean isShortDramaSession() {
+        if (isShortDramaSource()) shortDramaSession = true;
+        return shortDramaSession;
+    }
+
     private boolean isTmdbContentLoaded() {
         return mTmdbContentLoaded;
     }
@@ -8108,7 +8139,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void applyShortDramaMode() {
-        if (!isShortDramaSource()) return;
+        if (!isShortDramaSession()) return;
         enterShortDramaFullscreen();
         setShortDramaScale();
         mBinding.exo.postDelayed(this::setShortDramaScale, 250);
@@ -8148,6 +8179,13 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         dockShortDramaControls();
         mBinding.control.action.getRoot().setVisibility(View.GONE);
         mBinding.control.info.setVisibility(View.GONE);
+        mBinding.control.shortDramaChangeSource.setVisibility(View.VISIBLE);
+        mBinding.control.shortDramaEpisodes.setVisibility(View.VISIBLE);
+        // 画质仍受站点是否返回多地址约束（避免弹出只有一个选项的面板）。这里直接复用
+        // setQualityVisible 记下的结果，不再自行推导 Result：那些以 false 显式收起画质的
+        // 调用点（如未选中集数、切线路重置）与 Result.isMulti() 结论并不一致，
+        // 两个真值来源会让 dock 图标与 action 栏按钮状态相反。
+        mBinding.control.shortDramaQuality.setVisibility(mQualityVisible ? View.VISIBLE : View.GONE);
         if (mShortDramaControlDock != null) mShortDramaControlDock.setVisibility(isLock() ? View.GONE : View.VISIBLE);
     }
 
@@ -8164,9 +8202,20 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void restoreShortDramaControls() {
         if (!shortDramaControlsDocked) return;
-        for (ShortDramaControlItem item : getShortDramaControlItems()) {
+        // 三个图标入口只服务短剧竖屏 dock，还原回顶部栏后必须重新隐藏
+        mBinding.control.shortDramaChangeSource.setVisibility(View.GONE);
+        mBinding.control.shortDramaQuality.setVisibility(View.GONE);
+        mBinding.control.shortDramaEpisodes.setVisibility(View.GONE);
+        // 先全部摘下再按记录索引升序插回：同一容器有多个搬迁项时（cast/keep/换源/画质/选集/设置同属顶部栏），
+        // 按声明顺序逐个插入会让后来者挤掉前者的位置，且 PlayerButtonSetting.applyOrder 可能已重排过容器，
+        // 声明顺序不保证等于索引升序。升序插入与「摘下前的原始索引」语义一致。
+        List<ShortDramaControlItem> items = new ArrayList<>(getShortDramaControlItems());
+        for (ShortDramaControlItem item : items) {
             ViewGroup parent = (ViewGroup) item.view.getParent();
             if (parent != null) parent.removeView(item.view);
+        }
+        items.sort(Comparator.comparingInt(item -> item.index));
+        for (ShortDramaControlItem item : items) {
             item.parent.addView(item.view, Math.min(item.index, item.parent.getChildCount()), item.layoutParams);
         }
         if (mShortDramaControlDock != null && mShortDramaControlDock.getParent() instanceof ViewGroup) {
@@ -8199,12 +8248,25 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return mShortDramaControlItems;
     }
 
+    /**
+     * 短剧模式下搬到右侧竖排 dock 的控件。
+     * <p>
+     * action 栏整条被隐藏（见 syncShortDramaControlLayout），只有搬进 dock 的控件才可达，
+     * 所以换源/画质/选集必须列在这里，否则短剧只能换线路、不能换站点和画质。
+     * <p>
+     * 这里用的是 shortDramaChangeSource/shortDramaQuality/shortDramaEpisodes 三个专用 48dp 图标，
+     * 而不是 action 栏里的 MaterialTextView（change2/actionQuality/episodes）——dock 全是图标，
+     * 混入文字按钮会很突兀。id 带 shortDrama 前缀是为了避开同一视图树里的 quality/episodes 重名。
+     * 本列表顺序不必等于容器顺序，restoreShortDramaControls 按记录的原始索引升序插回。
+     */
     private View[] getShortDramaControlViews() {
         return new View[]{
                 mBinding.control.danmaku,
                 mBinding.control.cast,
                 mBinding.control.keep,
-                mBinding.control.action.episodes,
+                mBinding.control.shortDramaChangeSource,
+                mBinding.control.shortDramaQuality,
+                mBinding.control.shortDramaEpisodes,
                 mBinding.control.setting,
         };
     }
@@ -8561,7 +8623,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             return;
         } else if (isVisible(mBinding.control.getRoot())) {
             hideControl();
-        } else if (isFullscreen() && isShortDramaSource()) {
+        } else if (isFullscreen() && isShortDramaSession()) {
             finishShortDrama();
         } else if (isFullscreen() && !isLock()) {
             exitFullscreen();
@@ -8613,6 +8675,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mViewModel.getPlayer().removeObserver(mObservePlayer);
         mViewModel.getSearch().removeObserver(mObserveSearch);
         SiteHealthStore.flush();
+        if (mKeyDown != null) mKeyDown.release();
         super.onDestroy();
     }
 
