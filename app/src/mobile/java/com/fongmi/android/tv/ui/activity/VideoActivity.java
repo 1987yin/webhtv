@@ -420,6 +420,8 @@ private int mAudioBackgroundRandomNonce;
     private ViewGroup mShortDramaControlDock;
     private boolean shortDramaControlsDocked;
     private boolean shortDramaSession;
+    /** setQualityVisible 最近一次的结论，供短剧 dock 图标复用，避免两个真值来源。 */
+    private boolean mQualityVisible;
 
     // TMDB 模式相关字段
     private com.fongmi.android.tv.ui.helper.TmdbUIAdapter mTmdbUIAdapter;
@@ -1338,7 +1340,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (mTmdbUIAdapter != null) mTmdbUIAdapter.beginDetailRequest();
         mSourceEpisodeSeasonCache.clear();
         mSourceVodName = "";
-        // 换到新条目才重置会话形态；换源(getDetail)不走这里，见 isShortDramaSession()
+        // 换到新条目才重置会话形态；换源(getDetail)不走这里，见 isShortDramaSession()。
+        // 此处 intent 已更新（上面 putExtras），故 isShortDramaSource() 读到的是新条目的站点：
+        // 新条目不再是短剧时必须交还 enterShortDramaFullscreen 锁定的竖屏方向与全屏布局参数，
+        // 否则长视频会卡在竖屏全屏且无法旋转。仍是短剧则保持形态，避免无谓的进出全屏抖动。
+        if (shortDramaSession && !isShortDramaSource()) exitFullscreen();
         shortDramaSession = false;
         setOrient();
         checkId();
@@ -2697,22 +2703,16 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void setQualityVisible(boolean visible) {
+        mQualityVisible = visible;
         mBinding.qualityText.setVisibility(visible ? View.VISIBLE : View.GONE);
         mBinding.quality.setVisibility(visible ? View.VISIBLE : View.GONE);
         mBinding.control.action.actionQuality.setVisibility(visible ? View.VISIBLE : View.GONE);
         applyActionButtonVisibility();
         updateActionQuality(mViewModel.getPlayer().getValue());
-        // 短剧 dock 里的画质图标与 action 栏按钮同源，跟着一起更新
+        // 短剧 dock 的画质图标与 action 栏按钮同源。未 dock 时这个图标还在顶部栏里，
+        // 此时置 VISIBLE 会让非短剧场景多出一个图标，所以只在已 dock 时同步。
+        // dock 建立时会由 syncShortDramaControlLayout 用 mQualityVisible 补齐。
         if (shortDramaControlsDocked) mBinding.control.shortDramaQuality.setVisibility(visible ? View.VISIBLE : View.GONE);
-    }
-
-    /**
-     * 当前播放结果是否提供多个播放地址（即画质可切换）。
-     * 数据来自 spider playerContent 返回的 url 交替数组，见 Url.isMulti()。
-     */
-    private boolean isQualityAvailable() {
-        Result result = mViewModel.getPlayer().getValue();
-        return result != null && result.getUrl().isMulti();
     }
 
     private void updateActionQuality(Result result) {
@@ -8181,8 +8181,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.info.setVisibility(View.GONE);
         mBinding.control.shortDramaChangeSource.setVisibility(View.VISIBLE);
         mBinding.control.shortDramaEpisodes.setVisibility(View.VISIBLE);
-        // 画质仍受站点是否返回多地址约束，避免弹出只有一个选项的面板
-        mBinding.control.shortDramaQuality.setVisibility(isQualityAvailable() ? View.VISIBLE : View.GONE);
+        // 画质仍受站点是否返回多地址约束（避免弹出只有一个选项的面板）。这里直接复用
+        // setQualityVisible 记下的结果，不再自行推导 Result：那些以 false 显式收起画质的
+        // 调用点（如未选中集数、切线路重置）与 Result.isMulti() 结论并不一致，
+        // 两个真值来源会让 dock 图标与 action 栏按钮状态相反。
+        mBinding.control.shortDramaQuality.setVisibility(mQualityVisible ? View.VISIBLE : View.GONE);
         if (mShortDramaControlDock != null) mShortDramaControlDock.setVisibility(isLock() ? View.GONE : View.VISIBLE);
     }
 

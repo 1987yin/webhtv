@@ -568,10 +568,16 @@ public class PlayerSetting {
         return Prefers.getBoolean(KEY_REMEMBER_BRIGHTNESS, false);
     }
 
+    /**
+     * 切换开关时两个方向都丢弃记忆值，让每次开启都从「跟随系统」起步。
+     * <p>
+     * 只在关闭时清理是不对称的：旧版用户升级后 prefs 里可能残留一个很旧甚至被夹到 1.0 的值，
+     * 开启开关会立刻把屏幕拉到那个亮度，正是本开关要消除的现象。
+     * 由用户开启后自己滑一次来建立记忆值，语义最清晰。
+     */
     public static void putRememberBrightness(boolean remember) {
         Prefers.put(KEY_REMEMBER_BRIGHTNESS, remember);
-        // 关闭时立即丢弃记忆值，避免重新打开后又跳回旧的偏高亮度
-        if (!remember) Prefers.remove("player_brightness");
+        Prefers.remove("player_brightness");
     }
 
     public static float getBrightness() {
@@ -592,6 +598,10 @@ public class PlayerSetting {
      * 在 1023/2047/4095 量程机型上算出的基准值远大于 1，手势结果被永久夹到 1.0 并持久化，
      * 表现为「一进播放页屏幕自动变到最亮且调不下来」。这里一次性丢弃这个污染值，
      * 让亮度回到跟随系统，用户重新调节即可。
+     * <p>
+     * 自「记住播放亮度」开关引入后，putRememberBrightness 在开关的两个方向都会清空
+     * player_brightness，历史污染值已在开关开启时被无条件清掉，这段迁移退化为兜底：
+     * 只有当将来出现「不经开关就启用记忆」的新路径时才会再次生效。
      */
     private static void migrateLegacyBrightness() {
         if (legacyBrightnessMigrated) return;

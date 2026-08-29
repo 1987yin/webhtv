@@ -169,8 +169,15 @@ public class BrightnessPolicyTest {
         assertTrue("putBrightness must exist", setter >= 0);
         assertTrue("putBrightness must not persist while the switch is off",
                 source.indexOf("if (!isRememberBrightness()) return;", setter) > setter);
-        assertTrue("turning the switch off must drop the remembered value",
-                source.contains("if (!remember) Prefers.remove(\"player_brightness\");"));
+        // 两个方向都要清：只在关闭时清理是不对称的，旧版用户 prefs 里可能残留一个被夹到 1.0
+        // 的污染值，开启开关会立刻把屏幕拉到最亮 —— 正是这个开关要消除的现象。
+        int toggle = source.indexOf("public static void putRememberBrightness(");
+        assertTrue("putRememberBrightness must exist", toggle >= 0);
+        String toggleBody = source.substring(toggle, source.indexOf("\n    }", toggle));
+        assertTrue("toggling remember-brightness must drop the remembered value in both directions",
+                toggleBody.contains("Prefers.remove(\"player_brightness\");"));
+        assertFalse("the cleanup must not be gated on the switch turning off",
+                toggleBody.contains("if (!remember)"));
     }
 
     @Test
