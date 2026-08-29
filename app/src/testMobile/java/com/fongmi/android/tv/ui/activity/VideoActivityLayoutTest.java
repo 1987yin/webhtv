@@ -902,10 +902,14 @@ public class VideoActivityLayoutTest {
         int views = source.indexOf("private View[] getShortDramaControlViews()");
         assertTrue("getShortDramaControlViews must exist", views >= 0);
         String body = source.substring(views, source.indexOf("\n    }", views));
-        assertTrue("short drama dock must expose the change-source button",
-                body.contains("mBinding.control.action.change2,"));
-        assertTrue("short drama dock must expose the quality button",
-                body.contains("mBinding.control.action.actionQuality,"));
+        // dock 里全是 48dp 图标，换源/画质/选集必须用专用 ImageView 入口，
+        // 不能直接搬 action 栏的 MaterialTextView，否则文字按钮与图标混排（见用户反馈截图）。
+        assertTrue("short drama dock must expose the change-source icon",
+                body.contains("mBinding.control.changeSource,"));
+        assertTrue("short drama dock must expose the quality icon",
+                body.contains("mBinding.control.quality,"));
+        assertFalse("short drama dock must not mix in action-bar text buttons",
+                body.contains("mBinding.control.action."));
 
     }
 
@@ -935,7 +939,7 @@ public class VideoActivityLayoutTest {
 
     @Test
     public void mobileShortDramaRestoreIsIndependentOfDeclarationOrder() throws Exception {
-        // 同一容器现在有多个搬迁项（换源/画质/选集同属 action 栏）。逐个「摘下并立刻插回」
+        // 同一容器现在有多个搬迁项（cast/keep/换源/画质/选集/设置同属顶部栏）。逐个「摘下并立刻插回」
         // 会让后来者挤掉前者的位置，且 PlayerButtonSetting.applyOrder 可能已重排容器，
         // 声明顺序不等于索引升序。还原必须先全部摘下、再按原始索引升序插回。
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));

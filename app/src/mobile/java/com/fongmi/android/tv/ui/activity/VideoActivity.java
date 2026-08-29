@@ -1454,6 +1454,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.action.player.setOnClickListener(guarded(this::onPlayerKernel));
         mBinding.control.action.player.setOnLongClickListener(view -> onPlayerKernelLong());
         mBinding.control.action.change2.setOnClickListener(view -> onChange());
+        mBinding.control.changeSource.setOnClickListener(view -> onChange());
+        mBinding.control.quality.setOnClickListener(guarded(this::onQuality));
+        mBinding.control.episodes.setOnClickListener(guarded(this::onEpisodes));
         mBinding.control.action.fullscreen.setOnClickListener(guarded(this::onFullscreen));
         mBinding.control.action.playParams.setOnClickListener(guarded(this::onPlayParams));
         mBinding.control.action.multiThreadProxy.setOnClickListener(guarded(this::onMultiThreadProxy));
@@ -2693,6 +2696,17 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.action.actionQuality.setVisibility(visible ? View.VISIBLE : View.GONE);
         applyActionButtonVisibility();
         updateActionQuality(mViewModel.getPlayer().getValue());
+        // 短剧 dock 里的画质图标与 action 栏按钮同源，跟着一起更新
+        if (shortDramaControlsDocked) mBinding.control.quality.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    /**
+     * 当前播放结果是否提供多个播放地址（即画质可切换）。
+     * 数据来自 spider playerContent 返回的 url 交替数组，见 Url.isMulti()。
+     */
+    private boolean isQualityAvailable() {
+        Result result = mViewModel.getPlayer().getValue();
+        return result != null && result.getUrl().isMulti();
     }
 
     private void updateActionQuality(Result result) {
@@ -8159,6 +8173,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         dockShortDramaControls();
         mBinding.control.action.getRoot().setVisibility(View.GONE);
         mBinding.control.info.setVisibility(View.GONE);
+        mBinding.control.changeSource.setVisibility(View.VISIBLE);
+        mBinding.control.episodes.setVisibility(View.VISIBLE);
+        // 画质仍受站点是否返回多地址约束，避免弹出只有一个选项的面板
+        mBinding.control.quality.setVisibility(isQualityAvailable() ? View.VISIBLE : View.GONE);
         if (mShortDramaControlDock != null) mShortDramaControlDock.setVisibility(isLock() ? View.GONE : View.VISIBLE);
     }
 
@@ -8175,7 +8193,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void restoreShortDramaControls() {
         if (!shortDramaControlsDocked) return;
-        // 先全部摘下再按记录索引升序插回：同一容器有多个搬迁项时（换源/画质/选集同属 action 栏），
+        // 三个图标入口只服务短剧竖屏 dock，还原回顶部栏后必须重新隐藏
+        mBinding.control.changeSource.setVisibility(View.GONE);
+        mBinding.control.quality.setVisibility(View.GONE);
+        mBinding.control.episodes.setVisibility(View.GONE);
+        // 先全部摘下再按记录索引升序插回：同一容器有多个搬迁项时（cast/keep/换源/画质/选集/设置同属顶部栏），
         // 按声明顺序逐个插入会让后来者挤掉前者的位置，且 PlayerButtonSetting.applyOrder 可能已重排过容器，
         // 声明顺序不保证等于索引升序。升序插入与「摘下前的原始索引」语义一致。
         List<ShortDramaControlItem> items = new ArrayList<>(getShortDramaControlItems());
@@ -8221,17 +8243,20 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
      * 短剧模式下搬到右侧竖排 dock 的控件。
      * <p>
      * action 栏整条被隐藏（见 syncShortDramaControlLayout），只有搬进 dock 的控件才可达，
-     * 所以换源(change2)与画质(actionQuality)必须列在这里，否则短剧只能换线路、不能换站点和画质。
-     * action 栏内的控件要按其在容器中的原始顺序排列，restoreShortDramaControls 才能按升序索引还原回原位。
+     * 所以换源/画质/选集必须列在这里，否则短剧只能换线路、不能换站点和画质。
+     * <p>
+     * 这里用的是 changeSource/quality/episodes 三个专用 48dp 图标，而不是 action 栏里的
+     * MaterialTextView（change2/actionQuality/episodes）——dock 全是图标，混入文字按钮会很突兀。
+     * 本列表顺序不必等于容器顺序，restoreShortDramaControls 按记录的原始索引升序插回。
      */
     private View[] getShortDramaControlViews() {
         return new View[]{
                 mBinding.control.danmaku,
                 mBinding.control.cast,
                 mBinding.control.keep,
-                mBinding.control.action.change2,
-                mBinding.control.action.actionQuality,
-                mBinding.control.action.episodes,
+                mBinding.control.changeSource,
+                mBinding.control.quality,
+                mBinding.control.episodes,
                 mBinding.control.setting,
         };
     }
