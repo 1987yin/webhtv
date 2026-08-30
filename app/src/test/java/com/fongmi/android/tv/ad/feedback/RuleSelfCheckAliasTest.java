@@ -57,6 +57,36 @@ public class RuleSelfCheckAliasTest {
                 RuleSelfCheck.isSafe(evidence(inside, outside), payload));
     }
 
+    /**
+     * 同一 URI 同时出现在区间内与区间外时，两道判据会互相抵消。
+     *
+     * <p>规则漏删区间内那片、却删掉区间外那片：URI 次数比对因两者同名而仍然相等，
+     * {@code removedSegments() == inside.size()} 也仍然成立，于是放行 —— 真实运行
+     * 删正片且 {@code fallback=false}，错误不被回退兜住。真实 URL 靠 query 区分
+     * （{@code /hls/seg.ts?i=10} 与 {@code ?i=25}），而证据按去敏要求丢掉 query，
+     * 合成 manifest 无法区分，只能弃权。
+     */
+    @Test
+    public void abstainsWhenTheSameUriAppearsInsideAndOutside() {
+        // 区间内 1 片广告，URI 为 X，时长 8.0（只满足 host 一个信号，会被漏删）
+        List<SegmentFact> inside = List.of(
+                new SegmentFact(12, "ad.other.com", "/ads/x.ts", 8.0, true));
+
+        List<SegmentFact> outside = new ArrayList<>();
+        // 区间外同一个 URI X，时长 6.4（host + duration 两个信号，会被误删）
+        outside.add(new SegmentFact(5, "ad.other.com", "/ads/x.ts", 6.4, false));
+        for (int i = 0; i < 10; i++) {
+            outside.add(new SegmentFact(20 + i, PLAYLIST_HOST, "/seg/" + i + ".ts", 8.0, false));
+        }
+
+        RulePayload payload = RulePayload.ofHlsRule(
+                List.of(PLAYLIST_HOST), List.of("ad.other.com"), List.of(),
+                6.3, 6.5, false, false, 2);
+
+        assertFalse("删反了（留区间内、删区间外）却因 URI 重名使判据抵消，必须拒绝",
+                RuleSelfCheck.isSafe(evidence(inside, outside), payload));
+    }
+
     /** 代理式内嵌 URL 的 path 会原样保留，同样能遮蔽真实删除。 */
     @Test
     public void rejectsWhenProxyStylePathShadowsRemovedSegment() {
@@ -79,7 +109,14 @@ public class RuleSelfCheckAliasTest {
                 RuleSelfCheck.isSafe(evidence(inside, outside), payload));
     }
 
-    /** 同一 URI 在 playlist 中复用（片头片尾同一 promo）不得造成误判。 */
+    /**
+     * 同一 URI 在 playlist 中复用（片头片尾同一 promo）不得造成误判。
+     *
+     * <p>现在由 {@code hasUriOverlap} 前置拦下，不再走到 URI 次数比对。保留这条
+     * 测试是因为它钉的是**结果**（必须拒绝），而拒绝的理由换成更早的判据仍然正确；
+     * 次数比对本身由 {@link #rejectsWhenRemovedOutsideUriIsSubstringOfKeptOne}
+     * 等区间外不重名的用例继续覆盖。
+     */
     @Test
     public void rejectsWhenDuplicateUriAppearsInsideAndOutside() {
         List<SegmentFact> inside = List.of(

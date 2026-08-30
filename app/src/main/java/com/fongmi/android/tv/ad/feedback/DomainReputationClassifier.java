@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.ad.feedback;
 
+import com.fongmi.android.tv.utils.HlsManifestCleaner;
+
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -49,8 +51,18 @@ public final class DomainReputationClassifier {
         }
     }
 
-    /** 无结论时返回 null 表示弃权。 */
+    /** 无结论时返回 null 表示弃权。不含叠加校验，仅供单测。 */
     public static AdAttribution classify(AdIntervalEvidence evidence, Input input) {
+        return classify(evidence, input, List.of());
+    }
+
+    /**
+     * 带叠加校验的版本：新规则要与 {@code activeRules} 合并后仍然安全。
+     *
+     * @param activeRules 当前已启用并生效的 HLS 规则
+     */
+    public static AdAttribution classify(AdIntervalEvidence evidence, Input input,
+                                         List<HlsManifestCleaner.Rule> activeRules) {
         if (evidence == null || evidence.inside().isEmpty()) return null;
         Input safe = input == null ? Input.empty() : input;
 
@@ -112,7 +124,7 @@ public final class DomainReputationClassifier {
                 Double.NaN, Double.NaN, false, true, 2);
         // 最终守门：用真实 cleaner 验证只删区间内。域名条件同样挡不住
         // 「广告与正片共用第三方 CDN、靠路径区分」这类场景。
-        if (!RuleSelfCheck.isSafe(evidence, payload)) return null;
+        if (!RuleSelfCheck.isSafe(evidence, payload, activeRules)) return null;
         return new AdAttribution(CHANNEL_ID, AdCategory.THIRD_PARTY_CDN_SEGMENT,
                 confidence, RiskLevel.LOW, evidenceLines,
                 RemediationKind.HLS_STRUCTURED_RULE, payload);

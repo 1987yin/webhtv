@@ -77,12 +77,22 @@ public final class ExistingRuleClassifier {
         }
     }
 
-    /** 无诊断结论时返回 null。 */
+    /** 无诊断结论时返回 null。不含叠加校验，仅供单测。 */
     public static AdAttribution classify(AdIntervalEvidence evidence, Input input) {
+        return classify(evidence, input, List.of());
+    }
+
+    /**
+     * 带叠加校验的版本：待启用规则要与 {@code activeRules} 合并后仍然安全。
+     *
+     * @param activeRules 当前已启用并生效的 HLS 规则
+     */
+    public static AdAttribution classify(AdIntervalEvidence evidence, Input input,
+                                         List<HlsManifestCleaner.Rule> activeRules) {
         if (evidence == null || evidence.inside().isEmpty()) return null;
         Input safe = input == null ? Input.empty() : input;
 
-        RuleState disabled = findDisabledMatch(evidence, safe.hlsRules());
+        RuleState disabled = findDisabledMatch(evidence, safe.hlsRules(), activeRules);
         if (disabled != null) {
             List<String> lines = new ArrayList<>();
             lines.add(String.format(Locale.US, "已有规则「%s」覆盖该域名但当前未启用",
@@ -125,7 +135,8 @@ public final class ExistingRuleClassifier {
      * 「广告与正片共用同一 CDN」时会命中全部切片，回退并连带停掉 legacy 启发式。
      * 这条路径此前完全没有守卫。
      */
-    private static RuleState findDisabledMatch(AdIntervalEvidence evidence, List<RuleState> rules) {
+    private static RuleState findDisabledMatch(AdIntervalEvidence evidence, List<RuleState> rules,
+                                               List<HlsManifestCleaner.Rule> activeRules) {
         for (RuleState rule : rules) {
             if (rule.enabled() || !rule.valid() || rule.hostSuffixes().isEmpty()) continue;
             boolean covers = evidence.inside().stream()
@@ -133,7 +144,7 @@ public final class ExistingRuleClassifier {
             if (!covers) continue;
             // 拿不到编译产物时无法验证，宁可不建议
             if (rule.compiled() == null) continue;
-            if (!RuleSelfCheck.isSafe(evidence, rule.compiled())) continue;
+            if (!RuleSelfCheck.isSafe(evidence, rule.compiled(), activeRules)) continue;
             return rule;
         }
         return null;

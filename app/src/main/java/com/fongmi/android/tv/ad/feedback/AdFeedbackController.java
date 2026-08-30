@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ad.feedback;
 
 import com.fongmi.android.tv.bean.M3u8Evidence;
+import com.fongmi.android.tv.utils.HlsManifestCleaner;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +46,17 @@ public final class AdFeedbackController {
 
         /** 已知 HLS 规则状态。 */
         List<ExistingRuleClassifier.RuleState> hlsRuleStates();
+
+        /**
+         * 当前已启用的 HLS 规则，新规则要与它们叠加后仍然安全 ——
+         * {@code HlsManifestCleaner} 的三道回退闸门作用于合并后的删除总量。
+         *
+         * <p>{@code null} 表示无法确定（存在模拟不了的已启用规则，或读取配置失败），
+         * 与空列表语义不同：前者让自检拒绝新规则，后者表示站内确无规则生效。
+         * 刻意不给默认实现 —— 默认返回空列表等于代替实现者宣称「没有规则生效」，
+         * 那是它无从知道的事，而这个方向恰好是不安全的那一侧。
+         */
+        List<HlsManifestCleaner.Rule> activeHlsRules();
 
         /** 正片保护正则。 */
         List<String> protectingExcludes();
@@ -174,14 +186,19 @@ public final class AdFeedbackController {
                 host.context(), playlist, session.startMs(), session.endMs(),
                 session.startOrigin(), blacklist, host.legacyHeuristicActive());
 
+        // 已启用规则参与自检：新规则叠加上去后不得越过 cleaner 的回退闸门
+        List<HlsManifestCleaner.Rule> activeRules = host.activeHlsRules();
+
         List<AdAttribution> attributions = new ArrayList<>();
-        attributions.add(HlsSegmentClassifier.classify(evidence));
+        attributions.add(HlsSegmentClassifier.classify(evidence, activeRules));
         attributions.add(DomainReputationClassifier.classify(evidence,
                 new DomainReputationClassifier.Input(blacklist, host.siteBaselineHosts(),
-                        host.interfaceCandidateHosts(), host.interfaceSourceName())));
+                        host.interfaceCandidateHosts(), host.interfaceSourceName()),
+                activeRules));
         attributions.add(ExistingRuleClassifier.classify(evidence,
                 new ExistingRuleClassifier.Input(host.hlsRuleStates(),
-                        host.legacyHeuristicActive(), host.protectingExcludes())));
+                        host.legacyHeuristicActive(), host.protectingExcludes()),
+                activeRules));
 
         for (AdAttribution attribution : attributions) {
             if (attribution == null) diagnostics.record(AdFeedbackDiagnostics.Code.CHANNEL_ABSTAINED);

@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ad.feedback;
 
 import com.fongmi.android.tv.bean.M3u8Evidence;
+import com.fongmi.android.tv.utils.HlsManifestCleaner;
 import com.fongmi.android.tv.utils.M3u8Parser;
 
 import java.util.List;
@@ -67,6 +68,7 @@ public final class AdFeedbackHostAdapter implements AdFeedbackController.Host {
                        Supplier<String> interfaceSourceName,
                        Supplier<List<String>> protectingExcludes,
                        Supplier<List<ExistingRuleClassifier.RuleState>> hlsRuleStates,
+                       Supplier<List<HlsManifestCleaner.Rule>> activeHlsRules,
                        SitePlaylistHostBaseline baseline) {
 
         public static Deps defaults() {
@@ -76,6 +78,7 @@ public final class AdFeedbackHostAdapter implements AdFeedbackController.Host {
                     AdFeedbackDataSource::interfaceSourceName,
                     AdFeedbackDataSource::protectingExcludes,
                     AdFeedbackDataSource::hlsRuleStates,
+                    AdFeedbackDataSource::activeHlsRules,
                     SiteHostBaselineStore.get());
         }
     }
@@ -215,6 +218,20 @@ public final class AdFeedbackHostAdapter implements AdFeedbackController.Host {
             return states == null ? List.of() : states;
         } catch (RuntimeException e) {
             return List.of();
+        }
+    }
+
+    /**
+     * 与其他 {@code orEmpty} 式读取不同，这里**不把失败折成空列表**：空列表意味着
+     * 「站内确无规则生效」，会让自检跳过叠加校验；读不到时的真实状态是「不知道」，
+     * 必须原样传 {@code null} 让自检拒绝。折成空列表是 fail-open。
+     */
+    @Override
+    public List<HlsManifestCleaner.Rule> activeHlsRules() {
+        try {
+            return deps.activeHlsRules().get();
+        } catch (RuntimeException e) {
+            return null;
         }
     }
 

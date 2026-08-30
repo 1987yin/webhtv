@@ -6,7 +6,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.fongmi.android.tv.bean.HlsAdRule;
 import com.fongmi.android.tv.bean.M3u8Evidence;
+import com.fongmi.android.tv.utils.HlsManifestCleaner;
 
 import org.junit.Test;
 
@@ -32,6 +34,56 @@ public class AdFeedbackControllerTest {
             switches.add(ad);
         }
         return M3u8Evidence.create(segments, List.of(3, 6), durations, switches);
+    }
+
+    /**
+     * 控制器必须把 {@code host.activeHlsRules()} 传给分类器做叠加校验。
+     *
+     * <p>没有这条测试，把 {@code classify} 里的 activeRules 换成 {@code List.of()}
+     * 整个套件依然全绿 —— 串接一旦断开不会有任何红灯。
+     */
+    @Test
+    public void passesActiveRulesIntoClassifiersForStackingCheck() {
+        FakeHost host = new FakeHost();
+        host.playlist = adBlockPlaylist();
+        // 先确认这份证据在无已启用规则时能产出方案
+        AdFeedbackController baseline = new AdFeedbackController(host);
+        baseline.onMarkedInterval(30_000, 49_200);
+        assertTrue("前置条件：无叠加时应有可落地方案",
+                host.shownSessions.get(1).hasActionablePlan());
+
+        // 一条已启用规则删掉另外 9 片正片（下标 6-14，各 10s）。与新规则的 3 片
+        // 合并后同时越过两道闸门：12/30 = 40% > 35%，且 90 + 19.2 = 109.2s > 90s。
+        // 刻意让两道都越界，避免测试卡在单一闸门的边界上。
+        FakeHost stacked = new FakeHost();
+        stacked.playlist = adBlockPlaylist();
+        stacked.activeRules = List.of(HlsAdRule.createUserRule(
+                "active", "active", List.of("v.example.com"), List.of(),
+                List.of("^[^?#]*/seg/(?:6|7|8|9|10|11|12|13|14)\\.ts"),
+                null, null, false, false, 1).compile());
+        AdFeedbackController controller = new AdFeedbackController(stacked);
+
+        controller.onMarkedInterval(30_000, 49_200);
+
+        assertFalse("叠加后越过回退闸门，不该再给出可落地方案",
+                stacked.shownSessions.get(1).hasActionablePlan());
+    }
+
+    /**
+     * {@code activeHlsRules()} 返回 {@code null}（无法确定站内规则）时必须弃权，
+     * 而不是当成「没有规则」继续放行。
+     */
+    @Test
+    public void abstainsWhenHostCannotDetermineActiveRules() {
+        FakeHost host = new FakeHost();
+        host.playlist = adBlockPlaylist();
+        host.activeRules = null;
+        AdFeedbackController controller = new AdFeedbackController(host);
+
+        controller.onMarkedInterval(30_000, 49_200);
+
+        assertFalse("规则集未知时不该给出可落地方案",
+                host.shownSessions.get(1).hasActionablePlan());
     }
 
     @Test
@@ -296,6 +348,7 @@ public class AdFeedbackControllerTest {
         private boolean deferBackground;
         private List<String> blacklist = List.of();
         private List<ExistingRuleClassifier.RuleState> ruleStates = List.of();
+        private List<HlsManifestCleaner.Rule> activeRules = List.of();
 
         @Override
         public long positionMs() {
@@ -348,6 +401,11 @@ public class AdFeedbackControllerTest {
         @Override
         public List<ExistingRuleClassifier.RuleState> hlsRuleStates() {
             return ruleStates;
+        }
+
+        @Override
+        public List<HlsManifestCleaner.Rule> activeHlsRules() {
+            return activeRules;
         }
 
         @Override

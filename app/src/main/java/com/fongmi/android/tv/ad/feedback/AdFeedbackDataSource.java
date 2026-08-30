@@ -7,6 +7,7 @@ import com.fongmi.android.tv.api.config.UserAdRuleStore;
 import com.fongmi.android.tv.bean.HlsAdRule;
 import com.fongmi.android.tv.bean.ImportedAdRuleCandidate;
 import com.fongmi.android.tv.bean.UserAdRule;
+import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.utils.HlsManifestCleaner;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -111,6 +112,53 @@ public final class AdFeedbackDataSource {
             return List.copyOf(states);
         } catch (RuntimeException e) {
             return List.of();
+        }
+    }
+
+    /**
+     * 当前已启用的 HLS 规则，供叠加校验预测回退闸门。
+     *
+     * <p>返回 {@code null} 表示**无法确定**，调用方必须因此拒绝新规则 —— 不是
+     * 「没有规则」。两者的区别是安全性的关键：叠加校验靠「合并后是否越过闸门」下
+     * 结论，而 {@code removedCount} 对规则集单调，于是
+     *
+     * <ul>
+     *   <li>用**子集**判出「会回退」→ 全集必然也回退，拒绝方向安全；</li>
+     *   <li>用**子集**判出「不回退」→ 对全集一无所知，放行方向不安全。</li>
+     * </ul>
+     *
+     * <p>所以凡是有一条已启用规则无法被自检忠实模拟，就整体返回 {@code null}，
+     * 而不是把它剔除后拿剩下的规则去预测。带未锚定 {@code segmentUrlRegex} 的规则
+     * 正属此类：合成 manifest 的 URI 不含 query 与 fragment（见
+     * {@link #hasUnanchoredSegmentRegex}），这类规则在合成上命中 0 片，真实运行却
+     * 可能命中大量切片。此前把它们静默剔除，等于让「合并后 3/30 不回退」这种结论
+     * 建立在比生产小得多的规则集上，恰好放过「叠加后整份 manifest 回退」——
+     * 正是叠加校验要拦的那件事。
+     *
+     * <p>去广告总开关关闭时返回空列表：此时 {@code HlsAdblockPipeline} 根本不会被
+     * 调用，所有规则确实删 0 片，「没有规则生效」是真话而非近似。
+     *
+     * <p>刻意不按播放内核过滤：结构化净化目前只在 IJK 路径与本地 {@code /m3u8}
+     * 代理上执行（MPV 会为时间戳完整性丢弃净化结果，EXO/系统内核走 legacy），
+     * 但内核可在播放中回退切换，而规则一旦保存就长期生效。按当次内核放宽，等于
+     * 让规则的安全性取决于保存那一刻的内核，换内核后即失效。
+     */
+    public static List<HlsManifestCleaner.Rule> activeHlsRules() {
+        try {
+            if (!Setting.isAdblock()) return List.of();
+            List<HlsManifestCleaner.Rule> simulatable = new ArrayList<>();
+            for (HlsRuleConfig.Entry entry : HlsRuleConfig.getEntries()) {
+                if (entry == null || !entry.enabled() || !entry.valid()) continue;
+                HlsManifestCleaner.Rule compiled = compiledOf(entry.detail());
+                // compiledOf 已内含未锚定正则的拒绝。拿不到编译产物就无法预测它
+                // 的删除量，只能整体弃权 —— 剔除它再预测是不安全的方向。
+                if (compiled == null) return null;
+                simulatable.add(compiled);
+            }
+            return List.copyOf(simulatable);
+        } catch (RuntimeException e) {
+            // 读配置失败同样是「无法确定」，不能退化成「没有规则」
+            return null;
         }
     }
 

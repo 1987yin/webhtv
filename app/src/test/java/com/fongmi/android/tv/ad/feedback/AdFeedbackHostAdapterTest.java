@@ -64,6 +64,7 @@ public class AdFeedbackHostAdapterTest {
                 () -> { throw new IllegalStateException("prefs unavailable"); },
                 () -> { throw new IllegalStateException("prefs unavailable"); },
                 () -> { throw new IllegalStateException("prefs unavailable"); },
+                () -> { throw new IllegalStateException("prefs unavailable"); },
                 new SitePlaylistHostBaseline(new SitePlaylistHostBaseline.MemoryStorage()));
         AdFeedbackHostAdapter adapter = adapter(new FakePlayback(), throwing);
 
@@ -73,18 +74,23 @@ public class AdFeedbackHostAdapterTest {
         assertEquals("", adapter.interfaceSourceName());
         assertTrue(adapter.protectingExcludes().isEmpty());
         assertTrue(adapter.hlsRuleStates().isEmpty());
+        // 唯一的例外：已启用规则读不到时必须是 null 而非空列表 —— 空列表意味着
+        // 「站内确无规则生效」，会让自检跳过叠加校验，是 fail-open。
+        assertNull("读取失败必须传播为『无法确定』", adapter.activeHlsRules());
     }
 
     @Test
     public void nullConfigValuesBecomeEmptyLists() {
         AdFeedbackHostAdapter.Deps nulls = new AdFeedbackHostAdapter.Deps(
-                () -> null, () -> null, () -> null, () -> null, () -> null,
+                () -> null, () -> null, () -> null, () -> null, () -> null, () -> null,
                 new SitePlaylistHostBaseline(new SitePlaylistHostBaseline.MemoryStorage()));
         AdFeedbackHostAdapter adapter = adapter(new FakePlayback(), nulls);
 
         assertTrue(adapter.blacklistedHosts().isEmpty());
         assertEquals("", adapter.interfaceSourceName());
         assertTrue(adapter.hlsRuleStates().isEmpty());
+        // activeHlsRules 的 null 是有语义的，不能被折成空列表
+        assertNull("数据源的『无法确定』必须原样透传", adapter.activeHlsRules());
     }
 
     @Test
@@ -146,7 +152,7 @@ public class AdFeedbackHostAdapterTest {
 
     private static AdFeedbackHostAdapter.Deps deps(SitePlaylistHostBaseline baseline) {
         return new AdFeedbackHostAdapter.Deps(
-                List::of, List::of, () -> "", List::of, List::of, baseline);
+                List::of, List::of, () -> "", List::of, List::of, List::of, baseline);
     }
 
     private static final class FakePlayback implements AdFeedbackHostAdapter.Playback {

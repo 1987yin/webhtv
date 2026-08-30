@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.ad.feedback;
 
+import com.fongmi.android.tv.utils.HlsManifestCleaner;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -74,9 +76,21 @@ public final class HlsSegmentClassifier {
     }
 
     /**
-     * 对区间做结构归因。无法判断时返回 null 表示弃权。
+     * 对区间做结构归因，不含叠加校验。无法判断时返回 null 表示弃权。
+     *
+     * <p>仅供单测；生产路径走带 {@code activeRules} 的版本。
      */
     public static AdAttribution classify(AdIntervalEvidence evidence) {
+        return classify(evidence, List.of());
+    }
+
+    /**
+     * 带叠加校验的版本：新规则要与 {@code activeRules} 合并后仍然安全。
+     *
+     * @param activeRules 当前已启用并生效的 HLS 规则
+     */
+    public static AdAttribution classify(AdIntervalEvidence evidence,
+                                         List<HlsManifestCleaner.Rule> activeRules) {
         if (evidence == null || !evidence.hasSegmentEvidence()) return null;
         // 区间已被结构化规则整体处理，用户看到的广告来自别处，不应再加 HLS 规则
         if (evidence.handledByStructuredRule()) return null;
@@ -92,7 +106,7 @@ public final class HlsSegmentClassifier {
         // 最终守门：用真实 cleaner 跑一遍，确认只删区间内、不碰区间外、不触发回退。
         // 逐条件的对照校验挡不住条件间的组合效应（如 duration + crossDomain 在
         // 区间外同时成立），也预判不到删除比例与时长闸门。
-        if (!RuleSelfCheck.isSafe(evidence, payload)) return null;
+        if (!RuleSelfCheck.isSafe(evidence, payload, activeRules)) return null;
 
         return new AdAttribution(CHANNEL_ID, categoryOf(signals), confidence,
                 RiskLevel.MEDIUM, describe(evidence, signals, payload),
