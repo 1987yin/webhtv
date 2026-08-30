@@ -162,6 +162,7 @@ import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.novel.NovelRouter;
 import com.fongmi.android.tv.ui.helper.DetailThemeVisibility;
 import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
+import com.fongmi.android.tv.ui.helper.EpisodeCardImagePolicy;
 import com.fongmi.android.tv.ui.helper.EpisodeSeasonPolicy;
 import com.fongmi.android.tv.ui.helper.EpisodeSeasonSnapshot;
 import com.fongmi.android.tv.ui.helper.PipExitDecision;
@@ -449,6 +450,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private static final String EXTRA_PLAY_EPISODE_NAME = "tmdb_play_episode_name";
     private static final String EXTRA_PLAY_EPISODE_URL = "tmdb_play_episode_url";
     private static final String EXTRA_PLAY_SEASON_NUMBER = "tmdb_play_season_number";
+    private static final String SOURCE_SEARCH_KEYWORD = "SEARCH_KEYWORD";
 
     @Override
     public TmdbItem getMatchedTmdbItem() {
@@ -470,6 +472,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, @Nullable TmdbItem tmdbItem, int detailMode) {
         start(activity, key, id, name, pic, mark, tmdbItem, detailMode, false);
+    }
+
+    /** 搜索结果进入独立 TMDB 详情：带上用户输入的搜索关键词，供自动匹配与 AI 兜底使用。 */
+    public static void start(Activity activity, String key, String id, String name, String pic, String mark, @Nullable TmdbItem tmdbItem, int detailMode, String searchKeyword) {
+        start(activity, key, id, name, pic, mark, tmdbItem, detailMode, false, null, null, "", null, null, searchKeyword);
     }
 
     public static void startFusion(Activity activity, String key, String id, String name, String pic, String mark) {
@@ -523,6 +530,14 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                               @Nullable TmdbItem tmdbItem, int detailMode, boolean autoPlay,
                               @Nullable History resumeHistory, String playFlag, String playFlagKey,
                               String playEpisodeName, String playEpisodeUrl) {
+        start(activity, key, id, name, pic, mark, tmdbItem, detailMode, autoPlay, resumeHistory,
+                playFlag, playFlagKey, playEpisodeName, playEpisodeUrl, "");
+    }
+
+    private static void start(Activity activity, String key, String id, String name, String pic, String mark,
+                              @Nullable TmdbItem tmdbItem, int detailMode, boolean autoPlay,
+                              @Nullable History resumeHistory, String playFlag, String playFlagKey,
+                              String playEpisodeName, String playEpisodeUrl, String searchKeyword) {
         if (!TextUtils.isEmpty(key) && !SiteApi.PUSH.equals(key) && AudioUtil.isAudioSiteEnabled(key)) {
             startDirectFromHistory(activity, key, id, name, pic, mark, playFlag, playFlagKey, playEpisodeName, playEpisodeUrl, resumeHistory);
             return;
@@ -546,6 +561,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         intent.putExtra("name", name);
         intent.putExtra("pic", pic);
         intent.putExtra("mark", mark);
+        if (!TextUtils.isEmpty(searchKeyword)) intent.putExtra("search_keyword", searchKeyword);
         putTmdbItem(intent, tmdbItem);
         if (resumeHistory != null) {
             intent.putExtra(EXTRA_RESUME_FROM_HISTORY, true);
@@ -3277,22 +3293,34 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private AutoTmdbMatch searchResolvedTmdbMatch(String rawTitle, @Nullable Vod sourceVod) throws Exception {
-        MediaTitleRequest request = buildTmdbTitleRequest(rawTitle, sourceVod);
+        String searchKeyword = getTmdbSearchKeyword();
+        MediaTitleRequest request = buildTmdbTitleRequest(rawTitle, sourceVod, searchKeyword, false);
         MediaTitleResolver resolver = new MediaTitleResolver();
         List<String> attempted = new ArrayList<>();
         MediaTitleResolution resolution = resolver.resolve(request);
         AutoTmdbMatch match = searchResolvedTmdbMatch(rawTitle, resolution, attempted);
         if (match.item() != null) return match;
+        AutoTmdbMatch keywordMatch = searchResolvedTmdbMatch(rawTitle, searchKeyword, attempted);
+        if (keywordMatch.item() != null) return keywordMatch;
         List<String> cleanedTitles = resolver.queryCleanedTitles(request, 4);
         logTmdbMatch("清洗标题兜底：原始标题=%s，候选=%s", rawTitle, cleanedTitles);
         AutoTmdbMatch cleanedMatch = searchResolvedTmdbMatch(rawTitle, cleanedTitles, MediaTitleResolution.SOURCE_CLEANED, attempted);
         if (cleanedMatch.item() != null) return cleanedMatch;
-        MediaTitleResolution fallback = resolver.resolveWithAiFallback(request);
+        MediaTitleRequest aiRequest = buildTmdbTitleRequest(rawTitle, sourceVod, searchKeyword, true);
+        MediaTitleResolution fallback = resolver.resolveWithAiFallback(aiRequest);
         logTmdbMatch("AI 标题兜底：source=%s，原始标题=%s，候选=%s", fallback.getSource(), rawTitle, fallback.queryTitles());
         AutoTmdbMatch fallbackMatch = searchResolvedTmdbMatch(rawTitle, fallback, attempted);
         if (!fallbackMatch.items().isEmpty()) return fallbackMatch;
         if (!cleanedMatch.items().isEmpty()) return cleanedMatch;
+        if (!keywordMatch.items().isEmpty()) return keywordMatch;
         return !match.items().isEmpty() ? match : fallbackMatch;
+    }
+
+    /** 搜索关键词兜底：卡片名称匹配失败后，用用户当时输入的搜索词再匹配一次。 */
+    private AutoTmdbMatch searchResolvedTmdbMatch(String rawTitle, String searchKeyword, List<String> attempted) throws Exception {
+        if (TextUtils.isEmpty(searchKeyword)) return new AutoTmdbMatch(null, List.of());
+        logTmdbMatch("搜索词兜底：原始标题=%s，搜索关键词=%s", rawTitle, searchKeyword);
+        return searchResolvedTmdbMatch(rawTitle, List.of(searchKeyword), SOURCE_SEARCH_KEYWORD, attempted);
     }
 
     private AutoTmdbMatch searchResolvedTmdbMatch(String rawTitle, MediaTitleResolution resolution, List<String> attempted) throws Exception {
@@ -3321,21 +3349,26 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return new AutoTmdbMatch(null, lastItems);
     }
 
-    private MediaTitleRequest buildTmdbTitleRequest(String rawTitle, @Nullable Vod sourceVod) {
+    private MediaTitleRequest buildTmdbTitleRequest(String rawTitle, @Nullable Vod sourceVod, String searchKeyword, boolean allowAi) {
         Vod detailVod = sourceVod != null ? sourceVod : vod;
         return MediaTitleRequest.builder()
                 .siteKey(getKeyText())
                 .vodId(getIdText())
                 .rawTitle(rawTitle)
                 .rawRemarks(detailVod == null ? getMarkText() : coalesce(detailVod.getRemarks(), getMarkText()))
+                .searchKeyword(searchKeyword)
                 .vodYear(detailVod == null ? "" : detailVod.getYear())
                 .source(MediaTitleLearningExample.SOURCE_TMDB_AUTO)
-                .allowAi(true)
+                .allowAi(allowAi)
                 .build();
     }
 
     private String getTmdbRawTitle() {
         return !TextUtils.isEmpty(sourceVodName) ? sourceVodName : vod != null && !TextUtils.isEmpty(vod.getName()) ? vod.getName() : getNameText();
+    }
+
+    private String getTmdbSearchKeyword() {
+        return Objects.toString(getIntent().getStringExtra("search_keyword"), "");
     }
 
     private List<String> automaticTmdbQueries(MediaTitleResolution resolution, String rawTitle) {
@@ -3801,12 +3834,33 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private String episodeFallbackStillUrl() {
+        // 分集无专属剧照时按设备比例选兜底：宽屏优先横向剧照，窄屏优先纵向海报，
+        // 首选比例缺图时退到另一种，避免宽卡片塞竖海报（只能看到人脸中段）。
+        return EpisodeCardImagePolicy.fallbackFor(
+                episodeFallbackLandscapeUrl(), episodeFallbackPortraitUrl(), preferLandscapeBackground());
+    }
+
+    private String episodeFallbackPortraitUrl() {
         String poster = tmdbPosterUrl();
         if (!TextUtils.isEmpty(poster)) return poster;
         if (vod != null && !TextUtils.isEmpty(vod.getPic())) return vod.getPic();
-        String backdrop = tmdbBackdropUrl();
-        if (!TextUtils.isEmpty(backdrop)) return backdrop;
         return getPicText();
+    }
+
+    /**
+     * 只认横向图：tmdbBackdropUrl() 内部已按设备比例在 backdrop/poster 间选过一次，
+     * 窄屏时它会回竖海报，直接复用会让「窄屏缺海报退剧照」永远拿不到横图。
+     */
+    private String episodeFallbackLandscapeUrl() {
+        if (matchedTmdbDetail != null && tmdbConfig != null) {
+            List<String> backdrops = TmdbImageSelector.backdrops(matchedTmdbDetail, tmdbConfig.getBackdropBase(), 1);
+            if (!backdrops.isEmpty()) return backdrops.get(0);
+        }
+        if (matchedTmdbItem != null) return TmdbImageSelector.originalUrl(matchedTmdbItem.getBackdropUrl());
+        // 已有匹配条目时到此为止：applyManualTmdb() 换条目不重建 intent，退 tmdb_backdrop 会让
+        // 上一条匹配的横图挡在当前条目的海报前面。完全没有匹配（原生源）才退它，此时它仍是进场
+        // 条目自己的横图，且换条目走 setIntent 会刷新，宽卡片靠它免吃竖海报。
+        return TmdbImageSelector.originalUrl(getBackdropText());
     }
 
     private void bindHeader() {
@@ -5297,7 +5351,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private int tmdbEpisodeDataSeason(List<Episode> sourceEpisodes) {
         List<Integer> availableSeasons = availableSeasonNumbers(sourceEpisodes);
         if (availableSeasons.size() == 1) return availableSeasons.get(0);
-        return availableSeasons.contains(selectedSeasonNumber) ? selectedSeasonNumber : -1;
+        if (availableSeasons.contains(selectedSeasonNumber)) return selectedSeasonNumber;
+        Integer fallbackSeason = tmdbSeasonChoiceResolution().getSelectedSeason();
+        return fallbackSeason == null || !seasonNumbers.contains(fallbackSeason) ? -1 : fallbackSeason;
     }
 
     private void fetchSeasonIfNeeded(int seasonNumber) {
@@ -5920,15 +5976,16 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             return;
         }
         // 剧集场景：原有逻辑
-        if (matchedTmdbItem == null || !"tv".equalsIgnoreCase(matchedTmdbItem.getMediaType()) || selectedSeasonNumber < 0 || episodeNumber <= 0 || !canMatchTmdb()) {
+        int detailSeasonNumber = tmdbEpisodeDataSeason(selectedFlag == null ? null : selectedFlag.getEpisodes());
+        if (matchedTmdbItem == null || !"tv".equalsIgnoreCase(matchedTmdbItem.getMediaType()) || detailSeasonNumber < 0 || episodeNumber <= 0 || !canMatchTmdb()) {
             Notify.show(R.string.detail_tmdb_empty);
             return;
         }
         binding.loading.setVisibility(View.VISIBLE);
         int generation = loadGeneration;
         int detailGeneration = ++tmdbEpisodeDetailGeneration;
-        int displaySeasonNumber = selectedSeasonNumber;
-        int seasonNumber = tmdbEpisodeDataSeason(selectedFlag == null ? null : selectedFlag.getEpisodes());
+        int displaySeasonNumber = detailSeasonNumber;
+        int seasonNumber = detailSeasonNumber;
         TmdbItem item = matchedTmdbItem;
         JsonObject baseDetail = matchedTmdbDetail;
         TmdbConfig config = tmdbConfig;

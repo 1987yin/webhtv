@@ -34,11 +34,13 @@ public final class NodeRuntime {
     /** 首选端口，被占用时往后找；bundle 本身不做 EADDRINUSE 重试，所以由这边探。 */
     private static final int PREFERRED_PORT = 9988;
     private static final int PORT_SCAN = 20;
+    private static final long START_TIMEOUT_MS = 55_000L;
 
     private static volatile int port;
     private static final AtomicBoolean STARTING = new AtomicBoolean(false);
     private static volatile boolean running;
     private static volatile String servingUrl = "";
+    private static volatile long startGeneration;
 
     /** 主进程侧的回复 Messenger，接收子进程回报。 */
     private static Messenger replyMessenger;
@@ -105,7 +107,32 @@ public final class NodeRuntime {
             notifyProgress(context, callback, context.getString(R.string.node_switch_restart));
         }
         servingUrl = NodeBundle.bundleUrl(url);
-        NodeService.start(context, url, replyMessenger);
+        try {
+            NodeService.start(context, url, replyMessenger);
+            long generation = ++startGeneration;
+            App.post(() -> timeout(context, generation), START_TIMEOUT_MS);
+        } catch (RuntimeException e) {
+            STARTING.set(false);
+            running = false;
+            servingUrl = "";
+            port = 0;
+            SpiderDebug.log("node", "failed to start node service: %s", e.getMessage());
+            if (callback != null) callback.onError("猫源服务启动失败: " + e.getMessage());
+        }
+    }
+
+    private static void timeout(Context context, long generation) {
+        if (generation != startGeneration || !STARTING.compareAndSet(true, false)) return;
+        NodeService.stop(context);
+        running = false;
+        servingUrl = "";
+        port = 0;
+        NodeNotify.done(context, "猫源启动失败：服务未在预期时间内就绪");
+        Notify.show("猫源启动失败：服务未在预期时间内就绪");
+        Callback callback = pendingCallback;
+        pendingCallback = null;
+        replyMessenger = null;
+        if (callback != null) callback.onError("服务未在预期时间内就绪");
     }
 
     /** 是否就是当前这个 bundle。 */
@@ -158,6 +185,8 @@ public final class NodeRuntime {
                     port = msg.arg1;
                     running = true;
                     STARTING.set(false);
+                    pendingCallback = null;
+                    replyMessenger = null;
                     String ready = App.get().getString(R.string.node_ready);
                     NodeNotify.done(App.get(), ready + "，端口 " + port);
                     Notify.show(ready);
@@ -174,6 +203,8 @@ public final class NodeRuntime {
                     String text = msg.getData() != null ? msg.getData().getString("text") : "未知错误";
                     STARTING.set(false);
                     running = false;
+                    pendingCallback = null;
+                    replyMessenger = null;
                     NodeNotify.done(App.get(), "猫源启动失败：" + text);
                     Notify.show("猫源启动失败：" + text);
                     if (callback != null) callback.onError(text);

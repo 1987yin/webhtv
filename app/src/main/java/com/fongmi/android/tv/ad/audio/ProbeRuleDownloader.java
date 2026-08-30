@@ -49,8 +49,8 @@ public final class ProbeRuleDownloader {
         if (!RUNNING.compareAndSet(false, true)) return;
         Task.execute(() -> {
             try {
-                AdAudioSetting.markProbeRefreshed(System.currentTimeMillis());
                 refresh(url, ProbeRuleStore.get());
+                AdAudioSetting.markProbeRefreshed(System.currentTimeMillis());
             } catch (IOException | RuntimeException e) {
                 // fail-open：拉取或校验失败时已有缓存继续生效，不影响播放。
                 SpiderDebug.log("ad-audio-probe-rules", e);
@@ -83,9 +83,9 @@ public final class ProbeRuleDownloader {
         if (!RUNNING.compareAndSet(false, true)) return false;
         Task.execute(() -> {
             try {
-                AdAudioSetting.markProbeRefreshed(System.currentTimeMillis());
                 AdAudioRuleSnapshot snapshot = refresh(url,
                         store == null ? ProbeRuleStore.get() : store);
+                AdAudioSetting.markProbeRefreshed(System.currentTimeMillis());
                 App.post(() -> callback.onSuccess(snapshot));
             } catch (IOException | RuntimeException e) {
                 SpiderDebug.log("ad-audio-probe-rules", e);
