@@ -60,16 +60,32 @@ public class ConfigDialogChooseDirTest {
                 read("app/src/leanback/res/layout/dialog_config.xml").contains("android:id=\"@+id/chooseDir\""));
     }
 
+    /**
+     * 配置导入要落到不会被系统清理的目录。
+     *
+     * <p>「同一份内容只存一份」「流会关闭」这些语义由 {@code FileChooserImportTest} 做真实
+     * 行为验证，这里只钉住入口和目标目录——那两条是编译期看不出来的接线。
+     */
     @Test
-    public void unresolvedContentUrisUsePersistentUniqueImports() throws Exception {
+    public void configImportUsesPersistentDirectory() throws Exception {
         String chooser = read("app/src/main/java/com/fongmi/android/tv/utils/FileChooser.java");
         assertTrue("配置导入必须使用持久化 URI 路径，不能落到可清理 cache",
                 chooser.contains("public static String getPersistentPathFromUri(Uri uri)")
                         && chooser.contains("Path.files(\"cat_source_imports\")"));
-        assertTrue("同名 content URI 导入必须生成唯一文件名",
-                chooser.contains("UUID.randomUUID()"));
-        assertTrue("URI 输入流必须在复制完成后关闭",
-                chooser.contains("try (InputStream is = context.getContentResolver().openInputStream(uri))"));
+    }
+
+    /** 选完什么都不发生是最糟的失败方式，用户不知道该重选还是该换包。 */
+    @Test
+    public void unreadableSelectionTellsTheUser() throws Exception {
+        for (String file : new String[]{MOBILE, LEANBACK}) {
+            assertTrue(file + " 读不到所选内容时必须给提示，不能静默 return",
+                    read(file).contains("Notify.show(R.string.dialog_config_choose_failed);"));
+        }
+        // 漏 locale 只会在运行时炸，编译期查不出来。
+        for (String values : new String[]{"values", "values-zh-rCN", "values-zh-rTW"}) {
+            assertTrue(values + " 缺 dialog_config_choose_failed",
+                    read("app/src/main/res/" + values + "/strings.xml").contains("\"dialog_config_choose_failed\""));
+        }
     }
 
     private static String read(String file) throws Exception {

@@ -114,19 +114,34 @@ public class NodePortSelectionTest {
         assertTrue("CatSource 等待必须有时间上限", source.contains("latch.await(60, TimeUnit.SECONDS)"));
     }
 
+    /**
+     * 复用运行中的 Node 必须过 {@code servesCurrentSource}（比完整来源身份），
+     * 而不是自己拼一个只看地址的条件——后者在服务端原地更新 bundle 后会继续跑旧 JS。
+     * {@code servingSourceKey} 只能在 READY 时从磁盘读实际安装值，不能提前写请求值。
+     */
     @Test
-    public void runtimeDoesNotReuseLocalBundleWithoutRevalidatingItsContents() throws IOException {
+    public void runtimeReuseGoesThroughFullSourceIdentityCheck() throws IOException {
         String runtime = read("com/fongmi/android/tv/node/NodeRuntime.java");
-        int reuse = runtime.indexOf("if (running && NodeBundle.isRemote(url) && same(url) && !TextUtils.isEmpty(requestedKey) && requestedKey.equals(servingSourceKey))");
-        int start = runtime.indexOf("if (!STARTING.compareAndSet(false, true))", reuse);
+        int reuse = runtime.indexOf("NodeBundle.servesCurrentSource(url, servingSourceKey)");
+        int start = runtime.indexOf("if (!STARTING.compareAndSet(false, true))");
 
-        assertTrue("本地 bundle 可能被修改或移动，不能只按原始路径直接复用运行中的 Node",
-                reuse >= 0
-                        && start > reuse
-                        && runtime.contains("String requestedKey = NodeBundle.isRemote(url) ? NodeBundle.sourceKey(url) : \"\";")
-                        && runtime.indexOf("servingSourceKey", reuse) > reuse
-                        && runtime.contains("servingSourceKey = NodeBundle.installedSourceKey(App.get());")
-                        && !runtime.contains("servingSourceKey = requestedKey;"));
+        assertTrue("复用判定必须调用 servesCurrentSource", reuse >= 0);
+        assertTrue("复用判定必须在真正启动之前", start > reuse);
+
+        // 枚举所有赋值，而不是排除某一种拼写：右值只允许「清空」或「从磁盘读实际安装值」。
+        // 否则任何新写法（比如把请求侧算出的 key 直接塞进来）都能绕过检查。
+        java.util.List<String> assigned = new java.util.ArrayList<>();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("servingSourceKey\\s*=\\s*([^;]+);").matcher(runtime);
+        while (matcher.find()) assigned.add(matcher.group(1).trim());
+
+        assertTrue("必须有 servingSourceKey 的赋值", !assigned.isEmpty());
+        assertTrue("已安装来源键只能在 READY 后从磁盘读取",
+                assigned.contains("NodeBundle.installedSourceKey(App.get())"));
+        for (String value : assigned) {
+            assertTrue("servingSourceKey 不能被赋成 " + value + "（只允许 \"\" 或 installedSourceKey）",
+                    value.equals("\"\"") || value.equals("NodeBundle.installedSourceKey(App.get())"));
+        }
     }
 
     @Test
@@ -144,6 +159,20 @@ public class NodePortSelectionTest {
                 download >= 0
                         && bundle.indexOf("if (!isMd5(expected))", download) > download
                         && bundle.indexOf("if (isMd5(expected) && !expected.equalsIgnoreCase(actual))", download) > download);
+    }
+
+    /**
+     * {@code ByteArrayOutputStream.toString(Charset)} 是 API 33 才有的重载，而 minSdk 是 24，
+     * {@code desugar_jdk_libs_nio} 也不覆盖 {@code java.io.ByteArrayOutputStream}。用了它，
+     * Android 13 以下一进 readLimited 就 NoSuchMethodError——而 source.key/stamp 的读取全走这里，
+     * 等于整个猫源功能在旧系统上必崩。单元测试跑在 JVM 上，测不出来，只能锁源码。
+     */
+    @Test
+    public void textDecodingStaysWithinMinSdkApiSurface() throws IOException {
+        String bundle = read("com/fongmi/android/tv/node/NodeBundle.java");
+        assertTrue("readLimited 必须用 API 24 就有的 toString(String)，不能用 API 33 的 toString(Charset)",
+                bundle.contains("output.toString(StandardCharsets.UTF_8.name())")
+                        && !bundle.contains("output.toString(StandardCharsets.UTF_8)"));
     }
 
     @Test

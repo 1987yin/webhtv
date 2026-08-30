@@ -248,7 +248,10 @@ public class ConfigDialog extends BaseAlertDialog {
         if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) return;
         FragmentActivity activity = requireActivity();
         String path = Objects.toString(FileChooser.getPersistentPathFromUri(result.getData().getData()), "");
-        if (TextUtils.isEmpty(path)) return;
+        if (TextUtils.isEmpty(path)) {
+            Notify.show(R.string.dialog_config_choose_failed);
+            return;
+        }
         App.post(() -> {
             if (activity.isFinishing() || activity.isDestroyed()) return;
             dismissAllowingStateLoss();
