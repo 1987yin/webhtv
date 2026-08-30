@@ -115,7 +115,7 @@ public class ReaderPlaybackRoutingSourceTest {
         // #reader 的 min-height:105vh 让「图全未解码」时轻扫 32px 就到文末，
         // 只判 atDocumentEnd 会把退化值当可信 —— 必须同时要求锚点已全部进 DOM
         assertTrue("reaching the document end alone must not validate a degraded measurement",
-                source.contains("els.length >= anchorTotal() && atDocumentEnd()"));
+                source.contains("anchorsSettled() && atDocumentEnd()"));
         assertFalse("rect.height is always 0 for content-visibility paragraphs; it must not gate the scan",
                 source.contains("if(rect.height <= 0) break;"));
         assertTrue("progress bar must read the current anchor, not the loaded count",
@@ -126,15 +126,22 @@ public class ReaderPlaybackRoutingSourceTest {
         // 小说正文下方还有 140px 内边距和章节导航，光靠 currentAnchorIndex 够不到最后一段，
         // 历史列表就永远到不了 100%
         assertTrue("a chapter read to its end must be able to record the final anchor",
-                source.contains("if(atDocumentEnd() && els.length >= total){"));
-        // 漫画末页图加载失败时高度恒为 0、不占空间，文档底部会被提前达到；
-        // 只判「到底」会把用户还没看到的页记成读完，下次直接跳到章末
-        assertTrue("a comic must also require the final page to have real height",
-                source.contains("if(DATA.kind === 1 || els[total - 1].getBoundingClientRect().height > 0) return total - 1;"));
+                source.contains("if(anchorsSettled() && atDocumentEnd()) return total - 1;"));
+        // 退化态统一由 anchorsSettled() 把关：漫画末页图加载失败时高度恒为 0、不占空间；
+        // PDF 的 canvas 先插入后绘制，未绘制时是固有 300x150（有高度但不是真实页高），
+        // 只判「到底」会把用户没看到的内容记成读完，下次直接跳到章末
+        assertTrue("a degraded layout must be recognised before trusting the document end",
+                source.contains("function anchorsSettled()"));
+        assertTrue("a comic must require the final page to have real height",
+                source.contains("return els[total - 1].getBoundingClientRect().height > 0;"));
+        assertTrue("a PDF must require every page to be painted, not merely appended",
+                source.contains("return pdfDoc != null && pdfAppendedCount >= pdfDoc.numPages;"));
+        assertTrue("currentAnchorIndex must use the same settled check",
+                source.contains("if(found || (anchorsSettled() && atDocumentEnd()))"));
         // memo 有副作用：文末分支提前 return 前必须先让 currentAnchorIndex() 跑过一次
         int effFn = source.indexOf("function effectiveAnchorIndex()");
         int memoUpdate = source.indexOf("Math.min(total - 1, currentAnchorIndex());", effFn);
-        int endBranch = source.indexOf("if(atDocumentEnd() && els.length >= total){", effFn);
+        int endBranch = source.indexOf("if(anchorsSettled() && atDocumentEnd())", effFn);
         assertTrue("the memo must be updated before the document-end shortcut returns",
                 memoUpdate > effFn && memoUpdate < endBranch);
     }
@@ -173,6 +180,37 @@ public class ReaderPlaybackRoutingSourceTest {
         // 静默期后用户主动打开另一本书就会被误吞
         assertTrue("the stale check must not be short-circuited by the silence window",
                 router.contains("boolean stale = isStaleChapterResult();"));
+        // 宿主解析有多条静默失败路径不回到 NovelRouter（章节属于另一条线路、
+        // playerContent 报错、解析出来是普通视频地址），标记必须能被撤销并自行过期，
+        // 否则它会一直留着把用户之后主动打开的书误判成过期结果吞掉
+        assertTrue("a failed chapter switch must abandon its pending tag",
+                router.contains("public static void abandonChapterRequest()"));
+        assertTrue("the reader must abandon the tag when a chapter switch fails",
+                reader.contains("NovelRouter.abandonChapterRequest();"));
+        assertTrue("an unclaimed tag must expire on its own",
+                router.contains("PENDING_CHAPTER_TTL"));
+    }
+
+    /**
+     * 阅读进度按「已读到第几个锚点」（1 基）落库。
+     *
+     * 历史列表按 position/duration 画进度条，直接存 0 基序号会让读完只有 (n-1)/n
+     * —— 2 页的漫画短章读完只显示 50%。恢复时用 toAnchor 换回 0 基序号。
+     */
+    @Test
+    public void readingProgressIsStoredOneBasedSoFinishedChaptersReachFullBar() throws Exception {
+        String history = read("app/src/main/java/com/fongmi/android/tv/ui/novel/ReaderHistory.java");
+        String reader = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
+
+        assertTrue("the saved position must be the 1-based count of anchors read",
+                history.contains("long position = Math.max(1, Math.min(duration, anchor + 1L));"));
+        assertTrue("a converter back to the 0-based anchor must exist",
+                history.contains("public static int toAnchor(long position)"));
+        assertTrue("restore must convert the stored position back to an anchor index",
+                reader.contains("ReaderHistory.toAnchor(h.getPosition())"));
+        // 旧版小说记录存的是百分比×SCALE，不能走 1 基换算
+        assertTrue("legacy percent records must bypass the 1-based conversion",
+                reader.contains("restoreTotal == ReaderHistory.SCALE"));
     }
 
     /**

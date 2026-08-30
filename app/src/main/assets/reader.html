@@ -931,8 +931,9 @@ function anchorTotal(){
  * 33 段小说刚打开就记成第 33 段）：
  * 1) 停在顶部时当前锚点必然是第 0 个，直接短路，不依赖任何 rect；
  * 2) 没有任何锚点跨过阈值时，循环末尾的 `idx = i` 已经推到了最后一个锚点。
- *    只有真的滚到文末才说明确实读到那里；否则是漫画图片尚未解码（高度 0、
- *    全部堆在同一 y 上）造成的退化测量，沿用上一次可信值，既不虚报也不倒退。
+ *    只有锚点确已排版完（anchorsSettled）且真的滚到文末，才说明确实读到那里；
+ *    否则是图未解码/加载失败造成的退化测量 —— 此时文档异常地矮，轻扫就能「到底」，
+ *    沿用上一次可信值，既不虚报也不倒退。
  */
 var lastAnchorIndex = 0;
 function currentAnchorIndex(){
@@ -945,42 +946,46 @@ function currentAnchorIndex(){
         if(els[i].getBoundingClientRect().bottom > threshold){ idx = i; found = true; break; }
         idx = i;
     }
-    if(found || (els.length >= anchorTotal() && atDocumentEnd())) return lastAnchorIndex = idx;
+    if(found || (anchorsSettled() && atDocumentEnd())) return lastAnchorIndex = idx;
     return lastAnchorIndex;
 }
 
-/**
- * 是否已滚到文档末尾（判定「最后一个锚点确实读到了」，而不是测量退化）。
- *
- * 必须和「锚点已全部进 DOM」一起判：漫画图片全未解码时高度为 0，文档总高只剩
- * #reader 的 min-height:105vh（视口 640 时仅 672），轻扫 32px 就满足本条件，
- * 单用它会把退化值当成可信 —— 95 页漫画又变成 5 / 95。
- */
+/** 是否已滚到文档末尾。单独用不可信，必须与 anchorsSettled() 一起判，详见后者注释。 */
 function atDocumentEnd(){
     return (window.scrollY || window.pageYOffset || 0) + window.innerHeight >= document.body.scrollHeight - 2;
 }
 
 /**
+ * 锚点是否已真正排版完 —— 只有此时才能相信「已滚到文档末尾」这类整体判据。
+ *
+ * 退化态下文档会异常地矮，轻扫就能满足「到底」，把没读到的内容记成读完：
+ * - 漫画：图加载失败/未解码时高度恒为 0，不占空间。末页有真实高度才算排版完。
+ * - PDF：canvas 先按页序插进 DOM 再异步绘制，未绘制的 canvas 不是 0×0 而是固有
+ *   300×150（配合 width:100% 后高约为视口宽的一半），有高度但并非真实页高，
+ *   所以要看真正画完的页数 pdfAppendedCount。
+ * - 小说：段落受 content-visibility 影响高度恒为 0，无法据高度判断，只能认已到底。
+ */
+function anchorsSettled(){
+    var total = anchorTotal();
+    var els = anchorEls();
+    if(total <= 0 || els.length < total) return false;
+    if(DATA.kind === 3) return pdfDoc != null && pdfAppendedCount >= pdfDoc.numPages;
+    if(DATA.kind === 1) return true;
+    return els[total - 1].getBoundingClientRect().height > 0;
+}
+
+/**
  * 落库与进度条共用的锚点序号：两边必须同一个真值，否则会出现
  * 「进度条显示 33/33、退出再进却回到第 30 段」这种读数与记录分叉。
- *
- * 末锚点整体落在视口内就算读完本章：小说正文下方还有 140px 内边距和章节导航，
- * 光靠 currentAnchorIndex() 永远够不到最后一段，历史列表也就永远到不了 100%。
  */
 function effectiveAnchorIndex(){
     var total = anchorTotal();
     if(total <= 0) return 0;
     var idx = Math.min(total - 1, currentAnchorIndex());   // 先算，保证 memo 始终被更新
-    var els = anchorEls();
-    // 已滚到文档末尾、且末锚点确实存在 → 视为读完本章。
-    // 不能只靠 currentAnchorIndex()：小说正文下方还有 140px 内边距 + 章节导航（约 287px），
+    // 已滚到文档末尾且锚点确已排版完 → 视为读完本章。
+    // 不能只靠 currentAnchorIndex()：小说正文下方还有 140px 内边距 + 章节导航（约 309px），
     // 末段底边永远进不了视口，历史列表就永远到不了 100%。
-    if(atDocumentEnd() && els.length >= total){
-        // 漫画 / PDF 额外要求末页真的有高度：图加载失败时高度恒为 0、不占空间，
-        // 文档底部会被「提前」达到，用户其实还没看到那些页，记成读完会让下次直接跳到章末。
-        // 小说段落受 content-visibility 影响高度恒为 0，无法这样判，只看是否到底。
-        if(DATA.kind === 1 || els[total - 1].getBoundingClientRect().height > 0) return total - 1;
-    }
+    if(anchorsSettled() && atDocumentEnd()) return total - 1;
     return idx;
 }
 

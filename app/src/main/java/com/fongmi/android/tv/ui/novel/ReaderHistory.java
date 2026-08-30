@@ -19,8 +19,10 @@ import java.util.Objects;
  *
  * 复用 History 表，因此阅读记录会和影视记录一起出现在历史列表里：
  * - episodeUrl / vodRemarks：上次读到的章节 URL 与章节名，用于重进时定位章节
- * - position / duration：章节内锚点序号与锚点总数。锚点即小说的段落、漫画的页，
- *   position/duration 恰好等于「已读比例」，历史列表的进度条无需特殊处理。
+ * - position / duration：章节内「已读到第几个锚点」与锚点总数（position 为 1 基）。
+ *   锚点即小说的段落、漫画的页，position/duration 恰好等于「已读比例」，
+ *   读完即 100%，历史列表的进度条无需特殊处理。恢复时用 {@link #toAnchor(long)}
+ *   换回 0 基序号交给阅读器。
  *
  * 记锚点序号而不记滚动百分比，是因为文档高度并不稳定：漫画图片分批懒加载且异步解码，
  * 小说段落用了 content-visibility:auto（屏外段落先按估算高度占位），
@@ -69,8 +71,16 @@ public final class ReaderHistory {
         if (Setting.isIncognito() || record == null || !record.canUse()) return;
         if (total <= 0) return;
         long duration = total;
-        long position = Math.max(0, Math.min(duration, anchor));
+        // 锚点是 0 基，进度条按 position/duration 画，直接存序号会让「读到最后一段」
+        // 只显示 (n-1)/n —— 2 页的漫画短章读完只有 50%。存「已读到第几个」（1 基）
+        // 与进度条文本的 anchor+1 同义，读完即 100%；恢复时再减 1 换回序号。
+        long position = Math.max(1, Math.min(duration, anchor + 1L));
         Task.execute(() -> saveSync(record, chapterName, chapterUrl, position, duration));
+    }
+
+    /** 把落库的 1 基进度换回 0 基锚点序号，供阅读器恢复定位。 */
+    public static int toAnchor(long position) {
+        return (int) Math.max(0, position - 1);
     }
 
     private static void saveSync(Record record, String chapterName, String chapterUrl, long position, long duration) {

@@ -1127,10 +1127,11 @@ public class WebReaderActivity extends AppCompatActivity {
         // 否则「传入的是不是目标章」会拿目标章和自己比，永远相等。
         String incomingUrl = index >= 0 && index < chapters.size() ? chapters.get(index).getUrl() : null;
         index = at;
-        // position/duration 即锚点序号/总数；旧版小说记录存的是百分比×SCALE，
-        // HTML 侧按 total 是否等于 SCALE 兜底处理。
-        restoreAnchor = h.getPosition();
+        // position 是「已读到第几个锚点」（1 基），换回 0 基序号交给 HTML；
+        // 旧版小说记录存的是百分比×SCALE，HTML 侧按 total 是否等于 SCALE 兜底处理。
         restoreTotal = h.getDuration();
+        restoreAnchor = restoreTotal == ReaderHistory.SCALE
+                ? h.getPosition() : ReaderHistory.toAnchor(h.getPosition());
         String chapterName = h.getVodRemarks() == null ? "" : h.getVodRemarks();
         lastProgress = new Progress(url, chapterName, (int) restoreAnchor, (int) restoreTotal);
         // 传入 payload 已是该章内容时无需重新解析
@@ -1190,6 +1191,10 @@ public class WebReaderActivity extends AppCompatActivity {
      */
     private void chapterFailed() {
         if (webView == null) return;
+        // 本次切章已判失败 → 撤掉在途标记。宿主解析有多条静默失败路径不会回到
+        // NovelRouter（章节属于另一条线路、playerContent 报错、解析出来是普通视频地址），
+        // 不撤的话标记会一直留着，把用户之后主动打开的书误判成过期结果吞掉。
+        NovelRouter.abandonChapterRequest();
         runOnUiThread(() -> {
             if (webView == null || isFinishing() || isDestroyed()) return;
             try {

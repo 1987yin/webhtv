@@ -457,6 +457,20 @@ public final class NovelRouter {
     /** 阅读器发起的在途切章请求所属代号；-1 表示当前没有在途请求。 */
     private static volatile long pendingChapterGen = -1L;
 
+    /** 在途切章请求的发起时刻，用于让无人认领的标记自行过期。 */
+    private static volatile long pendingChapterAt = 0L;
+
+    /**
+     * 在途标记的有效期。
+     *
+     * 宿主解析有多条「静默失败」路径不会回到本类（章节属于另一条线路时
+     * labPlayEpisode 找不到就直接返回、playerContent 报错走 onError、二次解析出来是
+     * 普通视频地址时压根不进阅读器分流），标记没人清。用时限让它自行过期，
+     * 避免它一直留着把用户之后主动打开的书误判成过期结果吞掉。
+     * 取 45s：HTML 侧切章看门狗 30s 就会放弃并回退章节，比它晚到的结果本就已被当成失败。
+     */
+    private static final long PENDING_CHAPTER_TTL = 45_000L;
+
     /** 交还前台时调用：作废所有在途的切章结果。 */
     public static void markReaderClosed() {
         readerClosedAt = System.currentTimeMillis();
@@ -466,6 +480,7 @@ public final class NovelRouter {
     /** 阅读器把切章交给宿主解析前调用，记下本次请求所属的代号。 */
     public static void noteChapterRequest() {
         pendingChapterGen = readerCloseGen;
+        pendingChapterAt = System.currentTimeMillis();
     }
 
     /**
@@ -477,6 +492,12 @@ public final class NovelRouter {
      */
     private static void clearChapterRequest() {
         pendingChapterGen = -1L;
+        pendingChapterAt = 0L;
+    }
+
+    /** 阅读器侧已把本次切章判为失败（含看门狗超时）→ 撤掉在途标记。 */
+    public static void abandonChapterRequest() {
+        clearChapterRequest();
     }
 
     /**
@@ -487,7 +508,11 @@ public final class NovelRouter {
     private static boolean isStaleChapterResult() {
         long gen = pendingChapterGen;
         if (gen < 0) return false;
-        pendingChapterGen = -1L;
+        long at = pendingChapterAt;
+        clearChapterRequest();
+        // 超过有效期的标记不再参与判定：那次切章早已被 HTML 看门狗判为失败，
+        // 此刻到达的结果只可能是用户新发起的操作。
+        if (at > 0 && System.currentTimeMillis() - at > PENDING_CHAPTER_TTL) return false;
         return gen != readerCloseGen;
     }
 
