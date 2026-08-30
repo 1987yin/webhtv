@@ -442,7 +442,7 @@ public final class NovelRouter {
         java.lang.ref.WeakReference<NovelReaderHost> ref = hostRef;
         return ref == null ? null : ref.get();
     }
-    /** 阅读器关闭时间戳，用于拦截「返回后残留 playerContent 回调又重新拉起阅读器」。 */
+    /** 阅读器关闭时刻（单调时钟），用于拦截「返回后残留 playerContent 回调又重新拉起阅读器」。 */
     public static volatile long readerClosedAt = 0L;
 
     /**
@@ -473,14 +473,19 @@ public final class NovelRouter {
 
     /** 交还前台时调用：作废所有在途的切章结果。 */
     public static void markReaderClosed() {
-        readerClosedAt = System.currentTimeMillis();
+        // 单调时钟：wall clock 被 NTP 校正 / 用户改时间往回跳时，
+        // 「现在 - 关闭时刻」会变成大负数而恒小于窗口，静默期就永不结束，
+        // 之后所有阅读打开都被当成残留回调拦掉。
+        readerClosedAt = android.os.SystemClock.elapsedRealtime();
         readerCloseGen++;
     }
 
     /** 阅读器把切章交给宿主解析前调用，记下本次请求所属的代号。 */
     public static void noteChapterRequest() {
         pendingChapterGen = readerCloseGen;
-        pendingChapterAt = System.currentTimeMillis();
+        // 用单调时钟：wall clock 会被 NTP 校正 / 用户改时间往回跳，
+        // 往回跳会让「已过期」永远判不成立，标记变成永久有效。
+        pendingChapterAt = android.os.SystemClock.elapsedRealtime();
     }
 
     /**
@@ -512,13 +517,13 @@ public final class NovelRouter {
         clearChapterRequest();
         // 超过有效期的标记不再参与判定：那次切章早已被 HTML 看门狗判为失败，
         // 此刻到达的结果只可能是用户新发起的操作。
-        if (at > 0 && System.currentTimeMillis() - at > PENDING_CHAPTER_TTL) return false;
+        if (at > 0 && android.os.SystemClock.elapsedRealtime() - at > PENDING_CHAPTER_TTL) return false;
         return gen != readerCloseGen;
     }
 
     /** 关闭后的静默期：刚返回时残留的回调一律不再拉起阅读器。 */
     private static boolean justClosed() {
-        return readerClosedAt > 0 && System.currentTimeMillis() - readerClosedAt < 1500;
+        return readerClosedAt > 0 && android.os.SystemClock.elapsedRealtime() - readerClosedAt < 1500;
     }
 
     /** 前台没有阅读器时，判断这条结果该不该拉起新阅读器。 */

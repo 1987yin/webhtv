@@ -19,10 +19,10 @@ import java.util.Objects;
  *
  * 复用 History 表，因此阅读记录会和影视记录一起出现在历史列表里：
  * - episodeUrl / vodRemarks：上次读到的章节 URL 与章节名，用于重进时定位章节
- * - position / duration：章节内「已读到第几个锚点」与锚点总数（position 为 1 基）。
- *   锚点即小说的段落、漫画的页，position/duration 恰好等于「已读比例」，
- *   读完即 100%，历史列表的进度条无需特殊处理。恢复时用 {@link #toAnchor(long)}
- *   换回 0 基序号交给阅读器。
+ * - position / duration：章节内锚点序号与锚点总数（锚点即小说的段落、漫画的页）。
+ *   position/duration 恰好等于「已读比例」，历史列表的进度条无需特殊处理；
+ *   读到最后一个锚点时 position 记为 duration，让「读完」显示 100%。
+ *   恢复时用 {@link #toAnchor(long, long)} 换回锚点序号。
  *
  * 记锚点序号而不记滚动百分比，是因为文档高度并不稳定：漫画图片分批懒加载且异步解码，
  * 小说段落用了 content-visibility:auto（屏外段落先按估算高度占位），
@@ -71,16 +71,32 @@ public final class ReaderHistory {
         if (Setting.isIncognito() || record == null || !record.canUse()) return;
         if (total <= 0) return;
         long duration = total;
-        // 锚点是 0 基，进度条按 position/duration 画，直接存序号会让「读到最后一段」
-        // 只显示 (n-1)/n —— 2 页的漫画短章读完只有 50%。存「已读到第几个」（1 基）
-        // 与进度条文本的 anchor+1 同义，读完即 100%；恢复时再减 1 换回序号。
-        long position = Math.max(1, Math.min(duration, anchor + 1L));
+        long position = toPosition(anchor, duration);
         Task.execute(() -> saveSync(record, chapterName, chapterUrl, position, duration));
     }
 
-    /** 把落库的 1 基进度换回 0 基锚点序号，供阅读器恢复定位。 */
-    public static int toAnchor(long position) {
-        return (int) Math.max(0, position - 1);
+    /**
+     * 锚点序号 → 落库进度值。
+     *
+     * 历史列表按 position/duration 画进度条。读到最后一个锚点时直接存 duration，
+     * 这样「读完」就是 100%（否则 2 页的漫画短章读完只显示 50%）；其余情况沿用
+     * 0 基序号，与升级前写入的存量记录同语义，不需要数据迁移。
+     *
+     * 存量记录不会被误判成「读完」：旧代码的上限是 min(duration, anchor)，而 anchor
+     * 最大只有 total-1，所以旧记录的 position 必然小于 duration。
+     */
+    static long toPosition(int anchor, long duration) {
+        long value = Math.max(0, Math.min(duration - 1, anchor));
+        return value >= duration - 1 ? duration : value;
+    }
+
+    /** 落库进度值 → 0 基锚点序号，供阅读器恢复定位。 */
+    public static int toAnchor(long position, long duration) {
+        // total 无意义时不能把 position 原样当序号返回：那会让恢复逻辑去找一个不存在的锚点
+        if (duration <= 0) return 0;
+        // position == duration 是「读完」的编码，换回最后一个锚点的序号
+        if (position >= duration) return (int) (duration - 1);
+        return (int) Math.max(0, position);
     }
 
     private static void saveSync(Record record, String chapterName, String chapterUrl, long position, long duration) {

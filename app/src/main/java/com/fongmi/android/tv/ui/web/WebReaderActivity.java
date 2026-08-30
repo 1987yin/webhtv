@@ -164,6 +164,14 @@ public class WebReaderActivity extends AppCompatActivity {
             this.total = total;
         }
     }
+    /**
+     * 本页是否有一次「交给宿主解析」的切章仍在途。
+     *
+     * chapterFailed() 会被多条与宿主请求无关的路径调用（空 URL、注入异常等），
+     * 靠这个标志把「撤销在途标记」限定在自己真的发过请求的情况下。
+     */
+    private boolean hostChapterRequested = false;
+
     /** 待恢复的章节内锚点与总数（用完置 0）。 */
     private long restoreAnchor = 0;
     private long restoreTotal = 0;
@@ -1127,11 +1135,11 @@ public class WebReaderActivity extends AppCompatActivity {
         // 否则「传入的是不是目标章」会拿目标章和自己比，永远相等。
         String incomingUrl = index >= 0 && index < chapters.size() ? chapters.get(index).getUrl() : null;
         index = at;
-        // position 是「已读到第几个锚点」（1 基），换回 0 基序号交给 HTML；
+        // position 是锚点序号（读完时记为 total），换回序号交给 HTML；
         // 旧版小说记录存的是百分比×SCALE，HTML 侧按 total 是否等于 SCALE 兜底处理。
         restoreTotal = h.getDuration();
         restoreAnchor = restoreTotal == ReaderHistory.SCALE
-                ? h.getPosition() : ReaderHistory.toAnchor(h.getPosition());
+                ? h.getPosition() : ReaderHistory.toAnchor(h.getPosition(), restoreTotal);
         String chapterName = h.getVodRemarks() == null ? "" : h.getVodRemarks();
         lastProgress = new Progress(url, chapterName, (int) restoreAnchor, (int) restoreTotal);
         // 传入 payload 已是该章内容时无需重新解析
@@ -1180,7 +1188,7 @@ public class WebReaderActivity extends AppCompatActivity {
             NovelReaderHost h = NovelRouter.getHost();
             // 记下本次切章所属的关闭代号：用户点了下一章又马上返回时，爬虫几秒后才回的结果
             // 会落在 1500ms 静默期之外，靠代号比对才能认出它已过期，不该再拉起阅读器。
-            if (h != null) { NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }
+            if (h != null) { hostChapterRequested = true; NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }
             else chapterFailedWithToast();
         });
     }
@@ -1191,10 +1199,16 @@ public class WebReaderActivity extends AppCompatActivity {
      */
     private void chapterFailed() {
         if (webView == null) return;
-        // 本次切章已判失败 → 撤掉在途标记。宿主解析有多条静默失败路径不会回到
-        // NovelRouter（章节属于另一条线路、playerContent 报错、解析出来是普通视频地址），
-        // 不撤的话标记会一直留着，把用户之后主动打开的书误判成过期结果吞掉。
-        NovelRouter.abandonChapterRequest();
+        // 本次切章已判失败 → 撤掉「自己刚发出的」在途标记。宿主解析有多条静默失败路径
+        // 不会回到 NovelRouter（章节属于另一条线路、playerContent 报错、解析出来是普通
+        // 视频地址），不撤的话标记会一直留着，把用户之后主动打开的书误判成过期结果吞掉。
+        //
+        // 只撤自己发出的那一次：chapterFailed 还会被空 URL、注入异常等与宿主请求无关的
+        // 路径调用，无条件撤会把另一次仍在途的请求的标记抹掉，重新打开返回键失效的缺口。
+        if (hostChapterRequested) {
+            hostChapterRequested = false;
+            NovelRouter.abandonChapterRequest();
+        }
         runOnUiThread(() -> {
             if (webView == null || isFinishing() || isDestroyed()) return;
             try {
@@ -1247,7 +1261,7 @@ public class WebReaderActivity extends AppCompatActivity {
                 // 这条 parse=1 兜底才是实际会走到的宿主解析路径（loadChapter 里那条在
                 // siteKey 非空时不可达，而所有真实启动入口都会带 siteKey）。它要走二次解析、
                 // 耗时最长，最容易掉出关闭静默期，代号标记必须打在这里。
-                if (fh && h != null) { NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }
+                if (fh && h != null) { hostChapterRequested = true; NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }
                 else chapterFailedWithToast();
                 // 解析失败：放开占位层，并丢掉待恢复位置 —— 否则它会残留到用户下一次手动切章，
                 // 把上一本/上一章的锚点套用到新章上（章短时直接跳到章末）。
@@ -1314,6 +1328,9 @@ public class WebReaderActivity extends AppCompatActivity {
      */
     public void onEpisodeResolved(int newKind, String payload, String title) {
         if (webView == null) return;
+        // 结果已到达，这次宿主请求收尾：之后无关路径触发的 chapterFailed 不该再去
+        // 撤销标记（那时标记可能属于另一次新发出的请求）。
+        hostChapterRequested = false;
         // 漫画分支要下载 PDF（网络），不能在主线程做
         RESOLVE_EXECUTOR.execute(() -> {
             if (isFinishing() || isDestroyed()) return;

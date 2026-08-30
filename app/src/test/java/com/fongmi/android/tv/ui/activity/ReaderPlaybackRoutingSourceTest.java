@@ -175,7 +175,7 @@ public class ReaderPlaybackRoutingSourceTest {
         // parse=1 兜底才是实际会走到的宿主解析路径：loadChapter 里那条在 siteKey 非空时
         // 不可达，而所有真实启动入口都会写 siteKey。漏了它标记永远不会被设上，整套判定失效。
         assertTrue("the parse=1 host fallback must also tag its request",
-                reader.contains("{ NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }"));
+                reader.contains("if (fh && h != null) { hostChapterRequested = true; NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }"));
         // 两个判定都要执行：|| 短路会让一次性的 isStaleChapterResult 不执行、标记留存，
         // 静默期后用户主动打开另一本书就会被误吞
         assertTrue("the stale check must not be short-circuited by the silence window",
@@ -192,25 +192,68 @@ public class ReaderPlaybackRoutingSourceTest {
     }
 
     /**
-     * 阅读进度按「已读到第几个锚点」（1 基）落库。
+     * 阅读进度落库不需要数据迁移，且读完即 100%。
      *
-     * 历史列表按 position/duration 画进度条，直接存 0 基序号会让读完只有 (n-1)/n
-     * —— 2 页的漫画短章读完只显示 50%。恢复时用 toAnchor 换回 0 基序号。
+     * 历史列表按 position/duration 画进度条，若把「读到最后一个锚点」也存成序号，
+     * 2 页的漫画短章读完只显示 50%；但若整体改成 1 基，升级前写入的存量记录会被
+     * 统一平移一个锚点。折中：只把「读完」编码为 duration，其余沿用序号原值。
      */
     @Test
-    public void readingProgressIsStoredOneBasedSoFinishedChaptersReachFullBar() throws Exception {
+    public void readingProgressKeepsLegacyRowsAndStillReachesFullBar() throws Exception {
         String history = read("app/src/main/java/com/fongmi/android/tv/ui/novel/ReaderHistory.java");
         String reader = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
 
-        assertTrue("the saved position must be the 1-based count of anchors read",
-                history.contains("long position = Math.max(1, Math.min(duration, anchor + 1L));"));
-        assertTrue("a converter back to the 0-based anchor must exist",
-                history.contains("public static int toAnchor(long position)"));
-        assertTrue("restore must convert the stored position back to an anchor index",
-                reader.contains("ReaderHistory.toAnchor(h.getPosition())"));
-        // 旧版小说记录存的是百分比×SCALE，不能走 1 基换算
-        assertTrue("legacy percent records must bypass the 1-based conversion",
+        // 非读完的锚点原样存序号 —— 存量 0 基记录读回来不偏移
+        assertTrue("a mid-chapter anchor must be stored as-is so legacy rows still resolve",
+                history.contains("long value = Math.max(0, Math.min(duration - 1, anchor));"));
+        assertTrue("only the finished state is encoded as duration",
+                history.contains("return value >= duration - 1 ? duration : value;"));
+        assertTrue("the finished encoding must convert back to the last anchor",
+                history.contains("if (position >= duration) return (int) (duration - 1);"));
+        assertTrue("restore must go through the converter",
+                reader.contains("ReaderHistory.toAnchor(h.getPosition(), restoreTotal)"));
+        // 旧版小说记录存的是百分比×SCALE，不能走锚点换算
+        assertTrue("legacy percent records must bypass the anchor conversion",
                 reader.contains("restoreTotal == ReaderHistory.SCALE"));
+    }
+
+    /**
+     * 关闭静默期与在途标记的时限都必须用单调时钟。
+     *
+     * wall clock 会被 NTP 校正或用户改时间往回跳，一旦往回跳，「现在 - 关闭时刻」
+     * 变成大负数而恒小于窗口，静默期就永不结束，之后所有阅读打开都被当成残留回调拦掉。
+     */
+    @Test
+    public void relaunchGuardsUseMonotonicClock() throws Exception {
+        String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
+
+        assertFalse("the silence window must not depend on wall-clock time",
+                router.contains("readerClosedAt = System.currentTimeMillis();"));
+        assertFalse("the pending-tag TTL must not depend on wall-clock time",
+                router.contains("pendingChapterAt = System.currentTimeMillis();"));
+        assertEquals("both timestamps and both comparisons must use elapsedRealtime",
+                4, countOccurrences(router, "android.os.SystemClock.elapsedRealtime()"));
+    }
+
+    /**
+     * 只撤销自己发出的那次在途标记。
+     *
+     * chapterFailed() 还会被空 URL、注入异常等与宿主请求无关的路径调用，
+     * 无条件撤销会把另一次仍在途的请求的标记抹掉，重新打开「返回键失效」的缺口。
+     */
+    @Test
+    public void onlyTheOwnHostRequestAbandonsItsPendingTag() throws Exception {
+        String reader = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
+
+        assertTrue("the reader must track whether it has a host request in flight",
+                reader.contains("private boolean hostChapterRequested = false;"));
+        assertEquals("both host-request sites must raise the flag",
+                2, countOccurrences(reader, "hostChapterRequested = true; NovelRouter.noteChapterRequest();"));
+        assertTrue("abandoning must be gated on that flag",
+                reader.contains("if (hostChapterRequested) {"));
+        assertTrue("a delivered result must close out the in-flight request",
+                reader.contains("hostChapterRequested = false;\n        // 漫画分支要下载 PDF")
+                        || reader.contains("hostChapterRequested = false;\r\n        // 漫画分支要下载 PDF"));
     }
 
     /**
