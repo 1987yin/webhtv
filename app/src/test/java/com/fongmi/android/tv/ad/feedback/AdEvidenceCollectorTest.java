@@ -111,7 +111,9 @@ public class AdEvidenceCollectorTest {
     }
 
     @Test
-    public void capsOutsideSamplesForLongPlaylists() {
+    public void keepsEveryOutsideSegmentForLongPlaylists() {
+        // 区间外必须完整保留：分类器用它做「区间外不含某特征」的全局否定判断，
+        // 截断样本会让 playlist 后半段的反例看不见，从而生成命中全站的规则。
         List<String> segments = new ArrayList<>();
         List<Float> durations = new ArrayList<>();
         List<Boolean> switches = new ArrayList<>();
@@ -126,7 +128,7 @@ public class AdEvidenceCollectorTest {
                 CONTEXT, long_, 30_000, 60_000, StartOrigin.USER_MARKED, List.of(), false);
 
         assertEquals(3, evidence.inside().size());
-        assertEquals(AdEvidenceCollector.MAX_OUTSIDE_SAMPLES, evidence.outside().size());
+        assertEquals(497, evidence.outside().size());
     }
 
     @Test

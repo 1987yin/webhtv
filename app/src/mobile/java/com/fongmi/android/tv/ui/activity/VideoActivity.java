@@ -2446,6 +2446,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     @Override
     public void onItemClick(Result result) {
+        // 画质列表直点也会换 URL，且不经 changeQuality
+        resetAdFeedback();
         updateActionQuality(result);
         beginPlayHealth();
         startPlayer(getHistoryKey(), result, isUseParse(), getSite().getTimeout(), buildMetadata());

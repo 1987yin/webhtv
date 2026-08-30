@@ -84,6 +84,28 @@ public class DomainReputationClassifierTest {
     }
 
     @Test
+    public void rejectsSparseSameDomainSampleBeforeCdnTail() {
+        // 过去的前 60 片采样会看到一个同域片就放行；完整 outside 后，
+        // 同域只占 1/299，不能证明区间内 CDN 是广告。
+        List<SegmentFact> outside = new java.util.ArrayList<>();
+        outside.add(new SegmentFact(0, PLAYLIST_HOST, "/seg/0.ts", 8.0, false));
+        for (int i = 1; i < 300; i++) {
+            outside.add(new SegmentFact(i, "cdn.site-x.com", "/seg/" + i + ".ts", 8.0, false));
+        }
+        AdIntervalEvidence evidence = new AdIntervalEvidence(
+                1_000_000, 1_024_000, StartOrigin.USER_MARKED,
+                "site", "站点", "剧名", "线路", "第 100 集",
+                PLAYLIST_HOST, "/play/index.m3u8", true,
+                List.of(new SegmentFact(100, "cdn.site-x.com", "/seg/100.ts", 8.0, false)),
+                outside, false, false, List.of(), false, List.of(),
+                AudioIntervalFact.unavailable(), SpeechIntervalFact.unavailable());
+
+        assertNull(DomainReputationClassifier.classify(evidence,
+                new DomainReputationClassifier.Input(
+                        List.of(), List.of(PLAYLIST_HOST), List.of(), "")));
+    }
+
+    @Test
     public void abstainsWhenSiteHasNoSameDomainSegmentsAtAll() {
         // playlist 在 v.example.com、全部切片在独立 CDN，是常见的架构拆分。
         // 没有同域切片作对照就断言「外域即广告」，生成的规则会命中全站切片 →

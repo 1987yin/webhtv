@@ -142,6 +142,27 @@ public class RulePayloadTest {
     }
 
     @Test
+    public void pathHintAppearingInLaterOutsideSegmentIsRejected() {
+        List<SegmentFact> inside = List.of(
+                new SegmentFact(10, "v.example.com", "/ads/10.ts", 8.0, false),
+                new SegmentFact(11, "v.example.com", "/ads/11.ts", 8.0, false));
+        List<SegmentFact> outside = List.of(
+                new SegmentFact(0, "v.example.com", "/seg/0.ts", 8.0, false),
+                new SegmentFact(12, "v.example.com", "/ads/12.ts", 8.0, false));
+        AdIntervalEvidence evidence = new AdIntervalEvidence(
+                80_000, 96_000, StartOrigin.USER_MARKED,
+                "site", "站点", "剧名", "线路", "第 1 集",
+                "v.example.com", "/play/index.m3u8", true,
+                inside, outside, false, false, List.of(), false, List.of(),
+                AudioIntervalFact.unavailable(), SpeechIntervalFact.unavailable());
+
+        // 后半段的正常切片含 hint，完整 outside 检查后不能生成路径规则
+        assertFalse(HlsSegmentClassifier.detect(evidence).pathHint());
+        assertFalse(HlsSegmentClassifier.classify(evidence) != null
+                && !HlsSegmentClassifier.classify(evidence).payload().regex().isEmpty());
+    }
+
+    @Test
     public void existingRuleAttributionCarriesRuleKey() {
         ExistingRuleClassifier.RuleState disabled = new ExistingRuleClassifier.RuleState(
                 "builtin|pkg|baofeng", "baofeng", "暴风片头", false, true,

@@ -1815,6 +1815,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         }
         playerStartTime = System.currentTimeMillis();
         beginPlayHealth();
+        // 快速 TMDB 起播绕过 getPlayer，仍需作废上一条播放的反馈状态
+        resetAdFeedback();
         prepareFastTmdbPlaybackHistory(item, flag, episode);
         SpiderDebug.log("video-flow", "fast tmdb playback start cost=%dms key=%s flag=%s episode=%s url=%s", System.currentTimeMillis() - start, getKey(), flag.getFlag(), episode.getName(), episode.getUrl());
         mViewModel.playerContent(getKey(), flag.getFlag(), episode.getUrl());
@@ -2929,6 +2931,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     @Override
     public void onItemClick(Result result) {
+        // 画质列表直点也会换 URL，且不经 changeQuality
+        resetAdFeedback();
         updateActionQuality(result);
         beginPlayHealth();
         startPlayer(getHistoryKey(), result, isUseParse(), getSite().getTimeout(), buildMetadata());

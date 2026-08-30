@@ -218,6 +218,20 @@ public class HlsSegmentClassifierTest {
     }
 
     @Test
+    public void rejectsCrossDomainWhenSameHostIsOnlySparseOutsideSample() {
+        List<SegmentFact> outside = new ArrayList<>();
+        outside.add(new SegmentFact(0, PLAYLIST_HOST, "/seg/0.ts", 8.0, false));
+        for (int i = 1; i < 300; i++) {
+            outside.add(new SegmentFact(i, "cdn.site-x.com", "/seg/" + i + ".ts", 8.0, false));
+        }
+        AdIntervalEvidence evidence = evidence(
+                segments(100, 3, "cdn.site-x.com", "/seg/", 6.4, false), outside);
+
+        assertFalse(HlsSegmentClassifier.detect(evidence).crossDomain());
+        assertNull(HlsSegmentClassifier.classify(evidence));
+    }
+
+    @Test
     public void discontinuityOnFirstInsideSegmentCountsAsBoundary() {
         AdIntervalEvidence evidence = evidence(
                 segments(3, 4, "ad.other.com", "/seg/", 6.4, true),

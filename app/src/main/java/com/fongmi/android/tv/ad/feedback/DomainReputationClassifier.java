@@ -120,9 +120,7 @@ public final class DomainReputationClassifier {
      * 没有同域切片作对照，说明该站本来就把切片放在独立 CDN 上。
      */
     private static boolean hasSameDomainOutside(AdIntervalEvidence evidence) {
-        String playlistHost = evidence.playlistHost();
-        if (playlistHost.isEmpty()) return false;
-        return evidence.outside().stream().anyMatch(fact -> fact.hostEndsWith(playlistHost));
+        return SegmentContrast.hasSameDomainOutside(evidence);
     }
 
     /** 区间内不属于 playlist 域名的切片 host，去重保序。 */

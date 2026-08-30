@@ -122,7 +122,7 @@ public final class HlsSegmentClassifier {
                         .toList()
                 : List.of();
         List<String> pathPatterns = signals.pathHint()
-                ? pathPatternsOf(evidence.inside(), evidence.outside()) : List.of();
+                ? pathPatternsOf(evidence) : List.of();
         // 没有任何区分条件时不得生成规则
         if (hosts.isEmpty() && pathPatterns.isEmpty()) return RulePayload.empty();
 
@@ -169,15 +169,12 @@ public final class HlsSegmentClassifier {
      * <p>区间外为空时无法完成对照（用户框选覆盖了整个 playlist），一律弃权：
      * 此时任何条件都命中全部切片，生成的规则会触发 cleaner 整体回退。
      */
-    private static List<String> pathPatternsOf(List<SegmentFact> inside, List<SegmentFact> outside) {
-        if (outside.isEmpty()) return List.of();
+    private static List<String> pathPatternsOf(AdIntervalEvidence evidence) {
         List<String> patterns = new ArrayList<>();
         for (String hint : PATH_HINTS) {
-            boolean insideAll = inside.stream()
-                    .allMatch(fact -> fact.path().toLowerCase(Locale.US).contains(hint));
+            boolean insideAll = SegmentContrast.pathPresentInside(evidence, hint);
             if (!insideAll) continue;
-            boolean outsideNone = outside.stream()
-                    .noneMatch(fact -> fact.path().toLowerCase(Locale.US).contains(hint));
+            boolean outsideNone = SegmentContrast.pathAbsentOutside(evidence, hint);
             if (outsideNone) patterns.add(pathOnlyPattern(hint));
         }
         return patterns;
@@ -208,26 +205,27 @@ public final class HlsSegmentClassifier {
         List<SegmentFact> inside = evidence.inside();
         List<SegmentFact> outside = evidence.outside();
         return new Signals(
-                detectCrossDomain(inside, outside, evidence.playlistHost()),
+                detectCrossDomain(evidence),
                 evidence.boundedByDiscontinuity() || inside.get(0).discontinuityBefore(),
                 detectDurationOutlier(inside, outside),
-                detectPathHint(inside),
+                detectPathHint(evidence),
                 detectHeadPosition(inside, outside));
     }
 
     /**
-     * 跨域：区间内切片整体不属于 playlist 域名，且区间外切片属于。
-     * 只有形成对照才算证据 —— 整条 playlist 都跨域说明这就是该站的正常结构。
+     * 跨域：区间内切片整体不属于 playlist 域名，且区间外存在足够的同域对照。
+     *
+     * <p>对照由 {@link SegmentContrast#hasSameDomainOutside} 统一判定 ——
+     * 只看「存在一个同域切片」不够，playlist 开头一片同域、其余全在独立 CDN
+     * 是真实架构，那种情况下生成的规则会命中全站。
      */
-    private static boolean detectCrossDomain(List<SegmentFact> inside, List<SegmentFact> outside,
-                                            String playlistHost) {
-        if (playlistHost == null || playlistHost.isEmpty()) return false;
-        boolean insideForeign = inside.stream()
+    private static boolean detectCrossDomain(AdIntervalEvidence evidence) {
+        String playlistHost = evidence.playlistHost();
+        if (playlistHost.isEmpty()) return false;
+        boolean insideForeign = evidence.inside().stream()
                 .allMatch(fact -> !fact.host().isEmpty() && !fact.hostEndsWith(playlistHost));
         if (!insideForeign) return false;
-        if (outside.isEmpty()) return false;
-        return outside.stream()
-                .anyMatch(fact -> fact.hostEndsWith(playlistHost));
+        return SegmentContrast.hasSameDomainOutside(evidence);
     }
 
     /**
@@ -243,11 +241,16 @@ public final class HlsSegmentClassifier {
         return Math.abs(insideMean - outsideMode) > DURATION_GAP_MIN;
     }
 
-    private static boolean detectPathHint(List<SegmentFact> inside) {
-        return inside.stream().anyMatch(fact -> {
-            String path = fact.path().toLowerCase(Locale.US);
-            return PATH_HINTS.stream().anyMatch(path::contains);
-        });
+    /**
+     * 路径特征：存在某个目录段在区间内每片都出现、且区间外一片都没有。
+     *
+     * <p>信号本身就带对照，与 {@link #pathPatternsOf} 用同一判据 —— 否则会出现
+     * 「信号成立但无法编码进规则」的空载荷归因。
+     */
+    private static boolean detectPathHint(AdIntervalEvidence evidence) {
+        return PATH_HINTS.stream().anyMatch(hint ->
+                SegmentContrast.pathPresentInside(evidence, hint)
+                        && SegmentContrast.pathAbsentOutside(evidence, hint));
     }
 
     /** 位置：区间落在 playlist 头部 15% 以内。 */

@@ -46,6 +46,8 @@ public final class SitePlaylistHostBaseline {
     }
 
     private final Storage storage;
+    /** 上一次 record 命中的站点，用于判断访问顺序是否真的发生变化。 */
+    private String lastAccessedSite;
     // accessOrder=true：get 也算一次使用，实现真正的 LRU
     private final LinkedHashMap<String, List<String>> sites =
             new LinkedHashMap<>(16, 0.75f, true);
@@ -58,6 +60,12 @@ public final class SitePlaylistHostBaseline {
     /** 记录一次成功播放涉及的域名。 */
     public synchronized void record(String siteKey, String... hosts) {
         if (siteKey == null || siteKey.isBlank() || hosts == null) return;
+        // accessOrder=true 的 LinkedHashMap 在读写时都会把该站点移到尾部。
+        // 若本次 host 没变就直接返回，这个「站点最近被使用」的顺序只存在内存里，
+        // 重启后恢复的淘汰顺序会与运行期不一致，因此需要单独跟踪。
+        boolean siteOrderChanged = sites.containsKey(siteKey)
+                && !siteKey.equals(lastAccessedSite);
+        lastAccessedSite = siteKey;
         List<String> known = sites.computeIfAbsent(siteKey, key -> new ArrayList<>());
         boolean seenAny = false;
         boolean changed = false;
@@ -79,7 +87,11 @@ public final class SitePlaylistHostBaseline {
             if (known.isEmpty()) sites.remove(siteKey);
             return;
         }
-        if (!changed) return;
+        if (!changed) {
+            // host 没变但站点访问顺序变了，仍要落盘，否则重启后 LRU 顺序失真
+            if (siteOrderChanged) persist();
+            return;
+        }
         while (known.size() > MAX_HOSTS_PER_SITE) known.remove(0);
         evictSites();
         persist();

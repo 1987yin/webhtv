@@ -17,8 +17,11 @@ import java.util.Set;
  */
 public final class AdEvidenceCollector {
 
-    /** 区间外切片最多保留多少个作为对照组，避免长剧集证据膨胀。 */
-    static final int MAX_OUTSIDE_SAMPLES = 60;
+    /**
+     * 区间外切片完整保留：分类器会用它证明区间外存在/不存在对照。
+     * M3u8Evidence 的输入来自 HlsManifestCleaner 同样的有界 manifest（2 MiB / 20,000 行），
+     * 不能截断后再把 anyMatch/noneMatch 当成整个 playlist 的结论。
+     */
 
     private AdEvidenceCollector() {
     }
@@ -81,7 +84,7 @@ public final class AdEvidenceCollector {
                 SegmentFact fact = factOf(i, segments.get(i), durations.get(i),
                         discontinuities.contains(i));
                 if (insideIndices.contains(i)) inside.add(fact);
-                else if (outside.size() < MAX_OUTSIDE_SAMPLES) outside.add(fact);
+                else outside.add(fact);
             }
             bounded = boundedByDiscontinuity(insideIndices, discontinuities, limit);
         }
