@@ -14,7 +14,11 @@ public final class HlsAdblockPipeline {
         if (clean.changed()) {
             return new Outcome(clean.manifest(), true, false, clean.removedSegments(), clean.removedDurationSec());
         }
-        if (!legacyFallback || clean.fallback() || manifest == null || !manifest.contains("#EXT-X-ENDLIST")) {
+        // 结构化引擎回退时仍要让 legacy 兜底。fallback 的语义是「这份 manifest
+        // 我处理不了」，恰恰最该由启发式接手；此前把它并入短路条件，等于一条
+        // 过宽的规则不只无效，还会连带停掉该站原有的去广能力 —— 比不加规则更差。
+        // 触发源不止用户规则，内置与接口下发的规则同样会让 cleaner 回退。
+        if (!legacyFallback || manifest == null || !manifest.contains("#EXT-X-ENDLIST")) {
             return new Outcome(manifest, false, false, 0, 0);
         }
         try {

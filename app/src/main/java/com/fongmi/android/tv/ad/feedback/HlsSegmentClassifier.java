@@ -89,6 +89,10 @@ public final class HlsSegmentClassifier {
         // （如站内正片路径也含 /ads/ 时，路径特征无法编码进规则）
         RulePayload payload = payloadOf(evidence, signals);
         if (payload.isEmpty()) return null;
+        // 最终守门：用真实 cleaner 跑一遍，确认只删区间内、不碰区间外、不触发回退。
+        // 逐条件的对照校验挡不住条件间的组合效应（如 duration + crossDomain 在
+        // 区间外同时成立），也预判不到删除比例与时长闸门。
+        if (!RuleSelfCheck.isSafe(evidence, payload)) return null;
 
         return new AdAttribution(CHANNEL_ID, categoryOf(signals), confidence,
                 RiskLevel.MEDIUM, describe(evidence, signals, payload),

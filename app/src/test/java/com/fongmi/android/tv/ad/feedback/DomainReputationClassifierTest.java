@@ -13,16 +13,27 @@ public class DomainReputationClassifierTest {
 
     private static final String PLAYLIST_HOST = "v.example.com";
 
+    /**
+     * 区间内为给定 host、区间外为足量同域正片。
+     *
+     * <p>区间外必须够多：cleaner 有 35% 删除比例上限，只放一两片对照时任何规则
+     * 都会因超限回退，规则自检会正确拒掉，测不出通道本身的判断。
+     */
     private static AdIntervalEvidence evidenceWith(String... insideHosts) {
         List<SegmentFact> inside = new java.util.ArrayList<>();
         for (int i = 0; i < insideHosts.length; i++) {
             inside.add(new SegmentFact(i, insideHosts[i], "/seg/" + i + ".ts", 6.4, false));
         }
+        List<SegmentFact> outside = new java.util.ArrayList<>();
+        for (int i = insideHosts.length; i < 30; i++) {
+            outside.add(new SegmentFact(i, PLAYLIST_HOST, "/seg/" + i + ".ts", 8.0,
+                    i == insideHosts.length));
+        }
         return new AdIntervalEvidence(
                 10_000, 40_000, StartOrigin.USER_MARKED,
                 "site", "站点", "剧名", "线路", "第 1 集",
                 PLAYLIST_HOST, "/play/index.m3u8", true,
-                inside, List.of(new SegmentFact(9, PLAYLIST_HOST, "/seg/9.ts", 8.0, false)),
+                inside, outside,
                 false, false, List.of(), false, List.of(),
                 AudioIntervalFact.unavailable(), SpeechIntervalFact.unavailable());
     }

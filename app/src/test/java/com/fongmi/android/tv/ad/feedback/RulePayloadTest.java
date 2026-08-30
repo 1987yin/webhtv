@@ -69,14 +69,28 @@ public class RulePayloadTest {
         assertTrue(payload.isEmpty());
     }
 
+    /**
+     * 区间外对照切片。数量必须足够 —— cleaner 有 35% 删除比例上限，
+     * 区间外只放两三片时任何规则都会因超限而回退，规则自检会正确地拒掉它。
+     */
+    private static List<SegmentFact> healthyOutside(int insideFrom, int insideCount) {
+        List<SegmentFact> facts = new java.util.ArrayList<>();
+        for (int i = 0; i < insideFrom; i++) {
+            facts.add(new SegmentFact(i, "v.example.com", "/seg/" + i + ".ts", 8.0, false));
+        }
+        for (int i = insideFrom + insideCount; i < 30; i++) {
+            facts.add(new SegmentFact(i, "v.example.com", "/seg/" + i + ".ts", 8.0,
+                    i == insideFrom + insideCount));
+        }
+        return facts;
+    }
+
     @Test
     public void hlsClassifierScopesRuleToPlaylistHostAndKeepsMinimumTwoSignals() {
         List<SegmentFact> inside = List.of(
                 new SegmentFact(10, "ad-cdn.other.com", "/seg/10.ts", 6.4, true),
                 new SegmentFact(11, "ad-cdn.other.com", "/seg/11.ts", 6.4, false));
-        List<SegmentFact> outside = List.of(
-                new SegmentFact(0, "v.example.com", "/seg/0.ts", 8.0, false),
-                new SegmentFact(12, "v.example.com", "/seg/12.ts", 8.0, false));
+        List<SegmentFact> outside = healthyOutside(10, 2);
         AdIntervalEvidence evidence = new AdIntervalEvidence(
                 80_000, 92_800, StartOrigin.USER_MARKED,
                 "site", "站点", "剧名", "线路", "第 1 集",
@@ -105,9 +119,7 @@ public class RulePayloadTest {
         List<SegmentFact> inside = List.of(
                 new SegmentFact(10, "ad-cdn.other.com", "/ads/10.ts", 8.0, true),
                 new SegmentFact(11, "ad-cdn.other.com", "/ads/11.ts", 8.0, false));
-        List<SegmentFact> outside = List.of(
-                new SegmentFact(0, "v.example.com", "/seg/0.ts", 8.0, false),
-                new SegmentFact(12, "v.example.com", "/seg/12.ts", 8.0, false));
+        List<SegmentFact> outside = healthyOutside(10, 2);
         AdIntervalEvidence evidence = new AdIntervalEvidence(
                 80_000, 96_000, StartOrigin.USER_MARKED,
                 "site", "站点", "剧名", "线路", "第 1 集",

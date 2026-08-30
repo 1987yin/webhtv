@@ -110,6 +110,9 @@ public final class DomainReputationClassifier {
         List<String> scope = List.of(evidence.playlistHost());
         RulePayload payload = RulePayload.ofHlsRule(scope, List.copyOf(foreignHosts),
                 Double.NaN, Double.NaN, false, true, 2);
+        // 最终守门：用真实 cleaner 验证只删区间内。域名条件同样挡不住
+        // 「广告与正片共用第三方 CDN、靠路径区分」这类场景。
+        if (!RuleSelfCheck.isSafe(evidence, payload)) return null;
         return new AdAttribution(CHANNEL_ID, AdCategory.THIRD_PARTY_CDN_SEGMENT,
                 confidence, RiskLevel.LOW, evidenceLines,
                 RemediationKind.HLS_STRUCTURED_RULE, payload);
