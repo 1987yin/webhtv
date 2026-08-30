@@ -1181,10 +1181,15 @@ public class WebReaderActivity extends AppCompatActivity {
     /** 换章：HTML 点目录时回调。本地模式读目录章节，在线模式自行解析（无播放器时也能切章）。 */
     @JavascriptInterface
     public void loadChapter(String chapterUrl) {
-        // 空 URL 与本次宿主请求无关：不能让它撤销在途标记（会放行迟到结果、返回键失效）
         // 空 URL 与任何宿主请求无关：不能让它收尾别人那一笔（会放行迟到结果、返回键失效）
         if (TextUtils.isEmpty(chapterUrl)) { chapterFailed(false); return; }
         runOnUiThread(() -> {
+            // 本页已在交还前台：此刻再发宿主请求，它永远等不到下一次 markReaderClosed
+            // 把自己转成待拦额度，结果回来时就会把阅读器重新拉起（返回键失效）。
+            if (isFinishing() || isDestroyed() || NovelRouter.currentReader != this) {
+                chapterFailed(false);
+                return;
+            }
             if (!localPath.isEmpty() && isLocalDir(chapterUrl)) {
                 loadLocalChapter(chapterUrl);
                 return;
@@ -1467,6 +1472,11 @@ public class WebReaderActivity extends AppCompatActivity {
     protected void onPause() {
         // 切后台 / 返回都先落库，避免进程被回收后丢进度
         persistProgress();
+        // 本页仍在途的宿主请求随本页一起作废：它们的结果不会再回到这里，
+        // 不收尾的话全局在途计数永久偏高，下一次关闭会凭虚高的数字多留待拦额度，
+        // 把用户之后主动打开的书误吞掉。
+        int inFlight = hostChapterRequests.getAndSet(0);
+        for (int i = 0; i < inFlight; i++) NovelRouter.endChapterRequest();
         // 关闭时间戳必须在这里打，不能等 onDestroy：Android 的生命周期顺序是
         // 本页 onPause -> 宿主 onResume -> 本页 onStop -> 本页 onDestroy。
         // 宿主 onResume 会因 shouldReclaim() 重新派发上一次的 playerContent 结果，
