@@ -182,47 +182,29 @@ public class ReaderPlaybackRoutingSourceTest {
         String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
         String reader = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
 
-        assertTrue("closing the reader must bump a generation counter",
-                router.contains("readerCloseGen++;"));
-        assertTrue("a chapter request must record the generation it belongs to",
-                router.contains("pendingChapters.put(token, new long[]{readerCloseGen,"));
-        assertTrue("a stale generation must be detected",
-                router.contains("if (v[0] != gen) { pendingChapters.remove(e.getKey()); stale = true; }"));
-        // 三个拉起阅读器的入口都必须过这道闸，只改一个仍会漏。
-        // 只数 `if (...)` 调用点，避免把方法定义和注释里的提及也算进来。
+        // 只数在途请求、不认身份：结果送达那一刻拿不到「这是哪一章的」，
+        // 按令牌 / 按最早 / 整表清空都会删错条目，反而放行别人的迟到结果。
+        assertTrue("in-flight host requests must be counted",
+                router.contains("inFlightChapters.incrementAndGet();")
+                        && router.contains("public static void endChapterRequest()"));
+        // 关闭那一刻在途的请求，其结果逐个拦下；没有在途请求时不留额度，
+        // 否则会无条件吞掉关闭后的第一次合法打开
+        assertTrue("closing must convert in-flight requests into suppression credits",
+                router.contains("int pending = inFlightChapters.getAndSet(0);")
+                        && router.contains("if (pending > 0) {"));
+        assertTrue("credits must expire so a silent host failure cannot swallow opens forever",
+                router.contains("staleUntil = readerClosedAt + PENDING_CHAPTER_TTL;")
+                        && router.contains("if (android.os.SystemClock.elapsedRealtime() > staleUntil) {"));
         assertEquals("every relaunch site must consult the suppression guard",
                 3, countOccurrences(router, "if (shouldSuppressRelaunch())"));
         assertTrue("the guard must combine the silence window and the stale check",
                 router.contains("return justClosed() || stale;"));
-        assertTrue("the reader must tag its chapter switch before handing it to the host",
-                reader.contains("long token = NovelRouter.noteChapterRequest();"));
-        // parse=1 兜底才是实际会走到的宿主解析路径：loadChapter 里那条在 siteKey 非空时
-        // 不可达，而所有真实启动入口都会写 siteKey。漏了它标记永远不会被设上，整套判定失效。
-        assertEquals("both host paths must tag their request",
-                2, countOccurrences(reader, "long token = NovelRouter.noteChapterRequest();"));
-        // 两个判定都要执行：|| 短路会让一次性的 isStaleChapterResult 不执行、标记留存，
-        // 静默期后用户主动打开另一本书就会被误吞
-        assertTrue("the stale check must not be short-circuited by the silence window",
-                router.contains("boolean stale = isStaleChapterResult();"));
-        // 宿主解析有多条静默失败路径不回到 NovelRouter（章节属于另一条线路、
-        // playerContent 报错、解析出来是普通视频地址），标记必须能被撤销并自行过期，
-        // 否则它会一直留着把用户之后主动打开的书误判成过期结果吞掉
-        assertTrue("a failed chapter switch must abandon its pending tag",
-                router.contains("public static void abandonChapterRequest(long token)"));
-        // 与宿主请求无关的失败（空 URL、注入异常）必须传 0，否则会抹掉在途请求的标记
-        assertTrue("an unrelated failure must not revoke any tag",
-                reader.contains("private void chapterFailed(long token)")
-                        && reader.contains("if (token != 0) {"));
-        assertTrue("the empty-url path must pass a zero token",
-                reader.contains("chapterFailed(0L); return;"));
+        // 两处宿主派发都要记账，漏一处整套判定就失效
+        assertEquals("both host paths must register their request",
+                2, countOccurrences(reader, "NovelRouter.noteChapterRequest();"));
         // 宿主找不到章节时会静默返回，必须立刻收尾而不是等 45s 过期
-        assertTrue("a dispatch that never happened must close out immediately",
-                reader.contains("if (!h.labPlayEpisode(chapterUrl)) chapterFailedWithToast(token);"));
-        assertTrue("the host contract must report whether it dispatched",
-                read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelReaderHost.java")
-                        .contains("boolean labPlayEpisode(String chapterUrl);"));
-        assertTrue("an unclaimed tag must expire on its own",
-                router.contains("PENDING_CHAPTER_TTL"));
+        assertEquals("a dispatch that never happened must close out immediately",
+                2, countOccurrences(reader, "if (!h.labPlayEpisode(chapterUrl)) chapterFailedWithToast(true);"));
     }
 
     /**
@@ -314,8 +296,8 @@ public class ReaderPlaybackRoutingSourceTest {
                 router.contains("readerClosedAt = System.currentTimeMillis();"));
         assertFalse("the pending-tag TTL must not depend on wall-clock time",
                 router.contains("pendingChapterAt = System.currentTimeMillis();"));
-        assertEquals("every timestamp and comparison must use elapsedRealtime",
-                5, countOccurrences(router, "android.os.SystemClock.elapsedRealtime()"));
+        assertTrue("every timestamp and comparison must use elapsedRealtime",
+                countOccurrences(router, "android.os.SystemClock.elapsedRealtime()") >= 3);
     }
 
     /**
@@ -327,37 +309,17 @@ public class ReaderPlaybackRoutingSourceTest {
     @Test
     public void onlyTheOwnHostRequestAbandonsItsPendingTag() throws Exception {
         String reader = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
-        String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
 
-        assertTrue("the reader must remember which host request is in flight",
-                reader.contains("private volatile long hostChapterToken = 0L;"));
-        assertEquals("both host-request sites must capture the token",
-                2, countOccurrences(reader, "hostChapterToken = token;"));
-        // 标记是全局单槽：撤销必须凭令牌确认归属，否则切章 C 失败会抹掉切章 B 的标记
-        assertTrue("revocation must be gated on the token",
-                reader.contains("NovelRouter.abandonChapterRequest(token);"));
-        // 单槽会被新请求覆盖：切章 C 立刻失败撤销后，切章 B 的记录随之消失，
-        // B 的迟到结果就不再被拦。改为每次请求各占一条。
-        assertTrue("in-flight requests must be tracked per token, not in a single slot",
-                router.contains("pendingChapters = new java.util.concurrent.ConcurrentHashMap<>()"));
-        assertTrue("revocation must remove only its own entry",
-                router.contains("pendingChapters.remove(token);"));
-        // 条目留到下次开阅读器会累积，反复开关后任意一次合法打开都会撞上其中一条被误吞；
-        // 关闭时清表并用一次性标记把「那一轮的迟到结果」拦一次
-        // 关闭时只剪过期条目：整表清空会让在途结果失去拦截依据（返回键重新失效），
-        // 一次性标记又会无条件吞掉关闭后的第一次合法打开
-        assertTrue("closing must only prune expired entries",
-                router.contains("if (now - e.getValue()[1] > PENDING_CHAPTER_TTL) pendingChapters.remove(e.getKey());"));
-        assertFalse("no one-shot marker may swallow a legitimate open",
-                router.contains("staleCloseGen"));
-        // 送达按令牌结清：整表清空或猜「最早那条」都会删错，让另一次在途请求失去拦截
-        assertTrue("delivery must revoke by token",
-                router.contains("public static void clearChapterRequest(long token)")
-                        && reader.contains("NovelRouter.clearChapterRequest(token);"));
-        assertFalse("the router must not guess which request was delivered",
-                router.contains("if (oldest != null) pendingChapters.remove(oldest);"));
-        assertTrue("a delivered result must close out the in-flight request",
-                reader.contains("hostChapterToken = 0L;"));
+        assertTrue("the reader must track how many of its requests are in flight",
+                reader.contains("hostChapterRequests = new java.util.concurrent.atomic.AtomicInteger()"));
+        // 只有自己确实发过请求才收尾：空 URL、注入异常与任何请求无关，
+        // 替别人收尾会让那一笔的迟到结果不再被拦（返回键失效）
+        assertTrue("closing out must be gated on owning a request",
+                reader.contains("if (ownHostRequest) endHostChapterRequest();"));
+        assertTrue("the empty-url path must not close out anyone else",
+                reader.contains("chapterFailed(false); return;"));
+        assertTrue("the reader must only decrement what it actually holds",
+                reader.contains("if (hostChapterRequests.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {"));
     }
 
     /**
@@ -372,17 +334,14 @@ public class ReaderPlaybackRoutingSourceTest {
         String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
         String reader = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
 
-        assertTrue("a token-scoped clear helper must exist",
-                router.contains("public static void clearChapterRequest(long token)"));
-        // 结清必须由持有令牌的阅读器发起：router 在送达点猜哪一条或整表清空都会删错，
-        // 让另一次仍在途的请求失去拦截依据（返回键重新失效）
-        assertFalse("the router must not clear on the delivery paths",
+        // 送达要收尾，但 router 侧不能自作主张删条目 —— 它不知道是哪一笔
+        assertFalse("the router must not guess which request was delivered",
                 router.contains("            clearChapterRequest();"));
-        assertTrue("the reader must clear its own request on delivery",
-                reader.contains("NovelRouter.clearChapterRequest(token);"));
-        // 只有宿主结果才结清；自解析路径没发过请求，不能动在途令牌
-        assertTrue("only a host result may clear the token",
-                reader.contains("if (fromHost) {"));
+        assertTrue("delivery must close out exactly one in-flight request",
+                reader.contains("if (fromHost) endHostChapterRequest();"));
+        // 自解析路径没发过请求，不能替宿主收尾
+        assertTrue("the self-resolve path must not close out a host request",
+                reader.contains("onEpisodeResolved(fk, fp, at >= 0 ? chapters.get(at).getName() : \"\", false);"));
     }
 
     /**

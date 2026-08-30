@@ -166,14 +166,19 @@ public class WebReaderActivity extends AppCompatActivity {
         }
     }
     /**
-     * 本页最近一次「交给宿主解析」的切章令牌；0 表示没有在途请求。
+     * 本页交给宿主解析、尚未收尾的切章请求数。
      *
-     * chapterFailed() 会被多条与本次请求无关的路径调用（空 URL、注入异常、另一章解析失败），
-     * 而在途标记在 NovelRouter 里是全局单槽，所以撤销必须凭令牌确认归属：
-     * 切章 B 在途时切章 C 失败，不能把 B 的标记一起抹掉，否则 B 的迟到结果不再被拦，
-     * 用户返回后又会被重新拉起阅读器。
+     * 只数不认身份：结果送达那一刻拿不到「这是哪一章的」，按身份追踪必然删错条目。
+     * 抑制规则要的也只是「返回那一刻是否有请求在途」。
      */
-    private volatile long hostChapterToken = 0L;
+    private final java.util.concurrent.atomic.AtomicInteger hostChapterRequests = new java.util.concurrent.atomic.AtomicInteger();
+
+    /** 收尾一次在途请求（结果送达或判失败）；本页没有在途请求时什么都不做。 */
+    private void endHostChapterRequest() {
+        if (hostChapterRequests.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
+            NovelRouter.endChapterRequest();
+        }
+    }
 
     /** 待恢复的章节内锚点与总数（用完置 0）。 */
     private long restoreAnchor = 0;
@@ -1177,7 +1182,8 @@ public class WebReaderActivity extends AppCompatActivity {
     @JavascriptInterface
     public void loadChapter(String chapterUrl) {
         // 空 URL 与本次宿主请求无关：不能让它撤销在途标记（会放行迟到结果、返回键失效）
-        if (TextUtils.isEmpty(chapterUrl)) { chapterFailed(0L); return; }
+        // 空 URL 与任何宿主请求无关：不能让它收尾别人那一笔（会放行迟到结果、返回键失效）
+        if (TextUtils.isEmpty(chapterUrl)) { chapterFailed(false); return; }
         runOnUiThread(() -> {
             if (!localPath.isEmpty() && isLocalDir(chapterUrl)) {
                 loadLocalChapter(chapterUrl);
@@ -1193,11 +1199,11 @@ public class WebReaderActivity extends AppCompatActivity {
             // 记下本次切章所属的关闭代号：用户点了下一章又马上返回时，爬虫几秒后才回的结果
             // 会落在 1500ms 静默期之外，靠代号比对才能认出它已过期，不该再拉起阅读器。
             if (h == null) { chapterFailedWithToast(); return; }
-            long token = NovelRouter.noteChapterRequest();
-            hostChapterToken = token;
-            // 宿主只在当前线路里找章节，找不到会静默返回 —— 立刻撤销标记并报失败，
-            // 否则标记要等 45s 才过期，期间用户主动打开别的书会被误吞。
-            if (!h.labPlayEpisode(chapterUrl)) chapterFailedWithToast(token);
+            NovelRouter.noteChapterRequest();
+            hostChapterRequests.incrementAndGet();
+            // 宿主只在当前线路里找章节，找不到会静默返回 —— 立刻收尾并报失败，
+            // 否则这一笔要等 45s 才过期，期间用户主动打开别的书会被误吞。
+            if (!h.labPlayEpisode(chapterUrl)) chapterFailedWithToast(true);
         });
     }
 
@@ -1206,23 +1212,20 @@ public class WebReaderActivity extends AppCompatActivity {
      * 少了这一步，HTML 会一直停在「切章中」，之后所有阅读进度都不再上报。
      */
     private void chapterFailed() {
-        chapterFailed(0L);
+        chapterFailed(false);
     }
 
     /**
      * 通知 HTML 本次切章失败，并按令牌撤销在途标记。
      *
-     * @param token 本次失败所属的宿主请求令牌；0 表示这次失败与任何宿主请求无关
-     *              （空 URL、注入异常等），此时绝不能撤 —— 那会把另一次仍在途的请求的
-     *              标记抹掉，它的迟到结果就不再被拦，用户返回后又被重新拉起阅读器。
+     * @param ownHostRequest 这次失败是否对应本页发出的一笔宿主请求。空 URL、注入异常等
+     *                       与任何请求无关，传 false —— 否则会替别人收尾，让那一笔的迟到
+     *                       结果不再被拦，用户返回后又被重新拉起阅读器。
      */
-    private void chapterFailed(long token) {
-        // 撤销放在 webView 判空之前：撤的是 NovelRouter 的全局状态，
-        // 不该被本页的 view 引用是否还在决定（否则销毁中的页会留下永不清理的标记）。
-        if (token != 0) {
-            if (hostChapterToken == token) hostChapterToken = 0L;
-            NovelRouter.abandonChapterRequest(token);
-        }
+    private void chapterFailed(boolean ownHostRequest) {
+        // 收尾放在 webView 判空之前：改的是 NovelRouter 的全局计数，
+        // 不该被本页的 view 引用是否还在决定（否则销毁中的页会让计数永久留着）。
+        if (ownHostRequest) endHostChapterRequest();
         if (webView == null) return;
         runOnUiThread(() -> {
             if (webView == null || isFinishing() || isDestroyed()) return;
@@ -1233,12 +1236,12 @@ public class WebReaderActivity extends AppCompatActivity {
     }
 
     private void chapterFailedWithToast() {
-        chapterFailedWithToast(0L);
+        chapterFailedWithToast(false);
     }
 
-    private void chapterFailedWithToast(long token) {
+    private void chapterFailedWithToast(boolean ownHostRequest) {
         Toast.makeText(this, R.string.reader_chapter_failed, Toast.LENGTH_SHORT).show();
-        chapterFailed(token);
+        chapterFailed(ownHostRequest);
     }
 
     /**
@@ -1273,7 +1276,7 @@ public class WebReaderActivity extends AppCompatActivity {
                 if (isFinishing() || isDestroyed()) return;
                 if (fk != 0 && fp != null && !fp.isEmpty()) {
                     if (at >= 0) index = at;
-                    // 自解析成功：没经过宿主，不能动 hostChapterToken
+                    // 自解析成功：没经过宿主，不能替宿主请求收尾
                     onEpisodeResolved(fk, fp, at >= 0 ? chapters.get(at).getName() : "", false);
                     return;
                 }
@@ -1282,9 +1285,9 @@ public class WebReaderActivity extends AppCompatActivity {
                 // siteKey 非空时不可达，而所有真实启动入口都会带 siteKey）。它要走二次解析、
                 // 耗时最长，最容易掉出关闭静默期，代号标记必须打在这里。
                 if (fh && h != null) {
-                    long token = NovelRouter.noteChapterRequest();
-                    hostChapterToken = token;
-                    if (!h.labPlayEpisode(chapterUrl)) chapterFailedWithToast(token);
+                    NovelRouter.noteChapterRequest();
+                    hostChapterRequests.incrementAndGet();
+                    if (!h.labPlayEpisode(chapterUrl)) chapterFailedWithToast(true);
                 } else {
                     chapterFailedWithToast();
                 }
@@ -1362,15 +1365,9 @@ public class WebReaderActivity extends AppCompatActivity {
      */
     private void onEpisodeResolved(int newKind, String payload, String title, boolean fromHost) {
         if (webView == null) return;
-        // 宿主结果已到达，按令牌结清这次请求：之后无关路径触发的 chapterFailed 不该再去
-        // 撤销标记（那时标记可能属于另一次新发出的请求）。
-        // 只结清自己那一条 —— 用户连点两章时另一条可能仍在途，抹掉它的记录会让
-        // 它的迟到结果不再被拦，用户返回后阅读器又被压回播放器上面。
-        if (fromHost) {
-            long token = hostChapterToken;
-            hostChapterToken = 0L;
-            NovelRouter.clearChapterRequest(token);
-        }
+        // 宿主结果已到达，收尾一笔在途请求。只减计数、不认身份 —— 送达这一刻
+        // 拿不到「这是哪一章的结果」，按身份删必然删错，反而放行别人的迟到结果。
+        if (fromHost) endHostChapterRequest();
         // 漫画分支要下载 PDF（网络），不能在主线程做
         RESOLVE_EXECUTOR.execute(() -> {
             if (isFinishing() || isDestroyed()) return;

@@ -457,23 +457,27 @@ public final class NovelRouter {
     private static volatile long readerCloseGen = 0L;
 
     /**
-     * 在途切章请求表：令牌 → {发起时所属的关闭代号, 发起时刻}。
+     * 交给宿主解析、尚未收尾的切章请求数。
      *
-     * 不能用单槽：切章 B 在途时用户又切 C，C 会覆盖 B 的记录；此时 C 因「章节属于
-     * 另一条线路」立刻失败并撤销，槽被清空，B 的迟到结果就再没有依据被拦下，
-     * 用户返回后又被重新拉起阅读器。每次请求各占一条，互不干扰。
+     * 只需要「数量」而不需要「身份」：抑制规则本身是「用户按返回那一刻若有请求在途，
+     * 它们的结果一律不许再拉起阅读器」。按身份追踪反而做不对 —— 结果送达那一刻
+     * 拿不到「这是哪一章的」，之前按令牌 / 按最早 / 整表清空的写法都会删错条目。
      */
-    private static final java.util.concurrent.ConcurrentHashMap<Long, long[]> pendingChapters = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.atomic.AtomicInteger inFlightChapters = new java.util.concurrent.atomic.AtomicInteger();
 
+    /** 关闭时在途的请求数：它们的结果还在路上，必须逐个拦下。 */
+    private static final java.util.concurrent.atomic.AtomicInteger staleChapterResults = new java.util.concurrent.atomic.AtomicInteger();
+
+    /** 上述待拦额度的失效时刻（单调时钟）；过期即清，避免永久吞掉合法打开。 */
+    private static volatile long staleUntil = 0L;
 
     /**
-     * 在途标记的有效期。
+     * 待拦结果的有效期。
      *
-     * 宿主解析有多条「静默失败」路径不会回到本类（章节属于另一条线路时
-     * labPlayEpisode 找不到就直接返回、playerContent 报错走 onError、二次解析出来是
-     * 普通视频地址时压根不进阅读器分流），标记没人清。用时限让它自行过期，
-     * 避免它一直留着把用户之后主动打开的书误判成过期结果吞掉。
-     * 取 45s：HTML 侧切章看门狗 30s 就会放弃并回退章节，比它晚到的结果本就已被当成失败。
+     * 宿主解析有多条静默失败路径不回到本类（playerContent 报错走 onError、
+     * 二次解析出来是普通视频地址），那些结果永远不会到达。用时限兜底，
+     * 否则额度下不去，用户之后主动打开别的书会被一直误吞。
+     * 取 45s：HTML 侧切章看门狗 30s 就会放弃并回退章节。
      */
     private static final long PENDING_CHAPTER_TTL = 45_000L;
 
@@ -484,83 +488,40 @@ public final class NovelRouter {
         // 之后所有阅读打开都被当成残留回调拦掉。
         readerClosedAt = android.os.SystemClock.elapsedRealtime();
         readerCloseGen++;
-        // 顺手剪掉已过期的条目。不能整表清空：表里的请求结果还在路上，
-        // 清了就没有依据拦它们，返回键会重新失效。也不能只靠一次性标记 ——
-        // 那会无条件吞掉关闭后的第一次合法打开。
-        long now = android.os.SystemClock.elapsedRealtime();
-        for (java.util.Map.Entry<Long, long[]> e : pendingChapters.entrySet()) {
-            if (now - e.getValue()[1] > PENDING_CHAPTER_TTL) pendingChapters.remove(e.getKey());
+        // 关闭这一刻仍在途的请求，其结果都属于「上一轮」，逐个拦下。
+        // 没有在途请求时不留额度 —— 否则会无条件吞掉关闭后的第一次合法打开。
+        int pending = inFlightChapters.getAndSet(0);
+        if (pending > 0) {
+            staleChapterResults.set(pending);
+            staleUntil = readerClosedAt + PENDING_CHAPTER_TTL;
         }
     }
 
-    /** 在途切章请求的令牌，每次发起自增；撤销时凭它确认归属。 */
-    private static volatile long pendingChapterToken = 0L;
-
-    /**
-     * 阅读器把切章交给宿主解析前调用，记下本次请求所属的代号。
-     *
-     * @return 本次请求的令牌，撤销时回传以确认「撤的是自己那一次」
-     */
-    public static long noteChapterRequest() {
-        long token = ++pendingChapterToken;
-        // 用单调时钟：wall clock 会被 NTP 校正 / 用户改时间往回跳，
-        // 往回跳会让「已过期」永远判不成立，标记变成永久有效。
-        pendingChapters.put(token, new long[]{readerCloseGen, android.os.SystemClock.elapsedRealtime()});
-        return token;
+    /** 阅读器把切章交给宿主解析前调用。 */
+    public static void noteChapterRequest() {
+        inFlightChapters.incrementAndGet();
     }
 
-    /**
-     * 在途切章请求已有归属（送达前台阅读器，或已判定过期）→ 清掉标记。
-     *
-     * 必须在「送达前台」这条成功路径上也清：那条路径提前 return，不经过
-     * shouldSuppressRelaunch()。不清的话标记会一直留着，等用户关掉阅读器
-     * 再主动打开另一本书时，它会把这次合法打开误判成过期结果而整个吞掉。
-     */
-    /**
-     * 结清一条已送达的在途请求。
-     *
-     * 只能按令牌删，不能整表清空也不能猜「最早那条」：
-     * 用户连点两章时 12 章先发、13 章后发，13 章可能先回；整表清空会把 12 章的记录
-     * 一起抹掉，猜最早又会删错那一条 —— 两种做法都让 12 章的迟到结果不再被拦，
-     * 用户返回后阅读器又被压回播放器上面（返回键失效）。
-     */
-    public static void clearChapterRequest(long token) {
-        if (token != 0) pendingChapters.remove(token);
-    }
-
-    /**
-     * 阅读器侧已把某次切章判为失败 → 撤掉它留下的在途标记。
-     *
-     * 必须凭令牌确认归属：标记是全局单槽，切章 B 在途时若切章 C 失败，
-     * 无条件撤会把 B 的标记抹掉 —— B 的结果迟到时就不再被拦，
-     * 又会在用户返回后重新拉起阅读器（返回键失效）。
-     *
-     * @param token {@link #noteChapterRequest()} 的返回值；与当前在途请求不符则忽略
-     */
-    public static void abandonChapterRequest(long token) {
-        pendingChapters.remove(token);
+    /** 一次在途请求已收尾（结果送达或判失败）。 */
+    public static void endChapterRequest() {
+        inFlightChapters.updateAndGet(n -> n > 0 ? n - 1 : 0);
     }
 
     /**
      * 这条结果是否属于「已经被关掉的那个阅读器」发起的切章。
      * 是则必须丢弃：用户已经返回，重新拉起阅读器就是返回键失效的根因。
-     *
-     * 只要在途表里还有任意一条「发起时的关闭代号与当前不同」的请求，就说明这期间
-     * 阅读器被关过，此刻到达的结果属于那一轮，必须丢弃。顺带清掉已过期的条目：
-     * 那次切章早已被 HTML 看门狗判为失败，比它更晚到的结果只可能是用户新发起的操作。
      */
     private static boolean isStaleChapterResult() {
-        long gen = readerCloseGen;
-        if (pendingChapters.isEmpty()) return false;
-        long now = android.os.SystemClock.elapsedRealtime();
-        boolean stale = false;
-        for (java.util.Map.Entry<Long, long[]> e : pendingChapters.entrySet()) {
-            long[] v = e.getValue();
-            if (now - v[1] > PENDING_CHAPTER_TTL) { pendingChapters.remove(e.getKey()); continue; }
-            if (v[0] != gen) { pendingChapters.remove(e.getKey()); stale = true; }
+        if (staleChapterResults.get() <= 0) return false;
+        if (android.os.SystemClock.elapsedRealtime() > staleUntil) {
+            staleChapterResults.set(0);
+            return false;
         }
-        return stale;
+        staleChapterResults.updateAndGet(n -> n > 0 ? n - 1 : 0);
+        return true;
     }
+
+
 
     /** 关闭后的静默期：刚返回时残留的回调一律不再拉起阅读器。 */
     private static boolean justClosed() {
