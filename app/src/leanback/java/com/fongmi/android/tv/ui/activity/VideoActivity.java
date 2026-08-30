@@ -2550,16 +2550,23 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
      * 含 parse=1 二次解析）。解析结果经 NovelRouter.routeReaderEngine 回传给前台阅读页。
      */
     @Override
-    public void labPlayEpisode(String chapterUrl) {
-        if (chapterUrl == null || chapterUrl.isEmpty()) return;
+    public boolean labPlayEpisode(String chapterUrl) {
+        if (chapterUrl == null || chapterUrl.isEmpty()) return false;
+        // 宿主已在销毁中：解析结果不会再回到阅读器，直接报「没发出」让它立刻收尾。
+        // 另外 SiteViewModel 被清理后 playerContent 会抛 RejectedExecutionException，
+        // 那个异常会顺着阅读器的 runOnUiThread 冒出去导致崩溃。
+        if (isFinishing() || isDestroyed()) return false;
         Flag flag = getFlag();
-        if (flag == null || flag.getEpisodes() == null) return;
+        if (flag == null || flag.getEpisodes() == null) return false;
         for (Episode ep : flag.getEpisodes()) {
             if (chapterUrl.equals(ep.getUrl())) {
                 getPlayer(flag, ep);
-                return;
+                return true;
             }
         }
+        // 章节不在当前线路：阅读器的章节表跨线路合并，这种情况静默返回，
+        // 告知调用方没有发出请求，让它立刻收尾在途标记。
+        return false;
     }
 
     private void getPlayer(Flag flag, Episode episode) {

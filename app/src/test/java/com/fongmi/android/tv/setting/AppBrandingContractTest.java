@@ -52,7 +52,8 @@ public class AppBrandingContractTest {
         assertTrue(appBranding.contains("public static void applyLogo(@NonNull ImageView view)"));
         assertTrue(appBranding.contains("view.setImageDrawable(logoDrawable(view.getContext()));"));
         assertTrue(appBranding.contains("getActivityIcon(launcherIntent(context).getComponent())"));
-        assertFalse(appBranding.contains("Glide"));
+        // 首帧落品牌图标后要让配置自带的线路 logo 覆盖上来，否则自定义线路图标失效
+        assertTrue(appBranding.contains("ImgUtil.logo(view, logo);"));
         assertTrue(appBranding.contains("Prefers.getPrefers().edit().putInt(ICON_KEY, normalizeIconMode(mode)).commit();"));
         assertFalse(appBranding.contains("ICON_CUSTOM"));
         assertFalse(appBranding.contains("Shortcut"));
@@ -65,6 +66,15 @@ public class AppBrandingContractTest {
         String mobile = read("app/src/mobile/java/com/fongmi/android/tv/ui/fragment/VodFragment.java");
         assertTrue(mobile.contains("AppBranding.applyLogo(mBinding.logo);"));
         assertFalse(mobile.contains("ImgUtil.logo(mBinding.logo);"));
+    }
+
+    @Test
+    public void homeTitlePrefersSiteAndConfigNameOverAppName() throws Exception {
+        String appBranding = read("app/src/main/java/com/fongmi/android/tv/setting/AppBranding.java");
+
+        // 固定返回应用名会让所有站源都显示成「默影视」
+        assertTrue(appBranding.contains("if (homeName != null && !homeName.trim().isEmpty()) return homeName;"));
+        assertTrue(appBranding.contains("if (configName != null && !configName.trim().isEmpty()) return configName;"));
     }
 
     @Test
