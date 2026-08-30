@@ -58,14 +58,22 @@ public class AdFeedbackDataSourceTest {
         List<String> suffixes = AdFeedbackDataSource.hostSuffixesOf(
                 "{\"hostSuffixes\":[\"ad-cdn.other.com\"]}");
         ExistingRuleClassifier.RuleState disabled = new ExistingRuleClassifier.RuleState(
-                "builtin:x", "x", "实验规则", false, true, suffixes);
+                "builtin:x", "x", "实验规则", false, true, suffixes,
+                ExistingRuleClassifierTest.compiledRule("ad-cdn.other.com"));
 
+        List<SegmentFact> outside = new java.util.ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            outside.add(new SegmentFact(i, "v.example.com", "/seg/" + i + ".ts", 8.0, false));
+        }
+        for (int i = 4; i < 30; i++) {
+            outside.add(new SegmentFact(i, "v.example.com", "/seg/" + i + ".ts", 8.0, i == 4));
+        }
         AdIntervalEvidence evidence = new AdIntervalEvidence(
                 10_000, 40_000, StartOrigin.USER_MARKED,
                 "site", "站点", "剧名", "线路", "第 1 集",
                 "v.example.com", "/play/index.m3u8", true,
                 List.of(new SegmentFact(3, "ad-cdn.other.com", "/seg/3.ts", 6.4, true)),
-                List.of(new SegmentFact(0, "v.example.com", "/seg/0.ts", 8.0, false)),
+                outside,
                 false, false, List.of(), false, List.of(),
                 AudioIntervalFact.unavailable(), SpeechIntervalFact.unavailable());
 

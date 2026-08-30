@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.ad.feedback;
 
+import com.fongmi.android.tv.utils.HlsManifestCleaner;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -29,15 +31,23 @@ public final class ExistingRuleClassifier {
      * @param enabled     当前是否启用
      * @param valid       编译是否通过
      * @param hostSuffixes 该规则针对的切片域名后缀
+     * @param compiled    已编译的规则，供自检实跑；取不到时为 null（则不建议启用）
      */
     public record RuleState(String key, String id, String name, boolean enabled,
-                            boolean valid, List<String> hostSuffixes) {
+                            boolean valid, List<String> hostSuffixes,
+                            HlsManifestCleaner.Rule compiled) {
 
         public RuleState {
             key = key == null ? "" : key;
             id = id == null ? "" : id;
             name = name == null ? "" : name;
             hostSuffixes = hostSuffixes == null ? List.of() : List.copyOf(hostSuffixes);
+        }
+
+        /** 无编译产物的简化构造，仅用于诊断路径与测试。 */
+        public RuleState(String key, String id, String name, boolean enabled,
+                         boolean valid, List<String> hostSuffixes) {
+            this(key, id, name, enabled, valid, hostSuffixes, null);
         }
     }
 
@@ -102,12 +112,24 @@ public final class ExistingRuleClassifier {
     }
 
     /** 找出一条覆盖本区间域名、有效但未启用的规则。 */
+    /**
+     * 找出一条覆盖本区间域名、有效但未启用的规则。
+     *
+     * <p>必须过 {@link RuleSelfCheck}：仅凭「hostSuffixes 与区间内某片同域」建议启用，
+     * 不看该规则的其余条件 —— 实测一条 {@code minimumSignals=1} 的既有规则在
+     * 「广告与正片共用同一 CDN」时会命中全部切片，回退并连带停掉 legacy 启发式。
+     * 这条路径此前完全没有守卫。
+     */
     private static RuleState findDisabledMatch(AdIntervalEvidence evidence, List<RuleState> rules) {
         for (RuleState rule : rules) {
             if (rule.enabled() || !rule.valid() || rule.hostSuffixes().isEmpty()) continue;
             boolean covers = evidence.inside().stream()
                     .anyMatch(fact -> rule.hostSuffixes().stream().anyMatch(fact::hostEndsWith));
-            if (covers) return rule;
+            if (!covers) continue;
+            // 拿不到编译产物时无法验证，宁可不建议
+            if (rule.compiled() == null) continue;
+            if (!RuleSelfCheck.isSafe(evidence, rule.compiled())) continue;
+            return rule;
         }
         return null;
     }

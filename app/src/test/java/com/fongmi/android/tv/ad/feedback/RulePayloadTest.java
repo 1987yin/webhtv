@@ -178,13 +178,14 @@ public class RulePayloadTest {
     public void existingRuleAttributionCarriesRuleKey() {
         ExistingRuleClassifier.RuleState disabled = new ExistingRuleClassifier.RuleState(
                 "builtin|pkg|baofeng", "baofeng", "暴风片头", false, true,
-                List.of("ad-cdn.other.com"));
+                List.of("ad-cdn.other.com"),
+                ExistingRuleClassifierTest.compiledRule("ad-cdn.other.com"));
         AdIntervalEvidence evidence = new AdIntervalEvidence(
                 10_000, 40_000, StartOrigin.USER_MARKED,
                 "site", "站点", "剧名", "线路", "第 1 集",
                 "v.example.com", "/play/index.m3u8", true,
                 List.of(new SegmentFact(3, "ad-cdn.other.com", "/seg/3.ts", 6.4, true)),
-                List.of(new SegmentFact(0, "v.example.com", "/seg/0.ts", 8.0, false)),
+                healthyOutside(3, 1),
                 false, false, List.of(), false, List.of(),
                 AudioIntervalFact.unavailable(), SpeechIntervalFact.unavailable());
 

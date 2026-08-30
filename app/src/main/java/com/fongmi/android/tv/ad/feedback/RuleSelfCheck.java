@@ -31,11 +31,17 @@ final class RuleSelfCheck {
     private static final int LINES_PER_SEGMENT_SYNTHETIC = 2;
     /**
      * 真实 manifest 每片的行数上界。除 EXTINF + URI 外，常见还带
-     * {@code #EXT-X-KEY} 或 {@code #EXT-X-PROGRAM-DATE-TIME}。
-     * 合成时按这个密度预留余量，否则真实 manifest 会因超过
-     * {@code MAX_MANIFEST_LINES} 而回退，而自检看不到。
+     * {@code #EXT-X-KEY}、{@code #EXT-X-PROGRAM-DATE-TIME} 与
+     * {@code #EXT-X-DISCONTINUITY}，实测这种 5 行/片的 playlist 能正常净化。
+     *
+     * <p>取上界而非典型值：低估会让规则在真实 manifest 上因行数超限而回退 ——
+     * 规则存下来却永久无效，用户看到「已保存」但广告依旧。高估只是让超长
+     * playlist 弃权，而按 4s/片算 4000 片已是 4.4 小时，正片剧集触达不到。
+     *
+     * <p>{@code #EXT-X-BYTERANGE} 不计入：{@code HlsManifestCleaner} 对含该标签的
+     * manifest 无条件回退，这类 playlist 从不参与净化。
      */
-    private static final int LINES_PER_SEGMENT_REAL = 3;
+    private static final int LINES_PER_SEGMENT_REAL = 5;
     /** 与 {@code HlsManifestCleaner.MAX_MANIFEST_LINES} 一致。 */
     private static final int MAX_MANIFEST_LINES = 20_000;
 
@@ -44,6 +50,20 @@ final class RuleSelfCheck {
      */
     static boolean isSafe(AdIntervalEvidence evidence, RulePayload payload) {
         if (payload.isEmpty()) return false;
+        HlsManifestCleaner.Rule rule = compile(payload);
+        if (rule == null) return false;
+        return isSafe(evidence, rule);
+    }
+
+    /**
+     * 直接校验一条已编译的规则，供「启用已有规则」路径复用。
+     *
+     * <p>那条路径此前完全绕过自检：它只判断规则的 hostSuffixes 与区间内某片同域，
+     * 不看该规则的其余条件。实测一条 {@code minimumSignals=1} 的既有规则在
+     * 「广告与正片共用同一 CDN」时会命中全部切片。
+     */
+    static boolean isSafe(AdIntervalEvidence evidence, HlsManifestCleaner.Rule rule) {
+        if (rule == null) return false;
         if (evidence.playlistHost().isEmpty()) return false;
         if (evidence.inside().isEmpty() || evidence.outside().isEmpty()) return false;
 
@@ -51,9 +71,6 @@ final class RuleSelfCheck {
         // 这条规则在播放时不会生效，不该保存。
         int total = evidence.inside().size() + evidence.outside().size();
         if ((long) total * LINES_PER_SEGMENT_REAL > MAX_MANIFEST_LINES) return false;
-
-        HlsManifestCleaner.Rule rule = compile(payload);
-        if (rule == null) return false;
 
         List<SegmentFact> ordered = ordered(evidence);
         String base = SYNTHETIC_BASE_SCHEME + evidence.playlistHost() + "/index.m3u8";

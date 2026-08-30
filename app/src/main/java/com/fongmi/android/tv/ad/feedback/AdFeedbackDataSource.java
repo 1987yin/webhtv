@@ -1,11 +1,14 @@
 package com.fongmi.android.tv.ad.feedback;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.api.config.HlsRuleConfig;
 import com.fongmi.android.tv.api.config.ImportedAdRuleCandidateStore;
 import com.fongmi.android.tv.api.config.RuleConfig;
 import com.fongmi.android.tv.api.config.UserAdRuleStore;
+import com.fongmi.android.tv.bean.HlsAdRule;
 import com.fongmi.android.tv.bean.ImportedAdRuleCandidate;
 import com.fongmi.android.tv.bean.UserAdRule;
+import com.fongmi.android.tv.utils.HlsManifestCleaner;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -93,11 +96,28 @@ public final class AdFeedbackDataSource {
                 states.add(new ExistingRuleClassifier.RuleState(
                         entry.key(), entry.id(), entry.name(),
                         entry.enabled(), entry.valid(),
-                        hostSuffixesOf(entry.detail())));
+                        hostSuffixesOf(entry.detail()),
+                        compiledOf(entry.detail())));
             }
             return List.copyOf(states);
         } catch (RuntimeException e) {
             return List.of();
+        }
+    }
+
+    /**
+     * 从规则详情 JSON 还原已编译的规则，供 {@code RuleSelfCheck} 实跑验证。
+     *
+     * <p>{@code HlsRuleConfig.Entry} 只暴露 detail JSON，不给编译产物；这里重新
+     * 反序列化并 compile。失败返回 null，调用方会因此不建议启用该规则。
+     */
+    static HlsManifestCleaner.Rule compiledOf(String detailJson) {
+        if (detailJson == null || detailJson.isBlank()) return null;
+        try {
+            HlsAdRule rule = App.gson().fromJson(detailJson, HlsAdRule.class);
+            return rule == null ? null : rule.compile();
+        } catch (RuntimeException e) {
+            return null;
         }
     }
 

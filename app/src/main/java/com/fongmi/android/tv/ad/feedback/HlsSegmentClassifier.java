@@ -194,7 +194,11 @@ public final class HlsSegmentClassifier {
      * legacy 启发式。{@code [^?]*} 无法跨过 {@code ?}，从而把匹配限制在 path 内。
      */
     static String pathOnlyPattern(String hint) {
-        return "^[^?]*" + Pattern.quote(hint);
+        // 同时排除 query 与 fragment：证据侧用 URI.getPath()，query 和 fragment
+        // 都被丢弃，所以 pathAbsentOutside 与 RuleSelfCheck 都看不见它们。
+        // 只挡 ? 的话，正片 URL 形如 /seg/99.ts#/ads/x 会被跨 # 命中 —— 实测
+        // 这种形状下真实 cleaner 会多删一片正片且 fallback=false，错误不被兜住。
+        return "^[^?#]*" + Pattern.quote(hint);
     }
 
     /** host 是否等于给定域名或为其子域。 */

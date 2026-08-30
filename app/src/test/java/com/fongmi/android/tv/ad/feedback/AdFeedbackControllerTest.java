@@ -214,7 +214,8 @@ public class AdFeedbackControllerTest {
         FakeHost host = new FakeHost();
         host.playlist = adBlockPlaylist();
         host.ruleStates = List.of(new ExistingRuleClassifier.RuleState(
-                "builtin:x", "x-rule", "实验规则", false, true, List.of("ad-cdn.other.com")));
+                "builtin:x", "x-rule", "实验规则", false, true, List.of("ad-cdn.other.com"),
+                ExistingRuleClassifierTest.compiledRule("ad-cdn.other.com")));
         AdFeedbackController controller = new AdFeedbackController(host);
 
         controller.onMarkedInterval(30_000, 49_200);
