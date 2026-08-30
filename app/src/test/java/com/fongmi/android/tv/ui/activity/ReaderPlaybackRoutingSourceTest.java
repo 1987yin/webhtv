@@ -261,8 +261,10 @@ public class ReaderPlaybackRoutingSourceTest {
                 html.contains("var ready = stable >= 3;"));
         assertTrue("the percent restore must be invalidated when content is replaced",
                 html.contains("var gen = ++restoreGen;") && html.contains("restoringPage = true;"));
-        assertTrue("it must not report before the layout is ready",
-                html.contains("if(ready) reportProgress();"));
+        // 短章内容一屏放得下时高度一开始就稳定，滚到 min-height 撑出的 5vh 后锚点仍是 0，
+        // 盲目上报会把用户存的 90% 覆盖成章首
+        assertTrue("migrating a percent record must not move the position backwards",
+                html.contains("if(effectiveAnchorIndex() >= expected) reportProgress();"));
         // 漫画一批批懒加载，光等不会让剩下的页进 DOM，anchorsSettled 永远为假 ——
         // 旧百分比记录既恢复不了也迁移不了，必须主动催加载
         assertTrue("the percent restore must drive lazy loading for comics and PDFs",
@@ -334,6 +336,16 @@ public class ReaderPlaybackRoutingSourceTest {
                 router.contains("pendingChapters = new java.util.concurrent.ConcurrentHashMap<>()"));
         assertTrue("revocation must remove only its own entry",
                 router.contains("pendingChapters.remove(token);"));
+        // 条目留到下次开阅读器会累积，反复开关后任意一次合法打开都会撞上其中一条被误吞；
+        // 关闭时清表并用一次性标记把「那一轮的迟到结果」拦一次
+        assertTrue("closing must not leave entries behind",
+                router.contains("pendingChapters.clear();")
+                        && router.contains("staleCloseGen = readerCloseGen;"));
+        assertTrue("the one-shot marker must be consumed",
+                router.contains("if (staleCloseGen == gen) {"));
+        // 送达一条结果只结清它自己那次，整表清空会抹掉另一次仍在途的请求
+        assertTrue("delivering one result must not clear other in-flight requests",
+                router.contains("if (oldest != null) pendingChapters.remove(oldest);"));
         assertTrue("a delivered result must close out the in-flight request",
                 reader.contains("hostChapterToken = 0L;"));
     }

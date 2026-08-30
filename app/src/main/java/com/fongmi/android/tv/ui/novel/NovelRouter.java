@@ -464,6 +464,14 @@ public final class NovelRouter {
     private static final java.util.concurrent.ConcurrentHashMap<Long, long[]> pendingChapters = new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
+     * 关闭时把「作废了在途请求」这件事记在这里：值为关闭后的新代号。
+     *
+     * 条目在关闭时就清掉（否则反复开关会累积、误吞后续合法打开），但那些请求的结果
+     * 还在路上，仍要拦一次。用一个标记表示「本轮之前有请求被作废」，判过即清。
+     */
+    private static volatile long staleCloseGen = -1L;
+
+    /**
      * 在途标记的有效期。
      *
      * 宿主解析有多条「静默失败」路径不会回到本类（章节属于另一条线路时
@@ -481,6 +489,11 @@ public final class NovelRouter {
         // 之后所有阅读打开都被当成残留回调拦掉。
         readerClosedAt = android.os.SystemClock.elapsedRealtime();
         readerCloseGen++;
+        // 关闭这一刻，表里所有请求都已属于「上一轮」，它们的结果由 staleCloseGen
+        // 统一拦下，条目本身不必留。留着的话反复开关会越积越多，
+        // 之后任意一次合法打开都会撞上其中一条而被误吞。
+        pendingChapters.clear();
+        staleCloseGen = readerCloseGen;
     }
 
     /** 在途切章请求的令牌，每次发起自增；撤销时凭它确认归属。 */
@@ -507,7 +520,15 @@ public final class NovelRouter {
      * 再主动打开另一本书时，它会把这次合法打开误判成过期结果而整个吞掉。
      */
     private static void clearChapterRequest() {
-        pendingChapters.clear();
+        // 送达一条结果只结清它自己那次请求。整表清空会把另一次仍在途的请求也抹掉，
+        // 它的迟到结果就不再被拦，用户返回后又被重新拉起阅读器。
+        // 送达路径拿不到令牌，只能按「最早发起的那条」结清 —— 结果按发起顺序回来。
+        Long oldest = null;
+        long oldestAt = Long.MAX_VALUE;
+        for (java.util.Map.Entry<Long, long[]> e : pendingChapters.entrySet()) {
+            if (e.getValue()[1] < oldestAt) { oldestAt = e.getValue()[1]; oldest = e.getKey(); }
+        }
+        if (oldest != null) pendingChapters.remove(oldest);
     }
 
     /**
@@ -532,9 +553,14 @@ public final class NovelRouter {
      * 那次切章早已被 HTML 看门狗判为失败，比它更晚到的结果只可能是用户新发起的操作。
      */
     private static boolean isStaleChapterResult() {
+        long gen = readerCloseGen;
+        // 关闭时作废过在途请求 → 这一条就是它的结果，拦下并清掉标记（一次性）
+        if (staleCloseGen == gen) {
+            staleCloseGen = -1L;
+            return true;
+        }
         if (pendingChapters.isEmpty()) return false;
         long now = android.os.SystemClock.elapsedRealtime();
-        long gen = readerCloseGen;
         boolean stale = false;
         for (java.util.Map.Entry<Long, long[]> e : pendingChapters.entrySet()) {
             long[] v = e.getValue();

@@ -1084,8 +1084,14 @@ function restoreScrollPercent(p){
         // 这条旧记录分支不解锁的话整个会话都不再上报进度，旧记录也永远迁不到新语义。
         restoringPage = false;
         updateProgressBar();
-        // 只有排版就绪才上报：否则 effectiveAnchorIndex() 只能得到 0，等于清掉用户进度。
-        if(ready) reportProgress();
+        // 迁移旧记录时不能盲目上报：短章内容一屏放得下时，滚到 max*p（min-height 撑出的
+        // 约 5vh）后当前锚点仍是第 0 个，上报等于把用户存的 90% 覆盖成章首。
+        // 只有换算出的锚点不比原百分比对应的位置更靠前，才是一次有意义的迁移。
+        if(ready){
+            var total = anchorTotal();
+            var expected = Math.min(total - 1, Math.floor(p * total));
+            if(effectiveAnchorIndex() >= expected) reportProgress();
+        }
     })();
 }
 
