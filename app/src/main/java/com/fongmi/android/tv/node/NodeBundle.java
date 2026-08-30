@@ -24,7 +24,19 @@ import java.util.UUID;
 
 import okhttp3.Response;
 
-/** 猫源 bundle 的下载、校验和本地缓存。 */
+/**
+ * 猫源 bundle（CatPawOpen 的 {@code index.js}）的下载、校验与本地缓存。
+ *
+ * <p>用户填的是 {@code .../index.js.md5}——那个地址返回 32 位校验值，真正的 bundle 在去掉
+ * {@code .md5} 后缀的地址上。每次启动只拉几十字节的 md5 比对，命中就用本地缓存，
+ * 避免重复下载 1.2MB 的 bundle。
+ *
+ * <p>本地包（用户自己解压出来的 {@code index.js} + {@code index.config.js} 目录，或还没解压
+ * 的 zip）走同一套缓存判定，只是把「下载」换成「复制/解压」、把远端 md5 换成文件的实际 md5。
+ *
+ * <p>不把运行目录直接指到用户选的位置：Node 要在 bundle 同级写 {@code data/}、{@code port}、
+ * {@code boot.js}，外部存储未必允许这些写入，且用户可能随时移走包。
+ */
 public final class NodeBundle {
 
     private static final String SUFFIX = ".md5";
