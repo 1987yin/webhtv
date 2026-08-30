@@ -115,6 +115,38 @@ public class NodePortSelectionTest {
     }
 
     @Test
+    public void runtimeDoesNotReuseLocalBundleWithoutRevalidatingItsContents() throws IOException {
+        String runtime = read("com/fongmi/android/tv/node/NodeRuntime.java");
+        int reuse = runtime.indexOf("if (running && NodeBundle.isRemote(url) && same(url) && !TextUtils.isEmpty(requestedKey) && requestedKey.equals(servingSourceKey))");
+        int start = runtime.indexOf("if (!STARTING.compareAndSet(false, true))", reuse);
+
+        assertTrue("本地 bundle 可能被修改或移动，不能只按原始路径直接复用运行中的 Node",
+                reuse >= 0
+                        && start > reuse
+                        && runtime.contains("String requestedKey = NodeBundle.isRemote(url) ? NodeBundle.sourceKey(url) : \"\";")
+                        && runtime.indexOf("servingSourceKey", reuse) > reuse
+                        && runtime.contains("servingSourceKey = NodeBundle.installedSourceKey(App.get());")
+                        && !runtime.contains("servingSourceKey = requestedKey;"));
+    }
+
+    @Test
+    public void bundleMetadataAndFirstDownloadsUseBoundedFailClosedValidation() throws IOException {
+        String bundle = read("com/fongmi/android/tv/node/NodeBundle.java");
+        int metadata = bundle.indexOf("private static String remoteMd5(String url)");
+        int download = bundle.indexOf("private static PreparedFile download(");
+
+        assertTrue("远端 md5 响应必须限长读取，避免错误响应造成无界内存占用",
+                metadata >= 0
+                        && bundle.indexOf("MAX_METADATA_BYTES", metadata) > metadata
+                        && bundle.indexOf("readLimited", metadata) > metadata
+                        && !bundle.contains("OkHttp.string(md5Url(url))"));
+        assertTrue("首次下载必须要求有效 md5，不能在元数据失败时接受任意响应",
+                download >= 0
+                        && bundle.indexOf("if (!isMd5(expected))", download) > download
+                        && bundle.indexOf("if (isMd5(expected) && !expected.equalsIgnoreCase(actual))", download) > download);
+    }
+
+    @Test
     public void readPortsParsesListAndTolueratesLegacySingleValue() throws Exception {
         assertEquals("多端口按逗号解析，顺序保持落盘顺序（猫源在前）",
                 Arrays.asList(9988, 9321), readPorts("9988,9321"));

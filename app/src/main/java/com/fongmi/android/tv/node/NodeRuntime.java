@@ -40,6 +40,7 @@ public final class NodeRuntime {
     private static final AtomicBoolean STARTING = new AtomicBoolean(false);
     private static volatile boolean running;
     private static volatile String servingUrl = "";
+    private static volatile String servingSourceKey = "";
     private static volatile long startGeneration;
 
     /** 主进程侧的回复 Messenger，接收子进程回报。 */
@@ -83,8 +84,9 @@ public final class NodeRuntime {
             if (callback != null) callback.onError("未填写猫源地址");
             return;
         }
-        // 同一个 bundle 已就绪：直接复用
-        if (running && same(url)) {
+        String requestedKey = NodeBundle.isRemote(url) ? NodeBundle.sourceKey(url) : "";
+        // 本地包可能在两次读取之间变化，只有远端来源可按已安装来源键复用。
+        if (running && NodeBundle.isRemote(url) && same(url) && !TextUtils.isEmpty(requestedKey) && requestedKey.equals(servingSourceKey)) {
             if (callback != null) callback.onReady(baseUrl());
             return;
         }
@@ -103,10 +105,12 @@ public final class NodeRuntime {
             // 不等的话 startForegroundService 会投递到还没死掉的旧进程，node::Start 第二次调用会 SIGSEGV。
             waitForProcessDeath(context);
             running = false;
+            servingSourceKey = "";
             port = 0;
             notifyProgress(context, callback, context.getString(R.string.node_switch_restart));
         }
         servingUrl = NodeBundle.bundleUrl(url);
+        servingSourceKey = "";
         try {
             NodeService.start(context, url, replyMessenger);
             long generation = ++startGeneration;
@@ -115,6 +119,7 @@ public final class NodeRuntime {
             STARTING.set(false);
             running = false;
             servingUrl = "";
+            servingSourceKey = "";
             port = 0;
             SpiderDebug.log("node", "failed to start node service: %s", e.getMessage());
             if (callback != null) callback.onError("猫源服务启动失败: " + e.getMessage());
@@ -126,6 +131,7 @@ public final class NodeRuntime {
         NodeService.stop(context);
         running = false;
         servingUrl = "";
+        servingSourceKey = "";
         port = 0;
         NodeNotify.done(context, "猫源启动失败：服务未在预期时间内就绪");
         Notify.show("猫源启动失败：服务未在预期时间内就绪");
@@ -184,6 +190,7 @@ public final class NodeRuntime {
                 case NodeService.MSG_READY: {
                     port = msg.arg1;
                     running = true;
+                    servingSourceKey = NodeBundle.installedSourceKey(App.get());
                     STARTING.set(false);
                     pendingCallback = null;
                     replyMessenger = null;
@@ -203,6 +210,7 @@ public final class NodeRuntime {
                     String text = msg.getData() != null ? msg.getData().getString("text") : "未知错误";
                     STARTING.set(false);
                     running = false;
+                    servingSourceKey = "";
                     pendingCallback = null;
                     replyMessenger = null;
                     NodeNotify.done(App.get(), "猫源启动失败：" + text);
