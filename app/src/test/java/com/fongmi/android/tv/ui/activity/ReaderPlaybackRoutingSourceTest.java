@@ -132,10 +132,16 @@ public class ReaderPlaybackRoutingSourceTest {
         // 只判「到底」会把用户没看到的内容记成读完，下次直接跳到章末
         assertTrue("a degraded layout must be recognised before trusting the document end",
                 source.contains("function anchorsSettled()"));
-        assertTrue("a comic must require the final page to have real height",
-                source.contains("return els[total - 1].getBoundingClientRect().height > 0;"));
+        // 漫画看末尾两页：图各自异步解码，末页不保证最后完成，只看末页仍会虚报
+        assertTrue("a comic must require the last two pages to be laid out",
+                source.contains("for(var i = Math.max(0, total - 2); i < total; i++){"));
         assertTrue("a PDF must require every page to be painted, not merely appended",
                 source.contains("return pdfDoc != null && pdfAppendedCount >= pdfDoc.numPages;"));
+        // 渲染失败也要计数，否则那一章永远达不到 numPages，永远记不成读完
+        assertTrue("a failed page render must still count towards the settled total",
+                source.contains(".promise.then(pageSettled, pageSettled);"));
+        assertTrue("a failed getPage must also count",
+                source.contains("}, pageSettled);"));
         assertTrue("currentAnchorIndex must use the same settled check",
                 source.contains("if(found || (anchorsSettled() && atDocumentEnd()))"));
         // memo 有副作用：文末分支提前 return 前必须先让 currentAnchorIndex() 跑过一次
@@ -171,11 +177,11 @@ public class ReaderPlaybackRoutingSourceTest {
         assertTrue("the guard must combine the silence window and the stale check",
                 router.contains("return justClosed() || stale;"));
         assertTrue("the reader must tag its chapter switch before handing it to the host",
-                reader.contains("NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl);"));
+                reader.contains("hostChapterToken = NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl);"));
         // parse=1 兜底才是实际会走到的宿主解析路径：loadChapter 里那条在 siteKey 非空时
         // 不可达，而所有真实启动入口都会写 siteKey。漏了它标记永远不会被设上，整套判定失效。
         assertTrue("the parse=1 host fallback must also tag its request",
-                reader.contains("if (fh && h != null) { hostChapterRequested = true; NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }"));
+                reader.contains("if (fh && h != null) { hostChapterToken = NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }"));
         // 两个判定都要执行：|| 短路会让一次性的 isStaleChapterResult 不执行、标记留存，
         // 静默期后用户主动打开另一本书就会被误吞
         assertTrue("the stale check must not be short-circuited by the silence window",
@@ -184,9 +190,9 @@ public class ReaderPlaybackRoutingSourceTest {
         // playerContent 报错、解析出来是普通视频地址），标记必须能被撤销并自行过期，
         // 否则它会一直留着把用户之后主动打开的书误判成过期结果吞掉
         assertTrue("a failed chapter switch must abandon its pending tag",
-                router.contains("public static void abandonChapterRequest()"));
-        assertTrue("the reader must abandon the tag when a chapter switch fails",
-                reader.contains("NovelRouter.abandonChapterRequest();"));
+                router.contains("public static void abandonChapterRequest(long token)"));
+        assertTrue("the reader must abandon the tag when its own chapter switch fails",
+                reader.contains("if (hostChapterToken != 0) {"));
         assertTrue("an unclaimed tag must expire on its own",
                 router.contains("PENDING_CHAPTER_TTL"));
     }
@@ -215,6 +221,33 @@ public class ReaderPlaybackRoutingSourceTest {
         // 旧版小说记录存的是百分比×SCALE，不能走锚点换算
         assertTrue("legacy percent records must bypass the anchor conversion",
                 reader.contains("restoreTotal == ReaderHistory.SCALE"));
+        // 百分比分支必须解锁 restoringPage，否则整个会话都不再上报，旧记录也永远迁不到新语义
+        String html = read("app/src/main/assets/reader.html");
+        int percentFn = html.indexOf("function restoreScrollPercent(p)");
+        assertTrue("restoreScrollPercent must exist", percentFn > 0);
+        assertTrue("the legacy percent path must release the reporting lock",
+                html.indexOf("restoringPage = false;", percentFn) > percentFn
+                        && html.indexOf("restoringPage = false;", percentFn) < html.indexOf("function restoreAnchor(index)"));
+    }
+
+    /**
+     * 换章必须清掉锚点记忆。
+     *
+     * PDF 章在 pdfDoc 解析完成前 anchorTotal() 为 0，effectiveAnchorIndex() 会在
+     * total<=0 处早退，不经过 currentAnchorIndex() 的归零短路 —— 上一章的高位值
+     * 会残留，把新章第 1 页记成上一章的位置。
+     */
+    @Test
+    public void switchingChapterResetsTheAnchorMemo() throws Exception {
+        String html = read("app/src/main/assets/reader.html");
+
+        int render = html.indexOf("function renderContent()");
+        int reset = html.indexOf("lastAnchorIndex = 0;", render);
+        int clear = html.indexOf("r.innerHTML = '';", render);
+
+        assertTrue("renderContent must exist", render > 0);
+        assertTrue("the memo must be cleared when the content is replaced",
+                reset > render && reset < clear);
     }
 
     /**
@@ -244,16 +277,19 @@ public class ReaderPlaybackRoutingSourceTest {
     @Test
     public void onlyTheOwnHostRequestAbandonsItsPendingTag() throws Exception {
         String reader = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
+        String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
 
-        assertTrue("the reader must track whether it has a host request in flight",
-                reader.contains("private boolean hostChapterRequested = false;"));
-        assertEquals("both host-request sites must raise the flag",
-                2, countOccurrences(reader, "hostChapterRequested = true; NovelRouter.noteChapterRequest();"));
-        assertTrue("abandoning must be gated on that flag",
-                reader.contains("if (hostChapterRequested) {"));
+        assertTrue("the reader must remember which host request is in flight",
+                reader.contains("private long hostChapterToken = 0L;"));
+        assertEquals("both host-request sites must capture the token",
+                2, countOccurrences(reader, "hostChapterToken = NovelRouter.noteChapterRequest();"));
+        // 标记是全局单槽：撤销必须凭令牌确认归属，否则切章 C 失败会抹掉切章 B 的标记
+        assertTrue("revocation must be gated on the token",
+                reader.contains("NovelRouter.abandonChapterRequest(token);"));
+        assertTrue("the router must ignore a revocation for a superseded request",
+                router.contains("if (token != pendingChapterToken) return;"));
         assertTrue("a delivered result must close out the in-flight request",
-                reader.contains("hostChapterRequested = false;\n        // 漫画分支要下载 PDF")
-                        || reader.contains("hostChapterRequested = false;\r\n        // 漫画分支要下载 PDF"));
+                reader.contains("hostChapterToken = 0L;"));
     }
 
     /**

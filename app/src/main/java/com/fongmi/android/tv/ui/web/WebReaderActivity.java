@@ -165,12 +165,14 @@ public class WebReaderActivity extends AppCompatActivity {
         }
     }
     /**
-     * 本页是否有一次「交给宿主解析」的切章仍在途。
+     * 本页最近一次「交给宿主解析」的切章令牌；0 表示没有在途请求。
      *
-     * chapterFailed() 会被多条与宿主请求无关的路径调用（空 URL、注入异常等），
-     * 靠这个标志把「撤销在途标记」限定在自己真的发过请求的情况下。
+     * chapterFailed() 会被多条与本次请求无关的路径调用（空 URL、注入异常、另一章解析失败），
+     * 而在途标记在 NovelRouter 里是全局单槽，所以撤销必须凭令牌确认归属：
+     * 切章 B 在途时切章 C 失败，不能把 B 的标记一起抹掉，否则 B 的迟到结果不再被拦，
+     * 用户返回后又会被重新拉起阅读器。
      */
-    private boolean hostChapterRequested = false;
+    private long hostChapterToken = 0L;
 
     /** 待恢复的章节内锚点与总数（用完置 0）。 */
     private long restoreAnchor = 0;
@@ -1188,7 +1190,7 @@ public class WebReaderActivity extends AppCompatActivity {
             NovelReaderHost h = NovelRouter.getHost();
             // 记下本次切章所属的关闭代号：用户点了下一章又马上返回时，爬虫几秒后才回的结果
             // 会落在 1500ms 静默期之外，靠代号比对才能认出它已过期，不该再拉起阅读器。
-            if (h != null) { hostChapterRequested = true; NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }
+            if (h != null) { hostChapterToken = NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }
             else chapterFailedWithToast();
         });
     }
@@ -1205,9 +1207,10 @@ public class WebReaderActivity extends AppCompatActivity {
         //
         // 只撤自己发出的那一次：chapterFailed 还会被空 URL、注入异常等与宿主请求无关的
         // 路径调用，无条件撤会把另一次仍在途的请求的标记抹掉，重新打开返回键失效的缺口。
-        if (hostChapterRequested) {
-            hostChapterRequested = false;
-            NovelRouter.abandonChapterRequest();
+        if (hostChapterToken != 0) {
+            long token = hostChapterToken;
+            hostChapterToken = 0L;
+            NovelRouter.abandonChapterRequest(token);
         }
         runOnUiThread(() -> {
             if (webView == null || isFinishing() || isDestroyed()) return;
@@ -1261,7 +1264,7 @@ public class WebReaderActivity extends AppCompatActivity {
                 // 这条 parse=1 兜底才是实际会走到的宿主解析路径（loadChapter 里那条在
                 // siteKey 非空时不可达，而所有真实启动入口都会带 siteKey）。它要走二次解析、
                 // 耗时最长，最容易掉出关闭静默期，代号标记必须打在这里。
-                if (fh && h != null) { hostChapterRequested = true; NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }
+                if (fh && h != null) { hostChapterToken = NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }
                 else chapterFailedWithToast();
                 // 解析失败：放开占位层，并丢掉待恢复位置 —— 否则它会残留到用户下一次手动切章，
                 // 把上一本/上一章的锚点套用到新章上（章短时直接跳到章末）。
@@ -1330,7 +1333,7 @@ public class WebReaderActivity extends AppCompatActivity {
         if (webView == null) return;
         // 结果已到达，这次宿主请求收尾：之后无关路径触发的 chapterFailed 不该再去
         // 撤销标记（那时标记可能属于另一次新发出的请求）。
-        hostChapterRequested = false;
+        hostChapterToken = 0L;
         // 漫画分支要下载 PDF（网络），不能在主线程做
         RESOLVE_EXECUTOR.execute(() -> {
             if (isFinishing() || isDestroyed()) return;

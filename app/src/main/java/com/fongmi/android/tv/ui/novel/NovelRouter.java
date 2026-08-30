@@ -480,12 +480,20 @@ public final class NovelRouter {
         readerCloseGen++;
     }
 
-    /** 阅读器把切章交给宿主解析前调用，记下本次请求所属的代号。 */
-    public static void noteChapterRequest() {
+    /** 在途切章请求的令牌，每次发起自增；撤销时凭它确认归属。 */
+    private static volatile long pendingChapterToken = 0L;
+
+    /**
+     * 阅读器把切章交给宿主解析前调用，记下本次请求所属的代号。
+     *
+     * @return 本次请求的令牌，撤销时回传以确认「撤的是自己那一次」
+     */
+    public static long noteChapterRequest() {
         pendingChapterGen = readerCloseGen;
         // 用单调时钟：wall clock 会被 NTP 校正 / 用户改时间往回跳，
         // 往回跳会让「已过期」永远判不成立，标记变成永久有效。
         pendingChapterAt = android.os.SystemClock.elapsedRealtime();
+        return ++pendingChapterToken;
     }
 
     /**
@@ -500,8 +508,17 @@ public final class NovelRouter {
         pendingChapterAt = 0L;
     }
 
-    /** 阅读器侧已把本次切章判为失败（含看门狗超时）→ 撤掉在途标记。 */
-    public static void abandonChapterRequest() {
+    /**
+     * 阅读器侧已把某次切章判为失败 → 撤掉它留下的在途标记。
+     *
+     * 必须凭令牌确认归属：标记是全局单槽，切章 B 在途时若切章 C 失败，
+     * 无条件撤会把 B 的标记抹掉 —— B 的结果迟到时就不再被拦，
+     * 又会在用户返回后重新拉起阅读器（返回键失效）。
+     *
+     * @param token {@link #noteChapterRequest()} 的返回值；与当前在途请求不符则忽略
+     */
+    public static void abandonChapterRequest(long token) {
+        if (token != pendingChapterToken) return;
         clearChapterRequest();
     }
 

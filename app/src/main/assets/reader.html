@@ -335,6 +335,10 @@ function renderContent(){
     // 内容被替换 → 作废在途的恢复定位循环，并解除它设下的上报锁
     restoreGen++;
     restoringPage = false;
+    // 换章即清锚点记忆：PDF 章在 pdfDoc 解析完成前 anchorTotal() 为 0，
+    // effectiveAnchorIndex() 会在 total<=0 处早退，不经过 currentAnchorIndex()
+    // 的归零短路 —— 上一章的高位值会残留下来，把新章第 1 页记成上一章的位置。
+    lastAnchorIndex = 0;
     var r = document.getElementById('reader');
     r.innerHTML = '';
     navAppended = false;
@@ -544,15 +548,18 @@ function renderPdfPage(n){
     c.style.width = '100%'; c.style.height = 'auto';
     c.dataset.page = n;
     document.getElementById('reader').appendChild(c);
+    // 无论渲染成功还是失败都要计数：anchorsSettled() 用它判断「整章是否已排版完」，
+    // 少算一页就会让这一章永远无法记录成读完，进度也永远停在失败页之前。
+    function pageSettled(){
+        updateProgressBar();
+        pdfAppendedCount++;
+        if(pdfDoc && pdfAppendedCount >= pdfDoc.numPages) appendChapterNav();
+    }
     pdfDoc.getPage(n).then(function(p){
         var viewport = p.getViewport({scale:2});
         c.width = viewport.width; c.height = viewport.height;
-        p.render({canvasContext:c.getContext('2d'), viewport:viewport}).promise.then(function(){
-            updateProgressBar();
-            pdfAppendedCount++;
-            if(pdfDoc && pdfAppendedCount >= pdfDoc.numPages) appendChapterNav();
-        });
-    });
+        p.render({canvasContext:c.getContext('2d'), viewport:viewport}).promise.then(pageSettled, pageSettled);
+    }, pageSettled);
 }
 function showLoading(v){ var el = document.getElementById('loadingOverlay'); if(el) el.style.display = v ? 'flex' : 'none'; }
 
@@ -971,7 +978,13 @@ function anchorsSettled(){
     if(total <= 0 || els.length < total) return false;
     if(DATA.kind === 3) return pdfDoc != null && pdfAppendedCount >= pdfDoc.numPages;
     if(DATA.kind === 1) return true;
-    return els[total - 1].getBoundingClientRect().height > 0;
+    // 漫画看末尾两页：图是一批批各自异步解码的，末页并不保证最后完成
+    // （体积小 / 命中缓存 / 是占位错误图时尤其容易先出来）。只看末页时，
+    // 用户实际停在前几页却可能被记成整章读完。
+    for(var i = Math.max(0, total - 2); i < total; i++){
+        if(els[i].getBoundingClientRect().height <= 0) return false;
+    }
+    return true;
 }
 
 /**
@@ -1015,7 +1028,11 @@ function restoreScrollPercent(p){
         var max = document.body.scrollHeight - window.innerHeight;
         if(max <= 0 && tries++ < 20){ setTimeout(seek, 100); return; }
         window.scrollTo(0, max * p);
+        // 必须解锁：__injectReader 在 DATA.restore 时设了 restoringPage，
+        // 这条旧记录分支不解锁的话整个会话都不再上报进度，旧记录也永远迁不到新语义。
+        restoringPage = false;
         updateProgressBar();
+        reportProgress();
     })();
 }
 
