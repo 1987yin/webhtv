@@ -65,6 +65,22 @@ public class ReaderHistoryProgressTest {
         }
     }
 
+    /**
+     * duration 恰好等于 SCALE 时不能把「读完」编码成 duration。
+     * 那会让记录长得和旧版百分比记录一模一样，下次恢复走百分比分支，
+     * 把锚点当成 0~1 的比例用，位置彻底错乱。
+     */
+    @Test
+    public void scaleSizedChapterDoesNotCollideWithLegacyPercentRecords() {
+        long scale = ReaderHistory.SCALE;
+        assertEquals(scale - 1, ReaderHistory.toPosition((int) scale - 1, scale));
+        // 少记一个锚点是可接受代价；换回来仍落在合法范围内
+        assertEquals(scale - 1, ReaderHistory.toAnchor(scale - 1, scale));
+        // 相邻规模不受影响，读完仍编码为 duration
+        assertEquals(scale + 1, ReaderHistory.toPosition((int) scale, scale + 1));
+        assertEquals(scale - 1, ReaderHistory.toPosition((int) scale - 2, scale - 1));
+    }
+
     @Test
     public void degenerateTotalsDoNotCrash() {
         assertEquals(0, ReaderHistory.toAnchor(5, 0));

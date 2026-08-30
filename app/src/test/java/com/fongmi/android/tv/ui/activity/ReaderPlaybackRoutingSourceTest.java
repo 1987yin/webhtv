@@ -213,7 +213,7 @@ public class ReaderPlaybackRoutingSourceTest {
         assertTrue("a mid-chapter anchor must be stored as-is so legacy rows still resolve",
                 history.contains("long value = Math.max(0, Math.min(duration - 1, anchor));"));
         assertTrue("only the finished state is encoded as duration",
-                history.contains("return value >= duration - 1 ? duration : value;"));
+                history.contains("return duration == SCALE ? duration - 1 : duration;"));
         assertTrue("the finished encoding must convert back to the last anchor",
                 history.contains("if (position >= duration) return (int) (duration - 1);"));
         assertTrue("restore must go through the converter",

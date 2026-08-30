@@ -73,13 +73,14 @@ public class WebReaderActivity extends AppCompatActivity {
         String key = "reader_" + System.nanoTime();
         if (payload != null) PAYLOAD_CACHE.put(key, payload);
         if (chapters != null) CHAPTER_CACHE.put(key, new ArrayList<>(chapters));
-        CACHE_TIME.put(key, System.currentTimeMillis());
+        // 单调时钟：wall clock 往回跳会让 now-创建时刻 变成负数而永不过期，缓存留到进程结束
+        CACHE_TIME.put(key, android.os.SystemClock.elapsedRealtime());
         return key;
     }
 
     /** 清理超过 TTL 的缓存：阅读器未真正启动时没人来取，否则会留到进程结束。 */
     private static void evictStaleCache() {
-        long now = System.currentTimeMillis();
+        long now = android.os.SystemClock.elapsedRealtime();
         for (java.util.Map.Entry<String, Long> e : CACHE_TIME.entrySet()) {
             if (now - e.getValue() <= CACHE_TTL_MS) continue;
             String k = e.getKey();

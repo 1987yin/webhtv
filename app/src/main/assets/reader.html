@@ -1032,7 +1032,9 @@ function restoreScrollPercent(p){
         // 这条旧记录分支不解锁的话整个会话都不再上报进度，旧记录也永远迁不到新语义。
         restoringPage = false;
         updateProgressBar();
-        reportProgress();
+        // 只在页面确实撑开后才上报：max<=0 说明还没高度，此刻上报会把用户存的
+        // 百分比覆盖成锚点 0（重试用尽也走到这里，所以必须显式判断）。
+        if(max > 0) reportProgress();
     })();
 }
 

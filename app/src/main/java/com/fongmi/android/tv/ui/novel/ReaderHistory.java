@@ -87,7 +87,11 @@ public final class ReaderHistory {
      */
     static long toPosition(int anchor, long duration) {
         long value = Math.max(0, Math.min(duration - 1, anchor));
-        return value >= duration - 1 ? duration : value;
+        if (value < duration - 1) return value;
+        // 「读完」编码为 duration。但 duration 恰好等于 SCALE 时不能这么写：
+        // 那会让整条记录长得和旧版百分比记录（duration == SCALE）一模一样，
+        // 下次恢复走百分比分支，把锚点当成 0~1 的比例用。这种章少记一个锚点即可。
+        return duration == SCALE ? duration - 1 : duration;
     }
 
     /** 落库进度值 → 0 基锚点序号，供阅读器恢复定位。 */
