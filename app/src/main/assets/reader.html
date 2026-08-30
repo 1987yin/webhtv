@@ -520,16 +520,19 @@ function renderPdf(){
     // （失败分支写 pdf-error）或把旧章的 canvas 与 pdfDoc 塞进新章。
     var gen = pdfGen;
     pdfjsLib.getDocument(DATA.pdfFile).promise.then(function(doc){
+        // 先收遮罩再判代号：遮罩是全屏 z-index:10002，只有这里和首屏注入会隐藏它。
+        // 放在代号判定之后，跨类型换章（PDF→漫画）时旧章的 getDocument 早退，
+        // 遮罩就永久盖在新章上面吞掉所有点击，只能按返回键退出。
+        showLoading(false);
         if(gen !== pdfGen) return;
         pdfDoc = doc;
-        showLoading(false);
         renderPdfMore();
         // 此时才知道总页数：注入时 pdfDoc 还是 null，anchorTotal() 为 0，
         // 那一刻的上报会被 ReaderHistory 丢掉，所以这里补一次。
         reportProgress();
     }).catch(function(e){
-        if(gen !== pdfGen) return;
         showLoading(false);
+        if(gen !== pdfGen) return;
         // 用 textContent：本地模式下 DATA.pdfFile 是用户真实路径，
         // pdf.js 会把它拼进异常消息，走 innerHTML 等于把文件名当 HTML 执行。
         var d = document.createElement('div');
@@ -1061,15 +1064,16 @@ function restoreScrollPercent(p){
     var lastMax = null, stable = 0;
     (function seek(){
         if(gen !== restoreGen) return;
-        // 判「内容已排版」不能只看 anchorsSettled()：它对小说恒为真（段落一次性建完），
-        // 而 content-visibility 让屏外段落先按 30px 估算高度，此刻的 scrollHeight 还会长大，
-        // 按它定位会偏早、随后上报还会把用户存的百分比覆盖掉。
-        // 所以改为等文档高度连续三次稳定 —— 与 restoreAnchor 的收敛判据一致。
+        // 小说的 content-visibility 估算高度在用户滚动前根本不变，所以「高度稳定」
+        // 对它是空护栏（首帧即稳定）。真正的判据是「按目标百分比滚过去之后，
+        // 换算回来的锚点位置也稳定下来」—— 与 restoreAnchor 一样先滚再收敛。
         var max = document.body.scrollHeight - window.innerHeight;
+        if(max > 0) window.scrollTo(0, max * p);
+        var idx = effectiveAnchorIndex();
         var settled = anchorTotal() > 0 && anchorsSettled();
-        if(!settled || lastMax === null || Math.abs(max - lastMax) >= 2) stable = 0;
+        if(!settled || lastMax === null || lastMax !== idx) stable = 0;
         else stable++;
-        lastMax = max;
+        lastMax = idx;
         if(stable < 3 && nowMs() < deadline){
             // 漫画 / PDF 要主动催加载：光等不会让剩下的页自己进 DOM，
             // anchorsSettled() 就永远为假，旧百分比记录既恢复不了也迁移不了。
@@ -1079,7 +1083,6 @@ function restoreScrollPercent(p){
             return;
         }
         var ready = stable >= 3;
-        if(max > 0) window.scrollTo(0, max * p);
         // 必须解锁：__injectReader 在 DATA.restore 时设了 restoringPage，
         // 这条旧记录分支不解锁的话整个会话都不再上报进度，旧记录也永远迁不到新语义。
         restoringPage = false;

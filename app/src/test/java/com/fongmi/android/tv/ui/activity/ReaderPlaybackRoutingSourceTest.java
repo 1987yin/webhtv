@@ -150,6 +150,10 @@ public class ReaderPlaybackRoutingSourceTest {
         // 否则上一章的慢加载会把新章内容整段替换成 pdf-error，或把旧 doc 塞进新章
         assertEquals("both getDocument handlers must be generation-guarded",
                 3, countOccurrences(source, "if(gen !== pdfGen) return;"));
+        // 遮罩是全屏 z-index:10002，只有这里会隐藏它：放在代号判定之后，
+        // 跨类型换章时旧章早退，遮罩就永久盖在新章上吞掉所有点击
+        assertTrue("the loading overlay must be hidden before the generation check",
+                source.contains("showLoading(false);") && source.contains("if(gen !== pdfGen) return;"));
         // renderPdf 只在新章也是 PDF 时才调，从 PDF 切到漫画要靠 renderContent 作废代号
         assertTrue("switching away from a PDF chapter must invalidate its callbacks",
                 source.contains("pdfGen++;") && source.contains("pdfDoc = null; pdfAppendedCount = 0;"));
@@ -255,8 +259,10 @@ public class ReaderPlaybackRoutingSourceTest {
         // max>0 挡不住：min-height:105vh 让它首帧就成立，上报会把 90% 的进度覆盖成章首
         // anchorsSettled() 对小说恒为真（段落一次性建完），首帧就放行等于没有护栏；
         // content-visibility 让屏外段落先按 30px 估算，此刻 scrollHeight 还会长大
-        assertTrue("the percent restore must wait for the document height to settle",
-                html.contains("if(!settled || lastMax === null || Math.abs(max - lastMax) >= 2) stable = 0;"));
+        // 小说的 content-visibility 估算高度在滚动前不变，「高度稳定」对它是空护栏；
+        // 判据必须是「滚过去之后换算回来的锚点也稳定」
+        assertTrue("the percent restore must converge on the resolved anchor",
+                html.contains("if(!settled || lastMax === null || lastMax !== idx) stable = 0;"));
         assertTrue("it must require three stable measurements like restoreAnchor",
                 html.contains("var ready = stable >= 3;"));
         assertTrue("the percent restore must be invalidated when content is replaced",
@@ -308,8 +314,8 @@ public class ReaderPlaybackRoutingSourceTest {
                 router.contains("readerClosedAt = System.currentTimeMillis();"));
         assertFalse("the pending-tag TTL must not depend on wall-clock time",
                 router.contains("pendingChapterAt = System.currentTimeMillis();"));
-        assertEquals("both timestamps and both comparisons must use elapsedRealtime",
-                4, countOccurrences(router, "android.os.SystemClock.elapsedRealtime()"));
+        assertEquals("every timestamp and comparison must use elapsedRealtime",
+                5, countOccurrences(router, "android.os.SystemClock.elapsedRealtime()"));
     }
 
     /**
@@ -338,13 +344,17 @@ public class ReaderPlaybackRoutingSourceTest {
                 router.contains("pendingChapters.remove(token);"));
         // 条目留到下次开阅读器会累积，反复开关后任意一次合法打开都会撞上其中一条被误吞；
         // 关闭时清表并用一次性标记把「那一轮的迟到结果」拦一次
-        assertTrue("closing must not leave entries behind",
-                router.contains("pendingChapters.clear();")
-                        && router.contains("staleCloseGen = readerCloseGen;"));
-        assertTrue("the one-shot marker must be consumed",
-                router.contains("if (staleCloseGen == gen) {"));
-        // 送达一条结果只结清它自己那次，整表清空会抹掉另一次仍在途的请求
-        assertTrue("delivering one result must not clear other in-flight requests",
+        // 关闭时只剪过期条目：整表清空会让在途结果失去拦截依据（返回键重新失效），
+        // 一次性标记又会无条件吞掉关闭后的第一次合法打开
+        assertTrue("closing must only prune expired entries",
+                router.contains("if (now - e.getValue()[1] > PENDING_CHAPTER_TTL) pendingChapters.remove(e.getKey());"));
+        assertFalse("no one-shot marker may swallow a legitimate open",
+                router.contains("staleCloseGen"));
+        // 送达按令牌结清：整表清空或猜「最早那条」都会删错，让另一次在途请求失去拦截
+        assertTrue("delivery must revoke by token",
+                router.contains("public static void clearChapterRequest(long token)")
+                        && reader.contains("NovelRouter.clearChapterRequest(token);"));
+        assertFalse("the router must not guess which request was delivered",
                 router.contains("if (oldest != null) pendingChapters.remove(oldest);"));
         assertTrue("a delivered result must close out the in-flight request",
                 reader.contains("hostChapterToken = 0L;"));
@@ -360,21 +370,19 @@ public class ReaderPlaybackRoutingSourceTest {
     @Test
     public void deliveredChapterResultClearsThePendingTag() throws Exception {
         String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
+        String reader = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
 
-        assertTrue("a clear helper must exist", router.contains("private static void clearChapterRequest()"));
-        // 三个入口在把结果交给前台阅读器之前都要清，漏一个就会吞掉后续的合法打开
-        assertEquals("every foreground-delivery path must clear the pending tag",
-                3, countOccurrences(router, "            clearChapterRequest();"));
-        // 换行符按仓库检出方式可能是 CRLF，统一后再比对顺序
-        String normalized = router.replace("\r\n", "\n");
-        for (String delivery : new String[] {
-                "clearChapterRequest();\n            reader.onEpisodeResolved(kind, result.getRealUrl()",
-                "clearChapterRequest();\n            reader.onEpisodeResolved(kind, payload, title);",
-                "clearChapterRequest();\n            reader.onEpisodeResolved(kind, payload, extractTitle(payload));"
-        }) {
-            assertTrue("the tag must be cleared immediately before delivering: " + delivery,
-                    normalized.contains(delivery));
-        }
+        assertTrue("a token-scoped clear helper must exist",
+                router.contains("public static void clearChapterRequest(long token)"));
+        // 结清必须由持有令牌的阅读器发起：router 在送达点猜哪一条或整表清空都会删错，
+        // 让另一次仍在途的请求失去拦截依据（返回键重新失效）
+        assertFalse("the router must not clear on the delivery paths",
+                router.contains("            clearChapterRequest();"));
+        assertTrue("the reader must clear its own request on delivery",
+                reader.contains("NovelRouter.clearChapterRequest(token);"));
+        // 只有宿主结果才结清；自解析路径没发过请求，不能动在途令牌
+        assertTrue("only a host result may clear the token",
+                reader.contains("if (fromHost) {"));
     }
 
     /**

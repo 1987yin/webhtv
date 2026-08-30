@@ -122,7 +122,8 @@ public final class NovelRouter {
         // 阅读器已在前台 → 回传解析结果，不重复启动（切换章节场景）
         WebReaderActivity reader = currentReader;
         if (reader != null && !reader.isFinishing() && !reader.isDestroyed()) {
-            clearChapterRequest();
+            // 不在这里清表：结清哪一条只有阅读器知道（它持有本次请求的令牌），
+            // 在这里猜或整表清空都会抹掉另一次仍在途的请求，返回键会重新失效。
             reader.onEpisodeResolved(kind, result.getRealUrl(), extractTitle(result.getRealUrl()));
             return true;
         }
@@ -237,7 +238,8 @@ public final class NovelRouter {
         // 阅读器已在前台 → 回传解析结果，不重复启动（切换章节场景）
         WebReaderActivity reader = currentReader;
         if (reader != null && !reader.isFinishing() && !reader.isDestroyed()) {
-            clearChapterRequest();
+            // 不在这里清表：结清哪一条只有阅读器知道（它持有本次请求的令牌），
+            // 在这里猜或整表清空都会抹掉另一次仍在途的请求，返回键会重新失效。
             reader.onEpisodeResolved(kind, payload, title);
             return true;
         }
@@ -463,13 +465,6 @@ public final class NovelRouter {
      */
     private static final java.util.concurrent.ConcurrentHashMap<Long, long[]> pendingChapters = new java.util.concurrent.ConcurrentHashMap<>();
 
-    /**
-     * 关闭时把「作废了在途请求」这件事记在这里：值为关闭后的新代号。
-     *
-     * 条目在关闭时就清掉（否则反复开关会累积、误吞后续合法打开），但那些请求的结果
-     * 还在路上，仍要拦一次。用一个标记表示「本轮之前有请求被作废」，判过即清。
-     */
-    private static volatile long staleCloseGen = -1L;
 
     /**
      * 在途标记的有效期。
@@ -489,11 +484,13 @@ public final class NovelRouter {
         // 之后所有阅读打开都被当成残留回调拦掉。
         readerClosedAt = android.os.SystemClock.elapsedRealtime();
         readerCloseGen++;
-        // 关闭这一刻，表里所有请求都已属于「上一轮」，它们的结果由 staleCloseGen
-        // 统一拦下，条目本身不必留。留着的话反复开关会越积越多，
-        // 之后任意一次合法打开都会撞上其中一条而被误吞。
-        pendingChapters.clear();
-        staleCloseGen = readerCloseGen;
+        // 顺手剪掉已过期的条目。不能整表清空：表里的请求结果还在路上，
+        // 清了就没有依据拦它们，返回键会重新失效。也不能只靠一次性标记 ——
+        // 那会无条件吞掉关闭后的第一次合法打开。
+        long now = android.os.SystemClock.elapsedRealtime();
+        for (java.util.Map.Entry<Long, long[]> e : pendingChapters.entrySet()) {
+            if (now - e.getValue()[1] > PENDING_CHAPTER_TTL) pendingChapters.remove(e.getKey());
+        }
     }
 
     /** 在途切章请求的令牌，每次发起自增；撤销时凭它确认归属。 */
@@ -519,16 +516,16 @@ public final class NovelRouter {
      * shouldSuppressRelaunch()。不清的话标记会一直留着，等用户关掉阅读器
      * 再主动打开另一本书时，它会把这次合法打开误判成过期结果而整个吞掉。
      */
-    private static void clearChapterRequest() {
-        // 送达一条结果只结清它自己那次请求。整表清空会把另一次仍在途的请求也抹掉，
-        // 它的迟到结果就不再被拦，用户返回后又被重新拉起阅读器。
-        // 送达路径拿不到令牌，只能按「最早发起的那条」结清 —— 结果按发起顺序回来。
-        Long oldest = null;
-        long oldestAt = Long.MAX_VALUE;
-        for (java.util.Map.Entry<Long, long[]> e : pendingChapters.entrySet()) {
-            if (e.getValue()[1] < oldestAt) { oldestAt = e.getValue()[1]; oldest = e.getKey(); }
-        }
-        if (oldest != null) pendingChapters.remove(oldest);
+    /**
+     * 结清一条已送达的在途请求。
+     *
+     * 只能按令牌删，不能整表清空也不能猜「最早那条」：
+     * 用户连点两章时 12 章先发、13 章后发，13 章可能先回；整表清空会把 12 章的记录
+     * 一起抹掉，猜最早又会删错那一条 —— 两种做法都让 12 章的迟到结果不再被拦，
+     * 用户返回后阅读器又被压回播放器上面（返回键失效）。
+     */
+    public static void clearChapterRequest(long token) {
+        if (token != 0) pendingChapters.remove(token);
     }
 
     /**
@@ -554,11 +551,6 @@ public final class NovelRouter {
      */
     private static boolean isStaleChapterResult() {
         long gen = readerCloseGen;
-        // 关闭时作废过在途请求 → 这一条就是它的结果，拦下并清掉标记（一次性）
-        if (staleCloseGen == gen) {
-            staleCloseGen = -1L;
-            return true;
-        }
         if (pendingChapters.isEmpty()) return false;
         long now = android.os.SystemClock.elapsedRealtime();
         boolean stale = false;
@@ -631,7 +623,8 @@ public final class NovelRouter {
         // 阅读器已在前台 → 回传解析结果，不重复启动（解决「切换章节回不到播放器」）
         WebReaderActivity reader = currentReader;
         if (reader != null && !reader.isFinishing() && !reader.isDestroyed()) {
-            clearChapterRequest();
+            // 不在这里清表：结清哪一条只有阅读器知道（它持有本次请求的令牌），
+            // 在这里猜或整表清空都会抹掉另一次仍在途的请求，返回键会重新失效。
             reader.onEpisodeResolved(kind, payload, extractTitle(payload));
             return true;
         }

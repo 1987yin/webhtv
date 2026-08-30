@@ -1362,9 +1362,15 @@ public class WebReaderActivity extends AppCompatActivity {
      */
     private void onEpisodeResolved(int newKind, String payload, String title, boolean fromHost) {
         if (webView == null) return;
-        // 宿主结果已到达，这次请求收尾：之后无关路径触发的 chapterFailed 不该再去
+        // 宿主结果已到达，按令牌结清这次请求：之后无关路径触发的 chapterFailed 不该再去
         // 撤销标记（那时标记可能属于另一次新发出的请求）。
-        if (fromHost) hostChapterToken = 0L;
+        // 只结清自己那一条 —— 用户连点两章时另一条可能仍在途，抹掉它的记录会让
+        // 它的迟到结果不再被拦，用户返回后阅读器又被压回播放器上面。
+        if (fromHost) {
+            long token = hostChapterToken;
+            hostChapterToken = 0L;
+            NovelRouter.clearChapterRequest(token);
+        }
         // 漫画分支要下载 PDF（网络），不能在主线程做
         RESOLVE_EXECUTOR.execute(() -> {
             if (isFinishing() || isDestroyed()) return;
