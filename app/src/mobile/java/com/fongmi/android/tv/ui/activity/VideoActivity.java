@@ -2409,16 +2409,19 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
      * 含 parse=1 二次解析）。解析结果经 NovelRouter.routeReaderEngine 回传给前台阅读页。
      */
     @Override
-    public void labPlayEpisode(String chapterUrl) {
-        if (chapterUrl == null || chapterUrl.isEmpty()) return;
+    public boolean labPlayEpisode(String chapterUrl) {
+        if (chapterUrl == null || chapterUrl.isEmpty()) return false;
         Flag flag = getFlag();
-        if (flag == null || flag.getEpisodes() == null) return;
+        if (flag == null || flag.getEpisodes() == null) return false;
         for (Episode ep : flag.getEpisodes()) {
             if (chapterUrl.equals(ep.getUrl())) {
                 getPlayer(flag, ep);
-                return;
+                return true;
             }
         }
+        // 章节不在当前线路：阅读器的章节表跨线路合并，这种情况静默返回，
+        // 告知调用方没有发出请求，让它立刻收尾在途标记。
+        return false;
     }
 
     @Override

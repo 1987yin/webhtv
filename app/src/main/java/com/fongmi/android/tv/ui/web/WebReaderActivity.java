@@ -173,7 +173,7 @@ public class WebReaderActivity extends AppCompatActivity {
      * 切章 B 在途时切章 C 失败，不能把 B 的标记一起抹掉，否则 B 的迟到结果不再被拦，
      * 用户返回后又会被重新拉起阅读器。
      */
-    private long hostChapterToken = 0L;
+    private volatile long hostChapterToken = 0L;
 
     /** 待恢复的章节内锚点与总数（用完置 0）。 */
     private long restoreAnchor = 0;
@@ -1176,7 +1176,8 @@ public class WebReaderActivity extends AppCompatActivity {
     /** 换章：HTML 点目录时回调。本地模式读目录章节，在线模式自行解析（无播放器时也能切章）。 */
     @JavascriptInterface
     public void loadChapter(String chapterUrl) {
-        if (TextUtils.isEmpty(chapterUrl)) { chapterFailed(); return; }
+        // 空 URL 与本次宿主请求无关：不能让它撤销在途标记（会放行迟到结果、返回键失效）
+        if (TextUtils.isEmpty(chapterUrl)) { chapterFailed(0L); return; }
         runOnUiThread(() -> {
             if (!localPath.isEmpty() && isLocalDir(chapterUrl)) {
                 loadLocalChapter(chapterUrl);
@@ -1191,8 +1192,12 @@ public class WebReaderActivity extends AppCompatActivity {
             NovelReaderHost h = NovelRouter.getHost();
             // 记下本次切章所属的关闭代号：用户点了下一章又马上返回时，爬虫几秒后才回的结果
             // 会落在 1500ms 静默期之外，靠代号比对才能认出它已过期，不该再拉起阅读器。
-            if (h != null) { hostChapterToken = NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }
-            else chapterFailedWithToast();
+            if (h == null) { chapterFailedWithToast(); return; }
+            long token = NovelRouter.noteChapterRequest();
+            hostChapterToken = token;
+            // 宿主只在当前线路里找章节，找不到会静默返回 —— 立刻撤销标记并报失败，
+            // 否则标记要等 45s 才过期，期间用户主动打开别的书会被误吞。
+            if (!h.labPlayEpisode(chapterUrl)) chapterFailedWithToast(token);
         });
     }
 
@@ -1201,16 +1206,20 @@ public class WebReaderActivity extends AppCompatActivity {
      * 少了这一步，HTML 会一直停在「切章中」，之后所有阅读进度都不再上报。
      */
     private void chapterFailed() {
+        chapterFailed(0L);
+    }
+
+    /**
+     * 通知 HTML 本次切章失败，并按令牌撤销在途标记。
+     *
+     * @param token 本次失败所属的宿主请求令牌；0 表示这次失败与任何宿主请求无关
+     *              （空 URL、注入异常等），此时绝不能撤 —— 那会把另一次仍在途的请求的
+     *              标记抹掉，它的迟到结果就不再被拦，用户返回后又被重新拉起阅读器。
+     */
+    private void chapterFailed(long token) {
         if (webView == null) return;
-        // 本次切章已判失败 → 撤掉「自己刚发出的」在途标记。宿主解析有多条静默失败路径
-        // 不会回到 NovelRouter（章节属于另一条线路、playerContent 报错、解析出来是普通
-        // 视频地址），不撤的话标记会一直留着，把用户之后主动打开的书误判成过期结果吞掉。
-        //
-        // 只撤自己发出的那一次：chapterFailed 还会被空 URL、注入异常等与宿主请求无关的
-        // 路径调用，无条件撤会把另一次仍在途的请求的标记抹掉，重新打开返回键失效的缺口。
-        if (hostChapterToken != 0) {
-            long token = hostChapterToken;
-            hostChapterToken = 0L;
+        if (token != 0) {
+            if (hostChapterToken == token) hostChapterToken = 0L;
             NovelRouter.abandonChapterRequest(token);
         }
         runOnUiThread(() -> {
@@ -1222,8 +1231,12 @@ public class WebReaderActivity extends AppCompatActivity {
     }
 
     private void chapterFailedWithToast() {
+        chapterFailedWithToast(0L);
+    }
+
+    private void chapterFailedWithToast(long token) {
         Toast.makeText(this, R.string.reader_chapter_failed, Toast.LENGTH_SHORT).show();
-        chapterFailed();
+        chapterFailed(token);
     }
 
     /**
@@ -1265,8 +1278,13 @@ public class WebReaderActivity extends AppCompatActivity {
                 // 这条 parse=1 兜底才是实际会走到的宿主解析路径（loadChapter 里那条在
                 // siteKey 非空时不可达，而所有真实启动入口都会带 siteKey）。它要走二次解析、
                 // 耗时最长，最容易掉出关闭静默期，代号标记必须打在这里。
-                if (fh && h != null) { hostChapterToken = NovelRouter.noteChapterRequest(); h.labPlayEpisode(chapterUrl); }
-                else chapterFailedWithToast();
+                if (fh && h != null) {
+                    long token = NovelRouter.noteChapterRequest();
+                    hostChapterToken = token;
+                    if (!h.labPlayEpisode(chapterUrl)) chapterFailedWithToast(token);
+                } else {
+                    chapterFailedWithToast();
+                }
                 // 解析失败：放开占位层，并丢掉待恢复位置 —— 否则它会残留到用户下一次手动切章，
                 // 把上一本/上一章的锚点套用到新章上（章短时直接跳到章末）。
                 restoreAnchor = 0;
