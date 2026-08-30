@@ -1053,6 +1053,27 @@ function __restoreScroll(pos, total){
     restoreAnchor(Math.round(p));
 }
 
+/**
+ * 用户主动触摸/滚轮/按键后立即放弃恢复。
+ *
+ * 百分比恢复与锚点恢复都会在收敛期反复 scrollTo；漫画/PDF 慢源可能持续数秒乃至 60s。
+ * 若用户开始手动阅读却继续把视口拉回旧位置，体验等同于页面卡死。用户交互的当前位置
+ * 比旧记录优先，作废循环、解锁上报，让下一次 scroll debounce 写入用户真实位置。
+ */
+function cancelRestoreForUser(){
+    if(!restoringPage) return;
+    restoreGen++;
+    restoringPage = false;
+    updateProgressBar();
+    reportProgress();
+}
+window.addEventListener('touchstart', cancelRestoreForUser, {passive:true});
+window.addEventListener('pointerdown', cancelRestoreForUser, {passive:true});
+window.addEventListener('wheel', cancelRestoreForUser, {passive:true});
+window.addEventListener('keydown', function(e){
+    if(e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'PageUp' || e.key === 'PageDown' || e.key === ' ') cancelRestoreForUser();
+});
+
 /** 旧记录兼容：按章节内滚动百分比定位。 */
 function restoreScrollPercent(p){
     // 代号：内容一旦被替换（切章 / 重新注入），本次恢复立即作废，
