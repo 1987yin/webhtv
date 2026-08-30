@@ -339,6 +339,11 @@ function renderContent(){
     // effectiveAnchorIndex() 会在 total<=0 处早退，不经过 currentAnchorIndex()
     // 的归零短路 —— 上一章的高位值会残留下来，把新章第 1 页记成上一章的位置。
     lastAnchorIndex = 0;
+    // PDF 代号在这里也要自增：renderPdf() 只在新章还是 PDF 时才调用，
+    // 从 PDF 切到漫画时上一章的 pageSettled 仍会跑，把 pdfAppendedCount 加到
+    // numPages 后调 appendChapterNav()，翻页按钮就被插到漫画第 5 张图后面。
+    pdfGen++;
+    pdfDoc = null; pdfAppendedCount = 0;
     var r = document.getElementById('reader');
     r.innerHTML = '';
     navAppended = false;
@@ -510,7 +515,12 @@ function renderPdf(){
     if(!DATA.pdfFile){ r.innerHTML = '<div class="pdf-error">未找到 PDF 文件</div>'; return; }
     if(!window.pdfjsLib){ r.innerHTML = '<div class="pdf-error">PDF 组件加载失败</div>'; return; }
     showLoading(true);
+    // getDocument 的两个回调也必须带代号：#reader 是所有章节共用的容器，
+    // 上一章的 PDF 慢加载在用户已切到别章后完成/失败时，会把新章的内容整段替换掉
+    // （失败分支写 pdf-error）或把旧章的 canvas 与 pdfDoc 塞进新章。
+    var gen = pdfGen;
     pdfjsLib.getDocument(DATA.pdfFile).promise.then(function(doc){
+        if(gen !== pdfGen) return;
         pdfDoc = doc;
         showLoading(false);
         renderPdfMore();
@@ -518,6 +528,7 @@ function renderPdf(){
         // 那一刻的上报会被 ReaderHistory 丢掉，所以这里补一次。
         reportProgress();
     }).catch(function(e){
+        if(gen !== pdfGen) return;
         showLoading(false);
         // 用 textContent：本地模式下 DATA.pdfFile 是用户真实路径，
         // pdf.js 会把它拼进异常消息，走 innerHTML 等于把文件名当 HTML 执行。
@@ -1041,24 +1052,33 @@ function __restoreScroll(pos, total){
 
 /** 旧记录兼容：按章节内滚动百分比定位。 */
 function restoreScrollPercent(p){
-    var tries = 0;
+    // 代号：内容一旦被替换（切章 / 重新注入），本次恢复立即作废，
+    // 否则它会继续对新章 scrollTo，并把新章的进度按旧百分比写掉。
+    var gen = ++restoreGen;
+    restoringPage = true;
     // 预算给足：漫画要一批批（BATCH 张）催到全部进 DOM 才算排版完，20 次×100ms 不够
     var deadline = nowMs() + 60000;
+    var lastMax = null, stable = 0;
     (function seek(){
-        // 判「内容已排版」不能用 max>0：#reader 的 min-height:105vh 让 max 恒有约 5vh，
-        // 那个条件首帧就成立，滚过去等于按未排版的高度定位，随后上报还会把用户存的
-        // 百分比（如 90%）覆盖成章首且不可恢复。改为等锚点真正就位。
-        var ready = anchorTotal() > 0 && anchorsSettled();
-        if(!ready && nowMs() < deadline){
+        if(gen !== restoreGen) return;
+        // 判「内容已排版」不能只看 anchorsSettled()：它对小说恒为真（段落一次性建完），
+        // 而 content-visibility 让屏外段落先按 30px 估算高度，此刻的 scrollHeight 还会长大，
+        // 按它定位会偏早、随后上报还会把用户存的百分比覆盖掉。
+        // 所以改为等文档高度连续三次稳定 —— 与 restoreAnchor 的收敛判据一致。
+        var max = document.body.scrollHeight - window.innerHeight;
+        var settled = anchorTotal() > 0 && anchorsSettled();
+        if(!settled || lastMax === null || Math.abs(max - lastMax) >= 2) stable = 0;
+        else stable++;
+        lastMax = max;
+        if(stable < 3 && nowMs() < deadline){
             // 漫画 / PDF 要主动催加载：光等不会让剩下的页自己进 DOM，
             // anchorsSettled() 就永远为假，旧百分比记录既恢复不了也迁移不了。
             if(DATA.kind === 3) renderPdfMore();
             else if(DATA.kind !== 1) loadMoreComic();
-            tries++;
             setTimeout(seek, 60);
             return;
         }
-        var max = document.body.scrollHeight - window.innerHeight;
+        var ready = stable >= 3;
         if(max > 0) window.scrollTo(0, max * p);
         // 必须解锁：__injectReader 在 DATA.restore 时设了 restoringPage，
         // 这条旧记录分支不解锁的话整个会话都不再上报进度，旧记录也永远迁不到新语义。

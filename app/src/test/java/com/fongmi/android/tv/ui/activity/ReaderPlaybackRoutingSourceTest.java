@@ -146,6 +146,13 @@ public class ReaderPlaybackRoutingSourceTest {
         assertTrue("stale render callbacks must not inflate the next chapter's count",
                 source.contains("var gen = pdfGen;")
                         && source.contains("if(gen !== pdfGen) return;"));
+        // #reader 是所有章节共用的容器：getDocument 的成功/失败回调也必须带代号，
+        // 否则上一章的慢加载会把新章内容整段替换成 pdf-error，或把旧 doc 塞进新章
+        assertEquals("both getDocument handlers must be generation-guarded",
+                3, countOccurrences(source, "if(gen !== pdfGen) return;"));
+        // renderPdf 只在新章也是 PDF 时才调，从 PDF 切到漫画要靠 renderContent 作废代号
+        assertTrue("switching away from a PDF chapter must invalidate its callbacks",
+                source.contains("pdfGen++;") && source.contains("pdfDoc = null; pdfAppendedCount = 0;"));
         // fulfillment 里同步抛错不会被同一个 then 的 rejection 处理器捕获
         assertTrue("a throw inside the fulfillment handler must still count",
                 source.contains("} catch(e){") && source.contains("pageSettled();"));
@@ -174,9 +181,9 @@ public class ReaderPlaybackRoutingSourceTest {
         assertTrue("closing the reader must bump a generation counter",
                 router.contains("readerCloseGen++;"));
         assertTrue("a chapter request must record the generation it belongs to",
-                router.contains("pendingChapterGen = readerCloseGen;"));
+                router.contains("pendingChapters.put(token, new long[]{readerCloseGen,"));
         assertTrue("a stale generation must be detected",
-                router.contains("return gen != readerCloseGen;"));
+                router.contains("if (v[0] != gen) { pendingChapters.remove(e.getKey()); stale = true; }"));
         // 三个拉起阅读器的入口都必须过这道闸，只改一个仍会漏。
         // 只数 `if (...)` 调用点，避免把方法定义和注释里的提及也算进来。
         assertEquals("every relaunch site must consult the suppression guard",
@@ -246,8 +253,14 @@ public class ReaderPlaybackRoutingSourceTest {
                 html.indexOf("restoringPage = false;", percentFn) > percentFn
                         && html.indexOf("restoringPage = false;", percentFn) < html.indexOf("function restoreAnchor(index)"));
         // max>0 挡不住：min-height:105vh 让它首帧就成立，上报会把 90% 的进度覆盖成章首
-        assertTrue("the percent restore must wait for a real layout before reporting",
-                html.contains("var ready = anchorTotal() > 0 && anchorsSettled();"));
+        // anchorsSettled() 对小说恒为真（段落一次性建完），首帧就放行等于没有护栏；
+        // content-visibility 让屏外段落先按 30px 估算，此刻 scrollHeight 还会长大
+        assertTrue("the percent restore must wait for the document height to settle",
+                html.contains("if(!settled || lastMax === null || Math.abs(max - lastMax) >= 2) stable = 0;"));
+        assertTrue("it must require three stable measurements like restoreAnchor",
+                html.contains("var ready = stable >= 3;"));
+        assertTrue("the percent restore must be invalidated when content is replaced",
+                html.contains("var gen = ++restoreGen;") && html.contains("restoringPage = true;"));
         assertTrue("it must not report before the layout is ready",
                 html.contains("if(ready) reportProgress();"));
         // 漫画一批批懒加载，光等不会让剩下的页进 DOM，anchorsSettled 永远为假 ——
@@ -315,8 +328,12 @@ public class ReaderPlaybackRoutingSourceTest {
         // 标记是全局单槽：撤销必须凭令牌确认归属，否则切章 C 失败会抹掉切章 B 的标记
         assertTrue("revocation must be gated on the token",
                 reader.contains("NovelRouter.abandonChapterRequest(token);"));
-        assertTrue("the router must ignore a revocation for a superseded request",
-                router.contains("if (token != pendingChapterToken) return;"));
+        // 单槽会被新请求覆盖：切章 C 立刻失败撤销后，切章 B 的记录随之消失，
+        // B 的迟到结果就不再被拦。改为每次请求各占一条。
+        assertTrue("in-flight requests must be tracked per token, not in a single slot",
+                router.contains("pendingChapters = new java.util.concurrent.ConcurrentHashMap<>()"));
+        assertTrue("revocation must remove only its own entry",
+                router.contains("pendingChapters.remove(token);"));
         assertTrue("a delivered result must close out the in-flight request",
                 reader.contains("hostChapterToken = 0L;"));
     }

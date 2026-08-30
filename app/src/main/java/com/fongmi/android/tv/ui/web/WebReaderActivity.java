@@ -1217,11 +1217,13 @@ public class WebReaderActivity extends AppCompatActivity {
      *              标记抹掉，它的迟到结果就不再被拦，用户返回后又被重新拉起阅读器。
      */
     private void chapterFailed(long token) {
-        if (webView == null) return;
+        // 撤销放在 webView 判空之前：撤的是 NovelRouter 的全局状态，
+        // 不该被本页的 view 引用是否还在决定（否则销毁中的页会留下永不清理的标记）。
         if (token != 0) {
             if (hostChapterToken == token) hostChapterToken = 0L;
             NovelRouter.abandonChapterRequest(token);
         }
+        if (webView == null) return;
         runOnUiThread(() -> {
             if (webView == null || isFinishing() || isDestroyed()) return;
             try {
@@ -1271,7 +1273,8 @@ public class WebReaderActivity extends AppCompatActivity {
                 if (isFinishing() || isDestroyed()) return;
                 if (fk != 0 && fp != null && !fp.isEmpty()) {
                     if (at >= 0) index = at;
-                    onEpisodeResolved(fk, fp, at >= 0 ? chapters.get(at).getName() : "");
+                    // 自解析成功：没经过宿主，不能动 hostChapterToken
+                    onEpisodeResolved(fk, fp, at >= 0 ? chapters.get(at).getName() : "", false);
                     return;
                 }
                 NovelReaderHost h = NovelRouter.getHost();
@@ -1349,10 +1352,19 @@ public class WebReaderActivity extends AppCompatActivity {
      * 把 novel:// / pics:// 解析成阅读数据注入 HTML。
      */
     public void onEpisodeResolved(int newKind, String payload, String title) {
+        onEpisodeResolved(newKind, payload, title, true);
+    }
+
+    /**
+     * @param fromHost 结果是否来自宿主解析。自解析（resolveChapterSelf 直接拿到内容）时传 false：
+     *                 那条路径没发过宿主请求，不能顺手把仍在途的宿主令牌丢掉 —— 丢了就再没有
+     *                 句柄去撤销它，只能等 45s TTL，期间用户主动打开别的书会被误吞。
+     */
+    private void onEpisodeResolved(int newKind, String payload, String title, boolean fromHost) {
         if (webView == null) return;
-        // 结果已到达，这次宿主请求收尾：之后无关路径触发的 chapterFailed 不该再去
+        // 宿主结果已到达，这次请求收尾：之后无关路径触发的 chapterFailed 不该再去
         // 撤销标记（那时标记可能属于另一次新发出的请求）。
-        hostChapterToken = 0L;
+        if (fromHost) hostChapterToken = 0L;
         // 漫画分支要下载 PDF（网络），不能在主线程做
         RESOLVE_EXECUTOR.execute(() -> {
             if (isFinishing() || isDestroyed()) return;
