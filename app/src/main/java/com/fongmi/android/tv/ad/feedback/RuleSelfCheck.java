@@ -27,8 +27,6 @@ final class RuleSelfCheck {
     private RuleSelfCheck() {
     }
 
-    /** 合成 manifest 每片额外占用的行数（EXTINF + URI），用于预判真实规模。 */
-    private static final int LINES_PER_SEGMENT_SYNTHETIC = 2;
     /**
      * 真实 manifest 每片的行数上界。除 EXTINF + URI 外，常见还带
      * {@code #EXT-X-KEY}、{@code #EXT-X-PROGRAM-DATE-TIME} 与
@@ -44,6 +42,8 @@ final class RuleSelfCheck {
     private static final int LINES_PER_SEGMENT_REAL = 5;
     /** 与 {@code HlsManifestCleaner.MAX_MANIFEST_LINES} 一致。 */
     private static final int MAX_MANIFEST_LINES = 20_000;
+    /** 为真实 manifest 的头部标签预留的行数余量。 */
+    private static final int MANIFEST_HEADER_LINES = 16;
 
     /**
      * @return 载荷是否安全可落地
@@ -68,9 +68,13 @@ final class RuleSelfCheck {
         if (evidence.inside().isEmpty() || evidence.outside().isEmpty()) return false;
 
         // 真实 manifest 的行密度高于合成，按上界预判：若真实会因规模回退，
-        // 这条规则在播放时不会生效，不该保存。
+        // 这条规则在播放时不会生效，不该保存。除切片行外还要留出 header
+        // （#EXTM3U / #EXT-X-VERSION / #EXT-X-TARGETDURATION /
+        // #EXT-X-MEDIA-SEQUENCE / #EXT-X-ENDLIST 等）的余量，否则恰好卡在
+        // 边界的 playlist 会被放行而真实仍然回退。
         int total = evidence.inside().size() + evidence.outside().size();
-        if ((long) total * LINES_PER_SEGMENT_REAL > MAX_MANIFEST_LINES) return false;
+        if ((long) total * LINES_PER_SEGMENT_REAL + MANIFEST_HEADER_LINES
+                > MAX_MANIFEST_LINES) return false;
 
         List<SegmentFact> ordered = ordered(evidence);
         String base = SYNTHETIC_BASE_SCHEME + evidence.playlistHost() + "/index.m3u8";

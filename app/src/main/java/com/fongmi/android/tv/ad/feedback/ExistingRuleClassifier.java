@@ -44,9 +44,15 @@ public final class ExistingRuleClassifier {
             hostSuffixes = hostSuffixes == null ? List.of() : List.copyOf(hostSuffixes);
         }
 
-        /** 无编译产物的简化构造，仅用于诊断路径与测试。 */
-        public RuleState(String key, String id, String name, boolean enabled,
-                         boolean valid, List<String> hostSuffixes) {
+        /**
+         * 无编译产物的简化构造，仅用于诊断路径与测试。
+         *
+         * <p>刻意保持包级可见：生产代码必须走 7 参构造并提供编译产物，
+         * 否则 {@code findDisabledMatch} 会因无法自检而跳过该规则 ——
+         * 用它会静默关掉「启用已有规则」整条通道。
+         */
+        RuleState(String key, String id, String name, boolean enabled,
+                  boolean valid, List<String> hostSuffixes) {
             this(key, id, name, enabled, valid, hostSuffixes, null);
         }
     }
@@ -111,7 +117,6 @@ public final class ExistingRuleClassifier {
                 0.5f, RiskLevel.LOW, lines, RemediationKind.NONE);
     }
 
-    /** 找出一条覆盖本区间域名、有效但未启用的规则。 */
     /**
      * 找出一条覆盖本区间域名、有效但未启用的规则。
      *
