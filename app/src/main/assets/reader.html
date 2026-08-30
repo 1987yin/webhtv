@@ -970,14 +970,18 @@ function atDocumentEnd(){
 function effectiveAnchorIndex(){
     var total = anchorTotal();
     if(total <= 0) return 0;
+    var idx = Math.min(total - 1, currentAnchorIndex());   // 先算，保证 memo 始终被更新
     var els = anchorEls();
-    if(els.length >= total){
-        var last = els[total - 1].getBoundingClientRect();
-        // 上界一起判：往下滚过头后末锚点 bottom 会变成负数，只看 <= innerHeight
-        // 会把「读到中间」误判成「整章读完」。
-        if(last.bottom > 0 && last.bottom <= window.innerHeight) return total - 1;
+    // 已滚到文档末尾、且末锚点确实存在 → 视为读完本章。
+    // 不能只靠 currentAnchorIndex()：小说正文下方还有 140px 内边距 + 章节导航（约 287px），
+    // 末段底边永远进不了视口，历史列表就永远到不了 100%。
+    if(atDocumentEnd() && els.length >= total){
+        // 漫画 / PDF 额外要求末页真的有高度：图加载失败时高度恒为 0、不占空间，
+        // 文档底部会被「提前」达到，用户其实还没看到那些页，记成读完会让下次直接跳到章末。
+        // 小说段落受 content-visibility 影响高度恒为 0，无法这样判，只看是否到底。
+        if(DATA.kind === 1 || els[total - 1].getBoundingClientRect().height > 0) return total - 1;
     }
-    return Math.min(total - 1, currentAnchorIndex());
+    return idx;
 }
 
 function reportProgress(){

@@ -126,7 +126,17 @@ public class ReaderPlaybackRoutingSourceTest {
         // 小说正文下方还有 140px 内边距和章节导航，光靠 currentAnchorIndex 够不到最后一段，
         // 历史列表就永远到不了 100%
         assertTrue("a chapter read to its end must be able to record the final anchor",
-                source.contains("if(last.bottom > 0 && last.bottom <= window.innerHeight) return total - 1;"));
+                source.contains("if(atDocumentEnd() && els.length >= total){"));
+        // 漫画末页图加载失败时高度恒为 0、不占空间，文档底部会被提前达到；
+        // 只判「到底」会把用户还没看到的页记成读完，下次直接跳到章末
+        assertTrue("a comic must also require the final page to have real height",
+                source.contains("if(DATA.kind === 1 || els[total - 1].getBoundingClientRect().height > 0) return total - 1;"));
+        // memo 有副作用：文末分支提前 return 前必须先让 currentAnchorIndex() 跑过一次
+        int effFn = source.indexOf("function effectiveAnchorIndex()");
+        int memoUpdate = source.indexOf("Math.min(total - 1, currentAnchorIndex());", effFn);
+        int endBranch = source.indexOf("if(atDocumentEnd() && els.length >= total){", effFn);
+        assertTrue("the memo must be updated before the document-end shortcut returns",
+                memoUpdate > effFn && memoUpdate < endBranch);
     }
 
     /**
