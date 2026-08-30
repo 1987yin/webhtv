@@ -1042,12 +1042,22 @@ function __restoreScroll(pos, total){
 /** 旧记录兼容：按章节内滚动百分比定位。 */
 function restoreScrollPercent(p){
     var tries = 0;
+    // 预算给足：漫画要一批批（BATCH 张）催到全部进 DOM 才算排版完，20 次×100ms 不够
+    var deadline = nowMs() + 60000;
     (function seek(){
         // 判「内容已排版」不能用 max>0：#reader 的 min-height:105vh 让 max 恒有约 5vh，
         // 那个条件首帧就成立，滚过去等于按未排版的高度定位，随后上报还会把用户存的
         // 百分比（如 90%）覆盖成章首且不可恢复。改为等锚点真正就位。
         var ready = anchorTotal() > 0 && anchorsSettled();
-        if(!ready && tries++ < 20){ setTimeout(seek, 100); return; }
+        if(!ready && nowMs() < deadline){
+            // 漫画 / PDF 要主动催加载：光等不会让剩下的页自己进 DOM，
+            // anchorsSettled() 就永远为假，旧百分比记录既恢复不了也迁移不了。
+            if(DATA.kind === 3) renderPdfMore();
+            else if(DATA.kind !== 1) loadMoreComic();
+            tries++;
+            setTimeout(seek, 60);
+            return;
+        }
         var max = document.body.scrollHeight - window.innerHeight;
         if(max > 0) window.scrollTo(0, max * p);
         // 必须解锁：__injectReader 在 DATA.restore 时设了 restoringPage，

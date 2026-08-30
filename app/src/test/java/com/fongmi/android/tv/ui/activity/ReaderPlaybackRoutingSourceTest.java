@@ -250,6 +250,13 @@ public class ReaderPlaybackRoutingSourceTest {
                 html.contains("var ready = anchorTotal() > 0 && anchorsSettled();"));
         assertTrue("it must not report before the layout is ready",
                 html.contains("if(ready) reportProgress();"));
+        // 漫画一批批懒加载，光等不会让剩下的页进 DOM，anchorsSettled 永远为假 ——
+        // 旧百分比记录既恢复不了也迁移不了，必须主动催加载
+        assertTrue("the percent restore must drive lazy loading for comics and PDFs",
+                html.contains("if(DATA.kind === 3) renderPdfMore();")
+                        && html.contains("else if(DATA.kind !== 1) loadMoreComic();"));
+        assertTrue("the percent restore budget must use the monotonic clock",
+                html.contains("var deadline = nowMs() + 60000;"));
     }
 
     /**
