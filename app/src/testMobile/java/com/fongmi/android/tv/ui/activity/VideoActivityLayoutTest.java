@@ -12,10 +12,17 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -891,6 +898,106 @@ public class VideoActivityLayoutTest {
         assertTrue(sourcePath + " is missing showControl", showControl >= 0);
         assertTrue("short drama mode must keep the standard setting button visible while fullscreen", setting > shortDrama);
         assertTrue("short drama floating controls must include the standard setting button", dockedSetting > shortDramaViews);
+    }
+
+    @Test
+    public void mobileShortDramaDocksChangeSourceAndQuality() throws Exception {
+        // 反馈回归：短剧模式把整条 action 栏 GONE 掉，换源与画质只有搬进 dock 才可达，
+        // 否则短剧只能在选集里换线路(flag)，无法换站点、无法切画质。
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int views = source.indexOf("private View[] getShortDramaControlViews()");
+        assertTrue("getShortDramaControlViews must exist", views >= 0);
+        String body = source.substring(views, source.indexOf("\n    }", views));
+        // dock 里全是 48dp 图标，换源/画质/选集必须用专用 ImageView 入口，
+        // 不能直接搬 action 栏的 MaterialTextView，否则文字按钮与图标混排（见用户反馈截图）。
+        assertTrue("short drama dock must expose the change-source icon",
+                body.contains("mBinding.control.shortDramaChangeSource,"));
+        assertTrue("short drama dock must expose the quality icon",
+                body.contains("mBinding.control.shortDramaQuality,"));
+        assertFalse("short drama dock must not mix in action-bar text buttons",
+                body.contains("mBinding.control.action."));
+
+    }
+
+    @Test
+    public void mobileShortDramaPresentationSurvivesSourceChange() throws Exception {
+        // 反馈回归：换源(getDetail)会改写 intent 的 key，isShortDramaSource() 随之翻转为 false，
+        // 同一个竖屏会话中途退回长视频布局（右侧 dock 被拆、横屏 action 栏与全屏按钮露出）。
+        // 呈现形态与返回键行为必须读会话态，只有换到新条目(onNewIntent)才重置。
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+
+        assertTrue("session flag must latch once the site-based check passes",
+                source.contains("if (isShortDramaSource()) shortDramaSession = true;"));
+
+        // 重置必须发生在 onNewIntent 里（换到新条目），而不是随便某处 —— 只断言赋值语句存在太弱。
+        String newIntent = methodBody(source, "protected void onNewIntent(Intent intent)", "protected void initView");
+        assertTrue("switching to another title must reset the session presentation",
+                newIntent.contains("shortDramaSession = false;"));
+        // 短剧 -> 非短剧新条目时必须交还竖屏方向与全屏布局，否则长视频卡在竖屏全屏无法旋转
+        int restore = newIntent.indexOf("if (shortDramaSession && !isShortDramaSource()) exitFullscreen();");
+        int reset = newIntent.indexOf("shortDramaSession = false;");
+        assertTrue("leaving a short drama session must hand back the portrait fullscreen chrome", restore >= 0);
+        assertTrue("the fullscreen handback must read the flag before it is cleared", restore < reset);
+
+        int showControl = source.indexOf("private void showControl()");
+        assertTrue("showControl must exist", showControl >= 0);
+        assertTrue("showControl must drive chrome from the session state",
+                source.indexOf("boolean shortDrama = isShortDramaSession();", showControl) > showControl);
+        assertFalse("presentation call sites must not re-derive short drama from the current site",
+                source.contains("canShowPiP(isShortDramaSource())")
+                        || source.contains("isFullscreen() && isShortDramaSource()"));
+    }
+
+    @Test
+    public void mobileShortDramaQualityIconHasSingleSourceOfTruth() throws Exception {
+        // setQualityVisible 有 6 个调用点，其中多处显式传 false（未选中集数、切线路重置），
+        // 与 Result.isMulti() 的结论并不一致。dock 图标若自行推导 Result，就会与 action 栏
+        // 按钮状态相反。两者必须共用 setQualityVisible 记下的同一个结论。
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+
+        String setter = methodBody(source, "private void setQualityVisible(boolean visible)", "private void updateActionQuality");
+        assertTrue("setQualityVisible must record its verdict for the dock icon to reuse",
+                setter.contains("mQualityVisible = visible;"));
+
+        String sync = methodBody(source, "private void syncShortDramaControlLayout(boolean shortDrama)", "private void dockShortDramaControls");
+        assertTrue("the docked quality icon must reuse the recorded verdict",
+                sync.contains("mBinding.control.shortDramaQuality.setVisibility(mQualityVisible ? View.VISIBLE : View.GONE);"));
+        // 注释里会提到 isMulti() 来解释为何不用它，所以先剥掉注释再断言
+        String syncCode = sync.replaceAll("(?m)//.*$", "");
+        assertFalse("the docked quality icon must not re-derive visibility from the player Result",
+                syncCode.contains("isMulti()") || syncCode.contains("isQualityAvailable()"));
+    }
+
+    @Test
+    public void mobileShortDramaRestoreIsIndependentOfDeclarationOrder() throws Exception {
+        // 同一容器现在有多个搬迁项（cast/keep/换源/画质/选集/设置同属顶部栏）。逐个「摘下并立刻插回」
+        // 会让后来者挤掉前者的位置，且 PlayerButtonSetting.applyOrder 可能已重排容器，
+        // 声明顺序不等于索引升序。还原必须先全部摘下、再按原始索引升序插回。
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int restore = source.indexOf("private void restoreShortDramaControls()");
+        assertTrue("restoreShortDramaControls must exist", restore >= 0);
+        String body = source.substring(restore, source.indexOf("\n    }", restore));
+
+        int detachLoop = body.indexOf("parent.removeView(item.view);");
+        int sort = body.indexOf("items.sort(Comparator.comparingInt(item -> item.index));");
+        int attachLoop = body.indexOf("item.parent.addView(item.view,");
+        assertTrue("restore must detach every docked view before re-attaching", detachLoop >= 0);
+        assertTrue("restore must re-attach in ascending original index order", sort > detachLoop);
+        assertTrue("restore must re-attach after sorting", attachLoop > sort);
+    }
+
+    @Test
+    public void mobileQualityButtonStaysGatedByMultiUrlResult() throws Exception {
+        // 画质入口只在站点返回多个播放地址时出现；短剧同走这条判定，
+        // 不能为了让按钮常驻而绕开 isMulti()，否则会弹出只有一个选项的空面板。
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        assertTrue("quality visibility must stay driven by Url.isMulti()",
+                source.contains("setQualityVisible(result.getUrl().isMulti());"));
     }
 
     @Test
@@ -3095,6 +3202,166 @@ public class VideoActivityLayoutTest {
         Path moduleRelative = Path.of("src", "mobile", "res");
         if (Files.exists(moduleRelative)) return moduleRelative;
         return Path.of("app", "src", "mobile", "res");
+    }
+
+    @Test
+    public void mobileVideoLayoutTreeHasNoConflictingDuplicateIds() throws Exception {
+        // 崩溃回归：activity_video.xml 与它 include 的布局属于同一棵视图树，ViewBinding.bind()
+        // 用 findChildViewById 按 id 查找并强转成声明处的类型。同名 id 指向不同控件类型时，
+        // 先命中的那个会被错误强转 —— 曾因新增 @id/quality(ImageView) 撞上详情页
+        // @id/quality(RecyclerView) 导致 VideoActivity 启动即 ClassCastException。
+        // 判定要贴合 findChildViewById 的真实语义：它返回「深度优先的第一个命中」。
+        // 所以同名 id 本身不危险 —— 危险的是某个 binding 根布局直接声明的 id，在它自己的
+        // inflate 顺序里被更早出现的 include 子树抢先命中且类型不同。
+        // 既有的 @id/video、@id/karaoke 声明在 include 之前，先命中的就是自己，因此安全；
+        // @id/prev、@id/next 分属两个各自独立的 binding 根，互不影响。
+        // 必须覆盖 layout 的所有配置变体：ViewBinding 为它们生成同一个 binding 类，
+        // bind() 在横屏/平板上跑的是另一份 XML，只扫 layout/ 会让变体里的撞名 id 完全没有防护。
+        int checked = 0;
+        for (Path variantDir : collectLayoutVariantDirs()) {
+            for (Path layout : collectVideoLayoutTree(variantDir)) {
+                List<String[]> flattened = flattenInflateOrder(layout, variantDir, new HashSet<>());
+                Map<String, String> firstType = new HashMap<>();
+                for (String[] entry : flattened) firstType.putIfAbsent(entry[0], entry[1]);
+                for (String[] declared : collectDirectIdTypes(layout, variantDir)) {
+                    assertEquals("@id/" + declared[0] + " declared in " + variantDir.getFileName() + "/" + layout.getFileName()
+                                    + " is shadowed by an earlier include with a different view type; "
+                                    + "ViewBinding.bind() will throw ClassCastException",
+                            declared[1], firstType.get(declared[0]));
+                }
+                checked++;
+            }
+        }
+        // 四个 activity_video 变体各自展开出多个布局，远多于 4；防止解析静默失效后测试空转
+        assertTrue("layout variants must all be traversed, only checked " + checked, checked > 12);
+    }
+
+    /** 所有含 activity_video.xml 的 layout 配置变体目录（layout / layout-land / layout-sw600dp / ...）。 */
+    private static List<Path> collectLayoutVariantDirs() throws Exception {
+        List<Path> dirs;
+        try (var stream = Files.list(findMobileResPath())) {
+            dirs = stream.filter(Files::isDirectory)
+                    .filter(path -> path.getFileName().toString().startsWith("layout"))
+                    .filter(path -> Files.exists(path.resolve("activity_video.xml")))
+                    .sorted()
+                    .collect(Collectors.toList());
+        }
+        assertFalse("no mobile layout variants with activity_video.xml found", dirs.isEmpty());
+        return dirs;
+    }
+
+    /** 按 inflate 顺序展开 include，返回 (id, 标签名) 序列，模拟 findChildViewById 的深度优先查找。 */
+    private static List<String[]> flattenInflateOrder(Path layout, Path variantDir, Set<String> guard) throws Exception {
+        List<String[]> flattened = new ArrayList<>();
+        if (layout == null || !guard.add(layout.toString())) return flattened;
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(false);
+        NodeList nodes = factory.newDocumentBuilder().parse(layout.toFile()).getElementsByTagName("*");
+        for (int i = 0; i < nodes.getLength(); i++) {
+            Element element = (Element) nodes.item(i);
+            if (element.getTagName().equals("include")) {
+                // include 自身的 android:id 会覆盖被包含布局的根 id，ViewBinding 也会为它生成字段，
+                // 所以要按 inflate 顺序先记下它，再展开子树。
+                // 类型必须取被包含布局的「根元素」：ViewBinding 生成的是该布局的 binding 类，
+                // 其 rootView 就是根元素类型（如 ViewControlVodBinding.rootView 是 RelativeLayout）。
+                // 不能用子树第一个带 id 的元素——根元素往往自己没有 id（view_progress 的根 FrameLayout
+                // 无 id），那样会错记成它的某个子控件类型。
+                String includeId = localId(element);
+                String included = element.getAttribute("layout");
+                int slash = included.indexOf('/');
+                Path target = slash >= 0 ? resolveLayout(included.substring(slash + 1), variantDir) : null;
+                if (includeId != null) {
+                    String rootType = rootTagOf(target);
+                    assertTrue("cannot resolve root element type of " + included, rootType != null);
+                    flattened.add(new String[]{includeId, rootType});
+                }
+                flattened.addAll(flattenInflateOrder(target, variantDir, guard));
+                continue;
+            }
+            String id = localId(element);
+            if (id != null) flattened.add(new String[]{id, element.getTagName()});
+        }
+        return flattened;
+    }
+
+    /**
+     * 只取本布局文件直接声明的 id 及其控件类型，即 ViewBinding 会为该布局生成的字段。
+     * <p>
+     * include 的 id 也要算进来：ViewBinding 同样为它生成字段，类型是被包含布局的根元素
+     * （bind() 内部会走 XxxBinding.bind(view) 把它强转成根元素类型）。漏掉它就意味着
+     * 「撞名方是 include 而非普通控件」的方向完全没有防护 —— 与曾导致启动崩溃的
+     * @id/quality 事故只差一个方向。
+     */
+    private static List<String[]> collectDirectIdTypes(Path layout, Path variantDir) throws Exception {
+        List<String[]> declared = new ArrayList<>();
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(false);
+        NodeList nodes = factory.newDocumentBuilder().parse(layout.toFile()).getElementsByTagName("*");
+        for (int i = 0; i < nodes.getLength(); i++) {
+            Element element = (Element) nodes.item(i);
+            String id = localId(element);
+            if (id == null) continue;
+            if (element.getTagName().equals("include")) {
+                String included = element.getAttribute("layout");
+                int slash = included.indexOf('/');
+                String rootType = rootTagOf(slash >= 0 ? resolveLayout(included.substring(slash + 1), variantDir) : null);
+                assertTrue("cannot resolve root element type of " + included, rootType != null);
+                declared.add(new String[]{id, rootType});
+                continue;
+            }
+            declared.add(new String[]{id, element.getTagName()});
+        }
+        return declared;
+    }
+
+    private static String localId(Element element) {
+        String raw = element.getAttribute("android:id");
+        int slash = raw.indexOf('/');
+        return slash >= 0 && slash + 1 < raw.length() ? raw.substring(slash + 1) : null;
+    }
+
+    /** 布局文件根元素的标签名，即 ViewBinding 为它生成的 binding 类 rootView 的类型。 */
+    private static String rootTagOf(Path layout) throws Exception {
+        if (layout == null) return null;
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(false);
+        return factory.newDocumentBuilder().parse(layout.toFile()).getDocumentElement().getTagName();
+    }
+
+    private static List<Path> collectVideoLayoutTree(Path variantDir) throws Exception {
+        List<Path> layouts = new ArrayList<>();
+        Deque<String> pending = new ArrayDeque<>(List.of("activity_video"));
+        Set<String> seen = new HashSet<>();
+        while (!pending.isEmpty()) {
+            String name = pending.poll();
+            if (!seen.add(name)) continue;
+            Path layout = resolveLayout(name, variantDir);
+            assertTrue("include target @layout/" + name + " referenced from " + variantDir.getFileName()
+                    + " must resolve", layout != null);
+            layouts.add(layout);
+            String source = new String(Files.readAllBytes(layout), StandardCharsets.UTF_8)
+                    .replaceAll("(?s)<!--.*?-->", "");
+            Matcher matcher = Pattern.compile("layout=\"@layout/([A-Za-z0-9_]+)\"").matcher(source);
+            while (matcher.find()) pending.add(matcher.group(1));
+        }
+        assertTrue("activity_video include tree must resolve", layouts.size() > 3);
+        return layouts;
+    }
+
+    /**
+     * 按 aapt 的配置匹配顺序解析布局：先找同配置变体目录，再退回 layout/，最后到 main flavor。
+     * 例如横屏下 activity_video 用 layout-land/ 的版本，而它 include 的 view_control_vod
+     * 只有 layout/ 一份，就退回 layout/。
+     */
+    private static Path resolveLayout(String name, Path variantDir) {
+        List<Path> candidates = new ArrayList<>();
+        candidates.add(variantDir.resolve(name + ".xml"));
+        candidates.add(findMobileResPath().resolve(Path.of("layout", name + ".xml")));
+        candidates.add(findMainResPath().resolve(Path.of("layout", name + ".xml")));
+        for (Path candidate : candidates) {
+            if (Files.exists(candidate)) return candidate;
+        }
+        return null;
     }
 
     @Test

@@ -388,6 +388,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         // 正常情况下 ContentDispatcher 已在更早的汇聚点分流；这里兜底处理漏网的解析结果。
         if (NovelRouter.isReaderUrl(result)) {
             if (NovelRouter.routeReaderEngine(this, result, key, getReaderVod())) return;
+            return;
         }
         if (rejectUnsupportedDrm(key, result)) {
             return;

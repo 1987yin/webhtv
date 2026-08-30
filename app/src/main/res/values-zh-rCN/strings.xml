@@ -2,6 +2,10 @@
 
     <!-- App -->
     <string name="app_name">默影视</string>
+   <string name="setting_app_branding">APP 图标</string>
+    <string name="app_branding_icon_current">默认图标</string>
+    <string name="app_branding_icon_history">原版图标</string>
+    <string name="app_branding_icon_select">选择图标</string>
     <string name="app_exit_confirm">再按一次退出应用</string>
 
     <!-- Live -->
@@ -879,6 +883,7 @@
     <string name="setting_about">关于</string>
     <string name="setting_version">版本</string>
     <string name="setting_choose">选择</string>
+    <string name="setting_choose_dir">文件夹</string>
     <string name="setting_reset">重置</string>
     <string name="setting_delete">删除</string>
     <string name="setting_disable">禁用</string>
@@ -1230,6 +1235,7 @@
     <string name="player_preload_pause_always">始终</string>
     <string name="player_auto_play">自动播放</string>
     <string name="player_auto_change">自动换源</string>
+    <string name="player_remember_brightness">记住播放亮度</string>
     <string name="player_failure_fallback">播放失败回退</string>
     <string name="player_speed">长按倍速</string>
     <string name="player_ua">User-Agent</string>
@@ -1394,6 +1400,7 @@
     <string name="setting_hide">隐藏</string>
     <string name="dialog_select_title">选择章节</string>
     <string name="dialog_config_hint">请输入配置…</string>
+    <string name="dialog_config_choose_dir">选择文件夹（猫源本地包）</string>
     <string name="dialog_config_name">请输入名称…</string>
     <string name="dialog_config_url">请输入地址…</string>
 
@@ -2389,6 +2396,8 @@
     <string name="cat_web_opening">正在打开设置中心</string>
     <string name="cat_web_failed">页面加载失败：%1$s</string>
     <string name="cat_web_external">已用浏览器打开</string>
+    <string name="cat_web_download">正在下载 %1$s 到「下载」目录</string>
+    <string name="cat_web_download_failed">下载失败</string>
     <string name="dialog_short_drama_site_disabled">已排除：%1$s</string>
     <string name="dialog_short_drama_enabled_label">启用规则</string>
     <string name="dialog_short_drama_disabled_label">已排除</string>

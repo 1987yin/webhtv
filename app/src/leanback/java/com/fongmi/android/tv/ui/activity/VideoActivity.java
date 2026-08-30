@@ -123,6 +123,7 @@ import com.fongmi.android.tv.ui.dialog.TmdbSearchDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.helper.EpisodeDisplayPolicy;
+import com.fongmi.android.tv.ui.helper.EpisodeCardImagePolicy;
 import com.fongmi.android.tv.ui.helper.EpisodeRangePolicy;
 
 import com.fongmi.android.tv.ui.helper.EpisodeSeasonPolicy;
@@ -324,6 +325,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private static final String EXTRA_RESUME_HISTORY_KEY = "resume_history_key";
     private static final String EXTRA_TMDB_VOD_CACHE_KEY = "tmdb_vod_cache_key";
     private static final String EXTRA_IMMERSIVE_AUDIO_CACHE_KEY = "immersive_audio_cache_key";
+    private static final String EXTRA_SEARCH_KEYWORD = "search_keyword";
     private static final java.util.concurrent.ConcurrentHashMap<String, AudioPlaybackResolver.Resolved> IMMERSIVE_AUDIO_LAUNCHES = new java.util.concurrent.ConcurrentHashMap<>();
 
     private ActivityVideoBinding mBinding;
@@ -433,6 +435,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private View mDialogReturnFocus;
     private Result mPendingDetail;
     private Result mPendingPlayer;
+    private Result mAppliedPlayerResult;
     private AudioPlaybackResolver.Resolved mImmersiveAudioResolved;
     private boolean mImmersiveAudioRequested;
     private String mContextWallUrl;
@@ -546,6 +549,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         start(activity, key, id, name, pic, null, true, false, (TmdbItem) null, wallPic);
     }
 
+    /** 搜索结果进入详情：把用户输入的搜索关键词一路带到 TMDB 自动匹配。 */
+    public static void collect(Activity activity, String key, String id, String name, String pic, String wallPic, String searchKeyword) {
+        start(activity, key, id, name, pic, null, true, false, (TmdbItem) null, wallPic, null, searchKeyword);
+    }
+
     private static boolean canOpenLegacyTmdbDetail(String key, String id, boolean cast) {
         if (cast || TextUtils.isEmpty(key)) return false;
         if (SiteApi.PUSH.equals(key)) return TmdbSitePolicy.isEnabled(key, id);
@@ -620,6 +628,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, com.fongmi.android.tv.bean.TmdbItem tmdbItem, String wallPic, String content) {
+        start(activity, key, id, name, pic, mark, collect, cast, tmdbItem, wallPic, content, "");
+    }
+
+    public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, com.fongmi.android.tv.bean.TmdbItem tmdbItem, String wallPic, String content, String searchKeyword) {
         long launch = System.currentTimeMillis();
         SpiderDebug.log("video-flow", "launch request key=%s id=%s name=%s collect=%s cast=%s", key, id, name, collect, cast);
         ImgUtil.preload(activity, pic);
@@ -628,17 +640,22 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             SpiderDebug.log("video-flow", "dispatched to content handler key=%s", key);
             return;
         }
-        startSkippingDispatch(activity, key, id, name, pic, mark, collect, cast, tmdbItem, wallPic, content, launch);
+        startSkippingDispatch(activity, key, id, name, pic, mark, collect, cast, tmdbItem, wallPic, content, launch, searchKeyword);
     }
 
     /** 跳过 ContentDispatcher 的启动路径（供阅读器等 handler 判定内容不归自己管时回退）。 */
     public static void startSkippingDispatch(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, com.fongmi.android.tv.bean.TmdbItem tmdbItem, String wallPic, String content, long launch) {
+        startSkippingDispatch(activity, key, id, name, pic, mark, collect, cast, tmdbItem, wallPic, content, launch, "");
+    }
+
+    public static void startSkippingDispatch(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, com.fongmi.android.tv.bean.TmdbItem tmdbItem, String wallPic, String content, long launch, String searchKeyword) {
         if (tmdbItem == null && shouldOpenLegacyTmdbDetail(key, id, cast)) {
-            TmdbDetailActivity.start(activity, key, id, name, pic, mark, null, Setting.getDetailOpenMode());
+            TmdbDetailActivity.start(activity, key, id, name, pic, mark, null, Setting.getDetailOpenMode(), searchKeyword);
             return;
         }
         Intent intent = new Intent(activity, VideoActivity.class);
         intent.putExtra("launchTime", launch);
+        if (!TextUtils.isEmpty(searchKeyword)) intent.putExtra(EXTRA_SEARCH_KEYWORD, searchKeyword);
         intent.putExtra("tmdbMode", tmdbItem != null);
         intent.putExtra("tmdbItem", tmdbItem);
         intent.putExtra("collect", collect);
@@ -1049,6 +1066,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private String getTmdbVodCacheKey() {
         return Objects.toString(getIntent().getStringExtra(EXTRA_TMDB_VOD_CACHE_KEY), "");
+    }
+
+    private String getSearchKeyword() {
+        return Objects.toString(getIntent().getStringExtra(EXTRA_SEARCH_KEYWORD), "");
     }
 
     private String getKey() {
@@ -2284,7 +2305,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 SpiderDebug.log("tmdb-tv", "direct load vodTitle=%s tmdbTitle=%s tmdbId=%d media=%s cache=%s", item.getName(), tmdbItem.getTitle(), tmdbItem.getTmdbId(), tmdbItem.getMediaType(), mFastTmdbDetailCache != null);
                 mTmdbUIAdapter.load(tmdbItem, item, mFastTmdbDetailCache);
             } else {
-                mTmdbUIAdapter.autoMatch(item.getName(), item);
+                mTmdbUIAdapter.autoMatch(item.getName(), item, getSearchKeyword());
             }
         }
     }
@@ -2577,6 +2598,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             SpiderDebug.log("video-flow", "drop player result before detail ready key=%s id=%s", getKey(), getId());
             return;
         }
+        if (result == mAppliedPlayerResult && !player().isEmpty()) return;
+        mAppliedPlayerResult = result;
         mQualityAdapter.addAll(result);
         mQualityAdapter.setPosition(mQualityAdapter.getPosition());
         setUseParse(result.shouldUseParse());
@@ -2617,7 +2640,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         boolean handled = com.fongmi.android.tv.content.ContentDispatcher.dispatchResult(this, getHistoryKey(), getKey(), getFlag().getFlag(), mHistory.getVodName(), mHistory.getVodPic(), getFlag().getEpisodes(), getSelectedEpisodePosition(getFlag().getEpisodes()), result, getSite().getTimeout());
         if (handled) {
             stopPlayback();
-            finish();
+            // 阅读结果接管前台，但保留本页：一次返回回到来源播放页。
         }
         return handled;
     }
@@ -3540,7 +3563,9 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         hideControl();
         Flag flag = getFlag();
         boolean tmdbCard = flag != null && EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(isTmdbSourceEnabled(), flag.getEpisodes());
-        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).tmdbCard(tmdbCard).fallbackStill(getEpisodeFallbackStillUrl()).seasons(getEpisodeDialogSeasons(), getEpisodeDialogSeasonCounts()).show(this);
+        EpisodeListDialog.create().flags(mFlagAdapter.getItems()).tmdbCard(tmdbCard)
+                .fallbackStill(getEpisodeFallbackStillUrl())
+                .seasons(getEpisodeDialogSeasons(), getEpisodeDialogSeasonCounts()).show(this);
     }
 
     private java.util.List<Integer> getEpisodeDialogSeasons() {
@@ -4356,20 +4381,37 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private String getEpisodeFallbackStillUrl() {
-        // 分集无 TMDB 剧照时的兜底图，顺序对齐详情页 episodeFallbackStillUrl()：海报优先，再退 backdrop。
-        // getPosterUrl() 内部已带 tmdbItem.getPosterUrl() 兜底，比 getPhotos()（backdrops 列表，
-        // tmdbDetail 未就绪时为空）可靠。取当前 TMDB 条目自己的图，切换条目后兜底图才会跟随当前剧集，
-        // 而非停留在进场时固定的 getPic()/tmdb_vod_pic（那些切换条目不变，会显示切换前那部剧的海报）。
+        // 分集无专属剧照时的兜底图按设备比例选：宽屏优先横向 backdrop，窄屏优先纵向海报，
+        // 首选比例缺图时退到另一种，避免宽卡片被竖海报撑裂或窄卡片留大片空白。
+        return EpisodeCardImagePolicy.fallbackFor(
+                getEpisodeFallbackBackdropUrl(), getEpisodeFallbackPosterUrl(), isWideScreen());
+    }
+
+    private String getEpisodeFallbackPosterUrl() {
+        // getPosterUrl() 内部已带 tmdbItem.getPosterUrl() 兜底。取当前 TMDB 条目自己的图，
+        // 切换条目后兜底图才会跟随当前剧集，而非停留在进场时固定的 getPic()/tmdb_vod_pic。
         if (mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded()) {
             String poster = mTmdbUIAdapter.getPosterUrl();
             if (!TextUtils.isEmpty(poster)) return poster;
-            java.util.List<String> photos = mTmdbUIAdapter.getPhotos();
-            if (photos != null && !photos.isEmpty() && !TextUtils.isEmpty(photos.get(0))) return photos.get(0);
         }
         if (!TextUtils.isEmpty(getPic())) return getPic();
         if (!TextUtils.isEmpty(getTmdbVodPic())) return getTmdbVodPic();
         if (mVod != null && !TextUtils.isEmpty(mVod.getPic())) return mVod.getPic();
         return mHistory == null ? "" : mHistory.getVodPic();
+    }
+
+    private String getEpisodeFallbackBackdropUrl() {
+        // 有 TMDB 条目时只认它自己的剧照：mHistory 的 wall 会被 cachedFastTmdbBackdrop() 写入，
+        // 重新匹配后残留的是上一条匹配的横图；退它等于让旧背景图挡在当前条目的海报前面。
+        // 没有 TMDB 条目（纯原生源）才退 intent 的 wallPic —— 它随 onNewIntent 的 putExtras
+        // 跟随条目刷新，且全仓只喂给 setContextWall，是这里唯一可信的横图，宽卡片靠它免吃竖海报。
+        if (mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return getWallPic();
+        java.util.List<String> photos = mTmdbUIAdapter.getPhotos();
+        return photos == null || photos.isEmpty() ? "" : photos.get(0);
+    }
+
+    private boolean isWideScreen() {
+        return ResUtil.getScreenWidth(this) >= ResUtil.getScreenHeight(this);
     }
 
     private boolean hasInitialPreview() {

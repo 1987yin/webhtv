@@ -1,7 +1,11 @@
 <resources xmlns:xliff="http://schemas.android.com/apk/res-auto">
 
     <!-- App -->
-    <string name="app_name">MO TV</string>
+   <string name="app_name">默影视</string>
+   <string name="setting_app_branding">App icon</string>
+    <string name="app_branding_icon_current">Default icon</string>
+    <string name="app_branding_icon_history">Original icon</string>
+   <string name="app_branding_icon_select">Select icon</string>
     <string name="app_exit_confirm">Press back again to exit</string>
 
     <!-- Live -->
@@ -882,6 +886,7 @@
     <string name="setting_about">About</string>
     <string name="setting_version">Version</string>
     <string name="setting_choose">Choose</string>
+    <string name="setting_choose_dir">Folder</string>
     <string name="setting_reset">Reset</string>
     <string name="setting_delete">Delete</string>
     <string name="setting_disable">Disable</string>
@@ -1233,6 +1238,7 @@
     <string name="player_preload_pause_always">Always</string>
     <string name="player_auto_play">Auto play</string>
     <string name="player_auto_change">Auto source change</string>
+    <string name="player_remember_brightness">Remember playback brightness</string>
     <string name="player_failure_fallback">Failure fallback</string>
     <string name="player_speed">Press speed</string>
     <string name="player_ua">User-Agent</string>
@@ -1409,6 +1415,8 @@
     <string name="cat_web_opening">Opening settings</string>
     <string name="cat_web_failed">Failed to load page: %1$s</string>
     <string name="cat_web_external">Opened in browser</string>
+    <string name="cat_web_download">Downloading %1$s to Downloads</string>
+    <string name="cat_web_download_failed">Download failed</string>
     <string name="dialog_short_drama_site_rules">Short drama source rules: enabled sources or keywords, separated by ;. Default: [短];短剧</string>
     <string name="dialog_short_drama_site_manage">Select short drama sources</string>
     <string name="dialog_short_drama_site_default">Default [短]/短剧</string>
@@ -1423,6 +1431,7 @@
     <string name="setting_hide">Hide</string>
     <string name="dialog_select_title">Select chapter</string>
     <string name="dialog_config_hint">Please enter the config…</string>
+    <string name="dialog_config_choose_dir">Choose folder (cat source local package)</string>
     <string name="dialog_config_name">Please enter the name…</string>
     <string name="dialog_config_url">Please enter the url…</string>
 
