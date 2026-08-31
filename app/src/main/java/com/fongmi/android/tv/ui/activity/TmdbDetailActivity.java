@@ -9286,6 +9286,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerPanel.requestFocus();
         Util.toggleFullscreen(this, true);
         setInlineFullscreenOrientation();
+        // 手动点全屏按钮不走 applyInlineShortDramaMode（那条只在 STATE_READY 触发），
+        // 这里也要按新形态重算手势，否则短剧进全屏后仍是长视频那套轴向。
+        syncInlineShortDramaGesture();
         scheduleMobileInlineSideControlMarginUpdate();
     }
 
@@ -9307,15 +9310,30 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             return;
         }
         inlineShortDramaMode = true;
+        syncInlineShortDramaGesture();
         setInlineFullscreenOrientation();
         setInlineShortDramaVideoFrame(!shouldUseShortDramaPortrait());
         setInlinePreviewScale(SHORT_DRAMA_SCALE);
         hideInlineControls();
     }
 
+    /**
+     * 手势轴向跟着呈现形态走：短剧内嵌全屏时整屏上下滑切集、长按后上下滑调亮度/音量。
+     * <p>
+     * 判据不用 {@code inlineShortDramaMode}：切集时 startInlinePlayback 会先
+     * resetInlineShortDramaMode 再等 STATE_READY 重新 apply，那段缓冲窗口里形态并没变，
+     * 手势却会退回长视频那套，连滑两集时第二次落在侧边就被当成调亮度。
+     * shouldUseInlineShortDramaMode 在尺寸未知时返回 true，正好覆盖这段窗口；
+     * 横屏短剧不走竖屏铺满形态，也就不换手势。
+     */
+    private void syncInlineShortDramaGesture() {
+        if (inlineGestureDetector != null) inlineGestureDetector.setShortDrama(inlineFullscreen && shouldUseInlineShortDramaMode());
+    }
+
     private void resetInlineShortDramaMode() {
         boolean restoreScale = inlineShortDramaMode;
         inlineShortDramaMode = false;
+        syncInlineShortDramaGesture();
         setInlineShortDramaVideoFrame(false);
         if (restoreScale && inlineStarted) setInlineScale(getInlineScale());
     }
