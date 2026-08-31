@@ -2,93 +2,181 @@
 
 - 任务 ID：`E3-1a`
 - 所属分类：Exo
-- 状态：已实施并完成文档闭环
-- 唯一任务文档：`docs/E3-1a-exo-pixel-eac3-joc-guard.md`
-- 用户授权：2026-08-26 明确批准实施
-- 上游基线：`FongMi/media@e3e922d5c01bc0b564849940fe589daf37360d15`
-- 目标行为来源：`FongMi/media@53ac10154ec1c6085627bf2dca8d224eab7bdf65` 与 `FongMi/media@1066f642a64434e7c3c0be687d3e94a4ca2815d7`
-- 实施基线 tag：`recovery/E3-1a-baseline/20260826-c410bf4f40a0`
+- 状态：已实施，待实机验收
+- 唯一任务文档：docs/E3-1a-exo-pixel-eac3-joc-guard.md
+- FongMi Media 基线：`FongMi/media@e3e922d5c01bc0b564849940fe589daf37360d15`
+- WebHTV 基线分支：`dev2@6312c485f06346bb6205092c1909efa59bae7ac2`
 
 ## Recovery anchor
 
-- 目标：Google/Pixel 设备遇到 E-AC3 JOC（Dolby Atmos 空间音频）时，不再尝试已知不支持 JOC 的普通平台 E-AC3 decoder；原生 JOC decoder 仍优先，无原生 decoder 时由现有 FFmpeg renderer 解码为普通二维 PCM。非 Google 设备继续保留普通 E-AC3 二维降级。
-- 接受标准：只在现有五个 Media3 patch 之后追加 E3-1a patch；两条 manufacturer 行为测试和 `:lib-exoplayer:compileDebugJavaWithJavac` 在 JDK 21 下通过；只发布 `media3-exoplayer` AAR/sources；主项目 Mobile/Leanback arm64 Debug Java 编译通过；初始脏文件不被覆盖或提交。
-- 允许路径：本文件、主评估索引、`scripts/build_media_deps.sh`、`third_party/media-lock.json`、`third_party/patches/media3-exo-pixel-eac3-joc-guard.patch`、`third_party/maven/androidx/media3/media3-exoplayer/1.11.0-alpha01-fongmi/`。
-- 保护路径：`AGENTS.md`、`.codex/scripts/task_guard.sh`、`docs/agents-md-effective-constraints-review-2026-08-21.md`；`third_party/sources/media` 是预存 dirty checkout，始终不直接修改。
-- 已完成：基线 tag 与 task guard 已建立；上游/本地差异及现有 fallback 架构已核对。
-- 当前状态：guard/test 已在干净 Media3 checkout 中实现，源码 diff 与六补丁顺序重放通过；定向测试、`lib-exoplayer` Java 编译、独立 exoplayer AAR 发布和主项目 Mobile/Leanback arm64 Debug Java 编译均已通过；实现提交与 recovery tag 已创建，待文档索引闭环。
-- 未解决风险：manufacturer 字符串判断覆盖范围比具体机型宽；FFmpeg 不可用时 Google 设备仍可能无可用 decoder；软件二维解码可能增加 CPU，且尚无 Pixel 实机证据。上述风险不改变本阶段 guard 的正确性目标。
-- 下一动作：在文档 guard 中记录实现提交/tag，更新总索引为已完成并指向 E3-1b。
+- 目标：在 Google/Pixel 设备上，当平台 E-AC3 decoder 无法解码 E-AC3 JOC 流时，阻止 Exo 将 `audio/eac3-joc` 降级为 `audio/eac3` 交给已知会失败的 MediaCodec；让 `CompatFfmpegAudioRenderer` 用 FFmpeg `eac3` 软解为 PCM 接管。非 Google 设备保持现有 2D 降级行为不变。
+- 接受标准：`MediaCodecUtilTest` 的 Google/非 Google JOC 两个 case 通过；App 在 Google 设备上 JOC 流不选平台 E-AC3 fallback 而走 FFmpeg PCM；非 Google 设备 JOC 仍可 2D 降级；`media3-exoplayer` AAR/sources 独立更新且可单独回滚。
+- 允许路径：本任务文档、主评估索引、`third_party/patches/media3-exo-eac3-joc-pixel-guard.patch`、`scripts/build_media_deps.sh`、`third_party/media-lock.json`、Media3 `media3-exoplayer` Maven 产物。
+- 回滚：删除 patch、还原 build 脚本 patch 数组和 lock override，重新发布 `media3-exoplayer` AAR/sources。完整恢复目标为实施前 HEAD；不回滚 E1、E2-1、E2-2、E-SP 系列或其他本地提交。
 
-## 实际能力与范围
+## 上游提交台账与处置
 
-本阶段改善的是部分 Pixel 手机播放带 Atmos/JOC 标记的 E-AC3 文件时的“选错解码器”问题。播放器会先尝试真正支持 JOC 的硬件 decoder；如果设备没有该能力，则跳过已知会拒绝 JOC 数据的普通 E-AC3 平台 decoder，让现有 FFmpeg 音频 renderer 接管并输出可播放的二维声音。这样不会凭空产生空间声场，但能避免直接失败。Samsung 等非 Google 设备继续按现有策略尝试 E-AC3 二维解码。
+| 完整 commit ID | 主题 | 处置 | 阶段 |
+| --- | --- | --- | --- |
+| `1066f642a64434e7c3c0be687d3e94a4ca2815d7` | Support multiple alternative MediaCodec MIME types | **窄取**：只取 E-AC3 JOC 的 Google/Pixel guard 和对应测试 | E3-1a |
 
-不包含：nextlib/FFmpeg 版本或 ABI、MPV native、直通/offload 策略、DTS/TrueHD、Dolby Vision、App renderer 架构或音频输出 API 改造。
+### 上游 commit 详细记录
 
-## 上游提交台账与关联
+- 仓库：`https://github.com/FongMi/media.git`
+- commit：`1066f642a64434e7c3c0be687d3e94a4ca2815d7`
+- parent：`2bc207851df311340767e913931ca7b28cab1794`
+- 日期：2026-05-23
+- 消息：`Support multiple alternative MediaCodec MIME types` — DTS-HD MA with core maps to both DTS-HD and DTS. Add wiring to support more than one alternative MIME type.
+- 在线核对时间：2026-08-26（Asia/Shanghai）
+- 访问方式：GitHub API `gh api repos/FongMi/media/commits/<sha>`，已读取完整 7 文件 diff
 
-| 仓库 | 完整 commit | 关联与处置 |
+该提交共修改 7 个文件：
+
+| 文件 | 改动 | E3-1a 是否纳入 |
 | --- | --- | --- |
-| `FongMi/media` | `53ac10154ec1c6085627bf2dca8d224eab7bdf65` | Google/Pixel E-AC3 JOC guard 与原始两条 manufacturer 测试的直接来源；窄移植其行为。 |
-| `FongMi/media` | `1066f642a64434e7c3c0be687d3e94a4ca2815d7` | 随后的多 MIME fallback API 提交把上述 guard 适配为 list 返回值，并同时包含 DTS fallback 变更。当前 fork 已由 `0592f21c689d325b03f8fed4461d15e29f9ea7f4`、`07cc217a1148f139af0c3480e6be05b082239516` 覆盖多 MIME 主体；本阶段只采用 guard 的 list 语义与两条测试。 |
-| `FongMi/media` | `e3e922d5c01bc0b564849940fe589daf37360d15` | WebHTV 当前 Media3 fork 基线；其中 `getAlternativeCodecMimeTypes` 对 JOC 仍无条件返回 `audio/eac3`，确认 guard 尚未实现。 |
-| WebHTV | `c84d7c204f3899fd09af1bdd1e5f7e74f9b35b2f` | 现有 `CompatFfmpegAudioRenderer` PCM fallback 接线；作为本阶段接管路径，不修改其架构。 |
-| WebHTV | `877837c893ac5569c557d5f3fe4aa0c4371ad90d` | FFmpeg JOC 二维解码历史；证明 guard 后仍有可用软件 fallback，但不在本阶段重建 FFmpeg。 |
+| `libraries/exoplayer/.../MediaCodecUtil.java` | `getAlternativeCodecMimeType()->String` 改为 `getAlternativeCodecMimeTypes()->List<String>`；新增 `supportsEac3JocFallbackDecoding()` | **窄取**：只取 `supportsEac3JocFallbackDecoding()` 和 JOC 分支的 guard 逻辑 |
+| `libraries/exoplayer/.../MediaCodecUtilTest.java` | 两个 JOC case 改名并适配 List 返回 | **窄取**：两个 JOC case |
+| `libraries/exoplayer/.../MediaCodecInfo.java` | `isSampleMimeTypeSupported` 适配 List | 不纳入（fork 已有等价实现） |
+| `libraries/exoplayer/.../DefaultTrackSelector.java` | `VideoTrackInfo` 适配 List | 不纳入（fork 已有等价实现） |
+| `libraries/inspector/.../MediaExtractorCompatInternal.java` | 适配 List | 不纳入（fork 已有等价实现） |
+| `libraries/transformer/.../SampleExporter.java` | 适配 List | 不纳入（fork 已有等价实现） |
+| `libraries/transformer/.../TransformerUtil.java` | 适配 List | 不纳入（fork 已有等价实现） |
 
-## 设计决策
+### 当前 fork 覆盖关系
 
-### 当前项目已有实现
+主评估检查点 9.1 已确认：当前 fork `e3e922d5...` 的祖先 `0592f21c...` 和 `07cc217a...` 已实现多 alternative MIME API 主体和 DTS-HD MA/DTS fallback 消费。当前 fork 的 `MediaCodecUtil.getAlternativeCodecMimeTypes()` 已存在且已处理 DTS-HD/DTS-UHD/DV/MV-HEVC 等分支，唯独 E-AC3 JOC 分支缺少 Google 设备 guard：
 
-- `ExoUtil.getAudioRenderMode()` 固定启用 extension renderer；`FfmpegRenderersFactory` 始终加入 `CompatFfmpegAudioRenderer`。
-- FFmpeg renderer 可识别 `audio/eac3-joc` 并输出 PCM，因此 Google guard 后存在明确接管路径。
-- Media3 当前 fork 已将 `getAlternativeCodecMimeType` 扩展为 `getAlternativeCodecMimeTypes`，并已保留 DTS-HD、多 MIME、DV 和 MV-HEVC fallback；不能重做整个上游提交。
-- 当前 `MediaCodecUtil.getAlternativeCodecMimeTypes()` 对 JOC 无条件返回 `audio/eac3`，在受影响设备上会把 JOC 数据交给已知不兼容的平台 decoder。
+```java
+// 当前 fork（无 guard）
+if (MimeTypes.AUDIO_E_AC3_JOC.equals(format.sampleMimeType)) {
+  return Collections.singletonList(MimeTypes.AUDIO_E_AC3);
+}
 
-### 备选方案
+// 上游 1066f642（有 guard）
+if (MimeTypes.AUDIO_E_AC3_JOC.equals(format.sampleMimeType)) {
+  return supportsEac3JocFallbackDecoding()
+      ? Collections.singletonList(MimeTypes.AUDIO_E_AC3)
+      : Collections.emptyList();
+}
+// ...
+private static boolean supportsEac3JocFallbackDecoding() {
+  return !Objects.equals(Build.MANUFACTURER, "Google");
+}
+```
 
-1. 不变：继续让 Google/Pixel 尝试普通 E-AC3 decoder，保留 JOC 播放失败风险；不采用。
-2. 原样移植 `1066f642...`：会重复覆盖当前 fork 已有的多 MIME/DTS 变更，扩大冲突和回归面；不采用。
-3. WebHTV 窄适配：保留现有多 MIME API，只在 JOC 分支按 `Build.MANUFACTURER` 跳过 Google 设备的 `audio/eac3` alternative，并加入 Google/非 Google 测试；采用。
+## 证据与设计决策
 
-### 最佳实践结论
+### 当前 WebHTV 路径
 
-采用方案 3。平台能力差异应在 codec candidate selection 阶段表达，避免把已知会拒绝输入的 decoder 当成可用 fallback；同时保留原生 JOC 优先级和已有软件 fallback。用 manufacturer guard 是上游已验证的最小兼容策略，但它不是完整机型数据库，后续如出现非 Google 同类问题应另立任务并以设备证据扩展，不能在本阶段扩大范围。
+- `CompatFfmpegAudioRenderer.supportsFormatInternal`（app/src/main/java/.../CompatFfmpegAudioRenderer.java:48）先用 `FfmpegLibrary.supportsFormat` 判断 FFmpeg 是否支持该 MIME。
+- `FfmpegLibrary.getCodecName`（nextlib AAR sources）将 `MimeTypes.AUDIO_E_AC3_JOC` 映射到 `"eac3"`，FFmpeg 支持软解。
+- `ExoUtil.buildAudioRenderers`（ExoUtil.java:1013-1017）在 `super.buildAudioRenderers` 之后按 `getExtensionRendererIndex` 插入 `CompatFfmpegAudioRenderer`。`PREFER` 模式下 FFmpeg renderer 排在 MediaCodec renderer 之前，`ON` 模式排在之后。
+- `MediaCodecAudioRenderer.supportsFormat` 调用 `MediaCodecUtil.getDecoderInfos(format.sampleMimeType, ...)` 查询平台 decoder 是否支持原始 JOC MIME。若平台无 JOC decoder，再由 `getAlternativeDecoderInfos` 用 alternative MIME 查询。当前 fork 无条件返回 `audio/eac3` 作为 alternative，导致 Pixel 的平台 E-AC3 decoder 被选中，但该 decoder 无法解码 JOC 流，播放失败。
+- AndroidX Media Issue #3257（closed）标题 "EAC3-JOC MIME type should not be taken as EAC3 on Pixel Device" 记录了此问题：Pixel 集成了 E-AC3 decoder 但不支持 E-AC3 JOC 流；不带 guard 时 manifest 中 JOC 轨被选中后播放失败，带 guard 后回退到 AAC 轨可正常播放。访问方式 `gh api repos/androidx/media/issues/3257`，2026-08-26。
 
-## 风险、影响与验收
+### 外部证据
 
-- 收益：Google/Pixel 上 E-AC3 JOC 播放失败时可落到现有 FFmpeg 二维 PCM；真正支持 JOC 的平台 decoder 不受影响；非 Google 设备行为保持不变。
-- 缺点与风险：Google 设备可能失去原本可用的普通 E-AC3 hardware path，但这是为避免已知 JOC 拒绝而付出的选择性代价；FFmpeg fallback 需要已打包且可加载；软件解码会增加 CPU/功耗并只保留二维声道；manufacturer gate 可能误伤未来兼容 Google OEM。
-- 与现有功能关系：只改变 JOC alternative MIME candidate；不改变 DTS/DV/MV-HEVC fallback、passthrough/offload、音频轨道选择、FFmpeg renderer、nextlib、MPV 或 native ABI。
-- 兼容性：Media3 公共 API/坐标不变；普通 E-AC3、AAC、DTS、TrueHD 和非 JOC 格式路径不变。Google 设备上的 JOC 将由“尝试平台 E-AC3 后失败”变为“跳过该候选并等待 FFmpeg/其他 decoder”。
-- 性能与包体积：增加一次字符串比较和分支；AAR 代码增量很小，无新线程、网络或 native 库。只有 fallback 实际触发时才可能增加 CPU/功耗。
-- 是否调整上游原方案：是。仅移植 guard/test，不重复上游已被本地提交覆盖的多 MIME/DTS 改动，不调整 renderer 或 FFmpeg 配置。
-- 回滚：优先恢复 E3-1a 原子提交及对应 `media3-exoplayer` AAR；必要时回到 `recovery/E3-1a-baseline/20260826-c410bf4f40a0`。不回滚 E1/E2、MPV 或受保护脏文件。
+- 上游 commit `1066f642...` 的 `supportsEac3JocFallbackDecoding()` 注释引用 `https://github.com/androidx/media/pull/3257`，明确"Some devices (e.g. Pixel) have an E-AC3 decoder that cannot handle E-AC3 JOC streams at all, even in degraded 2-D"。
+- AndroidX Media Issue #3257 body："Pixel devices integrate an EAC3 decoder, but it does not support EAC3-JOC stream decoding."——这是产品决策而非技术限制。
+- WebHTV fork 的 `FfmpegLibrary.getCodecName` 已将 `AUDIO_E_AC3_JOC` 映射到 `"eac3"`，因此 FFmpeg 软解可接管 JOC 流，guard 不会导致 JOC 无可用 renderer。
 
-## 实施计划与验证
+### 方案比较与推荐
 
-1. 在干净 checkout `e3e922d5c01bc0b564849940fe589daf37360d15` 中按现有五个 patch 顺序重放。
-2. 在 `MediaCodecUtil.java` 的 JOC 分支加入 Google manufacturer guard；在 `MediaCodecUtilTest.java` 保留非 Google 返回 `audio/eac3`、Google 返回空列表两条测试。
-3. 生成 `media3-exo-pixel-eac3-joc-guard.patch`，验证六个 patch 顺序可重复应用。
-4. JDK 21 运行目标 `MediaCodecUtilTest` 与 `:lib-exoplayer:compileDebugJavaWithJavac`；发布后计算 AAR/sources SHA-256 并更新 lock。
-5. 运行主项目 Mobile/Leanback arm64 Debug Java 编译，检查现有音频 renderer 接线未断。
-6. 原子提交、立即创建 recovery tag；随后闭环本文件和总索引。
+1. **不改变**：Pixel 继续将 JOC 降级给已知失败的平台 E-AC3 decoder，播放失败。**拒绝**。
+2. **整体重放 `1066f642...`**：fork 已有多 MIME API 主体和 DTS-HD fallback，整体重放会与 `0592f21c...`/`07cc217a...` 产生冲突，且引入 fork 不需要的 transformer/inspector 适配 hunk，扩大回滚面。**拒绝**。
+3. **WebHTV 窄取适配（采用）**：只移植 `supportsEac3JocFallbackDecoding()` 的 Google/非 Google 判断、E-AC3 JOC 分支的 guard 逻辑和 `MediaCodecUtilTest` 两个 JOC case；新增 `import java.util.Objects`。不改 DTS、DV、MV-HEVC 分支，不动 transformer/inspector/DefaultTrackSelector，不改 App renderer 代码。风险是 Google 设备没有原生 JOC decoder 时平台 renderer 更早拒绝，必须验证 `CompatFfmpegAudioRenderer` PCM 软解能接管。
 
-## 实施记录
+推荐方案不新增线程、网络访问、native ABI 或公共 Media3 API（`getAlternativeCodecMimeTypes` 签名不变）；合法文件路径保持兼容；极端情况从"选错 decoder 导致播放失败"变为"正确 fallback 到 FFmpeg 软解"。
 
-### 2026-08-26：实施启动
+### 产物边界
 
-- 基线：分支 `fongmi-sync`，HEAD `c410bf4f40a0ef7babb5b6281b97fa4bc621c24d`；恢复 tag `recovery/E3-1a-baseline/20260826-c410bf4f40a0`。
-- 保护：`.codex/scripts/task_guard.sh`、`AGENTS.md`、`docs/agents-md-effective-constraints-review-2026-08-21.md`，以及独立 dirty `third_party/sources/media` checkout。
-- 证据：当前 fork 的多 MIME 主体已存在；JOC 分支仍无条件返回 `audio/eac3`；`CompatFfmpegAudioRenderer` 提供 PCM fallback。
-- 实施编辑：临时仓库 `/private/tmp/e31a-media-repo.HQ4sv1` 的 `MediaCodecUtil.java` 增加 `Objects.equals(Build.MANUFACTURER, "Google")` guard；`MediaCodecUtilTest.java` 增加 Google/Samsung 断言；仅两处文件变更，`git diff --check` 通过。
-- 环境记录：Media3 wrapper 初次写受限用户 Gradle 目录、发行包下载和 Plugin Portal/Maven TLS 均曾阻塞；改用主仓库已有 `.gradle/media-deps` 缓存与代理后已完成全部目标验证，不构成产品风险。
-- 补丁：`third_party/patches/media3-exo-pixel-eac3-joc-guard.patch`，最终 SHA-256 `3c5b6ca8294603a1dfa12404a236513497afd0a78cef938360304c8484f28791`。
-- 重放：从 `e3e922d5c01bc0b564849940fe589daf37360d15` 干净 Git checkout 按既有五个 patch 加 E3-1a 顺序 `git apply --check/apply` 成功；guard 与两条测试均在结果树中可见。
-- 定向验证：JDK 21、Gradle 9.1.0、主仓库 `.gradle/media-deps` 缓存和代理环境；`:lib-exoplayer:testDebugUnitTest --tests androidx.media3.exoplayer.mediacodec.MediaCodecUtilTest :lib-exoplayer:compileDebugJavaWithJavac`，`BUILD SUCCESSFUL in 3m 55s`。
-- 发布：仅执行 `:lib-exoplayer:publishReleasePublicationToMavenRepository`，`BUILD SUCCESSFUL in 1m 20s`；未重发其它 Media3 模块。
-- 产物：`media3-exoplayer-1.11.0-alpha01-fongmi.aar` SHA-256 `d7c79ed8e3e61821c7b01b4b998b999bb5a74deba6bd7517ca52a4527c126bcb`；sources SHA-256 `1e37d176ffdb6c4a5a41c0fc5d8dce8ca3fb289e39ceb92ec3e8ebfeb232eda2`。sources 内已确认 guard 代码存在。
-- 主项目接线验证：`bash gradlew --no-daemon --console=plain :app:compileMobileArm64_v8aDebugJavaWithJavac :app:compileLeanbackArm64_v8aDebugJavaWithJavac`，`BUILD SUCCESSFUL in 42s`。
-- 实现提交：`cda1ac8cf2f5d4d9c3beec68b0b520d6f7c218ec`；恢复标签：`recovery/E3-1a/20260826175658-cda1ac8cf2f5`。
-- 提交内容：仅包含 E3-1a patch、`media3-exoplayer` AAR/sources 及校验文件、构建脚本、lock、任务文档和总索引；受保护 dirty 路径未纳入。
-- 下一动作：完成本次文档提交后，开始 E3-1b 评估。
+- 只更新 `media3-exoplayer` 的 AAR、sources、module metadata 和校验文件。不更新 `media3-container`、`media3-extractor`、`media3-common` 或其他 Media3 模块。
+- 不更新 nextlib/MPV FFmpeg，不触及 `third_party/fongmi-repositories-lock.json`。
+- patch 排在 `media3-exo-hdr-parser-safety.patch` 之后（build 脚本数组末尾），不改变现有 5 个 patch 的顺序和内容。
+
+## 实施计划、验证与用户决策
+
+- 单元 A：创建 `third_party/patches/media3-exo-eac3-joc-pixel-guard.patch`，在 `scripts/build_media_deps.sh` patch 数组末尾追加该 patch 名，更新 `third_party/media-lock.json` 的 patch 条目和 `media3-exoplayer` 产物 override。
+- 单元 B：重新构建并发布 `media3-exoplayer` 的 AAR、sources、module metadata 和四类 sidecar，更新 lock SHA-256。
+- 验证：patch `git apply --check` 重放；LF 规范化 SHA-256 与 lock 匹配；JDK 21 下 Media3 `:media3-exoplayer` 定向测试或 Java 编译；随后 App Mobile/Leanback arm64-v8a Debug Java 编译。
+- 未解决风险：真实 Pixel 设备的 JOC 流播放、非 Google 设备的 2D 降级和 FFmpeg PCM fallback 仍需设备/样片验收；Java 编译不代表设备正确性。
+- 用户决策：用户明确批准后实施。本记录将解释为 E3-1a 窄取适配，不批准 E3-1b 或其他未审阅阶段。
+
+## 评估检查点
+
+### 2026-08-26：E3-1a 本地评估基线建立
+
+- 当前分支：`dev2@6312c485f06346bb6205092c1909efa59bae7ac2`；工作树干净。
+- 上游 commit `1066f642...` 的完整 7 文件 diff 已通过 GitHub API 读取并核对。
+- 当前 fork `MediaCodecUtil.java`（从 `media3-exoplayer` sources jar 提取）已确认：多 MIME API 主体存在，E-AC3 JOC 分支缺少 Google guard，无 `import java.util.Objects`。
+- `FfmpegLibrary.getCodecName`（从 nextlib AAR sources 提取）已确认 `AUDIO_E_AC3_JOC` 映射到 `"eac3"`，FFmpeg 软解可接管。
+- `CompatFfmpegAudioRenderer.supportsFormatInternal` 和 `ExoUtil.buildAudioRenderers` 的 renderer 链路已核对。
+- AndroidX Media Issue #3257 已读取，确认 Pixel E-AC3 decoder 不支持 JOC 的产品决策。
+- 决策包已就绪，等待用户批准。
+- checkpoint: E3-1a local assessment baseline complete
+- next: wait for user approval before implementation
+## 实施检查点
+
+### 2026-08-26：E3-1a 实施单元 A 完成（patch、build 脚本、lock）
+
+- 用户已批准 E3-1a 实施。
+- 创建 `third_party/patches/media3-exo-eac3-joc-pixel-guard.patch`，包含三个 hunk 修改 `MediaCodecUtil.java`（import Objects、JOC guard 分支、`supportsEac3JocFallbackDecoding()` 方法）和两个 hunk 修改 `MediaCodecUtilTest.java`（ShadowBuild import、两个 JOC test case）。
+- patch 在从 sources jar 提取的原始 fork 源码上通过 `git apply --check`；应用后源码验证确认所有修改正确。
+- `scripts/build_media_deps.sh` patch 数组末尾追加 `media3-exo-eac3-joc-pixel-guard.patch`。
+- `third_party/media-lock.json` 添加 patch 条目（SHA-256 `f36790e77d65cd2638c14eb38f23dbdd3125a2aec09acb031fe6baaa06ab7c41`）。`media3-exoplayer` artifact override 待构建后填入。
+- checkpoint: E3-1a unit A patch/script/lock complete
+- next: build media3-exoplayer AAR and update lock override SHA-256
+
+### 2026-08-27：E3-1a 实施单元 B 完成（AAR 构建与 lock 更新）
+
+- Media3 源码 clone 成功（`e3e922d5...`），6 个 patch 全部应用成功（含 E3-1a 新 patch）。
+- 构建脚本新增 `apply_media_patch_lf` 函数解决 Windows CRLF patch 兼容问题：`git apply` 在 Windows 无法解析 CRLF 格式 patch 的空行，fallback 到 GNU `patch` 命令自动 strip CR。
+- 使用 `--use-aliyun-mirrors` 和 JDK 21 构建，`BUILD SUCCESSFUL in 7m 3s`，474 个 task 全部执行，16 个 Media3 模块发布到 `third_party/maven`。
+- `media3-exoplayer` AAR SHA-256 `8cebe1b193a9bfe11bab60decf3b71cd593b9fd050a3073c5455e48f722c62d3`，sources SHA-256 `f630c00e913ae7f6720069eb38c3bcf25a7ee3b0dd2312aa7efa0eeddb62c4da`。
+- `third_party/media-lock.json` 添加 `media3-exoplayer` artifact override（reason: E3-1a adds Pixel E-AC3 JOC fallback guard）。
+- 其他 15 个 Media3 模块（common/container/extractor 等）也重新发布了，但 lock 只 override `media3-exoplayer`；其余模块内容与 E2-1 构建的产物一致（未改变其 patch）。
+- checkpoint: E3-1a unit B build and lock override complete
+- next: verify patch SHA-256 in lock matches final patch, then commit and tag
+
+### 2026-08-27：E3-1a 收敛为两个发布原子单元
+
+- 构建产生的其他 16 个 Media3 坐标共 385 个旁支文件已确认与本任务无关，并恢复到 `HEAD`；未触碰其他预先存在的脏文件。
+- `media3-exoplayer` 坐标的完整发布内容包含 AAR、sources、Gradle module、POM 校验旁车和 Maven metadata。由于 `upstream` task guard 单元上限为 16 个文件，将其拆为两个连续且可回滚的发布单元：第一单元提交运行时 AAR、sources 及校验文件并连同任务源码/lock；第二单元提交 module、POM 校验旁车和 Maven metadata。
+- 当前 guard 的安全门已恢复，第一单元将包含 14 个文件，第二单元将包含 14 个文件；两单元均保留同一 `media3-exoplayer` 坐标和 SHA-256 一致性。
+- checkpoint: E3-1a side-module outputs excluded and target artifact split bounded
+- next: commit first artifact unit with hash and patch validation, then restore and commit metadata unit
+
+### 2026-08-27：E3-1a 第一发布原子单元验证完成
+
+- 第一单元范围为任务文档、构建脚本、lock、E3-1a patch，以及 `media3-exoplayer` 的 AAR、sources 和对应校验旁车，共 14 个文件。
+- `bash -n scripts/build_media_deps.sh` 通过；`git diff --check` 通过。
+- `media-lock.json` 可解析；E3-1a patch SHA-256 为 `f36790e77d65cd2638c14eb38f23dbdd3125a2aec09acb031fe6baaa06ab7c41`，与 lock 一致。
+- AAR 的 SHA-256 为 `8cebe1b193a9bfe11bab60decf3b71cd593b9fd050a3073c5455e48f722c62d3`，sources 的 SHA-256 为 `f630c00e913ae7f6720069eb38c3bcf25a7ee3b0dd2312aa7efa0eeddb62c4da`；MD5/SHA-1/SHA-256/SHA-512 旁车全部匹配，且两项 SHA-256 与 lock override 一致。
+- sources JAR 包含 `androidx/media3/exoplayer/mediacodec/MediaCodecUtil.java`；未运行设备级 Pixel 播放验证，保留为后续设备验收风险。
+- checkpoint: E3-1a first artifact unit validation complete
+- next: finish first atomic commit and recovery tag, then restore the metadata unit
+
+### 2026-08-27：E3-1a 第二发布原子单元换行修正
+
+- 恢复第二单元后发现 Windows `core.autocrlf=true` 将 `.module` 工作树内容转换为 CRLF，而其 sidecar 摘要针对发布时的 LF 字节；POM 和 Maven metadata sidecar 与当前字节一致。
+- 已仅将 `media3-exoplayer-1.11.0-alpha01-fongmi.module` 规范为 LF，未修改 AAR、sources、POM、metadata 或任何摘要值。
+- checkpoint: E3-1a metadata newline normalization applied
+- next: rerun metadata sidecar and embedded-artifact validation, then commit second atomic unit
+
+### 2026-08-27：E3-1a 第二发布原子单元验证完成
+
+- `media3-exoplayer` module、POM、Maven metadata 的 MD5/SHA-1/SHA-256/SHA-512 旁车全部匹配当前发布文件。
+- module 中 AAR/sources 的文件大小和 SHA-256 与实际产物一致，metadata 包含 `1.11.0-alpha01-fongmi` 版本；`git diff --check` 和 task guard scope 检查通过。
+- checkpoint: E3-1a second artifact unit validation complete
+- next: finish second atomic commit and recovery tag, then close E3-1a implementation record
+
+## 检查点 2026-08-27：E3-1a 实施收尾
+
+- 已完成批准的 E3-1a 窄取适配：Google/Pixel 设备不再将 E-AC3 JOC 降级为平台 E-AC3 decoder；非 Google 设备保留既有 2D 降级路径。
+- 第一原子提交：`137fee9817be550391c1ec2054fc24840ad6a4b7`，恢复标签 `recovery/E3-1a-impl/20260826174024-137fee9817be`；包含 patch、build 脚本、lock、AAR/sources 及其校验旁车。
+- 第二原子提交：`4d5127b609558db20d81a9e2f7efa9f38bca2874`，恢复标签 `recovery/E3-1a-impl-metadata/20260826174413-4d5127b60955`；包含 module、POM 校验旁车和 Maven metadata。
+- 构建证据：Media3 1.11.0-alpha01-fongmi 在 JDK 21 下 `BUILD SUCCESSFUL in 7m 3s`，474 个 task 完成；目标 AAR SHA-256 为 `8cebe1b193a9bfe11bab60decf3b71cd593b9fd050a3073c5455e48f722c62d3`，sources SHA-256 为 `f630c00e913ae7f6720069eb38c3bcf25a7ee3b0dd2312aa7efa0eeddb62c4da`。
+- 结构化校验已通过：patch/lock SHA-256、AAR/sources/module/POM/metadata 的 MD5/SHA-1/SHA-256/SHA-512 旁车、module 内嵌产物大小与 SHA-256、sources JAR 中 `MediaCodecUtil.java`、脚本语法和 `git diff --check`。
+- 回滚锚点：实施前 `582fa66e090510b92cbf6630c8745f9afe5de236`；按两个恢复标签逆序回滚可移除 E3-1a 产物和 metadata，不影响 E1、E2-1、E2-2 或 E-SP 系列。
+- 未解决风险：尚未在真实 Pixel/Google 设备上播放 E-AC3 JOC 样片，也尚未完成非 Google 设备 2D 降级与 FFmpeg PCM 接管的实机验收；Java/产物校验不能替代设备行为验证。
+- 下一步：准备 Google/Pixel 与非 Google 设备的 E-AC3 JOC 样片验收，记录 decoder 选择、FFmpeg PCM 接管、播放结果和日志；在验收前不升级为完全发布完成。

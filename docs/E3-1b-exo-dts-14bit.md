@@ -42,3 +42,45 @@
 - AAR：仅替换既有已验证 `media3-extractor` AAR 内的 `DtsUtil.class`，保留 E-SP2/E2-1 其他 classes；SHA-256 `33109a547e7f27c1110e785ae77e8ab1e9584a24a9f904573ce770129aa4475a`。
 - sources：仅替换 `DtsUtil.java`，SHA-256 `b4d65656b5d56ea8a66580d03178b98dbecac3840791a30820ae184f3d1ca416`。
 - 发布限制：完整 `:lib-extractor:publishReleasePublicationToMavenRepository` 在现有 dirty Media3 checkout 被既有 `MatroskaExtractor.samplesHaveSupplementalData` 静态上下文错误阻塞；未修改受保护 checkout，采用已验证 AAR 的最小 class/source 替换并通过 ZIP、源码和校验文件验证。
+
+## 本次直接合并记录
+
+- 上游来源：`fish2018/fongmi-sync@27b85eeeed5ceb55e56a67ae3b5cf8ff64b8da40` 与后续记录提交 `d95bfd4df4dc8824ff8ce36e78b2355241654797`。
+- 已接入上游 E3-1b 的 DTS 14-bit 公式、三条边界测试、补丁和 `media3-extractor` AAR/sources；AAR SHA-256 为 `33109a547e7f27c1110e785ae77e8ab1e9584a24a9f904573ce770129aa4475a`，sources SHA-256 为 `b4d65656b5d56ea8a66580d03178b98dbecac3840791a30820ae184f3d1ca416`。
+- 已补齐 extractor Gradle module 中 AAR/sources 的大小、MD5、SHA-1、SHA-256、SHA-512 元数据，并确认每个发布文件的 sidecar 与 module entry 一致。
+- `scripts/build_media_deps.sh` 保留 WebHTV 已验证的 `apply_media_patch_lf()` Windows CRLF fallback，仅为 Media3 patch 调用增加 `--unidiff-zero`，兼容上游零上下文 DTS patch；nextlib 和镜像 patch 的应用路径不变。
+- `third_party/media-lock.json` 已登记 E3-1b patch、extractor 产物和已采用的上游 E3-1a exoplayer 产物 SHA-256。
+- 当前 checkpoint：E3-1b source/config/artifact unit ready; next: commit this verified unit, then create the fongmi-sync two-parent merge commit。
+
+## 本次直接合并记录
+
+- 上游来源：`fish2018/fongmi-sync@27b85eeeed5ceb55e56a67ae3b5cf8ff64b8da40` 与后续记录提交 `d95bfd4df4dc8824ff8ce36e78b2355241654797`。
+- 采用上游 E3-1b 的 `DtsUtil` 公式、三条边界测试、补丁和 extractor 产物；不引入同分支中无关的 E3-1a 文档覆盖。
+- 构建脚本保留 WebHTV 已验证的 `apply_media_patch_lf()` Windows CRLF fallback，仅让 Media3 patch 调用额外使用 `--unidiff-zero`，以兼容上游零上下文 DTS patch。
+- `third_party/media-lock.json` 已登记 E3-1b patch SHA-256；extractor AAR/sources 与 module 内嵌摘要将在下一单元按实际文件重新核对并更新。
+- 当前 checkpoint：E3-1b source/config unit ready; next: validate and commit source/config unit, then finalize extractor publication metadata。
+
+## Checkpoint 2026-08-28: E3-1b publication validation
+
+- E3-1b publication metadata and artifact validation recorded：补丁与 `third_party/media-lock.json`、extractor AAR/sources、`.module` 内嵌摘要和全部 MD5/SHA-1/SHA-256/SHA-512 sidecar 已按实际文件核对一致；构建脚本语法检查通过。
+- 验证记录：`media3-extractor` AAR SHA-256 为 `33109a547e7f27c1110e785ae77e8ab1e9584a24a9f904573ce770129aa4475a`，sources SHA-256 为 `b4d65656b5d56ea8a66580d03178b98dbecac3840791a30820ae184f3d1ca416`，patch SHA-256 为 `328fe823b824fd36e359ea16eea4c77334ea707676e9a2803258f29b661e3d77`。
+- Workspace：`dev2@c10670e2df54553229b8303f35e01ac2b9d247a6`；范围外无预先脏路径，E3-1b 任务文件均待本次原子提交。
+- Rollback anchor：`recovery/E3-1b-baseline/20260826-9c347cc688c2`；回滚时恢复 E3-1b 实现提交及 `media3-extractor` AAR/来源产物。
+- Next action：commit the verified E3-1b unit。
+
+## Checkpoint 2026-08-28: E3-1b implementation closeout
+
+- E3-1b 原子提交：`b75ba0a5ca6e3ecf2e494f308c0296496c5a2332`；恢复标签：`recovery/fongmi-sync-e3-1b-dts/20260828010623-b75ba0a5ca6e`。
+- 本地提交包含补丁、构建脚本、lock、`media3-extractor` AAR/sources、module 元数据及 sidecar；module 内嵌摘要按实际 artifact 重新生成并通过定向校验。
+- `fish2018/fongmi-sync` 当前完整头为 `cafd4f69e613a5db49df5e38e762b6bf4fe58819`。三方预演的 `-X theirs` 目标树会删除本任务文档并回退已验证的 module 摘要和 Windows patch fallback，因此不采用该目标树。
+- 合并边界：保留当前 WebHTV 验证树，以 `fish2018/fongmi-sync` 作为真实双亲提交的第二父；不以合并动作重新覆盖已验证产物，也不引入上游未批准的其他功能树。
+- 双亲合并提交：`130eac99f735f47284106621bad4795281724786`；父提交为本地 `1cf029bc77f791f8b6b992a004704f1d93e8fa82` 与上游 `cafd4f69e613a5db49df5e38e762b6bf4fe58819`。
+- 合并恢复标签：`recovery/fongmi-sync-merge-closeout/20260828013239-130eac99f735`。
+- Next action：E3-1b closeout complete; proceed to E4-1 assessment。
+
+- Merge closeout preparation：将以 `fish2018/fongmi-sync@cafd4f69e613a5db49df5e38e762b6bf4fe58819` 为第二父创建 `ours` 双亲提交；当前验证树保持不变。
+
+## Checkpoint 2026-08-28: E3-1b merge completed
+
+- 双亲提交 `130eac99f735f47284106621bad4795281724786` 已创建并打恢复标签；相对第一父仅增加本合并准备记录，关键功能、lock 和 artifact 树保持已验证状态。
+- Next action：E3-1b closeout complete; proceed to E4-1 assessment。
