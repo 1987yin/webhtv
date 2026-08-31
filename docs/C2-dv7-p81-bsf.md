@@ -255,3 +255,11 @@ P8.1 仅对 HEVC、Profile 7、存在有效 RPU+BL 配置记录的轨道生效�
 - 验收结论：修复已消除 App 自身额外维持 5--6 秒黑遮罩的问题，不改变解码、渲染、音频同步、DV 转换或失败回退路径。回滚仍为 `3db8252c95ad23096db58d6adb75c094565a33bc` 或 `recovery/C2-DV7-P81-BSF-PANEL/20260830100826-3db8252c95ad`。
 - 收尾结果：实现、测试和实机证据已提交为 `fa6a9ab2df507f1e223225efbabd2b2978dfafcb`（`fix(mpv): reveal direct video at playback restart`），并在提交后立即创建 annotated recovery tag `recovery/C2-DV7-P81-BSF-FIRST-FRAME/20260830103126-fa6a9ab2df50`；tag 创建耗时 `0s`。
 - 下一动作：本原子单元已完成；不重复构建，不推送远端。后续 C2 工作必须另开独立 guard、提交和恢复 tag。
+
+### 2026-08-31 22:26 CST：补齐 C2 P8.1 的 armeabi-v7a 已验证资产
+
+- CI 运行 `Silent1566/webhtv` 的 `33392660102`（job `99489724919`，`beta@b35ff038d26b297e3a1b020c0117cd365b35425f`）在 `verify_mpv_native_assets.sh --require-elf` 的第二个 ABI 失败：`armeabi-v7a/libmpv.so` 缺少 `DV7 P8.1 conversion: removed stale enhancement-layer configuration.`。`b1f07cea3d36b8207ac0d518b837e295cb212323` 仅更新 arm64 产物却把该 marker 加入双 ABI 校验，导致旧 armv7 资产无法满足已提交的锁定 patch 合同。
+- 依用户要求优先采用上游精确产物：`fish2018/webhtv@23a3c74417fdcc107ad8efc43ca366482af89e58` 的 `app/src/armeabi_v7a/assets/mpv-libs/armeabi-v7a/libmpv.so`。该来源提交只改动该二进制和未采用的 `MpvPlayerEngine.java` 一行；本地与上游的 `third_party/mpv-native-lock.json`、`scripts/build_mpv_native.sh`、`scripts/verify_mpv_native_assets.sh`、`third_party/mpv-native-build.md`、`mpv-dovi-profile7-p81.patch` Git blob 完全一致，因此未引入任何新源码、锁、patch 或 Java 行为。
+- 安装产物：Git blob `64701f8a778bb3cfc2edecbcf8f2da204d4828d9`，大小 `14,522,228` bytes，SHA-256 `c2b952f9e6d3fb38399672d74bb9a3607668825c6eaacf40d02a1b8706407753`；ELF 为 `ELF32` / `ARM` / `DYN`，包含所需 P8.1 stale-enhancement-layer marker。仅替换 `armeabi-v7a/libmpv.so`；其余 armv7 资产、全部 arm64 资产及两 ABI 的 `libplayer.so` 均未改动。
+- 验证：使用 NDK `29.0.14206865` 的 `llvm-readelf` 和 `llvm-strings` 执行 `scripts/verify_mpv_native_assets.sh --require-elf`，稳定 Vulkan shader contract、P2 generic UV patch scope、`arm64-v8a`、`armeabi-v7a`、ELF `SONAME`/`DT_NEEDED`/命名空间与过期 marker 拒绝规则均通过。
+- 回滚：恢复本任务父提交 `119b3aec7345f578a93e1d59bf2a87d0dc61248a` 中的唯一 armv7 `libmpv.so`，或恢复本次 guard 收尾创建的 recovery tag；不需要回滚 C2 P8.1 patch、arm64 产物或任何 App Java 代码。
