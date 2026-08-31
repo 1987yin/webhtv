@@ -875,7 +875,15 @@ public class History implements Diffable<History> {
     public boolean setTmdbEpisodePosition(Episode episode) {
         TmdbEpisode tmdbEpisode = episode == null ? null : episode.getTmdbEpisode();
         int episodeNumber = tmdbEpisode == null ? 0 : tmdbEpisode.getNumber();
-        int seasonNumber = tmdbEpisode == null ? 0 : tmdbEpisode.getSeasonNumber();
+        return setTmdbEpisodePosition(tmdbEpisode, episodeNumber);
+    }
+
+    public boolean setTmdbEpisodePositionWithUnknownSeason(int episodeNumber) {
+        return setTmdbEpisodePosition(null, Math.max(0, episodeNumber));
+    }
+
+    private boolean setTmdbEpisodePosition(TmdbEpisode tmdbEpisode, int episodeNumber) {
+        int seasonNumber = tmdbEpisode == null ? -1 : tmdbEpisode.getSeasonNumber();
         return setTmdbEpisodePosition(seasonNumber, episodeNumber);
     }
 
