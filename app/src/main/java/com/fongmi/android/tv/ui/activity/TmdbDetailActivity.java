@@ -677,6 +677,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        resetPlaybackOwnership();
         brokenSources.clear();
         resetDetailState();
         loadContent(null);
@@ -7941,10 +7942,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private String getInlineOsdTitle() {
         if (selectedEpisode == null) return "";
         String name = playbackHistoryName();
-        String episode = selectedEpisode.getName();
-        String title = TextUtils.isEmpty(episode) ? name : name + " " + episode;
-        String progress = tmdbEpisodeInfo().compactText(this);
-        return TextUtils.isEmpty(progress) ? title : title + " · " + progress;
+        String episodeTitle = historyEpisodeTitle(selectedEpisode);
+        return TextUtils.isEmpty(episodeTitle) || TextUtils.equals(name, episodeTitle)
+                ? name : getString(R.string.detail_title, name, episodeTitle);
     }
 
     private void onInlineLut() {
@@ -8255,7 +8255,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                         inlineHttpRefreshAttempted = false;
                         useParse = result.shouldUseParse();
                         inlinePlayerSwitchLoading = false;
-                        player().switchPlayer(playerType, result, getHistoryKey(), metadata, useParse, position, speed, repeat);
+                        player().switchPlayer(playerType, result, activePlaybackKey(), metadata, useParse, position, speed, repeat);
                         rememberInlinePlayerKernel(playerType);
                     }
                     finishInlinePlayerSwitch();
