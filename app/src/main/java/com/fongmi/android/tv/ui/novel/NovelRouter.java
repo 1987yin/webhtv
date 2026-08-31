@@ -122,6 +122,7 @@ public final class NovelRouter {
         // 阅读器已在前台 → 回传解析结果，不重复启动（切换章节场景）
         WebReaderActivity reader = currentReader;
         if (reader != null && !reader.isFinishing() && !reader.isDestroyed()) {
+            if (!reader.hasPendingHostChapterRequest() && NovelRouter.consumeStaleChapterResult()) return false;
             // 不在这里清表：结清哪一条只有阅读器知道（它持有本次请求的令牌），
             // 在这里猜或整表清空都会抹掉另一次仍在途的请求，返回键会重新失效。
             reader.onEpisodeResolved(kind, result.getRealUrl(), extractTitle(result.getRealUrl()));
@@ -238,6 +239,7 @@ public final class NovelRouter {
         // 阅读器已在前台 → 回传解析结果，不重复启动（切换章节场景）
         WebReaderActivity reader = currentReader;
         if (reader != null && !reader.isFinishing() && !reader.isDestroyed()) {
+            if (!reader.hasPendingHostChapterRequest() && NovelRouter.consumeStaleChapterResult()) return false;
             // 不在这里清表：结清哪一条只有阅读器知道（它持有本次请求的令牌），
             // 在这里猜或整表清空都会抹掉另一次仍在途的请求，返回键会重新失效。
             reader.onEpisodeResolved(kind, payload, title);
@@ -492,8 +494,8 @@ public final class NovelRouter {
         // 没有在途请求时不留额度 —— 否则会无条件吞掉关闭后的第一次合法打开。
         int pending = inFlightChapters.getAndSet(0);
         if (pending > 0) {
-            staleChapterResults.set(pending);
-            staleUntil = readerClosedAt + PENDING_CHAPTER_TTL;
+            staleChapterResults.addAndGet(pending);
+            staleUntil = Math.max(staleUntil, readerClosedAt + PENDING_CHAPTER_TTL);
         }
     }
 
@@ -519,6 +521,11 @@ public final class NovelRouter {
         }
         staleChapterResults.updateAndGet(n -> n > 0 ? n - 1 : 0);
         return true;
+    }
+
+    /** 公开一次性消费判定：true 表示这是已关闭阅读器的迟到结果。 */
+    public static boolean consumeStaleChapterResult() {
+        return isStaleChapterResult();
     }
 
 
@@ -584,6 +591,7 @@ public final class NovelRouter {
         // 阅读器已在前台 → 回传解析结果，不重复启动（解决「切换章节回不到播放器」）
         WebReaderActivity reader = currentReader;
         if (reader != null && !reader.isFinishing() && !reader.isDestroyed()) {
+            if (!reader.hasPendingHostChapterRequest() && NovelRouter.consumeStaleChapterResult()) return false;
             // 不在这里清表：结清哪一条只有阅读器知道（它持有本次请求的令牌），
             // 在这里猜或整表清空都会抹掉另一次仍在途的请求，返回键会重新失效。
             reader.onEpisodeResolved(kind, payload, extractTitle(payload));
