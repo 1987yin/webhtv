@@ -226,6 +226,7 @@ public class NodeService extends Service {
         msg.setData(data);
         try {
             reply.send(msg);
+            stopSelf();
         } catch (RemoteException ignored) {
         }
     }

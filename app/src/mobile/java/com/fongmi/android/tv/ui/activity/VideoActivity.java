@@ -3051,6 +3051,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onSetting() {
+        setTrackVisible();
         ControlDialog.create().parent(mBinding).history(mHistory).parse(isUseParse()).player(player()).show(this);
     }
 
@@ -4709,6 +4710,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void showControl() {
         if (service() == null || isInPictureInPictureMode()) return;
+        if (mAudioStageVisible && !isFullscreen()) {
+            hideWidgetOverlay();
+            hideControl();
+            return;
+        }
+        setTrackVisible();
         setOsdSuppressed(true);
         boolean shortDrama = isShortDramaSession();
         boolean showPiP = canShowPiP(shortDrama);

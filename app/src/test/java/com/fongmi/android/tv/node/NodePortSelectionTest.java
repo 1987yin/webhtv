@@ -114,6 +114,43 @@ public class NodePortSelectionTest {
         assertTrue("CatSource 等待必须有时间上限", source.contains("latch.await(60, TimeUnit.SECONDS)"));
     }
 
+    @Test
+    public void timeoutInvalidatesLateRepliesAndKeepsTheStoppingServiceVisible() throws IOException {
+        String runtime = read("com/fongmi/android/tv/node/NodeRuntime.java");
+        int timeout = runtime.indexOf("private static synchronized void timeout(");
+        int stop = runtime.indexOf("NodeService.stop(context);", timeout);
+        int invalidate = runtime.indexOf("START_GENERATION.incrementAndGet();", timeout);
+        int clearUrl = runtime.indexOf("servingUrl = \"\";", timeout);
+        int nextMethod = runtime.indexOf("private static boolean same(", timeout);
+
+        assertTrue("timeout must invalidate the old generation before stopping its service",
+                timeout >= 0 && invalidate > timeout && invalidate < stop);
+        assertTrue("timeout must keep the stopping service visible until the next start waits for process death",
+                clearUrl < timeout || clearUrl > nextMethod);
+        assertTrue("start and timeout must serialize the state transition so a retry cannot race the generation invalidation",
+                runtime.contains("public static synchronized void start(")
+                        && runtime.contains("private static synchronized void timeout("));
+    }
+
+    @Test
+    public void nodeServiceStopsAfterReportingStartupError() throws IOException {
+        String service = read("com/fongmi/android/tv/node/NodeService.java");
+        int method = service.indexOf("private void sendError(");
+        int send = service.indexOf("reply.send(msg)", method);
+        int stop = service.indexOf("stopSelf();", method);
+
+        assertTrue("报告启动错误后必须停止前台 Service，不能让失败的 :node 常驻",
+                method >= 0 && send > method && stop > send);
+    }
+
+    @Test
+    public void staleSuppressionCreditsAccumulateAcrossReaderClosures() throws IOException {
+        String router = read("com/fongmi/android/tv/ui/novel/NovelRouter.java");
+        assertTrue("多次关闭时不能覆盖尚未消费的迟到结果额度",
+                router.contains("staleChapterResults.addAndGet(pending);")
+                        && router.contains("Math.max(staleUntil, readerClosedAt + PENDING_CHAPTER_TTL)"));
+    }
+
     /**
      * 复用运行中的 Node 必须过 {@code servesCurrentSource}（比完整来源身份），
      * 而不是自己拼一个只看地址的条件——后者在服务端原地更新 bundle 后会继续跑旧 JS。
