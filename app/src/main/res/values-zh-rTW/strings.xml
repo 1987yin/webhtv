@@ -1360,6 +1360,7 @@
     <string name="dialog_select_title">選擇章節</string>
     <string name="dialog_config_hint">請輸入配置…</string>
     <string name="dialog_config_choose_dir">選擇資料夾（貓源本地包）</string>
+    <string name="dialog_config_choose_failed">讀不到所選內容，請重新選擇包目錄或 zip</string>
     <string name="dialog_config_name">請輸入名稱…</string>
     <string name="dialog_config_url">請輸入網址…</string>
 

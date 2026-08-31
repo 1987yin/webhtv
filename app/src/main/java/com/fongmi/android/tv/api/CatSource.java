@@ -11,6 +11,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -30,7 +31,7 @@ public class CatSource {
      */
     public static boolean isBundle(String url) {
         if (TextUtils.isEmpty(url)) return false;
-        String value = url.trim().toLowerCase();
+        String value = url.trim().toLowerCase(Locale.ROOT);
         if (value.endsWith(".js.md5") || value.endsWith("/index.js")) return true;
         return NodeBundle.isLocal(url);
     }

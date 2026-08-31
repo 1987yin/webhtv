@@ -3501,4 +3501,55 @@ public class VideoActivityLayoutTest {
         int second = source.indexOf("android:id=\"@+id/" + secondId + "\"");
         return first >= 0 && second >= 0 && first < second;
     }
+
+    /**
+     * 原生选集列表模式保持单行横向滚动。
+     *
+     * 「按钮内文本居中」的诉求由 adapter_episode_hori.xml 的 gravity=center 加左右成对内边距
+     * 满足，不是把整条列表改成换行居中的 Flexbox —— 那会让列表模式看起来像网格模式，
+     * 两种视图模式失去区分。
+     */
+    @Test
+    public void mobileEpisodeListModeStaysHorizontalSingleRow() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+
+        int method = source.indexOf("private void updateEpisodeLayout(List<Episode> items, boolean useTmdbCard)");
+        assertTrue(sourcePath + " is missing updateEpisodeLayout", method >= 0);
+        int gridBranch = source.indexOf("int span = getEpisodeSpan(items, useTmdbCard);", method);
+        String listBranch = source.substring(method, gridBranch);
+
+        assertTrue("list mode must use a horizontal LinearLayoutManager",
+                listBranch.contains("new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)"));
+        assertFalse("list mode must not wrap items with a Flexbox layout manager",
+                listBranch.contains("FlexboxLayoutManager"));
+        assertFalse(sourcePath + " must not import FlexboxLayoutManager for the episode list",
+                source.contains("import com.google.android.flexbox.FlexboxLayoutManager;"));
+    }
+
+    /**
+     * 原生选集按钮的文本靠左右成对内边距居中。
+     *
+     * shape_video_item 自带 12dp 左右内边距，setPadding 只覆盖左边会把右边一起清成 0，
+     * 文本随之偏向一侧。徽标可见时左边额外让出 92dp 供徽标占位。
+     */
+    @Test
+    public void mobileEpisodeHoriTextKeepsSymmetricHorizontalPadding() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "holder", "EpisodeHoriHolder.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+
+        assertTrue(sourcePath + " must resolve a shared horizontal padding",
+                source.contains("int horizontal = ResUtil.dp2px(12);"));
+        assertTrue(sourcePath + " must apply the same padding on both sides",
+                source.contains("binding.text.setPadding(visible ? ResUtil.dp2px(92) : horizontal, binding.text.getPaddingTop(), horizontal, binding.text.getPaddingBottom());"));
+
+        Path layout = findMobileResPath().resolve(Path.of("layout", "adapter_episode_hori.xml"));
+        String xml = new String(Files.readAllBytes(layout), StandardCharsets.UTF_8);
+        int text = xml.indexOf("android:id=\"@+id/text\"");
+        int card = xml.indexOf("android:id=\"@+id/card\"");
+        assertTrue(layout + " is missing @+id/text", text >= 0);
+        assertTrue("the episode button text must be centered inside the button",
+                xml.indexOf("android:gravity=\"center\"", text) > text
+                        && xml.indexOf("android:gravity=\"center\"", text) < card);
+    }
 }
