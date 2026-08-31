@@ -7913,10 +7913,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private String getInlineOsdTitle() {
         if (selectedEpisode == null) return "";
         String name = playbackHistoryName();
-        String episode = selectedEpisode.getName();
-        String title = TextUtils.isEmpty(episode) ? name : name + " " + episode;
-        String progress = tmdbEpisodeInfo().compactText(this);
-        return TextUtils.isEmpty(progress) ? title : title + " · " + progress;
+        String episodeTitle = historyEpisodeTitle(selectedEpisode);
+        return TextUtils.isEmpty(episodeTitle) || TextUtils.equals(name, episodeTitle)
+                ? name : getString(R.string.detail_title, name, episodeTitle);
     }
 
     private void onInlineLut() {
