@@ -406,7 +406,10 @@ public class PlayerManager implements ParseCallback {
                 onNativeAudioBecomingNoisy();
             }
         };
-        this.playerType = PlayerSetting.getPlayer();
+        // 播放页可能在服务起来之前就定好了本次要用的内核（按剧集记住的选择），
+        // 所以这里读会话内核；没有会话时它自然退回设置页的全局默认。
+        this.playerType = PlayerSetting.getActivePlayer();
+        PlayerSetting.putActivePlayer(this.playerType);
         this.playerFallbackTried = new boolean[PLAYER_COUNT];
         clearFfmpegModeFallbackState();
         this.adAudioRuntime = new AdAudioRuntimeController(
@@ -423,6 +426,7 @@ public class PlayerManager implements ParseCallback {
 
     public void release() {
         mediaSession.beforeRelease();
+        PlayerSetting.clearActivePlayer();
         adAudioRuntime.close();
         prepareSeq++;
         exoSpeedRestoreState.clear();
@@ -917,7 +921,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public String getAudioPassThroughText() {
-        if (!PlayerSetting.isAudioPassThrough()) return "关";
+        if (!PlayerSetting.isAudioPassThrough(playerType)) return "关";
         if (!isMpv()) return "开";
         String codecs = engine == null ? "" : engine.getAudioSpdifCodecs();
         return TextUtils.isEmpty(codecs) ? "开/PCM" : "开/" + codecs;
@@ -1913,11 +1917,38 @@ public void resetTrack(int type) {
     }
 
     public void switchPlayer(int type) {
-        switchPlayer(type, true, false);
+        switchPlayer(type, false);
     }
 
     public void switchPlayerManually(int type) {
-        switchPlayer(type, true, true);
+        switchPlayer(type, true);
+    }
+
+    /**
+     * 为即将开始的一次播放切到指定内核（通常来自历史记录里记住的选择）。
+     * 与 switchPlayer 不同：这里不保留旧 spec 的进度、也不重新起播旧地址，
+     * 因为调用方紧接着就会 start/parse 新地址；只换引擎并记下本次会话内核。
+     */
+    public void preparePlayer(int type) {
+        int next = resolveAvailablePlayer(PlayerSetting.sanitizePlayer(type));
+        PlayerSetting.putActivePlayer(next);
+        if (engine == null || player == null || next == playerType) return;
+        int decode = engine.getDecode();
+        resetPlayerFallback();
+        manualPlayerSwitchPending = false;
+        beginPlaybackTrace("prepare-player");
+        prepareSeq++;
+        resetLutRuntimeState("prepare_player", true);
+        stopNativeAudioSession();
+        stopParse();
+        engine.release();
+        playerType = next;
+        spec = null;
+        clearPendingSwitchRestore();
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "prepare player type=%d decode=%d", next, decode);
+        engine = buildEngine(playerType, sanitizeDecode(decode));
+        player = engine.getPlayer();
+        callback.onPlayerRebuild(player, false);
     }
 
     public void switchPlayer(int type, PlaySpec freshSpec, long position, float speed, boolean repeat) {
@@ -1932,7 +1963,7 @@ public void resetTrack(int type) {
         stopNativeAudioSession();
         engine.release();
         playerType = type;
-        PlayerSetting.putPlayer(type);
+        PlayerSetting.putActivePlayer(type);
         spec = freshSpec;
         bindPlaybackTrace();
         playWhenReady = wasPlayWhenReady;
@@ -1960,7 +1991,7 @@ public void resetTrack(int type) {
         stopParse();
         engine.release();
         playerType = type;
-        PlayerSetting.putPlayer(type);
+        PlayerSetting.putActivePlayer(type);
         engine = buildEngine(playerType, decode);
         player = engine.getPlayer();
         playWhenReady = wasPlayWhenReady;
@@ -1985,11 +2016,7 @@ public void resetTrack(int type) {
         }
     }
 
-    private void switchPlayer(int type, boolean persist) {
-        switchPlayer(type, persist, false);
-    }
-
-    private void switchPlayer(int type, boolean persist, boolean manual) {
+    private void switchPlayer(int type, boolean manual) {
         if (engine == null || player == null) return;
         type = PlayerSetting.sanitizePlayer(type);
         type = manual ? resolveManualPlayer(type) : resolveAvailablePlayer(type);
@@ -1998,32 +2025,35 @@ public void resetTrack(int type) {
         manualPlayerSwitchPending = manual;
         if (manual) beginIjkRuntimeManualOverride();
         beginPlaybackTrace("switch-player");
-        switchEngine(type, persist, true, true);
+        switchEngine(type, true, true, true);
     }
 
-    private void switchEngine(int type, boolean persist, boolean preserveState, boolean notifyPrepare) {
+    /**
+     * chosen 区分「用户为本次播放选定的内核」与「当前实际在跑的引擎」：
+     * 手动切换要更新会话内核（供取播放地址、写历史使用），
+     * 而播放失败后的自动回退只换引擎，不能改写用户的选择。
+     */
+    private void switchEngine(int type, boolean chosen, boolean preserveState, boolean notifyPrepare) {
         int decode = engine.getDecode();
-        switchEngine(type, persist, preserveState, notifyPrepare, decode);
+        switchEngine(type, chosen, preserveState, notifyPrepare, decode);
     }
 
-    private void switchEngine(int type, boolean persist, boolean preserveState, boolean notifyPrepare, int decode) {
+    private void switchEngine(int type, boolean chosen, boolean preserveState, boolean notifyPrepare, int decode) {
         long position = preserveState ? getPosition() : 0;
         float speed = preserveState ? getSpeed() : 1f;
         boolean repeat = preserveState && isRepeatOne();
         boolean wasPlayWhenReady = preserveState && player != null ? player.getPlayWhenReady() : playWhenReady;
-        switchEngine(type, persist, notifyPrepare, decode, position, speed, repeat, wasPlayWhenReady);
+        switchEngine(type, chosen, notifyPrepare, decode, position, speed, repeat, wasPlayWhenReady);
     }
 
-    private void switchEngine(int type, boolean persist, boolean notifyPrepare, int decode, long position, float speed, boolean repeat, boolean wasPlayWhenReady) {
+    private void switchEngine(int type, boolean chosen, boolean notifyPrepare, int decode, long position, float speed, boolean repeat, boolean wasPlayWhenReady) {
         prepareSeq++;
         resetLutRuntimeState("switch_player", true);
         stopNativeAudioSession();
         engine.release();
         playerType = type;
-        if (persist) {
-            PlayerSetting.putPlayer(type);
-        }
-        if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "switch player type=%d persist=%s position=%d spec=%s", type, persist, position, debugSpec());
+        if (chosen) PlayerSetting.putActivePlayer(type);
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "switch player type=%d chosen=%s position=%d spec=%s", type, chosen, position, debugSpec());
         engine = buildEngine(playerType, sanitizeDecode(decode));
         player = engine.getPlayer();
         callback.onPlayerRebuild(player, false);
@@ -3649,7 +3679,7 @@ public void resetTrack(int type) {
                 || !playbackAutoSession.active()
                 || playerType != PlayerSetting.IJK
                 || !PlaybackPerformanceSetting.isAuto(PlayerSetting.IJK)
-                || PlayerSetting.getPlayer() != PlayerSetting.IJK) return;
+                || PlayerSetting.getActivePlayer() != PlayerSetting.IJK) return;
         long now = Math.max(0, nowElapsedMs);
         IjkRuntimeProfileController.Facts facts = currentIjkRuntimeFacts(now);
         IjkRuntimeProfileController.RuntimeSample sample =
@@ -3669,7 +3699,7 @@ public void resetTrack(int type) {
 
     private IjkRuntimeProfileController.Facts currentIjkRuntimeFacts(
             long nowElapsedMs) {
-        boolean automatic = PlayerSetting.getPlayer() == PlayerSetting.IJK
+        boolean automatic = PlayerSetting.getActivePlayer() == PlayerSetting.IJK
                 && PlaybackPerformanceSetting.isAuto(PlayerSetting.IJK)
                 && !ijkRuntimeManualOverride;
         return IjkRuntimeProfileController.Facts.fromContext(
@@ -4044,7 +4074,7 @@ public void resetTrack(int type) {
         ijkRuntimeManualOverride = false;
         pendingIjkRuntimeFallbackReparse = false;
         if (!ijkRuntimeTemporaryFallback) return;
-        if (PlayerSetting.getPlayer() != PlayerSetting.IJK
+        if (PlayerSetting.getActivePlayer() != PlayerSetting.IJK
                 || !PlaybackPerformanceSetting.isAuto(PlayerSetting.IJK)) {
             ijkRuntimeTemporaryFallback = false;
             return;
@@ -6710,7 +6740,7 @@ public void resetTrack(int type) {
         if (spec != null && spec.getDrm() != null) return false;
         if (PlayerSetting.isTunnel()) return false;
         if (engine.getDecode() == PlayerEngine.SOFT) return false;
-        if (PlayerSetting.isVideoPrefer()) return false;
+        if (PlayerSetting.isVideoPrefer(playerType)) return false;
         return true;
     }
 
@@ -8463,7 +8493,7 @@ public void resetTrack(int type) {
                 List<Track> savedTracks = Track.find(getKey());
                 setTrack(savedTracks);
                 if (RealtimeSubtitleController.get().isEnabled()) disableSubtitleTrackForRealtime();
-                if (PlayerSetting.isPreferAAC() && !TrackUtil.hasTrack(player, savedTracks, C.TRACK_TYPE_AUDIO)) TrackUtil.preferAAC(player);
+                if (PlayerSetting.isPreferAAC(playerType) && !TrackUtil.hasTrack(player, savedTracks, C.TRACK_TYPE_AUDIO)) TrackUtil.preferAAC(player);
                 callback.onTracksChanged();
                 initTrack = true;
             }

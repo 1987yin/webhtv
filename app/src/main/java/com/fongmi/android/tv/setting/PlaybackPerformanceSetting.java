@@ -210,10 +210,14 @@ public class PlaybackPerformanceSetting {
     }
 
     public static String getProfileName() {
-        int profile = getProfile();
+        return getProfileName(PlayerSetting.getPlayer());
+    }
+
+    public static String getProfileName(int kernel) {
+        int profile = getProfile(kernel);
         return switch (profile) {
             case PROFILE_AUTO -> {
-                int count = getOverrideCount(PlayerSetting.getPlayer());
+                int count = getOverrideCount(kernel);
                 yield count == 0 ? "自动" : "自动（已覆盖" + count + "项）";
             }
             case PROFILE_COMPATIBLE,

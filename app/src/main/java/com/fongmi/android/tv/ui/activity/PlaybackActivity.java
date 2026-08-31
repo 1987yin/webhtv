@@ -427,7 +427,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     private boolean isSelectedMpvPlayer() {
-        return mService != null ? player().isMpv() : PlayerSetting.getPlayer() == PlayerSetting.MPV;
+        return mService != null ? player().isMpv() : PlayerSetting.getActivePlayer() == PlayerSetting.MPV;
     }
 
     private void bindPlaybackService() {
