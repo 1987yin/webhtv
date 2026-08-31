@@ -142,6 +142,11 @@ public class SiteViewModel extends ViewModel {
         execute(TaskType.PLAYER, player, () -> SiteApi.playerContent(key, flag, id));
     }
 
+    /** 按指定内核取播放地址：取址要按内核区分线路，所以内核必须显式传入而不是读全局默认。 */
+    public void playerContent(String key, String flag, String id, int playerType) {
+        execute(TaskType.PLAYER, player, () -> SiteApi.playerContent(key, flag, id, playerType));
+    }
+
     public void searchContent(Site site, String keyword, boolean quick, String page) {
         long start = System.currentTimeMillis();
         execute(TaskType.RESULT, result, SearchTask.create(site, keyword, quick, page),

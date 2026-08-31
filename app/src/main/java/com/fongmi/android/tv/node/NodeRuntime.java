@@ -81,7 +81,7 @@ public final class NodeRuntime {
      *
      * @param url 用户填的猫源地址（{@code .../index.js.md5}）
      */
-    public static void start(Context context, String url, Callback callback) {
+    public static synchronized void start(Context context, String url, Callback callback) {
         if (TextUtils.isEmpty(url)) {
             if (callback != null) callback.onError("未填写猫源地址");
             return;
@@ -130,11 +130,13 @@ public final class NodeRuntime {
         }
     }
 
-    private static void timeout(Context context, long generation) {
+    private static synchronized void timeout(Context context, long generation) {
         if (generation != START_GENERATION.get() || !STARTING.compareAndSet(true, false)) return;
+        // 先让当前 reply handler 失效：stopService 是异步的，旧 :node 仍可能在退出前发 READY。
+        // 同时保留 servingUrl，让下一次 start 先等待这个旧进程真的结束，不能把重试投给旧 Service。
+        START_GENERATION.incrementAndGet();
         NodeService.stop(context);
         running = false;
-        servingUrl = "";
         servingSourceKey = "";
         port = 0;
         NodeNotify.done(context, "猫源启动失败：服务未在预期时间内就绪");
