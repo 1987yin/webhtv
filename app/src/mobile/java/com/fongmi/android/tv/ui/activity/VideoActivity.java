@@ -1345,6 +1345,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         // 否则长视频会卡在竖屏全屏且无法旋转。仍是短剧则保持形态，避免无谓的进出全屏抖动。
         if (shortDramaSession && !isShortDramaSource()) exitFullscreen();
         shortDramaSession = false;
+        // 形态可能仍是短剧全屏（新条目也是短剧时上面不退出），所以按当前形态重算而不是一律清掉，
+        // 否则新条目在到达 STATE_READY 之前会用长视频那套手势，侧边竖滑又变成调亮度。
+        syncShortDramaGesture();
         setOrient();
         checkId();
     }
@@ -4530,6 +4533,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         setSizeText();
         setRotate(current.isPortrait());
         mKeyDown.resetScale();
+        // 短剧会话退出全屏后再双击/点全屏按钮进来不走 enterShortDramaFullscreen，
+        // 这里也要按新形态重算，否则回到全屏时手势还是长视频那套轴向。
+        syncShortDramaGesture();
         App.post(mR3, 2000);
         hideControl();
         logVideoFrame("enterFullscreen after");
@@ -4564,6 +4570,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.video.setLayoutParams(mFrameParams);
         restoreEmbeddedVideoLayoutAfterFullscreen();
         mKeyDown.resetScale();
+        // 退出全屏就交还短剧手势：内嵌小窗上竖滑要留给详情页滚动，不能再切集。
+        syncShortDramaGesture();
         App.post(mR3, 2000);
         setRotate(false);
         hideControl();
@@ -8202,9 +8210,21 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             setRequestedOrientation(isPort() ? ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT : ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
             mKeyDown.resetScale();
         }
+        syncShortDramaGesture();
         setShortDramaScale();
         hideControl();
         ViewCompat.requestApplyInsets(mBinding.getRoot());
+    }
+
+    /**
+     * 手势轴向跟着呈现形态走：短剧竖屏全屏时整屏上下滑切集、长按后上下滑调亮度/音量。
+     * <p>
+     * 必须由「当前是否处于短剧全屏」推导，不能在进入时置一次了事：横屏短剧允许自由旋转，
+     * 转回竖屏会走 exitFullscreen 退回内嵌小窗，此时若手势仍是短剧那套，在详情页上
+     * 竖滑就会误切集。同理换到另一部短剧时形态保持不变，标记也不该被清掉。
+     */
+    private void syncShortDramaGesture() {
+        if (mKeyDown != null) mKeyDown.setShortDrama(isFullscreen() && isShortDramaSession());
     }
 
     private void setShortDramaScale() {
