@@ -393,6 +393,7 @@ private int mAudioBackgroundRandomNonce;
     private boolean mNativePersonalDoubanLoading;
     private boolean mEpisodeGridMode = Setting.getTmdbEpisodeGridMode();
     private int playerKernelSwitchRequestId;
+    private int mPendingPlayerKernel = PlayerSetting.NONE;
     private boolean decodeSwitchRefreshing;
     private int deferredFullscreenOrientation = Configuration.ORIENTATION_UNDEFINED;
     private int mEpisodeSpanCount;
@@ -1289,6 +1290,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     @Override
     protected void onServiceConnected() {
         player().setDanmakuController(mBinding.exo.getDanmakuController());
+        applyPendingPlayerKernel();
         syncDesktopLyricsAudioContent();
         setPlayerKernel();
         setDecode();
@@ -1703,7 +1705,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void setPlayer() {
-        mBinding.control.action.player.setText(service() == null ? ResUtil.getStringArray(R.array.select_player)[PlayerSetting.getPlayer()] : player().getPlayerText());
+        mBinding.control.action.player.setText(service() == null ? ResUtil.getStringArray(R.array.select_player)[PlayerSetting.getActivePlayer()] : player().getPlayerText());
     }
 
     private void setupActionButtons() {
@@ -1872,6 +1874,50 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void setPlayerKernel() {
         mBinding.control.action.player.setText(player().getPlayerText());
+    }
+
+    /**
+     * 起播前把内核切到本剧记住的选择，并返回该内核给取址用——取播放地址要按内核区分线路。
+     * 没有记录时 getPlayerOrDefault 会退回设置页的全局默认。
+     * 播放服务还没连上时先只记会话内核（取址在工作线程上读它），引擎由 onServiceConnected 补齐。
+     */
+    private int applyHistoryPlayerKernel() {
+        int kernel = mHistory == null ? PlayerSetting.getPlayer() : mHistory.getPlayerOrDefault();
+        PlayerSetting.putActivePlayer(kernel);
+        if (service() == null) {
+            mPendingPlayerKernel = kernel;
+            return kernel;
+        }
+        mPendingPlayerKernel = PlayerSetting.NONE;
+        player().preparePlayer(kernel);
+        setPlayerKernel();
+        setDecode();
+        return kernel;
+    }
+
+    /**
+     * 服务连上后补齐本页在等的内核。
+     * 服务可能是上一次播放留活下来的，它建 PlayerManager 时读到的还是上一部剧的内核，
+     * 所以本页在服务就绪前定下的选择要在这里落到引擎上；没有待办时不动引擎。
+     */
+    private void applyPendingPlayerKernel() {
+        int kernel = mPendingPlayerKernel;
+        mPendingPlayerKernel = PlayerSetting.NONE;
+        if (!PlayerSetting.isPlayer(kernel)) return;
+        player().preparePlayer(kernel);
+    }
+
+    /**
+     * 把用户刚选定的内核写回本剧历史并落盘。
+     * 只在用户显式换内核时调用，且用用户选的值而不是会话/引擎状态：
+     * 播放页可能重叠存在（上一部剧的 Activity 还没销毁），若挂在每次存历史上，
+     * 上一部剧的收尾存档会用别人的会话内核覆盖本剧记住的选择；
+     * 而引擎类型还会被播放失败后的自动回退改掉，也不代表用户改了选择。
+     */
+    private void rememberPlayerKernel(int type) {
+        if (mHistory == null || !PlayerSetting.isPlayer(type)) return;
+        mHistory.setPlayer(type);
+        syncHistory();
     }
 
     private void setScale(int scale) {
@@ -2293,7 +2339,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         clearLyrics();
         clearKaraokeState();
         if (shouldUseImmersiveAudio()) setAudioStageVisible(true);
-        mViewModel.playerContent(getKey(), playFlag, episode.getUrl());
+        mViewModel.playerContent(getKey(), playFlag, episode.getUrl(), applyHistoryPlayerKernel());
         mBinding.control.title.setSelected(true);
         updateHistory(episode);
         showProgress();
@@ -4373,6 +4419,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                     player().switchPlayerManually(which);
                     setPlayer();
                     setDecode();
+                    rememberPlayerKernel(which);
                 }
             } else {
                 playerKernelSwitchRequestId++;
@@ -4431,6 +4478,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
         } else {
             player().switchPlayer(type, result, getHistoryKey(), metadata, isUseParse(), position, speed, repeat);
+            rememberPlayerKernel(type);
         }
         setPlayerKernel();
         setDecode();

@@ -115,7 +115,9 @@ public class History implements Diffable<History> {
     @ColumnInfo(defaultValue = "0")
     private int tmdbEpisodeNumber;
 
-    private transient int player = PlayerSetting.NONE;
+    @SerializedName("player")
+    @ColumnInfo(defaultValue = "-1")
+    private int player = PlayerSetting.NONE;
     private transient long updateTime;
     private transient String playbackSourceKey;
     @Ignore

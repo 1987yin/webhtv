@@ -494,8 +494,8 @@ public class VideoActivityLayoutTest {
         assertTrue(label + " playback must update artwork before the new item starts", body.contains("applyPlaybackArtwork(episode);"));
         assertTrue(label + " playback must clear lyrics and karaoke state between episodes",
                 body.contains("clearLyrics();") && body.contains("clearKaraokeState();"));
-        assertTrue(label + " playback must request content with the resolved per-episode flag",
-                body.contains("mViewModel.playerContent(getKey(), playFlag, episode.getUrl());"));
+        assertTrue(label + " playback must request content with the resolved per-episode flag and the show's kernel",
+                body.contains("mViewModel.playerContent(getKey(), playFlag, episode.getUrl(), applyHistoryPlayerKernel());"));
     }
 
     @Test
@@ -820,11 +820,52 @@ public class VideoActivityLayoutTest {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "player", "PlayerManager.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int method = source.indexOf("public void switchPlayer(int type, Result result");
-        int methodEnd = source.indexOf("private void switchPlayer(int type, boolean persist)", method);
+        int methodEnd = source.indexOf("private void switchPlayer(int type, boolean manual)", method);
         String methodBody = method >= 0 && methodEnd > method ? source.substring(method, methodEnd) : "";
 
         assertTrue(sourcePath + " is missing refreshed-result player switching", method >= 0);
         assertTrue("a user-selected refreshed core must stop instead of auto-falling back on its first failure", methodBody.contains("manualPlayerSwitchPending = true;"));
+    }
+
+    @Test
+    public void playerKernelSwitchStaysScopedToCurrentPlayback() throws Exception {
+        String player = new String(Files.readAllBytes(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "player", "PlayerManager.java"))), StandardCharsets.UTF_8);
+        String leanback = new String(Files.readAllBytes(findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"))), StandardCharsets.UTF_8);
+        String mobile = new String(Files.readAllBytes(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"))), StandardCharsets.UTF_8);
+        String tmdb = new String(Files.readAllBytes(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"))), StandardCharsets.UTF_8);
+        String history = new String(Files.readAllBytes(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "bean", "History.java"))), StandardCharsets.UTF_8);
+
+        assertFalse("switching cores inside the player must not rewrite the global default kernel", player.contains("PlayerSetting.putPlayer("));
+        assertTrue("the running kernel must be published as session state instead", player.contains("PlayerSetting.putActivePlayer("));
+        assertTrue("ending playback must drop the session kernel so the global default applies again", player.contains("PlayerSetting.clearActivePlayer();"));
+
+        assertTrue("the per-show kernel must be persisted, not a transient field", history.contains("@SerializedName(\"player\")") && !history.contains("private transient int player"));
+
+        for (String source : new String[]{leanback, mobile}) {
+            assertTrue("playback must restore the show's remembered kernel before resolving the play url",
+                    source.contains("player().preparePlayer(kernel);"));
+            assertTrue("the remembered kernel must fall back to the global default", source.contains("mHistory.getPlayerOrDefault()"));
+            assertTrue("the show's history must remember the user's selection, not an engine/session state",
+                    source.contains("private void rememberPlayerKernel(int type)") && source.contains("mHistory.setPlayer(type);"));
+            // 播放页会重叠存在：上一部剧的收尾存档若也写内核，就会用别人的会话内核
+            // 覆盖本剧记住的选择，历史回归点。
+            assertFalse("routine history saves must not rewrite the show's kernel",
+                    source.contains("mHistory.setPlayer(PlayerSetting.getActivePlayer());"));
+            // 服务可能是上一次播放留活的，它建 PlayerManager 时读到的是上一部剧的内核，
+            // 所以服务就绪前定下的选择必须在连上后补落到引擎。
+            assertTrue("a kernel chosen before the service was ready must be applied once it connects",
+                    source.contains("mPendingPlayerKernel = kernel;")
+                            && source.contains("private void applyPendingPlayerKernel()")
+                            && methodBody(source, "protected void onServiceConnected()", "\n    }").contains("applyPendingPlayerKernel();"));
+        }
+        assertTrue("inline TMDB playback must resolve the play url with the show's kernel",
+                tmdb.contains("SiteApi.playerContent(key, flag, episodeUrl, playerKernel)"));
+        assertTrue("inline TMDB playback must restore the show's remembered kernel",
+                tmdb.contains("player().preparePlayer(inlineHistoryPlayerKernel());"));
+        assertTrue("inline TMDB playback must remember only the user's selection",
+                tmdb.contains("private void rememberInlinePlayerKernel(int type)") && tmdb.contains("history.setPlayer(type);"));
+        assertFalse("inline progress sync must not rewrite the show's kernel",
+                tmdb.contains("history.setPlayer(PlayerSetting.getActivePlayer());"));
     }
 
     @Test
