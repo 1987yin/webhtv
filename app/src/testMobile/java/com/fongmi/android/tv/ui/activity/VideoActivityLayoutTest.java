@@ -951,6 +951,97 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void mobileShortDramaGesturesSwapAxesToAvoidMisfires() throws Exception {
+        // 用户反馈：竖屏短剧铺满屏幕，左右 1/4 竖滑调亮度/音量与中间竖滑切集互相误触。
+        // 短剧形态改为「整屏上下滑切集 + 长按后上下滑调亮度/音量」，两个手势类同步。
+        List<Path> gestureFiles = Arrays.asList(
+                findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "custom", "CustomKeyDown.java")),
+                findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "custom", "PlayerGesture.java"))
+        );
+
+        for (Path gestureFile : gestureFiles) {
+            String source = new String(Files.readAllBytes(gestureFile), StandardCharsets.UTF_8);
+            assertTrue(gestureFile + " must expose the short drama gesture mode", source.contains("public void setShortDrama(boolean shortDrama)"));
+            // 上下滑切集不再受左右 1/4 亮度/音量分区限制。
+            assertTrue(gestureFile + " must let short drama flings cover the side quarters",
+                    source.contains("(!shortDrama && isSide(e1))"));
+            // 亮度/音量不再由滑动起点的左右 1/4 触发。
+            assertTrue(gestureFile + " must stop routing short drama scrolls to brightness/volume",
+                    source.contains("else if (!shortDrama && isSide(e2)) checkSide(e2);"));
+            // 长按后 GestureDetector 不再回调 onScroll，调节必须由 onTouchEvent 自己驱动。
+            assertTrue(gestureFile + " must drive the long-press adjust from onTouchEvent",
+                    source.contains("action == MotionEvent.ACTION_MOVE") && source.contains("handleAdjust(e);"));
+            assertTrue(gestureFile + " must hand back the speed-up before adjusting", source.contains("private void startAdjust(MotionEvent e)"));
+            // 起点必须在 ACTION_DOWN 时记：onDown 会在边缘/缩放/锁定时提前返回，
+            // 拿上一次手势的起点算位移会让长按转调节一按就跳。
+            assertTrue(gestureFile + " must capture the down point from the raw stream",
+                    source.contains("if (action == MotionEvent.ACTION_DOWN) {") && source.contains("downY = e.getY();"));
+            assertFalse(gestureFile + " must not rely on onDown for the down point",
+                    methodBody(source, "public boolean onDown(@NonNull MotionEvent e)", "\n    }").contains("downY = e.getY();"));
+            // 切集方向在短剧下固定，不跟随直播的「反转」开关。
+            assertTrue(gestureFile + " must pin the short drama fling direction",
+                    source.contains("boolean invert = !shortDrama && LiveSetting.isInvert();"));
+
+            // onDown 在边缘/缩放/锁定时提前返回不走 reset()，所以每次抬手都要主动清标记，
+            // 否则上一次的 changeBright + anchorY 会让下一次手势没长按就跳亮度。
+            assertTrue(gestureFile + " must clear gesture flags when the stream ends",
+                    source.contains("private void clearGesture()") && source.contains("if (end) clearGesture();"));
+            assertTrue(gestureFile + " must reset the adjust anchor on cleanup",
+                    methodBody(source, "private void clearGesture()", "\n    }").contains("anchorY = Float.NaN;"));
+            // 没有本次手势自己建立的基准就不许调节，避免 NaN 基准算出静音/跟随系统亮度。
+            assertTrue(gestureFile + " must require an anchor established by this gesture",
+                    source.contains("if (!changeSpeed && Float.isNaN(anchorY)) return;"));
+            // CANCEL（被父容器拦截/来电）同样要交还倍速，否则播放卡在长按后的速率。
+            assertTrue(gestureFile + " must hand back the speed boost on cancel too", source.contains("if (changeSpeed && end) listener.onSpeedEnd();"));
+            // ACTION_POINTER_UP 不会复位 multiTouch，用实时指数判断才不会永久挡掉单指调节。
+            assertTrue(gestureFile + " must gate the adjust on the live pointer count",
+                    source.contains("action == MotionEvent.ACTION_MOVE && e.getPointerCount() == 1"));
+            // 未测量的播放视图会让 deltaY/height 变成 Infinity/NaN，音量瞬间拉满或静音。
+            assertTrue(gestureFile + " must floor the view height before dividing",
+                    methodBody(source, "private void setVolume(float deltaY)", "\n    }").contains("Math.max(videoView.getMeasuredHeight(), 1)"));
+            assertTrue(gestureFile + " must skip volume when the stream has no range",
+                    source.contains("if (maxVolume <= 0) return;"));
+        }
+
+        // 手势轴向必须由「当前是否处于短剧全屏」推导：退出全屏回到内嵌小窗后若仍是短剧那套，
+        // 详情页上竖滑就会误切集；换到另一部短剧时形态不变，标记也不该被清掉。
+        String video = new String(Files.readAllBytes(findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"))), StandardCharsets.UTF_8);
+        assertTrue("the gesture mode must be derived from the current presentation",
+                video.contains("mKeyDown.setShortDrama(isFullscreen() && isShortDramaSession());"));
+        assertFalse("no call site may pin the gesture mode to a literal",
+                video.contains("mKeyDown.setShortDrama(true)") || video.contains("mKeyDown.setShortDrama(false)"));
+        for (String host : Arrays.asList("private void enterShortDramaFullscreen()", "private void enterFullscreen()", "private void exitFullscreen()", "protected void onNewIntent(Intent intent)")) {
+            int start = video.indexOf(host);
+            assertTrue(host + " must exist in VideoActivity", start >= 0);
+            int end = video.indexOf("\n    }", start);
+            assertTrue("presentation change must resync the gesture axes: " + host,
+                    end > start && video.substring(start, end).contains("syncShortDramaGesture();"));
+        }
+
+        String tmdb = new String(Files.readAllBytes(findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"))), StandardCharsets.UTF_8);
+        assertTrue("the inline gesture mode must be derived from the current presentation",
+                tmdb.contains("inlineGestureDetector.setShortDrama(inlineFullscreen && shouldUseInlineShortDramaMode());"));
+        assertFalse("no inline call site may pin the gesture mode to a literal",
+                tmdb.contains("inlineGestureDetector.setShortDrama(true)") || tmdb.contains("inlineGestureDetector.setShortDrama(false)"));
+        // enterInlineFullscreen 要直接重算：手动点全屏不走 applyInlineShortDramaMode。
+        // exitInlineFullscreen 经 resetInlineShortDramaMode 间接重算（它先置 inlineFullscreen=false）。
+        for (String host : Arrays.asList("private void applyInlineShortDramaMode()", "private void resetInlineShortDramaMode()", "private void enterInlineFullscreen()")) {
+            int start = tmdb.indexOf(host);
+            assertTrue(host + " must exist in TmdbDetailActivity", start >= 0);
+            int end = tmdb.indexOf("\n    }", start);
+            assertTrue("presentation change must resync the inline gesture axes: " + host,
+                    end > start && tmdb.substring(start, end).contains("syncInlineShortDramaGesture();"));
+        }
+        int exitInline = tmdb.indexOf("private void exitInlineFullscreen()");
+        assertTrue("exitInlineFullscreen must exist", exitInline >= 0);
+        String exitBody = tmdb.substring(exitInline, tmdb.indexOf("\n    }", exitInline));
+        int cleared = exitBody.indexOf("inlineFullscreen = false;");
+        int resync = exitBody.indexOf("resetInlineShortDramaMode();");
+        assertTrue("leaving inline fullscreen must resync the gesture axes after clearing the flag",
+                cleared >= 0 && resync > cleared);
+    }
+
+    @Test
     public void mobileShortDramaQualityIconHasSingleSourceOfTruth() throws Exception {
         // setQualityVisible 有 6 个调用点，其中多处显式传 false（未选中集数、切线路重置），
         // 与 Result.isMulti() 的结论并不一致。dock 图标若自行推导 Result，就会与 action 栏
