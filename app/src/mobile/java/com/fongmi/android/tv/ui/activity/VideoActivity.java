@@ -400,6 +400,7 @@ private int mAudioBackgroundRandomNonce;
     private boolean mNativePersonalDoubanLoading;
     private boolean mEpisodeGridMode = Setting.getTmdbEpisodeGridMode();
     private int playerKernelSwitchRequestId;
+    private int mPendingPlayerKernel = PlayerSetting.NONE;
     private boolean decodeSwitchRefreshing;
     private int deferredFullscreenOrientation = Configuration.ORIENTATION_UNDEFINED;
     private int mEpisodeSpanCount;
@@ -1300,6 +1301,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     @Override
     protected void onServiceConnected() {
         player().setDanmakuController(mBinding.exo.getDanmakuController());
+        applyPendingPlayerKernel();
         syncDesktopLyricsAudioContent();
         setPlayerKernel();
         setDecode();
@@ -1345,6 +1347,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         getIntent().removeExtra(EXTRA_RESUME_HISTORY_CID);
         getIntent().removeExtra(EXTRA_RESUME_HISTORY_KEY);
         getIntent().putExtras(intent);
+        resetPlaybackOwnership();
         if (mTmdbUIAdapter != null) mTmdbUIAdapter.beginDetailRequest();
         mSourceEpisodeSeasonCache.clear();
         mSourceVodName = "";
@@ -1354,6 +1357,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         // 否则长视频会卡在竖屏全屏且无法旋转。仍是短剧则保持形态，避免无谓的进出全屏抖动。
         if (shortDramaSession && !isShortDramaSource()) exitFullscreen();
         shortDramaSession = false;
+        // 形态可能仍是短剧全屏（新条目也是短剧时上面不退出），所以按当前形态重算而不是一律清掉，
+        // 否则新条目在到达 STATE_READY 之前会用长视频那套手势，侧边竖滑又变成调亮度。
+        syncShortDramaGesture();
         setOrient();
         checkId();
     }
@@ -1716,7 +1722,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void setPlayer() {
-        mBinding.control.action.player.setText(service() == null ? ResUtil.getStringArray(R.array.select_player)[PlayerSetting.getPlayer()] : player().getPlayerText());
+        mBinding.control.action.player.setText(service() == null ? ResUtil.getStringArray(R.array.select_player)[PlayerSetting.getActivePlayer()] : player().getPlayerText());
     }
 
     private void setupActionButtons() {
@@ -1887,6 +1893,50 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.action.player.setText(player().getPlayerText());
     }
 
+    /**
+     * 起播前把内核切到本剧记住的选择，并返回该内核给取址用——取播放地址要按内核区分线路。
+     * 没有记录时 getPlayerOrDefault 会退回设置页的全局默认。
+     * 播放服务还没连上时先只记会话内核（取址在工作线程上读它），引擎由 onServiceConnected 补齐。
+     */
+    private int applyHistoryPlayerKernel() {
+        int kernel = mHistory == null ? PlayerSetting.getPlayer() : mHistory.getPlayerOrDefault();
+        PlayerSetting.putActivePlayer(kernel);
+        if (service() == null) {
+            mPendingPlayerKernel = kernel;
+            return kernel;
+        }
+        mPendingPlayerKernel = PlayerSetting.NONE;
+        player().preparePlayer(kernel);
+        setPlayerKernel();
+        setDecode();
+        return kernel;
+    }
+
+    /**
+     * 服务连上后补齐本页在等的内核。
+     * 服务可能是上一次播放留活下来的，它建 PlayerManager 时读到的还是上一部剧的内核，
+     * 所以本页在服务就绪前定下的选择要在这里落到引擎上；没有待办时不动引擎。
+     */
+    private void applyPendingPlayerKernel() {
+        int kernel = mPendingPlayerKernel;
+        mPendingPlayerKernel = PlayerSetting.NONE;
+        if (!PlayerSetting.isPlayer(kernel)) return;
+        player().preparePlayer(kernel);
+    }
+
+    /**
+     * 把用户刚选定的内核写回本剧历史并落盘。
+     * 只在用户显式换内核时调用，且用用户选的值而不是会话/引擎状态：
+     * 播放页可能重叠存在（上一部剧的 Activity 还没销毁），若挂在每次存历史上，
+     * 上一部剧的收尾存档会用别人的会话内核覆盖本剧记住的选择；
+     * 而引擎类型还会被播放失败后的自动回退改掉，也不代表用户改了选择。
+     */
+    private void rememberPlayerKernel(int type) {
+        if (mHistory == null || !PlayerSetting.isPlayer(type)) return;
+        mHistory.setPlayer(type);
+        syncHistory();
+    }
+
     private void setScale(int scale) {
         if (mHistory != null) mHistory.setScale(scale);
         if (SiteApi.PUSH.equals(getKey())) PlayerSetting.putScale(scale);
@@ -1918,7 +1968,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         VodEventGuard.alignCachedIdentity(cached, getKey(), getId());
         detailStartTime = System.currentTimeMillis();
         detailHealthRecorded = true;
-        mBinding.progressLayout.showProgress();
+        if (!shouldRevealShellWhileLoading()) mBinding.progressLayout.showProgress();
         SpiderDebug.log("video-flow", "detail cache hit queued key=%s id=%s name=%s", getKey(), getId(), cached.getName());
         mBinding.getRoot().postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
@@ -1942,7 +1992,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         detailHealthRecorded = false;
         cancelTmdbDetailFallback();
         SpiderDebug.log("video-flow", "detail start key=%s id=%s name=%s refresh=%s", getKey(), getId(), getName(), refresh);
-        mBinding.progressLayout.showProgress();
+        // 骨架已经揭开时不能再整页转圈：那会把刚露出的视频窗口与选集重新压成 INVISIBLE，
+        // 变回「先整页转一次、再在播放器窗口里转一次」的两层加载。
+        if (!shouldRevealShellWhileLoading()) mBinding.progressLayout.showProgress();
         prefetchDirectTmdbDetail();
         mViewModel.detailContent(getKey(), getId(), refresh);
     }
@@ -2093,7 +2145,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void setText(Vod item) {
         setDetailLyrics(item.getContent());
-        if (shouldWaitForTmdbDetailReveal()) {
+        // 富集仍在进行时不填充会被 TMDB 覆盖的站源文本：骨架可以先揭开，
+        // 但文本要等 TMDB 落定再写，避免揭开后再跳一次。
+        if (isTmdbDetailEnrichmentPending()) {
             applyFusionNativeTextColors();
             return;
         }
@@ -2307,7 +2361,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         clearLyrics();
         clearKaraokeState();
         if (shouldUseImmersiveAudio()) setAudioStageVisible(true);
-        mViewModel.playerContent(getKey(), playFlag, episode.getUrl());
+        mViewModel.playerContent(getKey(), playFlag, episode.getUrl(), applyHistoryPlayerKernel());
         mBinding.control.title.setSelected(true);
         updateHistory(episode);
         showProgress();
@@ -3020,6 +3074,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onSetting() {
+        setTrackVisible();
         ControlDialog.create().parent(mBinding).history(mHistory).parse(isUseParse()).player(player()).show(this);
     }
 
@@ -4348,7 +4403,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             player().toggleDecode();
         } else {
-            player().switchDecode(result, getHistoryKey(), metadata, isUseParse(), position, speed, repeat);
+            player().switchDecode(result, activePlaybackKey(), metadata, isUseParse(), position, speed, repeat);
         }
         setR1Callback();
         setDecodeSwitchPending(false);
@@ -4424,6 +4479,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                     player().switchPlayerManually(which);
                     setPlayer();
                     setDecode();
+                    rememberPlayerKernel(which);
                 }
             } else {
                 playerKernelSwitchRequestId++;
@@ -4483,7 +4539,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
         } else {
-            player().switchPlayer(type, result, getHistoryKey(), metadata, isUseParse(), position, speed, repeat);
+            player().switchPlayer(type, result, activePlaybackKey(), metadata, isUseParse(), position, speed, repeat);
+            rememberPlayerKernel(type);
         }
         setPlayerKernel();
         setDecode();
@@ -4535,6 +4592,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         setSizeText();
         setRotate(current.isPortrait());
         mKeyDown.resetScale();
+        // 短剧会话退出全屏后再双击/点全屏按钮进来不走 enterShortDramaFullscreen，
+        // 这里也要按新形态重算，否则回到全屏时手势还是长视频那套轴向。
+        syncShortDramaGesture();
         App.post(mR3, 2000);
         hideControl();
         logVideoFrame("enterFullscreen after");
@@ -4569,6 +4629,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.video.setLayoutParams(mFrameParams);
         restoreEmbeddedVideoLayoutAfterFullscreen();
         mKeyDown.resetScale();
+        // 退出全屏就交还短剧手势：内嵌小窗上竖滑要留给详情页滚动，不能再切集。
+        syncShortDramaGesture();
         App.post(mR3, 2000);
         setRotate(false);
         hideControl();
@@ -4706,6 +4768,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void showControl() {
         if (service() == null || isInPictureInPictureMode()) return;
+        if (mAudioStageVisible && !isFullscreen()) {
+            hideWidgetOverlay();
+            hideControl();
+            return;
+        }
+        setTrackVisible();
         setOsdSuppressed(true);
         boolean shortDrama = isShortDramaSession();
         boolean showPiP = canShowPiP(shortDrama);
@@ -4813,6 +4881,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void setTraffic() {
         Traffic.setSpeed(mBinding.progress.traffic, service() == null ? null : player());
+        hidePlaybackProgressIfStale();
         App.post(mR2, 1000);
     }
 
@@ -5089,8 +5158,21 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return !getName().isEmpty() || !getPic().isEmpty() || !getWallPic().isEmpty();
     }
 
-    private boolean shouldWaitForTmdbDetailReveal() {
+    /** TMDB 富集是否仍在进行：决定要不要先填充会被 TMDB 覆盖的站源文本。 */
+    private boolean isTmdbDetailEnrichmentPending() {
         return shouldLoadTmdbDetail() && !mTmdbContentLoaded && !mTmdbFallbackToNative;
+    }
+
+    private boolean shouldWaitForTmdbDetailReveal() {
+        return isTmdbDetailEnrichmentPending() && !shouldRevealShellWhileLoading();
+    }
+
+    /**
+     * 原生增强把详情与播放放在同一页：进入即揭开页面骨架，加载态只由播放器窗口内那一层表达，
+     * 不再让详情区整块转圈与播放器转圈同屏叠出两层「加载中」。
+     */
+    private boolean shouldRevealShellWhileLoading() {
+        return Setting.isOriginalEnhancedDetailPage();
     }
 
     private boolean canRevealPlaybackContent() {
@@ -5098,6 +5180,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void showInitialPreview() {
+        // 原生增强把详情与播放放在同一页：进入即揭开骨架并填上 intent 已知的标题，
+        // 否则 ProgressLayout 停在初始态、随后被 getDetail 的整页转圈盖掉。
+        if (shouldRevealShellWhileLoading()) {
+            if (!mBinding.progressLayout.isContent()) mBinding.progressLayout.showContent();
+            if (!getName().isEmpty()) mBinding.name.setText(getName());
+        }
         if (!getPic().isEmpty()) setArtwork(getPic());
         else if (!getWallPic().isEmpty()) setContextWall(getWallPic());
     }
@@ -6814,6 +6902,23 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         showPlaybackContent();
     }
 
+    /**
+     * 加载圈的兜底收口。
+     *
+     * <p>圈只在 {@code STATE_READY} 分支被收（onStateChanged），而那条回调受 isOwner() 把关。
+     * 归属判定一旦因任何原因失配，圈就永久留在屏上——画面在动、圈不走。这里不依赖归属，
+     * 直接读播放器状态：已在播且已 READY 就收圈。要求 {@code !isEmpty()}，避免详情尚未加载完
+     * （播放器还空着）时把详情页自己的加载态误收。
+     *
+     * <p>挂在 mR2（网速刷新，圈可见时每秒一跳）上，圈不可见时该循环本就已停，无额外开销。
+     */
+    private void hidePlaybackProgressIfStale() {
+        if (mBinding.progress.getRoot().getVisibility() != View.VISIBLE) return;
+        if (service() == null || player() == null || player().isReleased() || player().isEmpty()) return;
+        if (player().getPlaybackState() != Player.STATE_READY) return;
+        showPlaybackContent();
+    }
+
     @Override
     protected void onSeekStarted() {
         showProgress();
@@ -7323,7 +7428,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         } else if (shouldUseTmdbBackdropSurface()) {
             // 原生增强模式：启用全屏背景
             applyOriginalEnhancedBackdropLayout();
-            mBinding.getRoot().setBackgroundColor(Color.TRANSPARENT);
+            mBinding.getRoot().setBackgroundColor(enhancedBackdropBaseColor());
             mBinding.scroll.setBackgroundColor(Color.TRANSPARENT);
             mBinding.swipeLayout.setBackgroundColor(Color.TRANSPARENT);
             mBinding.progressLayout.setBackgroundColor(Color.TRANSPARENT);
@@ -7383,6 +7488,16 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             mBinding.videoContextScrim.setVisibility(View.VISIBLE);
             applyContextWallScrimTheme();
         }
+    }
+
+    /**
+     * 原生增强靠全屏 backdrop 当背景，但 contextWall 初始是 gone、图也要等网络。
+     * root 若留 TRANSPARENT，这段空窗期会直接露出 Material3 动态取色的窗口底色（设备上可能是紫色）。
+     * 给 root 垫一层不透明底色即可：contextWall 是首个子视图、绘制在内容之下，
+     * 图到达后它自己就盖住这层底色，不需要再改回 TRANSPARENT。
+     */
+    private int enhancedBackdropBaseColor() {
+        return isTmdbPlaybackLightTheme() ? 0xFFF3F6F9 : 0xFF0F141A;
     }
 
     private void applyOriginalEnhancedBackdropLayout() {
@@ -7469,7 +7584,13 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void applyFusionThemeSurface() {
         boolean light = isFusionLightTheme();
-        mBinding.getRoot().setBackgroundColor(mTmdbFallbackToNative || shouldUseTmdbBackdropSurface() ? Color.TRANSPARENT : light ? 0xFFF3F6F9 : 0xFF0F141A);
+        // 顺序有意义：TMDB 未匹配回退要透出 App 壁纸，必须优先于 backdrop surface 判定。
+        // 其次是原生增强(backdrop surface)：垫不透明底色而非 TRANSPARENT，否则 backdrop 图到达前
+        // 会露出窗口动态取色。contextWall 是首个子视图、绘制在 root 底色之上，图到达后自然盖住。
+        int base = mTmdbFallbackToNative ? Color.TRANSPARENT
+                : shouldUseTmdbBackdropSurface() ? enhancedBackdropBaseColor()
+                : light ? 0xFFF3F6F9 : 0xFF0F141A;
+        mBinding.getRoot().setBackgroundColor(base);
         mBinding.scroll.setBackgroundColor(Color.TRANSPARENT);
         mBinding.swipeLayout.setBackgroundColor(Color.TRANSPARENT);
         mBinding.progressLayout.setBackgroundColor(Color.TRANSPARENT);
@@ -8213,9 +8334,21 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             setRequestedOrientation(isPort() ? ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT : ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
             mKeyDown.resetScale();
         }
+        syncShortDramaGesture();
         setShortDramaScale();
         hideControl();
         ViewCompat.requestApplyInsets(mBinding.getRoot());
+    }
+
+    /**
+     * 手势轴向跟着呈现形态走：短剧竖屏全屏时整屏上下滑切集、长按后上下滑调亮度/音量。
+     * <p>
+     * 必须由「当前是否处于短剧全屏」推导，不能在进入时置一次了事：横屏短剧允许自由旋转，
+     * 转回竖屏会走 exitFullscreen 退回内嵌小窗，此时若手势仍是短剧那套，在详情页上
+     * 竖滑就会误切集。同理换到另一部短剧时形态保持不变，标记也不该被清掉。
+     */
+    private void syncShortDramaGesture() {
+        if (mKeyDown != null) mKeyDown.setShortDrama(isFullscreen() && isShortDramaSession());
     }
 
     private void setShortDramaScale() {
