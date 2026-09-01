@@ -299,6 +299,11 @@ private String mArtworkRequestUrl;
 private String mArtworkRequestOwner;
 private Vod mPendingDetailVod;
 private Result mPendingPlayerResult;
+private int playerContentGeneration;
+private int playerContentRequestId;
+private String playerContentKey = "";
+private String playerContentFlag = "";
+private String playerContentEpisode = "";
 private Result mAppliedPlayerResult;
 private AudioPlaybackResolver.Resolved mImmersiveAudioResolved;
 private int mAudioArtworkColor = Color.rgb(55, 45, 68);
@@ -393,6 +398,7 @@ private int mAudioBackgroundRandomNonce;
     private boolean mNativePersonalDoubanLoading;
     private boolean mEpisodeGridMode = Setting.getTmdbEpisodeGridMode();
     private int playerKernelSwitchRequestId;
+    private int decodeSwitchRequestId;
     private int mPendingPlayerKernel = PlayerSetting.NONE;
     private boolean decodeSwitchRefreshing;
     private int deferredFullscreenOrientation = Configuration.ORIENTATION_UNDEFINED;
@@ -1337,6 +1343,17 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         getIntent().removeExtra(EXTRA_RESUME_HISTORY_KEY);
         getIntent().putExtras(intent);
         resetPlaybackOwnership();
+        if (mViewModel != null) mViewModel.cancelPlayerContent();
+        invalidatePlayerContent();
+        mPendingDetailVod = null;
+        mPendingPlayerResult = null;
+        mAppliedPlayerResult = null;
+        if (service() != null) {
+            subtitlePlaybackSession.stop(this);
+            player().reset();
+            player().stop();
+            player().clear();
+        }
         if (mTmdbUIAdapter != null) mTmdbUIAdapter.beginDetailRequest();
         mSourceEpisodeSeasonCache.clear();
         mSourceVodName = "";
@@ -1997,6 +2014,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         revealManualSearch = false;
         if (!isAutoMode()) mViewModel.stopSearch();
         saveHistory();
+        if (mViewModel != null) mViewModel.cancelPlayerContent();
+        invalidatePlayerContent();
         getIntent().putExtra("key", item.getSiteKey());
         getIntent().putExtra("pic", item.getPic());
         getIntent().putExtra("id", item.getId());
@@ -2347,14 +2366,72 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         clearLyrics();
         clearKaraokeState();
         if (shouldUseImmersiveAudio()) setAudioStageVisible(true);
+        beginPlayerContentRequest(getKey(), playFlag, episode.getUrl());
         mViewModel.playerContent(getKey(), playFlag, episode.getUrl(), applyHistoryPlayerKernel());
         mBinding.control.title.setSelected(true);
         updateHistory(episode);
         showProgress();
     }
 
+    private void beginPlayerContentRequest(String key, String flag, String episode) {
+        if (mViewModel != null) mViewModel.cancelPlayerContent();
+        mPendingPlayerResult = null;
+        invalidatePlayerContent();
+        playerContentKey = key;
+        playerContentFlag = flag;
+        playerContentEpisode = episode;
+    }
+
+    private void invalidatePlayerContent() {
+        playerContentGeneration++;
+        playerContentRequestId++;
+        playerKernelSwitchRequestId++;
+        decodeSwitchRequestId++;
+        playerContentKey = "";
+        playerContentFlag = "";
+        playerContentEpisode = "";
+        decodeSwitchRefreshing = false;
+    }
+
+    private boolean isCurrentPlayerContentContext(String key, String flag, String episode) {
+        Flag currentFlag = getFlag();
+        Episode currentEpisode = getEpisode();
+        return TextUtils.equals(key, getKey())
+                && currentFlag != null
+                && TextUtils.equals(flag, currentFlag.getFlag())
+                && currentEpisode != null
+                && TextUtils.equals(episode, currentEpisode.getUrl());
+    }
+
+    private int beginPlayerContentSwitch(int requestId, String key, String flag, String episode) {
+        playerContentGeneration++;
+        playerContentRequestId = requestId;
+        playerContentKey = key;
+        playerContentFlag = flag;
+        playerContentEpisode = episode;
+        return playerContentGeneration;
+    }
+
+    private boolean isCurrentPlayerContentRequest(int requestId, int generation,
+                                                   String key, String flag, String episode) {
+        return !isFinishing() && !isDestroyed()
+                && requestId == playerContentRequestId
+                && generation == playerContentGeneration
+                && isCurrentPlayerContentContext(key, flag, episode);
+    }
+
+    private boolean canApplyPlayerContentRequest(int requestId, int generation,
+                                                  String key, String flag, String episode) {
+        return isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)
+                && service() != null
+                && player() != null
+                && !player().isReleased()
+                && !player().isEmpty()
+                && isOwner();
+    }
+
     private void setPlayer(Result result) {
-        if (isFinishing() || isDestroyed()) return;
+        if (result == null || isFinishing() || isDestroyed()) return;
         if (service() == null) {
             mPendingPlayerResult = result;
             return;
@@ -4293,6 +4370,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void onRefresh() {
         saveHistory();
+        if (mViewModel != null) mViewModel.cancelPlayerContent();
+        invalidatePlayerContent();
         subtitlePlaybackSession.stop(this);
         player().stop();
         player().clear();
@@ -4326,6 +4405,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         String flag = getFlag().getFlag();
         String episode = getEpisode().getUrl();
         MediaMetadata metadata = buildMetadata();
+        int requestId = ++decodeSwitchRequestId;
+        int generation = beginPlayerContentSwitch(requestId, key, flag, episode);
         decodeSwitchRefreshing = true;
         setNextDecodeText();
         setDecodeSwitchPending(true);
@@ -4334,9 +4415,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         Task.execute(() -> {
             try {
                 Result result = SiteApi.playerContent(key, flag, episode);
-                App.post(() -> switchDecodeWithResult(result, position, speed, repeat, metadata));
+                App.post(() -> switchDecodeWithResult(requestId, generation, key, flag, episode, result, position, speed, repeat, metadata));
             } catch (Throwable e) {
                 App.post(() -> {
+                    if (!isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)) return;
                     decodeSwitchRefreshing = false;
                     setDecodeSwitchPending(false);
                     setDecode();
@@ -4347,15 +4429,19 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return true;
     }
 
-    private void switchDecodeWithResult(Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
+    private void switchDecodeWithResult(int requestId, int generation, String key, String flag, String episode,
+                                        Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
+        if (requestId != decodeSwitchRequestId
+                || !isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)) return;
         decodeSwitchRefreshing = false;
+        setDecodeSwitchPending(false);
+        if (!canApplyPlayerContentRequest(requestId, generation, key, flag, episode)) return;
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             player().toggleDecode();
         } else {
             player().switchDecode(result, activePlaybackKey(), metadata, isUseParse(), position, speed, repeat);
         }
         setR1Callback();
-        setDecodeSwitchPending(false);
         setDecode();
     }
 
@@ -4462,15 +4548,17 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         String flag = currentFlag.getFlag();
         String episode = currentEpisode.getUrl();
         MediaMetadata metadata = buildMetadata();
+        int generation = beginPlayerContentSwitch(requestId, key, flag, episode);
         mClock.setCallback(null);
         SpiderDebug.log("video-flow", "switch player refresh start type=%d key=%s flag=%s episode=%s", nextType, key, flag, episode);
         Task.execute(() -> {
             try {
                 Result result = SiteApi.playerContent(key, flag, episode, nextType);
-                App.post(() -> switchPlayerKernelWithResult(requestId, nextType, result, position, speed, repeat, metadata));
+                App.post(() -> switchPlayerKernelWithResult(requestId, generation, key, flag, episode, nextType, result, position, speed, repeat, metadata));
             } catch (Throwable e) {
                 App.post(() -> {
-                    if (requestId != playerKernelSwitchRequestId) return;
+                    if (requestId != playerKernelSwitchRequestId
+                            || !isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)) return;
                     setPlayerKernel();
                     setDecode();
                     setR1Callback();
@@ -4481,8 +4569,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return true;
     }
 
-    private void switchPlayerKernelWithResult(int requestId, int type, Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
-        if (requestId != playerKernelSwitchRequestId) return;
+    private void switchPlayerKernelWithResult(int requestId, int generation, String key, String flag, String episode,
+                                              int type, Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
+        if (requestId != playerKernelSwitchRequestId
+                || !isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)) return;
+        if (!canApplyPlayerContentRequest(requestId, generation, key, flag, episode)) return;
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
         } else {
@@ -6844,7 +6935,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void hideSeekProgressIfReady() {
-        if (service() == null || player() == null || player().getPlaybackState() != Player.STATE_READY) return;
+        if (service() == null || player() == null || player().isReleased() || player().isEmpty() || !isOwner() || player().getPlaybackState() != Player.STATE_READY) return;
         showPlaybackContent();
     }
 
@@ -6861,6 +6952,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     private void hidePlaybackProgressIfStale() {
         if (mBinding.progress.getRoot().getVisibility() != View.VISIBLE) return;
         if (service() == null || player() == null || player().isReleased() || player().isEmpty()) return;
+        if (!isOwner()) return;
         if (player().getPlaybackState() != Player.STATE_READY) return;
         showPlaybackContent();
     }
