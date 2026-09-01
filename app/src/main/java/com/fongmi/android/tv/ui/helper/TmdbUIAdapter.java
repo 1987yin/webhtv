@@ -484,8 +484,11 @@ public class TmdbUIAdapter {
      */
     public void load(TmdbItem item, Vod vod) {
         if (item == null) return;
+        // resetLoadState 会清掉 sourceCacheTitle，而手动换条目时 vod.getName() 已被
+        // enrichVod 改写成上一个 TMDB 标题。先留住站源标题，季度绑定的键才能跨会话一致。
+        String sourceTitle = sourceCacheTitle;
         int generation = resetLoadState();
-        captureSourceSeason(vod, null);
+        captureSourceSeason(vod, sourceTitle);
         cancelActivePrefetch();
         this.tmdbItem = item;
         saveMatch(vod, item);
@@ -549,8 +552,9 @@ public class TmdbUIAdapter {
             load(item, vod);
             return;
         }
+        String sourceTitle = sourceCacheTitle;
         int generation = resetLoadState();
-        captureSourceSeason(vod, null);
+        captureSourceSeason(vod, sourceTitle);
         cancelActivePrefetch();
         detailPrefetch.cancel();
         this.tmdbItem = item;
@@ -560,6 +564,7 @@ public class TmdbUIAdapter {
 
     public void rememberManualMatch(Vod vod, TmdbItem item) {
         saveTitleLearning(vod, item);
+        saveManualMatch(vod, item);
     }
 
     /**
@@ -598,7 +603,8 @@ public class TmdbUIAdapter {
                 TmdbItem matched = getCachedMatch(vod);
                 if (matched != null) {
                     SpiderDebug.log("tmdb", "auto match cache hit title=%s cost=%dms", matched.getTitle(), System.currentTimeMillis() - start);
-                    if (isCachedSplitSeasonMismatch(videoName, vod, matched)) {
+                    // 手动选择由用户拍板，分季变体过滤只针对自动匹配的误命中。
+                    if (!isManualMatch(vod) && isCachedSplitSeasonMismatch(videoName, vod, matched)) {
                         SpiderDebug.log("tmdb", "auto match cache skipped split-season variant title=%s id=%d name=%s", matched.getTitle(), matched.getTmdbId(), videoName);
                         matched = null;
                     }
@@ -1095,7 +1101,7 @@ public class TmdbUIAdapter {
     public static String manualBindingFingerprint(String sourceTitle, Flag flag, String flagKey) {
         return (sourceTitle == null ? "" : sourceTitle) + "|"
                 + (flagKey == null ? "" : flagKey) + "|"
-                + EpisodeSeasonSnapshot.structureFingerprint(flag == null ? null : flag.getEpisodes());
+                + EpisodeSeasonSnapshot.stableStructureFingerprint(flag == null ? null : flag.getEpisodes());
     }
 
     public static String sourceFingerprint(Flag flag, String flagKey, Map<Integer, Integer> seasonCounts) {
@@ -1580,7 +1586,13 @@ public class TmdbUIAdapter {
 
     private TmdbItem getCachedMatch(Vod vod) {
         if (vod == null) return null;
-        return Setting.getTmdbMatchCache().find(cacheSiteKey(vod), cacheVodId(vod), vod.getName());
+        TmdbMatchCache cache = Setting.getTmdbMatchCache();
+        TmdbItem manual = cache.findManual(cacheSiteKey(vod), cacheVodId(vod), vod.getName());
+        return manual != null ? manual : cache.find(cacheSiteKey(vod), cacheVodId(vod), vod.getName());
+    }
+
+    private boolean isManualMatch(Vod vod) {
+        return vod != null && Setting.getTmdbMatchCache().isManual(cacheSiteKey(vod), cacheVodId(vod), vod.getName());
     }
 
     private boolean isCachedSplitSeasonMismatch(String videoName, Vod vod, TmdbItem item) {
@@ -1606,6 +1618,30 @@ public class TmdbUIAdapter {
         TmdbMatchCache cache = Setting.getTmdbMatchCache();
         cache.put(cacheSiteKey(vod), cacheVodId(vod), vod.getName(), item);
         Setting.putTmdbMatchCache(cache);
+    }
+
+    /**
+     * 记录手动选择。必须在 load() 之前调用：load() 会重置 sourceCacheTitle，
+     * 而 enrichVod 之后 vod.getName() 已被改写成 TMDB 标题，不能作为唯一的键。
+     */
+    private void saveManualMatch(Vod vod, TmdbItem item) {
+        if (vod == null || item == null || item.getTmdbId() <= 0) return;
+        TmdbMatchCache cache = Setting.getTmdbMatchCache();
+        cache.putManual(cacheSiteKey(vod), cacheVodId(vod), manualMatchTitleAliases(vod), item);
+        Setting.putTmdbMatchCache(cache);
+    }
+
+    private List<String> manualMatchTitleAliases(Vod vod) {
+        List<String> aliases = new ArrayList<>();
+        addTitleAlias(aliases, sourceCacheTitle);
+        addTitleAlias(aliases, activityIntentTitle());
+        addTitleAlias(aliases, vod == null ? "" : vod.getName());
+        return aliases;
+    }
+
+    private static void addTitleAlias(List<String> aliases, String title) {
+        if (TextUtils.isEmpty(title) || aliases.contains(title)) return;
+        aliases.add(title);
     }
 
     private void saveTitleLearning(Vod vod, TmdbItem item) {

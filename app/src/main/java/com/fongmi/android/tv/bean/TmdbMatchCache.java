@@ -6,7 +6,9 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.title.MediaTitleParser;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -36,18 +38,56 @@ public class TmdbMatchCache {
     }
 
     public TmdbItem find(String siteKey, String vodId, String sourceTitle) {
+        Entry entry = findEntry(siteKey, vodId, sourceTitle);
+        return entry == null ? null : entry.toItem();
+    }
+
+    /**
+     * 用户手动选定的条目。手动选择的存在本身就意味着"标题解析结果和用户意图不一致"，
+     * 所以它既不受标题兼容性校验约束，也不该被后续自动匹配覆盖。
+     */
+    public TmdbItem findManual(String siteKey, String vodId, String sourceTitle) {
+        Entry entry = findManualEntry(siteKey, vodId, sourceTitle);
+        return entry == null ? null : entry.toItem();
+    }
+
+    public boolean isManual(String siteKey, String vodId, String sourceTitle) {
+        return findManualEntry(siteKey, vodId, sourceTitle) != null;
+    }
+
+    private Entry findEntry(String siteKey, String vodId, String sourceTitle) {
         if (TextUtils.isEmpty(siteKey) || TextUtils.isEmpty(vodId)) return null;
-        if (TextUtils.isEmpty(sourceTitle)) return find(siteKey, vodId);
-        Entry entry = getItems().get(key(siteKey, vodId, sourceTitle));
-        if (entry != null) return entry.toItem();
+        if (TextUtils.isEmpty(sourceTitle)) return getItems().get(key(siteKey, vodId));
+        Entry manual = findManualEntry(siteKey, vodId, sourceTitle);
+        if (manual != null) return manual;
+        Entry scoped = getItems().get(key(siteKey, vodId, sourceTitle));
+        if (scoped != null) return scoped;
         Entry legacy = getItems().get(key(siteKey, vodId));
-        if (isCompatible(legacy, sourceTitle)) return legacy.toItem();
+        if (isCompatible(legacy, sourceTitle)) return legacy;
         Entry title = getItems().get(titleKey(sourceTitle));
-        return isCompatible(title, sourceTitle) ? title.toItem() : null;
+        return isCompatible(title, sourceTitle) ? title : null;
+    }
+
+    private Entry findManualEntry(String siteKey, String vodId, String sourceTitle) {
+        if (TextUtils.isEmpty(siteKey) || TextUtils.isEmpty(vodId)) return null;
+        if (!TextUtils.isEmpty(sourceTitle)) {
+            Entry scoped = getItems().get(key(siteKey, vodId, sourceTitle));
+            if (isManual(scoped)) return scoped;
+        }
+        // 条目级锚点：站源标题会被 TMDB 富集改写成 TMDB 标题，手动选择必须能在标题变化后仍被读回。
+        // 但同一 vodId 下可能挂着多个不同作品（见 TmdbMatchCacheTest 的共享 vodId 用例），
+        // 所以锚点只在标题确实指向同一作品时才生效。
+        Entry anchor = getItems().get(key(siteKey, vodId));
+        return isManual(anchor) && anchor.matchesManualTitle(matchTitle(sourceTitle)) ? anchor : null;
+    }
+
+    private boolean isManual(Entry entry) {
+        return entry != null && entry.manual && entry.tmdbId > 0;
     }
 
     public void put(String siteKey, String vodId, TmdbItem item) {
         if (TextUtils.isEmpty(siteKey) || TextUtils.isEmpty(vodId) || item == null || item.getTmdbId() <= 0) return;
+        if (isManual(getItems().get(key(siteKey, vodId)))) return;
         getItems().put(key(siteKey, vodId), Entry.from(item));
     }
 
@@ -57,9 +97,32 @@ public class TmdbMatchCache {
             return;
         }
         if (TextUtils.isEmpty(siteKey) || TextUtils.isEmpty(vodId) || item == null || item.getTmdbId() <= 0) return;
+        // 自动匹配不得覆盖用户的手动选择，否则下次进场读回的是自动猜测。
+        if (findManualEntry(siteKey, vodId, sourceTitle) != null) return;
         Entry entry = Entry.from(item);
         getItems().put(key(siteKey, vodId, sourceTitle), entry);
         putTitle(sourceTitle, entry);
+    }
+
+    /**
+     * 记录手动选择。sourceTitles 传入所有已知的站源标题别名（详情名、Intent 名、当前 Vod 名），
+     * 任一别名都能读回同一条目；同时写入条目级锚点，标题被改写后依然命中。
+     * 不写全局标题域：手动选择只对当前条目成立，跨站沿用应继续走自动匹配。
+     */
+    public void putManual(String siteKey, String vodId, List<String> sourceTitles, TmdbItem item) {
+        if (TextUtils.isEmpty(siteKey) || TextUtils.isEmpty(vodId) || item == null || item.getTmdbId() <= 0) return;
+        Entry entry = Entry.manual(item);
+        if (sourceTitles != null) {
+            for (String sourceTitle : sourceTitles) entry.addManualTitle(matchTitle(sourceTitle));
+        }
+        // TMDB 标题本身也是别名：富集会把 vod.getName() 改写成它，下次进场用它当键来读。
+        entry.addManualTitle(matchTitle(item.getTitle()));
+        getItems().put(key(siteKey, vodId), entry);
+        if (sourceTitles == null) return;
+        for (String sourceTitle : sourceTitles) {
+            if (TextUtils.isEmpty(sourceTitle)) continue;
+            getItems().put(key(siteKey, vodId, sourceTitle), entry);
+        }
     }
 
     public Map<String, Entry> getItems() {
@@ -129,6 +192,8 @@ public class TmdbMatchCache {
         private String originalLanguage;
         private String originCountry;
         private String department;
+        private boolean manual;
+        private List<String> manualTitles;
 
         public static Entry conflict(String title) {
             Entry entry = new Entry();
@@ -136,6 +201,25 @@ public class TmdbMatchCache {
             entry.mediaType = "";
             entry.title = title;
             return entry;
+        }
+
+        public static Entry manual(TmdbItem item) {
+            Entry entry = from(item);
+            entry.manual = true;
+            entry.manualTitles = new ArrayList<>();
+            return entry;
+        }
+
+        void addManualTitle(String normalizedTitle) {
+            if (TextUtils.isEmpty(normalizedTitle)) return;
+            if (manualTitles == null) manualTitles = new ArrayList<>();
+            if (!manualTitles.contains(normalizedTitle)) manualTitles.add(normalizedTitle);
+        }
+
+        /** 别名集合为空时（旧数据）放行，避免升级后已存的手动选择失效。 */
+        boolean matchesManualTitle(String normalizedTitle) {
+            if (manualTitles == null || manualTitles.isEmpty()) return true;
+            return TextUtils.isEmpty(normalizedTitle) || manualTitles.contains(normalizedTitle);
         }
 
         public static Entry from(TmdbItem item) {

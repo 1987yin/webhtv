@@ -2,8 +2,12 @@ package com.fongmi.android.tv.bean;
 
 import org.junit.Test;
 
+import java.util.List;
+
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 public class TmdbMatchCacheTest {
 
@@ -47,6 +51,38 @@ public class TmdbMatchCacheTest {
         assertNull(cache.find("site-c", "vod-c", "重名剧"));
         assertEquals(100, cache.find("site-a", "vod-a", "重名剧").getTmdbId());
         assertEquals(200, cache.find("site-b", "vod-b", "重名剧").getTmdbId());
+    }
+
+    @Test
+    public void manualMatchSurvivesTitleRewriteAndBlocksAutomaticOverwrite() {
+        TmdbMatchCache cache = new TmdbMatchCache();
+
+        cache.put("site", "vod", "凡人修仙传 更新至120集", item(100, "自动猜错的剧"));
+        cache.putManual("site", "vod", List.of("凡人修仙传 更新至120集"), item(200, "凡人修仙传"));
+
+        // 手动选择在原站源标题下读回。
+        assertEquals(200, cache.find("site", "vod", "凡人修仙传 更新至120集").getTmdbId());
+        assertTrue(cache.isManual("site", "vod", "凡人修仙传 更新至120集"));
+        // 富集把 vod.getName() 改写成 TMDB 标题后依然读回。
+        assertEquals(200, cache.find("site", "vod", "凡人修仙传").getTmdbId());
+        assertEquals(200, cache.findManual("site", "vod", "凡人修仙传").getTmdbId());
+
+        // 后续自动匹配不得覆盖。
+        cache.put("site", "vod", "凡人修仙传 更新至120集", item(300, "又一个自动猜测"));
+        cache.put("site", "vod", item(300, "又一个自动猜测"));
+        assertEquals(200, cache.find("site", "vod", "凡人修仙传 更新至120集").getTmdbId());
+    }
+
+    @Test
+    public void manualMatchAnchorDoesNotLeakToOtherTitlesSharingOneVodId() {
+        TmdbMatchCache cache = new TmdbMatchCache();
+
+        cache.putManual("玩偶|虎斑2", "shared", List.of("云秀行（真彩）"), item(100, "云秀行"));
+        cache.put("玩偶|虎斑2", "shared", "千香（真彩）", item(200, "千香"));
+
+        assertEquals(100, cache.find("玩偶|虎斑2", "shared", "云秀行（真彩）").getTmdbId());
+        assertEquals(200, cache.find("玩偶|虎斑2", "shared", "千香（真彩）").getTmdbId());
+        assertFalse(cache.isManual("玩偶|虎斑2", "shared", "千香（真彩）"));
     }
 
     private static TmdbItem item(int id, String title) {
