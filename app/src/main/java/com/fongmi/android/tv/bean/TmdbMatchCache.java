@@ -216,10 +216,15 @@ public class TmdbMatchCache {
             if (!manualTitles.contains(normalizedTitle)) manualTitles.add(normalizedTitle);
         }
 
-        /** 别名集合为空时（旧数据）放行，避免升级后已存的手动选择失效。 */
+        /**
+         * 别名为 null 只可能来自旧版本写入的数据（当时还没有别名字段），放行以免升级后失效。
+         * 由 putManual 写入的条目一定带列表：即使所有标题都被 cleanTitle 清洗成空串（例如站源
+         * 标题只有年份），也不能放行——同一 vodId 下可能挂着多部作品，放行会让锚点变成通配符，
+         * 把别的作品也匹配成这次手动选择。这种情况下仍可通过站源标题的精确键读回。
+         */
         boolean matchesManualTitle(String normalizedTitle) {
-            if (manualTitles == null || manualTitles.isEmpty()) return true;
-            return TextUtils.isEmpty(normalizedTitle) || manualTitles.contains(normalizedTitle);
+            if (manualTitles == null) return true;
+            return !TextUtils.isEmpty(normalizedTitle) && manualTitles.contains(normalizedTitle);
         }
 
         public static Entry from(TmdbItem item) {

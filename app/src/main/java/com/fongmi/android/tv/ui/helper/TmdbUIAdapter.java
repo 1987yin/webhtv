@@ -1615,9 +1615,13 @@ public class TmdbUIAdapter {
 
     private void saveMatch(Vod vod, TmdbItem item) {
         if (vod == null || item == null || item.getTmdbId() <= 0) return;
-        TmdbMatchCache cache = Setting.getTmdbMatchCache();
-        cache.put(cacheSiteKey(vod), cacheVodId(vod), vod.getName(), item);
-        Setting.putTmdbMatchCache(cache);
+        // 读-改-写要整体互斥：本方法在后台线程被调用，手动选择在主线程写，
+        // 不加锁会让后到的自动结果基于旧快照覆盖掉刚落盘的手动选择。
+        synchronized (Setting.class) {
+            TmdbMatchCache cache = Setting.getTmdbMatchCache();
+            cache.put(cacheSiteKey(vod), cacheVodId(vod), vod.getName(), item);
+            Setting.putTmdbMatchCache(cache);
+        }
     }
 
     /**
@@ -1626,9 +1630,12 @@ public class TmdbUIAdapter {
      */
     private void saveManualMatch(Vod vod, TmdbItem item) {
         if (vod == null || item == null || item.getTmdbId() <= 0) return;
-        TmdbMatchCache cache = Setting.getTmdbMatchCache();
-        cache.putManual(cacheSiteKey(vod), cacheVodId(vod), manualMatchTitleAliases(vod), item);
-        Setting.putTmdbMatchCache(cache);
+        List<String> aliases = manualMatchTitleAliases(vod);
+        synchronized (Setting.class) {
+            TmdbMatchCache cache = Setting.getTmdbMatchCache();
+            cache.putManual(cacheSiteKey(vod), cacheVodId(vod), aliases, item);
+            Setting.putTmdbMatchCache(cache);
+        }
     }
 
     private List<String> manualMatchTitleAliases(Vod vod) {

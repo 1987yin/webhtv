@@ -3261,17 +3261,24 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void saveTmdbMatch(TmdbItem item) {
         if (item == null || item.getTmdbId() <= 0) return;
-        TmdbMatchCache cache = Setting.getTmdbMatchCache();
-        cache.put(getKeyText(), getIdText(), getTmdbRawTitle(), item);
-        Setting.putTmdbMatchCache(cache);
+        // 读-改-写要整体互斥：自动匹配在后台线程写，手动选择在主线程写，
+        // 不加锁会让后到的自动结果基于旧快照覆盖掉刚落盘的手动选择。
+        synchronized (Setting.class) {
+            TmdbMatchCache cache = Setting.getTmdbMatchCache();
+            cache.put(getKeyText(), getIdText(), getTmdbRawTitle(), item);
+            Setting.putTmdbMatchCache(cache);
+        }
     }
 
     /** 记录用户手动选定的 TMDB 条目，覆盖此前的自动匹配并锁定后续自动写入。 */
     private void saveManualTmdbMatch(TmdbItem item) {
         if (item == null || item.getTmdbId() <= 0) return;
-        TmdbMatchCache cache = Setting.getTmdbMatchCache();
-        cache.putManual(getKeyText(), getIdText(), tmdbSourceTitleAliases(), item);
-        Setting.putTmdbMatchCache(cache);
+        List<String> aliases = tmdbSourceTitleAliases();
+        synchronized (Setting.class) {
+            TmdbMatchCache cache = Setting.getTmdbMatchCache();
+            cache.putManual(getKeyText(), getIdText(), aliases, item);
+            Setting.putTmdbMatchCache(cache);
+        }
     }
 
     /** 站源标题在富集后会被改写，手动绑定要覆盖所有可能作为读取键的别名。 */

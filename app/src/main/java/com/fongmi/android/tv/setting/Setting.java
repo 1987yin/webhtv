@@ -915,11 +915,11 @@ public class Setting {
         Prefers.put("ai_ad_detection", enabled);
     }
 
-    public static TmdbMatchCache getTmdbMatchCache() {
+    public static synchronized TmdbMatchCache getTmdbMatchCache() {
         return TmdbMatchCache.objectFrom(AppCache.get(AppCache.KEY_TMDB_MATCH));
     }
 
-    public static void putTmdbMatchCache(TmdbMatchCache cache) {
+    public static synchronized void putTmdbMatchCache(TmdbMatchCache cache) {
         AppCache.put(AppCache.KEY_TMDB_MATCH, App.gson().toJson(cache));
     }
 

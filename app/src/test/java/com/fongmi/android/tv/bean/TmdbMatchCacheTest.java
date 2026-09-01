@@ -85,6 +85,19 @@ public class TmdbMatchCacheTest {
         assertFalse(cache.isManual("玩偶|虎斑2", "shared", "千香（真彩）"));
     }
 
+    @Test
+    public void manualAnchorWithoutUsableAliasDoesNotBecomeWildcard() {
+        TmdbMatchCache cache = new TmdbMatchCache();
+
+        // 站源标题与 TMDB 标题都被清洗成空串时，锚点不能退化成通配符去匹配别的作品。
+        cache.putManual("site", "shared", List.of("【】"), item(100, "【】"));
+
+        assertNull(cache.findManual("site", "shared", "另一部剧"));
+        assertFalse(cache.isManual("site", "shared", "另一部剧"));
+        // 精确的站源标题键仍然可用。
+        assertEquals(100, cache.find("site", "shared", "【】").getTmdbId());
+    }
+
     private static TmdbItem item(int id, String title) {
         return new TmdbItem(id, "tv", title, "", "", "", "");
     }
