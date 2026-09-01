@@ -84,3 +84,10 @@
 - Runtime limitation: no new device playback run was performed in this merge task. Existing C2 device evidence remains valid for the restored armv7 artifact; mobile/Leanback interaction cases still require their normal manual device regression when a device is available.
 - Rollback: before closure use `git merge --abort`; after closure revert the two-parent C5 merge commit or restore its task-guard recovery tag.
 - Next action: run `task_guard.sh finish` with the recorded validation evidence, then push `dev2` and the newly created recovery tag as authorized by this task.
+
+## Closure: 2026-09-01 Asia/Shanghai
+
+- Merge commit: `fc5b6ba029348c2c06214a80e4c080d6b210269a` (`merge: synchronize beta playback and history fixes`), with first parent `18b39774a3f5879c1b7df3b63a7f154f804854d5` and second parent `c1c53da674c0e0f2945fdc159de8a6ac4c4fe976`.
+- Recovery tag: `recovery/C5-beta-sync/20260901135541-fc5b6ba02934`.
+- Remote synchronization: pushed `dev2` and the recovery tag to `origin`; `git pull --ff-only` returned `Already up to date`.
+- Final status: complete. The only unrelated remaining dirty path is `app/src/main/java/com/fongmi/android/tv/bean/Result.java`; it was protected and excluded from both C5 commits.
