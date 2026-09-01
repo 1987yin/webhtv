@@ -267,6 +267,19 @@
     <string name="intro_skip_confirm_intro">跳过片头</string>
     <string name="intro_skip_confirm_recap">跳过前情提要</string>
     <string name="intro_skip_confirm_outro">跳过片尾</string>
+    <string name="intro_skip_confirm_preview">跳过下集预告</string>
+    <!-- 控制栏上显示的自动探测值（非用户手设），%1$s 为时间 -->
+    <string name="intro_skip_detected_value">~%1$s</string>
+    <string name="intro_skip_kind_recap">前情回顾</string>
+    <string name="intro_skip_kind_intro">片头</string>
+    <string name="intro_skip_kind_outro">片尾</string>
+    <string name="intro_skip_kind_preview">下集预告</string>
+    <string name="setting_intro_skip_kinds">跳过的片段类型</string>
+    <string name="intro_skip_kinds_none">未选择</string>
+    <string name="intro_skip_kinds_all">全部</string>
+    <!-- 自动跳过后的提示，%1$s 为片段类型 -->
+    <string name="intro_skip_notice_seeked">已跳过%1$s</string>
+    <string name="intro_skip_notice_ended">%1$s已跳过，进入下一集</string>
     <string name="personal_recommendation_confirm_title">启用个性推荐</string>
     <string name="personal_recommendation_confirm_message">个性推荐会读取本机观看历史中的影片名称，并可能将当前影片名和历史影片名作为搜索关键词发送到 TMDB 或豆瓣，用于生成相关作品列表。\n\n不会发送播放地址、账号信息、站源配置或播放进度。你可以随时关闭此功能。</string>
     <string name="setting_search_thread">搜索线程</string>

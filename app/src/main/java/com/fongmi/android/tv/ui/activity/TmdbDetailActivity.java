@@ -106,6 +106,7 @@ import com.fongmi.android.tv.ui.host.TmdbDetailHost;
 import com.fongmi.android.tv.playback.PlaybackEventCollector;
 import com.fongmi.android.tv.playback.HistoryResumePayload;
 import com.fongmi.android.tv.playback.PlaybackOrientation;
+import com.fongmi.android.tv.player.IntroSkipKinds;
 import com.fongmi.android.tv.player.IntroSkipPlayback;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.PlayerHelper;
@@ -273,6 +274,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private final TmdbService tmdbService = new TmdbService();
     private final Task.Scope detailTasks = new Task.Scope(Task.executor());
     private final IntroSkipPlayback introSkipPlayback = new IntroSkipPlayback();
+    private androidx.appcompat.app.AlertDialog introSkipConfirmDialog;
+    private boolean introSkipListenersReady;
     private final SubtitlePlaybackSession subtitlePlaybackSession = new SubtitlePlaybackSession(this);
     private final List<TmdbPerson> detailCastItems = new ArrayList<>();
     private final List<TmdbPerson> castItems = new ArrayList<>();
@@ -8442,6 +8445,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void updateInlineOpeningEndingText() {
+        if (binding == null) return;
         binding.playerOpening.setText(inlineOpeningLabel());
         binding.playerEnding.setText(inlineEndingLabel());
         if (!Util.isMobile() || detailActionRoot == null) return;
@@ -8450,11 +8454,21 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private String inlineOpeningLabel() {
-        return history != null && history.getOpening() > 0 ? Util.timeMs(history.getOpening()) : getString(R.string.play_op);
+        if (history != null && history.getOpening() > 0) return Util.timeMs(history.getOpening());
+        long detected = detectedIntroSkipValue(true);
+        return detected > 0 ? getString(R.string.intro_skip_detected_value, Util.timeMs(detected)) : getString(R.string.play_op);
     }
 
     private String inlineEndingLabel() {
-        return history != null && history.getEnding() > 0 ? Util.timeMs(history.getEnding()) : getString(R.string.play_ed);
+        if (history != null && history.getEnding() > 0) return Util.timeMs(history.getEnding());
+        long detected = detectedIntroSkipValue(false);
+        return detected > 0 ? getString(R.string.intro_skip_detected_value, Util.timeMs(detected)) : getString(R.string.play_ed);
+    }
+
+    /** 关掉自动跳过时不显示探测值——那种情况下这个数字不会导致任何动作，显示出来是误导。 */
+    private long detectedIntroSkipValue(boolean opening) {
+        if (!Setting.isIntroSkipEnabled() || service() == null || player() == null) return -1;
+        return opening ? introSkipPlayback.getDetectedOpeningMs() : introSkipPlayback.getDetectedEndingMs(player().getDuration());
     }
 
     private void onInlineBack() {
@@ -10127,12 +10141,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (position > 0 && service() != null && player() != null && !player().isEmpty()) player().seekTo(position);
     }
 
-    private void applyInlineStartPosition() {
-        if (inlineStartPositionApplied || history == null || controller() == null) return;
+    /** @return 本次是否真的下发了续播 seek——落点还没生效前不能让自动跳过介入。 */
+    private boolean applyInlineStartPosition() {
+        if (inlineStartPositionApplied || history == null || controller() == null) return false;
         long position = getInlineStartPosition();
         inlineStartPositionApplied = true;
-        if (position > 0) introSkipPlayback.setResumePosition(position);
-        if (position > 0) controller().seekTo(position);
+        if (position <= 0) return false;
+        introSkipPlayback.setResumePosition(position);
+        controller().seekTo(position);
+        return true;
     }
 
     @Override
@@ -10209,11 +10226,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             hideInlineLoading();
             hideInlineControls();
             player().reset();
-            applyInlineStartPosition();
+            boolean pendingResumeSeekApplied = applyInlineStartPosition();
             updateInlineButtons(player().isPlaying());
             applyInlineShortDramaMode();
             requestIntroSkipPlan();
-            applyAutoIntroSkip();
+            if (!pendingResumeSeekApplied) applyAutoIntroSkip();
             if (shouldShowDetailFullscreenControlsOnReady()) {
                 inlineFirstReady = true;  // 标记已显示过控制栏
                 showInlineControls(true, false);
@@ -10522,18 +10539,47 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void requestIntroSkipPlan() {
-        if (!Setting.isAutoSkipIntroOutro() || player() == null) {
+        if (!Setting.isIntroSkipEnabled() || player() == null) {
             introSkipPlayback.reset();
+            updateInlineOpeningEndingText();
             return;
         }
+        ensureIntroSkipListeners();
         IntroSkipService.Query query = buildIntroSkipQuery();
+        // 切集后 plan 已被 reset，这里先刷一次，避免 query 拿不到时残留上一集的探测值
+        updateInlineOpeningEndingText();
         if (query == null) return;
-        introSkipPlayback.request(query, this::applyAutoIntroSkip);
+        introSkipPlayback.request(query, this::onIntroSkipPlanLoaded);
+    }
+
+    private void onIntroSkipPlanLoaded() {
+        updateInlineOpeningEndingText();
+        applyAutoIntroSkip();
     }
 
     private boolean applyAutoIntroSkip() {
-        if (!Setting.isAutoSkipIntroOutro() || player() == null) return false;
-        return introSkipPlayback.apply(player(), () -> checkInlineEnded(false));
+        if (!Setting.isIntroSkipEnabled() || player() == null) return false;
+        // notify=true：片尾无处可跳（末集/电影）时至少要有提示，不能静默无反应
+        return introSkipPlayback.apply(player(), () -> checkInlineEnded(true));
+    }
+
+    /**
+     * 内嵌播放页原先没接确认监听，确认模式下什么都不会发生。这里补上，与另两个播放页一致。
+     */
+    private void ensureIntroSkipListeners() {
+        if (introSkipListenersReady) return;
+        introSkipListenersReady = true;
+        introSkipPlayback.setSkipConfirmListener((segment, action) -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (introSkipConfirmDialog != null && introSkipConfirmDialog.isShowing()) return;
+            introSkipConfirmDialog = new MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.intro_skip_confirm_title)
+                    .setMessage(IntroSkipKinds.confirmMessage(segment))
+                    .setPositiveButton(android.R.string.ok, (dialog, which) -> action.run())
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+        });
+        introSkipPlayback.setSkipNoticeListener(IntroSkipKinds::notifySkipped);
     }
 
     private IntroSkipService.Query buildIntroSkipQuery() {

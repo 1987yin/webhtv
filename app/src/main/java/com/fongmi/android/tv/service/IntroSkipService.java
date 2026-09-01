@@ -33,64 +33,99 @@ public class IntroSkipService {
     private static final String THE_INTRO_DB_MEDIA = "https://api.theintrodb.org/v3/media";
     private static final long TIMEOUT_MS = TimeUnit.SECONDS.toMillis(5);
     private static final int MAX_CACHE = 128;
-    private static final Map<String, IntroSkipPlan> CACHE = Collections.synchronizedMap(new LinkedHashMap<>(32, 0.75f, true) {
+    /** 参考时长与本集时长的差值超过该值才做时间轴折算，避免为几百毫秒的抖动挪动片尾。 */
+    private static final long TIME_BASE_TOLERANCE_MS = 2000;
+    /** 片尾结束点落在参考结尾的这个范围内，视为「一直放到文件结束」。 */
+    private static final long OPEN_END_TOLERANCE_MS = 5000;
+    /**
+     * 下集预告的字段名。两家文档都取不到（域名被网络策略拦），这里按常见拼法都试一遍；
+     * 命中不了只是没有预告段，不影响其余三类。实机日志确认字段名后可收敛成一个。
+     */
+    private static final String[] PREVIEW_KEYS = {"preview", "next_episode", "next_preview", "trailer"};
+    /** 网络缓存的时长分档粒度，见 Query#cacheKey。 */
+    private static final long CACHE_DURATION_BUCKET_MS = TimeUnit.MINUTES.toMillis(1);
+    /**
+     * 缓存未折算的原始段，键只含剧集身份、不含时长。
+     *
+     * <p>时长不是查询条件（IntroDB 压根不收，TheIntroDB 可选），只是解读结果的参数，所以不该
+     * 进键：进了键就意味着同一集在 onPrepare（时长还是 0）和 STATE_READY（时长已知）会各发
+     * 一轮请求，HLS 时长抖动 1 秒也会穿透缓存，更没法预载还没开播、时长未知的邻集。
+     */
+    private static final Map<String, List<RawSegment>> CACHE = Collections.synchronizedMap(new LinkedHashMap<>(32, 0.75f, true) {
         @Override
-        protected boolean removeEldestEntry(Map.Entry<String, IntroSkipPlan> eldest) {
+        protected boolean removeEldestEntry(Map.Entry<String, List<RawSegment>> eldest) {
             return size() > MAX_CACHE;
         }
     });
 
     public IntroSkipPlan load(@NonNull Query query) {
-        if (!query.hasLookupKey()) return IntroSkipPlan.empty();
-        String key = query.cacheKey();
-        IntroSkipPlan cached = CACHE.get(key);
-        if (cached != null) {
-            SpiderDebug.log("intro-skip", "cache hit key=%s", key);
-            return cached;
-        }
-        SpiderDebug.log("intro-skip", "query start tmdbId=%d imdbId=%s mediaType=%s season=%d episode=%d durationMs=%d", query.tmdbId, query.imdbId, query.mediaType, query.season, query.episode, query.durationMs);
-        IntroSkipPlan plan = loadRemote(query);
-        CACHE.put(key, plan);
-        SpiderDebug.log("intro-skip", "query done openings=%d endings=%d", plan.getOpenings().size(), plan.getEndings().size());
+        List<RawSegment> raw = loadRaw(query);
+        if (raw.isEmpty()) return IntroSkipPlan.empty();
+        IntroSkipPlan plan = IntroSkipPlan.from(raw, query.durationMs);
+        SpiderDebug.log("intro-skip", "plan resolved raw=%d openings=%d endings=%d durationMs=%d", raw.size(), plan.getOpenings().size(), plan.getEndings().size(), query.durationMs);
         return plan;
     }
 
-    private IntroSkipPlan loadRemote(Query query) {
-        List<Future<IntroSkipPlan>> futures = new ArrayList<>();
-        ExecutorCompletionService<IntroSkipPlan> completion = new ExecutorCompletionService<>(Task.largeExecutor());
+    /** 只把结果灌进缓存，不折算——用于预热邻集，此时时长还无从得知。 */
+    public void preload(@NonNull Query query) {
+        loadRaw(query);
+    }
+
+    private List<RawSegment> loadRaw(@NonNull Query query) {
+        if (!query.hasLookupKey()) return Collections.emptyList();
+        String key = query.cacheKey();
+        List<RawSegment> cached = CACHE.get(key);
+        if (cached != null) {
+            SpiderDebug.log("intro-skip", "cache hit key=%s segments=%d", key, cached.size());
+            return cached;
+        }
+        SpiderDebug.log("intro-skip", "query start tmdbId=%d imdbId=%s mediaType=%s season=%d episode=%d", query.tmdbId, query.imdbId, query.mediaType, query.season, query.episode);
+        List<RawSegment> raw = loadRemote(query);
+        CACHE.put(key, raw);
+        SpiderDebug.log("intro-skip", "query done key=%s segments=%d", key, raw.size());
+        return raw;
+    }
+
+    private List<RawSegment> loadRemote(Query query) {
+        List<Future<List<RawSegment>>> futures = new ArrayList<>();
+        ExecutorCompletionService<List<RawSegment>> completion = new ExecutorCompletionService<>(Task.largeExecutor());
         if (!isEmpty(query.imdbId) && query.season > 0 && query.episode > 0) {
             futures.add(completion.submit(() -> fetchIntroDb(query)));
         }
         if (query.tmdbId > 0) {
             futures.add(completion.submit(() -> fetchTheIntroDb(query)));
         }
-        if (futures.isEmpty()) return IntroSkipPlan.empty();
+        if (futures.isEmpty()) return Collections.emptyList();
 
         long deadline = System.currentTimeMillis() + TIMEOUT_MS;
-        List<IntroSkipPlan> plans = new ArrayList<>();
+        List<RawSegment> segments = new ArrayList<>();
         for (int i = 0; i < futures.size(); i++) {
             long waitMs = Math.max(1, deadline - System.currentTimeMillis());
             try {
-                Future<IntroSkipPlan> future = completion.poll(waitMs, TimeUnit.MILLISECONDS);
-                if (future != null) plans.add(future.get());
+                Future<List<RawSegment>> future = completion.poll(waitMs, TimeUnit.MILLISECONDS);
+                if (future != null) segments.addAll(future.get());
             } catch (Throwable e) {
                 SpiderDebug.log("intro-skip", "provider failed error=%s", e.getMessage());
             }
         }
-        for (Future<IntroSkipPlan> future : futures) if (!future.isDone()) future.cancel(true);
-        return IntroSkipPlan.merge(plans);
+        for (Future<List<RawSegment>> future : futures) if (!future.isDone()) future.cancel(true);
+        return segments;
     }
 
-    private IntroSkipPlan fetchIntroDb(Query query) {
+    private List<RawSegment> fetchIntroDb(Query query) {
         HttpUrl url = HttpUrl.parse(INTRO_DB_SEGMENTS).newBuilder()
                 .addQueryParameter("imdb_id", query.imdbId)
                 .addQueryParameter("season", String.valueOf(query.season))
                 .addQueryParameter("episode", String.valueOf(query.episode))
                 .build();
-        return fetch(url, PROVIDER_INTRO_DB, query.durationMs);
+        return fetch(url, PROVIDER_INTRO_DB);
     }
 
-    private IntroSkipPlan fetchTheIntroDb(Query query) {
+    /**
+     * duration_ms 有就带、没有就不带：带上它服务端能挑更贴近本地片源的那一版标定，
+     * 预载时（还没开播、时长未知）省掉即可，不因此放弃预载。
+     */
+    private List<RawSegment> fetchTheIntroDb(Query query) {
         HttpUrl.Builder builder = HttpUrl.parse(THE_INTRO_DB_MEDIA).newBuilder()
                 .addQueryParameter("tmdb_id", String.valueOf(query.tmdbId));
         if (query.isTv() && query.season > 0 && query.episode > 0) {
@@ -98,48 +133,72 @@ public class IntroSkipService {
             builder.addQueryParameter("episode", String.valueOf(query.episode));
         }
         if (query.durationMs > 0) builder.addQueryParameter("duration_ms", String.valueOf(query.durationMs));
-        return fetch(builder.build(), PROVIDER_THE_INTRO_DB, query.durationMs);
+        return fetch(builder.build(), PROVIDER_THE_INTRO_DB);
     }
 
-    private IntroSkipPlan fetch(HttpUrl url, String provider, long durationMs) {
+    private List<RawSegment> fetch(HttpUrl url, String provider) {
         long start = System.currentTimeMillis();
         SpiderDebug.log("intro-skip", "%s request url=%s", provider, url.toString());
         Request request = new Request.Builder().url(url).get().build();
         try (Response response = OkHttp.client(TIMEOUT_MS).newCall(request).execute()) {
             if (response.body() == null || !response.isSuccessful()) {
                 SpiderDebug.log("intro-skip", "%s http=%d empty=%s url=%s", provider, response.code(), response.body() == null, url.toString());
-                return IntroSkipPlan.empty();
+                return Collections.emptyList();
             }
             String body = response.body().string();
-            IntroSkipPlan plan = PROVIDER_INTRO_DB.equals(provider)
-                    ? parseIntroDb(body, durationMs)
-                    : parseTheIntroDb(body, durationMs);
-            SpiderDebug.log("intro-skip", "%s loaded openings=%d endings=%d cost=%dms url=%s", provider, plan.getOpenings().size(), plan.getEndings().size(), System.currentTimeMillis() - start, url.toString());
-            return plan;
+            List<RawSegment> raw = PROVIDER_INTRO_DB.equals(provider) ? parseIntroDbRaw(body) : parseTheIntroDbRaw(body);
+            SpiderDebug.log("intro-skip", "%s loaded segments=%d cost=%dms url=%s", provider, raw.size(), System.currentTimeMillis() - start, url.toString());
+            return raw;
         } catch (Throwable e) {
             SpiderDebug.log("intro-skip", "%s failed error=%s cost=%dms url=%s", provider, e.getMessage(), System.currentTimeMillis() - start, url.toString());
-            return IntroSkipPlan.empty();
+            return Collections.emptyList();
         }
     }
 
     public static IntroSkipPlan parseIntroDb(String body, long durationMs) {
-        JsonObject object = parseObject(body);
-        if (object == null) return IntroSkipPlan.empty();
-        List<Segment> segments = new ArrayList<>();
-        addIntroDbSegment(segments, object, "recap", Segment.Kind.RECAP, durationMs);
-        addIntroDbSegment(segments, object, "intro", Segment.Kind.INTRO, durationMs);
-        addIntroDbSegment(segments, object, "outro", Segment.Kind.OUTRO, durationMs);
-        return IntroSkipPlan.from(segments);
+        return IntroSkipPlan.from(parseIntroDbRaw(body), durationMs);
     }
 
     public static IntroSkipPlan parseTheIntroDb(String body, long durationMs) {
+        return IntroSkipPlan.from(parseTheIntroDbRaw(body), durationMs);
+    }
+
+    static List<RawSegment> parseIntroDbRaw(String body) {
         JsonObject object = parseObject(body);
-        if (object == null) return IntroSkipPlan.empty();
-        List<Segment> segments = new ArrayList<>();
-        addTheIntroDbSegments(segments, object, "recap", Segment.Kind.RECAP, durationMs);
-        addTheIntroDbSegments(segments, object, "intro", Segment.Kind.INTRO, durationMs);
-        addTheIntroDbSegments(segments, object, "credits", Segment.Kind.OUTRO, durationMs);
-        return IntroSkipPlan.from(segments);
+        if (object == null) return Collections.emptyList();
+        long reference = referenceDuration(object);
+        List<RawSegment> segments = new ArrayList<>();
+        addIntroDbSegment(segments, object, "recap", Segment.Kind.RECAP, reference);
+        addIntroDbSegment(segments, object, "intro", Segment.Kind.INTRO, reference);
+        addIntroDbSegment(segments, object, "outro", Segment.Kind.OUTRO, reference);
+        for (String key : PREVIEW_KEYS) addIntroDbSegment(segments, object, key, Segment.Kind.PREVIEW, reference);
+        return segments;
+    }
+
+    static List<RawSegment> parseTheIntroDbRaw(String body) {
+        JsonObject object = parseObject(body);
+        if (object == null) return Collections.emptyList();
+        long reference = referenceDuration(object);
+        List<RawSegment> segments = new ArrayList<>();
+        addTheIntroDbSegments(segments, object, "recap", Segment.Kind.RECAP, reference);
+        addTheIntroDbSegments(segments, object, "intro", Segment.Kind.INTRO, reference);
+        addTheIntroDbSegments(segments, object, "credits", Segment.Kind.OUTRO, reference);
+        for (String key : PREVIEW_KEYS) addTheIntroDbSegments(segments, object, key, Segment.Kind.PREVIEW, reference);
+        return segments;
+    }
+
+    /**
+     * 数据源标定所用版本的总时长，用于把片尾时间戳折算到本地片源的时间轴上。
+     * 两家接口的字段名不统一，也可能整个缺失（返回 0 表示无从折算）。
+     */
+    private static long referenceDuration(JsonObject root) {
+        Long ms = longValue(root, "duration_ms");
+        if (ms == null) ms = longValue(root, "runtime_ms");
+        if (ms != null && ms > 0) return ms;
+        Double sec = doubleValue(root, "duration_sec");
+        if (sec == null) sec = doubleValue(root, "duration");
+        if (sec == null) sec = doubleValue(root, "runtime_sec");
+        return sec == null || sec <= 0 ? 0 : Math.round(sec * 1000.0);
     }
 
     private static JsonObject parseObject(String body) {
@@ -151,24 +210,22 @@ public class IntroSkipService {
         }
     }
 
-    private static void addIntroDbSegment(List<Segment> segments, JsonObject root, String key, Segment.Kind kind, long durationMs) {
+    private static void addIntroDbSegment(List<RawSegment> segments, JsonObject root, String key, Segment.Kind kind, long referenceDurationMs) {
         JsonObject object = object(root, key);
         if (object == null) return;
         Long start = millis(object, "start_ms", "start_sec");
         Long end = millis(object, "end_ms", "end_sec");
-        Segment segment = Segment.create(kind, PROVIDER_INTRO_DB, start, end, durationMs, number(object, "confidence", 0.5), integer(object, "submission_count", 0));
-        if (segment != null) segments.add(segment);
+        segments.add(new RawSegment(kind, PROVIDER_INTRO_DB, start, end, referenceDurationMs, number(object, "confidence", 0.5), integer(object, "submission_count", 0)));
     }
 
-    private static void addTheIntroDbSegments(List<Segment> segments, JsonObject root, String key, Segment.Kind kind, long durationMs) {
+    private static void addTheIntroDbSegments(List<RawSegment> segments, JsonObject root, String key, Segment.Kind kind, long referenceDurationMs) {
         JsonArray array = array(root, key);
         for (JsonElement element : array) {
             if (!element.isJsonObject()) continue;
             JsonObject object = element.getAsJsonObject();
             Long start = millis(object, "start_ms", null);
             Long end = millis(object, "end_ms", null);
-            Segment segment = Segment.create(kind, PROVIDER_THE_INTRO_DB, start, end, durationMs, 0.5, 0);
-            if (segment != null) segments.add(segment);
+            segments.add(new RawSegment(kind, PROVIDER_THE_INTRO_DB, start, end, referenceDurationMs, 0.5, 0));
         }
     }
 
@@ -244,9 +301,55 @@ public class IntroSkipService {
             return "tv".equals(mediaType) || season > 0 || episode > 0;
         }
 
+        /**
+         * 剧集身份 + 粗粒度时长档。
+         *
+         * <p>时长档只是因为请求里带了 duration_ms，服务端可能据此换一版标定，所以不同时长
+         * 得算不同响应。粒度取 1 分钟：足够粗，HLS 那种秒级抖动不会穿透缓存；也足够细，
+         * 真正换了片源（差几分钟）时不会误用旧结果。预载时时长未知，落在 0 档，
+         * 到 onPrepare（此时时长同样未知）正好命中，计划能立刻显示出来。
+         */
         public String cacheKey() {
-            long durationBucket = durationMs <= 0 ? 0 : TimeUnit.MILLISECONDS.toSeconds(durationMs);
-            return tmdbId + "|" + imdbId + "|" + mediaType + "|" + season + "|" + episode + "|" + durationBucket;
+            long bucket = durationMs <= 0 ? 0 : durationMs / CACHE_DURATION_BUCKET_MS;
+            return tmdbId + "|" + imdbId + "|" + mediaType + "|" + season + "|" + episode + "|" + bucket;
+        }
+
+        /** 同一集、不同时长的查询——用于判断已加载的计划是否还对得上当前播放源。 */
+        public boolean sameEpisode(Query other) {
+            return other != null && cacheKey().equals(other.cacheKey());
+        }
+
+        public long getDurationMs() {
+            return durationMs;
+        }
+    }
+
+    /**
+     * 解析产物，尚未按本集时长折算。缓存存的是这个，折算推迟到读取时按当次时长做，
+     * 同一集换了播放源（时长不同）能复用同一份缓存。
+     */
+    static final class RawSegment {
+
+        private final Segment.Kind kind;
+        private final String provider;
+        private final Long startMs;
+        private final Long endMs;
+        private final long referenceDurationMs;
+        private final double confidence;
+        private final int submissionCount;
+
+        RawSegment(Segment.Kind kind, String provider, Long startMs, Long endMs, long referenceDurationMs, double confidence, int submissionCount) {
+            this.kind = kind;
+            this.provider = provider;
+            this.startMs = startMs;
+            this.endMs = endMs;
+            this.referenceDurationMs = referenceDurationMs;
+            this.confidence = confidence;
+            this.submissionCount = submissionCount;
+        }
+
+        Segment resolve(long durationMs) {
+            return Segment.create(kind, provider, startMs, endMs, durationMs, referenceDurationMs, confidence, submissionCount);
         }
     }
 
@@ -265,7 +368,18 @@ public class IntroSkipService {
             return EMPTY;
         }
 
-        private static IntroSkipPlan from(List<Segment> segments) {
+        static IntroSkipPlan from(List<RawSegment> raw, long durationMs) {
+            List<Segment> segments = new ArrayList<>();
+            if (raw != null) {
+                for (RawSegment item : raw) {
+                    Segment segment = item == null ? null : item.resolve(durationMs);
+                    if (segment != null) segments.add(segment);
+                }
+            }
+            return fromResolved(segments);
+        }
+
+        private static IntroSkipPlan fromResolved(List<Segment> segments) {
             List<Segment> openings = new ArrayList<>();
             List<Segment> endings = new ArrayList<>();
             for (Segment segment : segments) {
@@ -277,16 +391,12 @@ public class IntroSkipService {
             return openings.isEmpty() && endings.isEmpty() ? EMPTY : new IntroSkipPlan(openings, endings);
         }
 
-        public static IntroSkipPlan merge(List<IntroSkipPlan> plans) {
-            List<Segment> segments = new ArrayList<>();
-            if (plans != null) {
-                for (IntroSkipPlan plan : plans) {
-                    if (plan == null) continue;
-                    segments.addAll(plan.openings);
-                    segments.addAll(plan.endings);
-                }
-            }
-            return from(segments);
+        /** 按时间先后给出全部段落（片头、片尾、预告混排），供逐段判定使用。 */
+        public List<Segment> getAll() {
+            List<Segment> all = new ArrayList<>(openings);
+            all.addAll(endings);
+            sort(all);
+            return all;
         }
 
         public boolean isEmpty() {
@@ -321,38 +431,69 @@ public class IntroSkipService {
         public enum Kind {
             INTRO,
             RECAP,
-            OUTRO
+            OUTRO,
+            PREVIEW
         }
 
         private final Kind kind;
         private final String provider;
         private final long startMs;
         private final long endMs;
+        private final boolean openEnded;
         private final double confidence;
         private final int submissionCount;
 
-        private Segment(Kind kind, String provider, long startMs, long endMs, double confidence, int submissionCount) {
+        private Segment(Kind kind, String provider, long startMs, long endMs, boolean openEnded, double confidence, int submissionCount) {
             this.kind = kind;
             this.provider = provider;
             this.startMs = startMs;
             this.endMs = endMs;
+            this.openEnded = openEnded;
             this.confidence = confidence;
             this.submissionCount = submissionCount;
         }
 
-        private static Segment create(Kind kind, String provider, Long startMs, Long endMs, long durationMs, double confidence, int submissionCount) {
+        private static Segment create(Kind kind, String provider, Long startMs, Long endMs, long durationMs, long referenceDurationMs, double confidence, int submissionCount) {
             if (kind == null) return null;
-            long start = startMs == null && kind != Kind.OUTRO ? 0 : startMs == null ? -1 : startMs;
+            boolean trailing = kind == Kind.OUTRO || kind == Kind.PREVIEW;
+            long start = startMs == null && !trailing ? 0 : startMs == null ? -1 : startMs;
             long end = endMs == null ? -1 : endMs;
             if (start < 0) return null;
+            if (trailing) return createTrailing(kind, provider, start, end, durationMs, referenceDurationMs, confidence, submissionCount);
             if (durationMs > 0) {
                 if (start >= durationMs) return null;
-                if (end < 0 && kind == Kind.OUTRO) end = durationMs;
                 if (end > durationMs) end = durationMs;
             }
+            if (end <= start) return null;
+            return new Segment(kind, provider, start, end, false, Math.max(0, confidence), Math.max(0, submissionCount));
+        }
+
+        /**
+         * 尾部段（片尾、下集预告）按「距文件结尾的偏移」理解，而不是照抄绝对时间戳。
+         *
+         * <p>片源普遍存在掐头、加站点前贴、删减，与数据源标定的参考版本时长对不上；此时绝对
+         * 时间戳整体漂移，但「距结尾还有多久」基本稳定，按该距离折算才能对上本地时间轴。
+         * 早先直接用参考时间戳，只要本地片源比参考版本短一点就命中 start >= durationMs，
+         * 整段被丢弃——这正是片头能跳、片尾不跳的主因。参考时长缺失时无从折算，
+         * 只能沿用原始时间戳。
+         */
+        private static Segment createTrailing(Kind kind, String provider, long start, long end, long durationMs, long referenceDurationMs, double confidence, int submissionCount) {
+            long reference = referenceDurationMs > 0 ? referenceDurationMs : 0;
+            long baseline = reference > 0 ? reference : durationMs;
+            // 结束点贴着参考结尾（或压根没给）即「一直放到文件结束」，别被折算后的取整误差带偏
+            boolean openEnded = end < 0 || (baseline > 0 && baseline - end <= OPEN_END_TOLERANCE_MS);
+            if (reference > 0 && durationMs > 0 && Math.abs(reference - durationMs) > TIME_BASE_TOLERANCE_MS) {
+                long shift = durationMs - reference;
+                start += shift;
+                if (end >= 0) end += shift;
+            }
+            if (durationMs > 0) {
+                if (openEnded || end > durationMs) end = durationMs;
+                if (start >= durationMs) return null;
+            }
+            if (start <= 0) return null; // 尾部段不可能从 0 开始，整集当片尾必是错配
             if (end >= 0 && end <= start) return null;
-            if (end < 0 && kind != Kind.OUTRO) return null;
-            return new Segment(kind, provider, start, end, Math.max(0, confidence), Math.max(0, submissionCount));
+            return new Segment(kind, provider, start, end, openEnded, Math.max(0, confidence), Math.max(0, submissionCount));
         }
 
         public Kind getKind() {
@@ -371,12 +512,17 @@ public class IntroSkipService {
             return endMs;
         }
 
+        /** 片尾是否一直延伸到文件结束——为真表示没有可 seek 的落点，只能按「本集看完」处理。 */
+        public boolean isOpenEnded() {
+            return openEnded;
+        }
+
         public boolean isOpening() {
             return kind == Kind.INTRO || kind == Kind.RECAP;
         }
 
         public boolean isEnding() {
-            return kind == Kind.OUTRO;
+            return kind == Kind.OUTRO || kind == Kind.PREVIEW;
         }
 
         private double score() {
@@ -385,6 +531,8 @@ public class IntroSkipService {
 
         private boolean overlaps(Segment other) {
             if (other == null) return false;
+            // 只在同类之间去重：两家都报同一段片头该合并，紧邻的片尾和预告是两段，不能并
+            if (kind != other.kind) return false;
             if (Math.abs(startMs - other.startMs) <= 3000 && (endMs < 0 || other.endMs < 0 || Math.abs(endMs - other.endMs) <= 5000)) return true;
             if (endMs < 0 || other.endMs < 0) return false;
             long overlap = Math.min(endMs, other.endMs) - Math.max(startMs, other.startMs);
