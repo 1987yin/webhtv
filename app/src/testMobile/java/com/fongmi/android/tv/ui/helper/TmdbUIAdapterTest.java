@@ -905,7 +905,7 @@ public class TmdbUIAdapterTest {
         int activePlayer = source.indexOf("&& !player().isEmpty()", activeOwner);
         int updateResult = source.indexOf("currentInlineResult = result;", staleGuard);
         int updateParse = source.indexOf("useParse = result.shouldUseParse();", updateResult);
-        int switchResult = source.indexOf("player().switchPlayer(playerType, result, getHistoryKey(), metadata, useParse, position, speed, repeat);", updateParse);
+        int switchResult = source.indexOf("player().switchPlayer(playerType, result, activePlaybackKey(), metadata, useParse, position, speed, repeat);", updateParse);
         int oldFallback = source.indexOf("player().switchPlayerManually(playerType);", switchMethod);
 
         assertTrue(sourcePath + " is missing refreshed inline player-kernel switching", switchMethod >= 0 && refreshCall > switchMethod && refreshMethod > refreshCall);
