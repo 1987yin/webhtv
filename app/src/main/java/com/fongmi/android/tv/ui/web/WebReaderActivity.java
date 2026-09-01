@@ -180,6 +180,10 @@ public class WebReaderActivity extends AppCompatActivity {
         }
     }
 
+    public boolean hasPendingHostChapterRequest() {
+        return hostChapterRequests.get() > 0;
+    }
+
     /** 待恢复的章节内锚点与总数（用完置 0）。 */
     private long restoreAnchor = 0;
     private long restoreTotal = 0;
@@ -1279,6 +1283,7 @@ public class WebReaderActivity extends AppCompatActivity {
             final boolean fh = needHost;
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
+                boolean hostDispatched = false;
                 if (fk != 0 && fp != null && !fp.isEmpty()) {
                     if (at >= 0) index = at;
                     // 自解析成功：没经过宿主，不能替宿主请求收尾
@@ -1290,12 +1295,13 @@ public class WebReaderActivity extends AppCompatActivity {
                 // siteKey 非空时不可达，而所有真实启动入口都会带 siteKey）。它要走二次解析、
                 // 耗时最长，最容易掉出关闭静默期，代号标记必须打在这里。
                 if (fh && h != null) {
+                    hostDispatched = true;
                     NovelRouter.noteChapterRequest();
                     hostChapterRequests.incrementAndGet();
                     if (!h.labPlayEpisode(chapterUrl)) chapterFailedWithToast(true);
-                } else {
-                    chapterFailedWithToast();
+                    return;
                 }
+                if (!hostDispatched) chapterFailedWithToast();
                 // 解析失败：放开占位层，并丢掉待恢复位置 —— 否则它会残留到用户下一次手动切章，
                 // 把上一本/上一章的锚点套用到新章上（章短时直接跳到章末）。
                 restoreAnchor = 0;
@@ -1369,10 +1375,10 @@ public class WebReaderActivity extends AppCompatActivity {
      *                 句柄去撤销它，只能等 45s TTL，期间用户主动打开别的书会被误吞。
      */
     private void onEpisodeResolved(int newKind, String payload, String title, boolean fromHost) {
-        if (webView == null) return;
         // 宿主结果已到达，收尾一笔在途请求。只减计数、不认身份 —— 送达这一刻
         // 拿不到「这是哪一章的结果」，按身份删必然删错，反而放行别人的迟到结果。
         if (fromHost) endHostChapterRequest();
+        if (webView == null) return;
         // 漫画分支要下载 PDF（网络），不能在主线程做
         RESOLVE_EXECUTOR.execute(() -> {
             if (isFinishing() || isDestroyed()) return;
@@ -1472,6 +1478,9 @@ public class WebReaderActivity extends AppCompatActivity {
     protected void onPause() {
         // 切后台 / 返回都先落库，避免进程被回收后丢进度
         persistProgress();
+        // 先把关闭瞬间仍在途的请求转成全局待拦额度，再清理本页计数；否则
+        // markReaderClosed() 看不到这些请求，迟到结果可能在静默期后重新拉起阅读器。
+        if (isFinishing()) markClosed();
         // 本页仍在途的宿主请求随本页一起作废：它们的结果不会再回到这里，
         // 不收尾的话全局在途计数永久偏高，下一次关闭会凭虚高的数字多留待拦额度，
         // 把用户之后主动打开的书误吞掉。
@@ -1483,7 +1492,6 @@ public class WebReaderActivity extends AppCompatActivity {
         // 那一刻若时间戳还没写，NovelRouter 的两道防线同时失效（currentReader
         // 已 isFinishing() 判不出「在前台」，时间戳又还是 0），于是立刻又拉起阅读器，
         // 表现为返回键完全无效、只能强杀 APP。
-        if (isFinishing()) markClosed();
         super.onPause();
     }
 

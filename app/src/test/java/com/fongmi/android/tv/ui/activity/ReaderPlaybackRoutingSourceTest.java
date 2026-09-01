@@ -88,6 +88,57 @@ public class ReaderPlaybackRoutingSourceTest {
                 source.indexOf("markClosed();", destroy) > destroy);
     }
 
+    @Test
+    public void readerMarksClosedBeforeClearingHostRequests() throws Exception {
+        String source = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
+
+        int pause = source.indexOf("protected void onPause()");
+        int markInPause = source.indexOf("markClosed();", pause);
+        int clearRequests = source.indexOf("hostChapterRequests.getAndSet(0)", pause);
+
+        assertTrue("onPause must mark the reader closed before clearing host requests",
+                markInPause > pause && clearRequests > pause && markInPause < clearRequests);
+    }
+
+    @Test
+    public void hostResultClosesRequestBeforeWebViewGuard() throws Exception {
+        String source = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
+
+        int method = source.indexOf("private void onEpisodeResolved(int newKind, String payload, String title, boolean fromHost)");
+        int webViewGuard = source.indexOf("if (webView == null) return;", method);
+        int closeRequest = source.indexOf("if (fromHost) endHostChapterRequest();", method);
+
+        assertTrue("a host result must close its request even when the WebView was already destroyed",
+                method >= 0 && webViewGuard > method && closeRequest > method && closeRequest < webViewGuard);
+    }
+
+    @Test
+    public void parseFallbackKeepsRestoreAnchorUntilHostResultArrives() throws Exception {
+        String source = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
+
+        int method = source.indexOf("private void resolveChapterSelf(String chapterUrl)");
+        int dispatch = source.indexOf("if (fh && h != null)", method);
+        int clear = source.indexOf("restoreAnchor = 0;", dispatch);
+        int hostFlag = source.indexOf("boolean hostDispatched = false;", method);
+        int guard = source.indexOf("if (!hostDispatched)", dispatch);
+
+        assertTrue("parse=1 已成功交给宿主时，必须保留历史恢复锚点直到结果注入",
+                method >= 0 && hostFlag > method && dispatch > method && clear > dispatch
+                        && guard > dispatch && guard < clear);
+    }
+
+    @Test
+    public void staleResultCannotBeDeliveredToAReaderWithoutPendingHostRequest() throws Exception {
+        String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
+        String reader = read("app/src/main/java/com/fongmi/android/tv/ui/web/WebReaderActivity.java");
+
+        assertTrue("当前阅读器必须能报告自己是否有宿主切章请求在途",
+                reader.contains("public boolean hasPendingHostChapterRequest()"));
+        assertEquals("三个阅读器结果入口都必须拦截旧请求，避免串页",
+                3, countOccurrences(router,
+                        "!reader.hasPendingHostChapterRequest() && NovelRouter.consumeStaleChapterResult()"));
+    }
+
     /**
      * 首帧不能把进度虚报到批次末尾。
      *
@@ -192,8 +243,9 @@ public class ReaderPlaybackRoutingSourceTest {
         assertTrue("closing must convert in-flight requests into suppression credits",
                 router.contains("int pending = inFlightChapters.getAndSet(0);")
                         && router.contains("if (pending > 0) {"));
-        assertTrue("credits must expire so a silent host failure cannot swallow opens forever",
-                router.contains("staleUntil = readerClosedAt + PENDING_CHAPTER_TTL;")
+        assertTrue("credits must accumulate and expire so silent failures cannot swallow opens forever",
+                router.contains("staleChapterResults.addAndGet(pending);")
+                        && router.contains("staleUntil = Math.max(staleUntil, readerClosedAt + PENDING_CHAPTER_TTL);")
                         && router.contains("if (android.os.SystemClock.elapsedRealtime() > staleUntil) {"));
         assertEquals("every relaunch site must consult the suppression guard",
                 3, countOccurrences(router, "if (shouldSuppressRelaunch())"));
