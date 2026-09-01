@@ -734,6 +734,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             player().stop();
             player().clear();
         }
+        updateNavigationKey();
         binding.loading.setVisibility(View.VISIBLE);
         setLoadingOnlyBeforeDefaultPlayback(shouldUseLoadingOnlyBeforeDefaultPlayback());
         hideInlineLoading();
@@ -6982,6 +6983,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         Site site = getCurrentSite();
         ensureInlineDanmakuController();
         startPlayer(getHistoryKey(), result, useParse, site == null ? 0 : site.getTimeout(), buildMetadata());
+        updateNavigationKey();
         subtitlePlaybackSession.onPlaybackStarted(this, result);
         searchInlineDanmaku(result);
         binding.playerPanel.requestFocus();
