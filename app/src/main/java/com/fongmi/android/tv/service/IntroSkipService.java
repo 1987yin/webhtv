@@ -42,8 +42,6 @@ public class IntroSkipService {
      * 命中不了只是没有预告段，不影响其余三类。实机日志确认字段名后可收敛成一个。
      */
     private static final String[] PREVIEW_KEYS = {"preview", "next_episode", "next_preview", "trailer"};
-    /** 网络缓存的时长分档粒度，见 Query#cacheKey。 */
-    private static final long CACHE_DURATION_BUCKET_MS = TimeUnit.MINUTES.toMillis(1);
     /**
      * 缓存未折算的原始段，键只含剧集身份、不含时长。
      *
@@ -188,15 +186,18 @@ public class IntroSkipService {
     }
 
     /**
-     * 数据源标定所用版本的总时长，用于把片尾时间戳折算到本地片源的时间轴上。
-     * 两家接口的字段名不统一，也可能整个缺失（返回 0 表示无从折算）。
+     * 数据源标定所用版本的总时长，用于把尾部段折算到本地片源的时间轴上。
+     *
+     * <p>字段名两家不统一、也可能整个缺失（返回 0 表示无从折算）。刻意不认裸 {@code duration}
+     * 之类无单位后缀的键：TMDB 系接口用它表示「分钟」，当成秒会算出天量偏移，把所有尾部段
+     * 静默抹掉，比拿不到基准更糟。解析时还不知道本集时长，量级校验推迟到折算时做，
+     * 见 {@link Segment#plausibleReference}。
      */
     private static long referenceDuration(JsonObject root) {
         Long ms = longValue(root, "duration_ms");
         if (ms == null) ms = longValue(root, "runtime_ms");
         if (ms != null && ms > 0) return ms;
         Double sec = doubleValue(root, "duration_sec");
-        if (sec == null) sec = doubleValue(root, "duration");
         if (sec == null) sec = doubleValue(root, "runtime_sec");
         return sec == null || sec <= 0 ? 0 : Math.round(sec * 1000.0);
     }
@@ -302,21 +303,16 @@ public class IntroSkipService {
         }
 
         /**
-         * 剧集身份 + 粗粒度时长档。
+         * 只含剧集身份，不含时长。
          *
-         * <p>时长档只是因为请求里带了 duration_ms，服务端可能据此换一版标定，所以不同时长
-         * 得算不同响应。粒度取 1 分钟：足够粗，HLS 那种秒级抖动不会穿透缓存；也足够细，
-         * 真正换了片源（差几分钟）时不会误用旧结果。预载时时长未知，落在 0 档，
-         * 到 onPrepare（此时时长同样未知）正好命中，计划能立刻显示出来。
+         * <p>时长不是查询条件（IntroDB 不收，TheIntroDB 可选），把它写进键会让同一集在
+         * onPrepare（时长还是 0）和 STATE_READY（时长已知）落到两个桶各发一轮请求，也让预载
+         * 永远命中不了——预载时那一集还没开播，时长无从得知。代价是首次请求若发生在预载阶段
+         * 就没带上 duration_ms，拿不到服务端按本地片源挑的那一版标定；折算在客户端本来就要做
+         * 一遍，这个损失可以接受，换来的是每集一次请求加预载真正生效。
          */
         public String cacheKey() {
-            long bucket = durationMs <= 0 ? 0 : durationMs / CACHE_DURATION_BUCKET_MS;
-            return tmdbId + "|" + imdbId + "|" + mediaType + "|" + season + "|" + episode + "|" + bucket;
-        }
-
-        /** 同一集、不同时长的查询——用于判断已加载的计划是否还对得上当前播放源。 */
-        public boolean sameEpisode(Query other) {
-            return other != null && cacheKey().equals(other.cacheKey());
+            return tmdbId + "|" + imdbId + "|" + mediaType + "|" + season + "|" + episode;
         }
 
         public long getDurationMs() {
@@ -478,7 +474,7 @@ public class IntroSkipService {
          * 只能沿用原始时间戳。
          */
         private static Segment createTrailing(Kind kind, String provider, long start, long end, long durationMs, long referenceDurationMs, double confidence, int submissionCount) {
-            long reference = referenceDurationMs > 0 ? referenceDurationMs : 0;
+            long reference = plausibleReference(referenceDurationMs, durationMs);
             long baseline = reference > 0 ? reference : durationMs;
             // 结束点贴着参考结尾（或压根没给）即「一直放到文件结束」，别被折算后的取整误差带偏
             boolean openEnded = end < 0 || (baseline > 0 && baseline - end <= OPEN_END_TOLERANCE_MS);
@@ -494,6 +490,20 @@ public class IntroSkipService {
             if (start <= 0) return null; // 尾部段不可能从 0 开始，整集当片尾必是错配
             if (end >= 0 && end <= start) return null;
             return new Segment(kind, provider, start, end, openEnded, Math.max(0, confidence), Math.max(0, submissionCount));
+        }
+
+        /**
+         * 参考时长与本集时长必须在同一量级，否则视为单位或语义猜错，宁可不折算。
+         *
+         * <p>折算是整段平移，基准错一个数量级就把尾部段推到时间轴之外，结果是全部被丢弃或乱跳，
+         * 而外部看不出是数据缺失还是基准算错。本集时长未知时无从校验，只能放行。
+         */
+        private static long plausibleReference(long reference, long durationMs) {
+            if (reference <= 0) return 0;
+            if (durationMs <= 0) return reference;
+            boolean plausible = reference * 2 >= durationMs && reference <= durationMs * 2;
+            if (!plausible) SpiderDebug.log("intro-skip", "reject reference=%d durationMs=%d", reference, durationMs);
+            return plausible ? reference : 0;
         }
 
         public Kind getKind() {
@@ -531,8 +541,10 @@ public class IntroSkipService {
 
         private boolean overlaps(Segment other) {
             if (other == null) return false;
-            // 只在同类之间去重：两家都报同一段片头该合并，紧邻的片尾和预告是两段，不能并
-            if (kind != other.kind) return false;
+            // 开头段之间、尾部段之间允许跨类去重：两家对同一段的标注常不一致（一家算 recap
+            // 另一家算 intro），不合并会对同一段连跳两次。开头与尾部之间不并——它们物理上
+            // 相隔整集；片尾与紧随其后的预告同属尾部，靠下面的边界判断区分，不会误并。
+            if (isOpening() != other.isOpening()) return false;
             if (Math.abs(startMs - other.startMs) <= 3000 && (endMs < 0 || other.endMs < 0 || Math.abs(endMs - other.endMs) <= 5000)) return true;
             if (endMs < 0 || other.endMs < 0) return false;
             long overlap = Math.min(endMs, other.endMs) - Math.max(startMs, other.startMs);

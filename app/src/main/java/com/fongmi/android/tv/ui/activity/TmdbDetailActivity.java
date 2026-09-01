@@ -8468,7 +8468,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     /** 关掉自动跳过时不显示探测值——那种情况下这个数字不会导致任何动作，显示出来是误导。 */
     private long detectedIntroSkipValue(boolean opening) {
-        if (!Setting.isIntroSkipEnabled() || service() == null || player() == null) return -1;
+        // isReleased 必查：服务已 release 但 Activity 还握着 mService 的窗口里，
+        // PlayerManager.getDuration() 会直接对空的 player 取值抛 NPE
+        if (!Setting.isIntroSkipEnabled() || player() == null || player().isReleased()) return -1;
         return opening ? introSkipPlayback.getDetectedOpeningMs() : introSkipPlayback.getDetectedEndingMs(player().getDuration());
     }
 
@@ -9711,8 +9713,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void checkInlineNext(boolean notify) {
-        if (history != null && history.isRevPlay()) onInlinePrev(notify);
-        else onInlineNext(notify);
+        advanceInlineEpisode(notify);
+    }
+
+    /** @return 是否真的切走了。末集/倒序首集切不动，调用方据此决定要不要提示「进入下一集」。 */
+    private boolean advanceInlineEpisode(boolean notify) {
+        return history != null && history.isRevPlay() ? onInlinePrev(notify) : onInlineNext(notify);
     }
 
     private void checkInlinePrev() {
@@ -9720,14 +9726,16 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         else onInlinePrev(true);
     }
 
-    private void onInlineNext(boolean notify) {
-        if (playAdjacentEpisode(1, false)) return;
+    private boolean onInlineNext(boolean notify) {
+        if (playAdjacentEpisode(1, false)) return true;
         if (notify) Notify.show(history != null && history.isRevPlay() ? R.string.error_play_prev : R.string.error_play_next);
+        return false;
     }
 
-    private void onInlinePrev(boolean notify) {
-        if (playAdjacentEpisode(-1, false)) return;
+    private boolean onInlinePrev(boolean notify) {
+        if (playAdjacentEpisode(-1, false)) return true;
         if (notify) Notify.show(history != null && history.isRevPlay() ? R.string.error_play_next : R.string.error_play_prev);
+        return false;
     }
 
     private void checkInlineEnded(boolean notify) {
@@ -10561,7 +10569,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private boolean applyAutoIntroSkip() {
         if (!Setting.isIntroSkipEnabled() || player() == null) return false;
         // notify=true：片尾无处可跳（末集/电影）时至少要有提示，不能静默无反应
-        return introSkipPlayback.apply(player(), () -> checkInlineEnded(true));
+        return introSkipPlayback.apply(player(), () -> advanceInlineEpisode(true));
     }
 
     /**
@@ -10571,14 +10579,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (introSkipListenersReady) return;
         introSkipListenersReady = true;
         introSkipPlayback.setSkipConfirmListener((segment, action) -> {
-            if (isFinishing() || isDestroyed()) return;
-            if (introSkipConfirmDialog != null && introSkipConfirmDialog.isShowing()) return;
+            if (isFinishing() || isDestroyed()) return false;
+            if (introSkipConfirmDialog != null && introSkipConfirmDialog.isShowing()) return false;
             introSkipConfirmDialog = new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.intro_skip_confirm_title)
                     .setMessage(IntroSkipKinds.confirmMessage(segment))
                     .setPositiveButton(android.R.string.ok, (dialog, which) -> action.run())
                     .setNegativeButton(android.R.string.cancel, null)
                     .show();
+            return true;
         });
         introSkipPlayback.setSkipNoticeListener(IntroSkipKinds::notifySkipped);
     }

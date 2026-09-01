@@ -169,30 +169,62 @@ public class IntroSkipServiceTest {
     }
 
     @Test
-    public void cacheKey_ignoresSubMinuteDurationJitter() {
-        // HLS 时长秒级抖动不该穿透缓存
-        IntroSkipService.Query a = new IntroSkipService.Query(123, "tt1", "tv", 1, 2, 2_700_000);
-        IntroSkipService.Query b = new IntroSkipService.Query(123, "tt1", "tv", 1, 2, 2_701_500);
-
-        assertEquals(a.cacheKey(), b.cacheKey());
-    }
-
-    @Test
-    public void cacheKey_preloadShareesBucketWithUnknownDuration() {
-        // 预载时时长未知（0），onPrepare 时同样未知，两者必须命中同一条缓存
+    public void cacheKey_ignoresDurationEntirely() {
+        // 时长不是查询条件，不该进键：预载（时长未知）与真正播放（时长已知）必须命中同一条缓存，
+        // 否则每集要打两轮网络，预载也永远失效。
         IntroSkipService.Query preload = new IntroSkipService.Query(123, "tt1", "tv", 1, 2, 0);
-        IntroSkipService.Query prepare = new IntroSkipService.Query(123, "tt1", "tv", 1, 2, 0);
+        IntroSkipService.Query playing = new IntroSkipService.Query(123, "tt1", "tv", 1, 2, 2_700_000);
+        IntroSkipService.Query shorter = new IntroSkipService.Query(123, "tt1", "tv", 1, 2, 2_400_000);
 
-        assertEquals(preload.cacheKey(), prepare.cacheKey());
+        assertEquals(preload.cacheKey(), playing.cacheKey());
+        assertEquals(playing.cacheKey(), shorter.cacheKey());
     }
 
     @Test
-    public void cacheKey_separatesMateriallyDifferentDurations() {
-        // 真换了片源（差几分钟）时 duration_ms 会带出不同响应，不能复用
-        IntroSkipService.Query full = new IntroSkipService.Query(123, "tt1", "tv", 1, 2, 2_700_000);
-        IntroSkipService.Query cut = new IntroSkipService.Query(123, "tt1", "tv", 1, 2, 2_400_000);
+    public void cacheKey_separatesDifferentEpisodes() {
+        IntroSkipService.Query first = new IntroSkipService.Query(123, "tt1", "tv", 1, 1, 0);
+        IntroSkipService.Query second = new IntroSkipService.Query(123, "tt1", "tv", 1, 2, 0);
 
-        assertNotEquals(full.cacheKey(), cut.cacheKey());
+        assertNotEquals(first.cacheKey(), second.cacheKey());
+    }
+
+    @Test
+    public void resolve_rejectsReferenceDurationOfWrongMagnitude() {
+        // runtime_sec=2700（45 分钟）与本集 44 分钟量级相符：按距结尾的距离折算
+        IntroSkipPlan shifted = IntroSkipService.parseTheIntroDb(
+                "{\"runtime_sec\":2700,\"credits\":[{\"start_ms\":2640000,\"end_ms\":2695000}]}", 2_640_000);
+        assertEquals(2_580_000, shifted.getEndings().get(0).getStartMs());
+
+        // runtime_sec=45（45 秒）量级完全不符，多半是单位或语义猜错：放弃折算、保留原始时间戳，
+        // 而不是拿错基准把整段平移出时间轴
+        IntroSkipPlan unshifted = IntroSkipService.parseTheIntroDb(
+                "{\"runtime_sec\":45,\"credits\":[{\"start_ms\":2640000,\"end_ms\":2695000}]}", 2_700_000);
+        assertEquals(1, unshifted.getEndings().size());
+        assertEquals(2_640_000, unshifted.getEndings().get(0).getStartMs());
+    }
+
+    @Test
+    public void resolve_ignoresUnitlessDurationField() {
+        // 裸 duration 无单位后缀，TMDB 系用它表示分钟；认了它就会算出天量偏移抹掉整段
+        String body = "{\"duration\":45,\"credits\":[{\"start_ms\":2640000,\"end_ms\":2695000}]}";
+
+        IntroSkipPlan plan = IntroSkipService.parseTheIntroDb(body, 2_700_000);
+
+        assertEquals(1, plan.getEndings().size());
+        assertEquals(2_640_000, plan.getEndings().get(0).getStartMs());
+    }
+
+    @Test
+    public void resolve_mergesCrossKindOpeningsFromBothProviders() {
+        // 两家对同一段开头标注不一致（recap 0-90s vs intro 0-45s），不合并会连跳两次
+        List<IntroSkipService.RawSegment> raw = new ArrayList<>();
+        raw.addAll(IntroSkipService.parseIntroDbRaw("{\"recap\":{\"start_ms\":0,\"end_ms\":90000,\"confidence\":1,\"submission_count\":2}}"));
+        raw.addAll(IntroSkipService.parseTheIntroDbRaw("{\"intro\":[{\"start_ms\":0,\"end_ms\":45000}]}"));
+
+        IntroSkipPlan plan = IntroSkipPlan.from(raw, 2_700_000);
+
+        assertEquals(1, plan.getOpenings().size());
+        assertEquals("IntroDB", plan.getOpenings().get(0).getProvider());
     }
 
     @Test
