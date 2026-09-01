@@ -3,11 +3,11 @@
 ## Recovery anchor
 
 - 目标：将 `fish2018/webhtv:main@ec478b0b697422a7785171c7b51a35b7a526564e` 的有效增量合并到当前 `dev2`，保留 WebHTV 的本地播放器、评估和文档资产。
-- 状态：本地实施与验证完成，待 `task_guard.sh finish` 原子提交并创建 recovery tag。
+- 状态：已完成；两父合并提交 `d0809f804f812b818bcb22f36cae8634022db673`，recovery tag `recovery/C4/20260901032617-d0809f804f81`。
 - 基线：`dev2@0452b2256b263ae7d7ec528cee7d5de5efabdb59`；共同祖先 `4489ca9ecc91c2c30fd23610cb0342aa1224717b`；回滚锚点为该基线及 `recovery/merge-beta-20260831/20260831120515-0452b2256b26`。
 - 任务 guard：`C4`，范围 `.github`、`.gitignore`、`app`、`docs`；初始工作树干净。
 - 接受条件：合并树无未解决冲突或冲突标记；本地评估文档不被删除；受影响的 Java/Kotlin 代码可编译；上游已有的聚焦单测可通过；原子提交和本地 annotated recovery tag 已创建。
-- 下一动作：执行 `task_guard.sh finish`，创建两父合并提交和本地 annotated recovery tag。
+- 下一动作：在具备对应设备和网络环境时，补做真实 OCI 下载与局域网 APK URL 推送验收；该实机验证不阻塞已完成的 C4 本地集成。
 
 ## Authority and scope
 
@@ -56,6 +56,7 @@
 - 2026-08-31 Asia/Shanghai: completed the no-commit merge, retained all tracked local task documentation, combined the update/OCI and MPV subtitle paths, and resolved all Git conflicts. The staged tree contains the upstream application increment; resource additions and the backup preference-prefix fix are pending the focused build.
 - 2026-09-01 Asia/Shanghai: focused `:app:testMobileArm64_v8aDebugUnitTest` completed successfully with Java compilation and 251 tests/0 failures covering update/OCI, APK URL push, MPV policy, and backup filtering. The first two attempts exposed and fixed merge-only resource/model/layout gaps; the final run passed. `scripts/verify_mpv_native_assets.sh --require-elf` also passed for both ARM ABIs, including ELF SONAME/DT_NEEDED and embedded contract checks; only the repository's existing 32-bit native-library warning was emitted by Gradle.
 - 2026-09-01 Asia/Shanghai: independent review found two release-pipeline issues: requested OCI publication could fail open, and `oras-project/setup-oras@v1` was mutable. The workflow now fails closed when OCI setup, configuration, or publication fails and pins setup-oras to official commit `22ce207df3b08e061f537244349aac6ae1d214f6`. A pre-fix assertion failed on all three conditions; the post-fix pass verified shell syntax, missing-configuration failure, the immutable Action pin, workflow structure, and staged/unstaged diff checks.
+- 2026-09-01 Asia/Shanghai: `task_guard.sh finish` created two-parent merge commit `d0809f804f812b818bcb22f36cae8634022db673` and annotated local tag `recovery/C4/20260901032617-d0809f804f81`; no remote push was performed.
 
 ## Checkpoint 1: merged tree before focused verification
 
