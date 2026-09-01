@@ -719,7 +719,7 @@ public class VideoActivityLayoutTest {
         String mobileText = methodBody(mobile, "private void setText(Vod item)", "private boolean shouldUseTmdbTabletWideLayout()");
         assertTrue("mobile detail content must be captured before TMDB reveal can return early",
                 mobileText.indexOf("setDetailLyrics(item.getContent());") >= 0
-                        && mobileText.indexOf("setDetailLyrics(item.getContent());") < mobileText.indexOf("if (shouldWaitForTmdbDetailReveal())"));
+                        && mobileText.indexOf("setDetailLyrics(item.getContent());") < mobileText.indexOf("if (isTmdbDetailEnrichmentPending())"));
         assertTrue("mobile detail binding must refresh immersive audio labels", mobileText.contains("updateAudioStageText();"));
     }
 
@@ -2060,20 +2060,57 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
-    public void leanbackOriginalEnhancedKeepsLoadingUntilFinalDetailReveal() throws Exception {
+    public void leanbackOriginalEnhancedRevealsShellInsteadOfStackingASecondLoadingLayer() throws Exception {
         Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int method = source.indexOf("private void checkCast()");
         int end = source.indexOf("private void checkId()", method);
         String body = method >= 0 && end > method ? source.substring(method, end) : "";
-        int enhancedLoading = body.indexOf("shouldLoadTmdbDetail() && Setting.isOriginalEnhancedDetailPage()");
-        int initialPreview = body.indexOf("hasInitialPreview()");
+        String overlay = methodBody(source, "private boolean shouldShowTmdbLoadingOverlay()", "private boolean shouldRevealShellWhileLoading()");
+        String shell = methodBody(source, "private boolean shouldRevealShellWhileLoading()", "private void setOriginalEnhancedActionVisibility(");
+        String reveal = methodBody(source, "private void revealShellWhileTmdbLoads()", "private void finishTmdbDetail()");
 
         assertTrue(sourcePath + " is missing checkCast", method >= 0);
-        assertTrue("original enhanced mode must stay on loading instead of showing and then replacing an initial preview",
-                enhancedLoading >= 0
-                        && body.indexOf("mBinding.progressLayout.showProgress();", enhancedLoading) > enhancedLoading
-                        && initialPreview > enhancedLoading);
+        assertFalse("original enhanced entry must not blank the whole page before the player window loading layer",
+                body.contains("shouldLoadTmdbDetail() && Setting.isOriginalEnhancedDetailPage()"));
+        assertTrue("original enhanced entry must reveal the initial preview shell", body.contains("hasInitialPreview()) showInitialPreview();"));
+        assertTrue("the full-screen TMDB loading overlay must be suppressed while the shell is revealed",
+                overlay.contains("!shouldRevealShellWhileLoading()"));
+        assertTrue("shell reveal must be scoped to the original enhanced detail page",
+                shell.contains("Setting.isOriginalEnhancedDetailPage()"));
+        assertTrue("shell reveal must show content instead of leaving the page on progress",
+                reveal.contains("mBinding.progressLayout.showContent();"));
+        assertTrue("shell reveal must pre-suppress the source text that TMDB later overwrites",
+                reveal.contains("suppressTmdbNativeTextFields();"));
+    }
+
+    @Test
+    public void leanbackShellRevealDoesNotStealFocusOnTheLaterTmdbReveal() throws Exception {
+        Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        String body = methodBody(source, "private void revealTmdbDetail()", "private void applyTmdbDetailFields()");
+
+        assertTrue(sourcePath + " is missing revealTmdbDetail", !body.isEmpty());
+        assertTrue("the later TMDB reveal must know whether loading actually hid the content",
+                body.contains("boolean hiddenByLoading = !mBinding.progressLayout.isContent();"));
+        assertTrue("focus must only be pulled back to the player when loading had hidden the content",
+                body.contains("if (hiddenByLoading) mBinding.video.post(() -> mBinding.video.requestFocus());"));
+    }
+
+    @Test
+    public void mobileOriginalEnhancedRevealsShellWithoutASecondDetailSpinner() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        String waitReveal = methodBody(source, "private boolean shouldWaitForTmdbDetailReveal()", "private boolean shouldRevealShellWhileLoading()");
+        String shell = methodBody(source, "private boolean shouldRevealShellWhileLoading()", "private void showInitialPreview()");
+        String text = methodBody(source, "private void setText(Vod item)", "private boolean shouldUseTmdbTabletWideLayout()");
+
+        assertTrue("the detail area must stop waiting for TMDB before revealing in original enhanced mode",
+                waitReveal.contains("isTmdbDetailEnrichmentPending() && !shouldRevealShellWhileLoading()"));
+        assertTrue("shell reveal must be scoped to the original enhanced detail page",
+                shell.contains("Setting.isOriginalEnhancedDetailPage()"));
+        assertTrue("source text must still wait for TMDB enrichment so the revealed shell does not swap text",
+                text.contains("if (isTmdbDetailEnrichmentPending()) {"));
     }
 
     @Test
