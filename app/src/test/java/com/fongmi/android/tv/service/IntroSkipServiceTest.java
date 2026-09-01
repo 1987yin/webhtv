@@ -38,9 +38,10 @@ public class IntroSkipServiceTest {
         assertEquals(531_000, plan.getOpenings().get(1).getEndMs());
         assertEquals(1, plan.getEndings().size());
         assertEquals(3_631_500, plan.getEndings().get(0).getStartMs());
-        // 结束点距本集结尾只有 500ms，等于放到文件结束：贴到 duration 并标记 openEnded
-        assertEquals(3_700_000, plan.getEndings().get(0).getEndMs());
-        assertTrue(plan.getEndings().get(0).isOpenEnded());
+        // IntroDB 不给参考时长，无从判断是否延伸到文件结束，保留原始结束点并按有界处理。
+        // 「结束点贴着本集结尾、跳过等于本集看完」由播放层的 endsWithFile 判断，不在这里预判。
+        assertEquals(3_699_500, plan.getEndings().get(0).getEndMs());
+        assertFalse(plan.getEndings().get(0).isOpenEnded());
     }
 
     @Test
@@ -186,6 +187,52 @@ public class IntroSkipServiceTest {
         IntroSkipService.Query second = new IntroSkipService.Query(123, "tt1", "tv", 1, 2, 0);
 
         assertNotEquals(first.cacheKey(), second.cacheKey());
+    }
+
+    @Test
+    public void resolve_openEndedCreditsDoNotSwallowFollowingPreview() {
+        // 片尾无 end_ms（常见）会被拉到文件结尾，拿它算重叠会把紧随其后的预告整个吞掉。
+        // 用户明确勾了预告却永远看不到跳过，就是这条造成的。
+        String body = "{\"duration_ms\":1500000,"
+                + "\"credits\":[{\"start_ms\":1380000,\"end_ms\":null}],"
+                + "\"preview\":[{\"start_ms\":1440000,\"end_ms\":1500000}]}";
+
+        IntroSkipPlan plan = IntroSkipService.parseTheIntroDb(body, 1_500_000);
+
+        assertEquals(2, plan.getEndings().size());
+        assertEquals(Segment.Kind.OUTRO, plan.getEndings().get(0).getKind());
+        assertEquals(Segment.Kind.PREVIEW, plan.getEndings().get(1).getKind());
+    }
+
+    @Test
+    public void resolve_boundedSegmentWinsOverOpenEndedOne() {
+        // 同一段片尾，一家给了确切结束点、另一家没给。必须留有界的那个：
+        // 无界段没有 seek 落点，只能按「本集看完」处理，会把片尾后的彩蛋一起扔掉。
+        List<IntroSkipService.RawSegment> raw = new ArrayList<>();
+        // IntroDB 分数更高（confidence 1 + 2 次提交）但没给结束点
+        raw.addAll(IntroSkipService.parseIntroDbRaw(
+                "{\"duration_ms\":7200000,\"outro\":{\"start_ms\":6900000,\"confidence\":1,\"submission_count\":2}}"));
+        raw.addAll(IntroSkipService.parseTheIntroDbRaw(
+                "{\"duration_ms\":7200000,\"credits\":[{\"start_ms\":6900000,\"end_ms\":7080000}]}"));
+
+        IntroSkipPlan plan = IntroSkipPlan.from(raw, 7_200_000);
+
+        assertEquals(1, plan.getEndings().size());
+        assertEquals("TheIntroDB", plan.getEndings().get(0).getProvider());
+        assertFalse(plan.getEndings().get(0).isOpenEnded());
+        assertEquals(7_080_000, plan.getEndings().get(0).getEndMs());
+    }
+
+    @Test
+    public void resolve_withoutReferenceDurationCreditsStayBounded() {
+        // IntroDB 从不给参考时长。此时不能拿本集时长去比 end——那是两条时间轴，
+        // 会把「片尾后还有内容」误判成「一直放到结尾」，跳过变成切集。
+        String body = "{\"outro\":{\"start_ms\":6900000,\"end_ms\":7080000,\"confidence\":1,\"submission_count\":2}}";
+
+        IntroSkipPlan plan = IntroSkipService.parseIntroDb(body, 6_960_000);
+
+        assertEquals(1, plan.getEndings().size());
+        assertFalse(plan.getEndings().get(0).isOpenEnded());
     }
 
     @Test

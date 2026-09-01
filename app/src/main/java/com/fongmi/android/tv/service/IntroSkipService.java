@@ -37,6 +37,10 @@ public class IntroSkipService {
     private static final long TIME_BASE_TOLERANCE_MS = 2000;
     /** 片尾结束点落在参考结尾的这个范围内，视为「一直放到文件结束」。 */
     private static final long OPEN_END_TOLERANCE_MS = 5000;
+    /** 参考时长与本集时长的最大容许差。超过即认为不是同一版本，放弃折算。 */
+    private static final long MAX_TIME_BASE_DRIFT_MS = TimeUnit.MINUTES.toMillis(5);
+    /** 起点差在此范围内视为两家在说同一段。 */
+    private static final long SAME_START_TOLERANCE_MS = 3000;
     /**
      * 下集预告的字段名。两家文档都取不到（域名被网络策略拦），这里按常见拼法都试一遍；
      * 命中不了只是没有预告段，不影响其余三类。实机日志确认字段名后可收敛成一个。
@@ -78,13 +82,28 @@ public class IntroSkipService {
             return cached;
         }
         SpiderDebug.log("intro-skip", "query start tmdbId=%d imdbId=%s mediaType=%s season=%d episode=%d", query.tmdbId, query.imdbId, query.mediaType, query.season, query.episode);
-        List<RawSegment> raw = loadRemote(query);
-        CACHE.put(key, raw);
-        SpiderDebug.log("intro-skip", "query done key=%s segments=%d", key, raw.size());
-        return raw;
+        Result result = loadRemote(query);
+        // 只缓存「问到了」的结果。超时/报错时缓存空表等于把这一集永久标记成没有数据：
+        // 键里没有时长、缓存也没有 TTL，之后每次都命中这条空记录，连重试的机会都没有；
+        // 预载还会提前把这种毒化结果种到用户即将播的那几集上。
+        if (result.answered) CACHE.put(key, result.segments);
+        SpiderDebug.log("intro-skip", "query done key=%s segments=%d answered=%s", key, result.segments.size(), result.answered);
+        return result.segments;
     }
 
-    private List<RawSegment> loadRemote(Query query) {
+    /** 一次远端查询的结果。answered 为假表示两家都没给出有效答复，不该写进缓存。 */
+    private static final class Result {
+
+        private final List<RawSegment> segments;
+        private final boolean answered;
+
+        private Result(List<RawSegment> segments, boolean answered) {
+            this.segments = segments;
+            this.answered = answered;
+        }
+    }
+
+    private Result loadRemote(Query query) {
         List<Future<List<RawSegment>>> futures = new ArrayList<>();
         ExecutorCompletionService<List<RawSegment>> completion = new ExecutorCompletionService<>(Task.largeExecutor());
         if (!isEmpty(query.imdbId) && query.season > 0 && query.episode > 0) {
@@ -93,21 +112,27 @@ public class IntroSkipService {
         if (query.tmdbId > 0) {
             futures.add(completion.submit(() -> fetchTheIntroDb(query)));
         }
-        if (futures.isEmpty()) return Collections.emptyList();
+        // 没有可用的查询条件不是失败，是确定的「查不了」，可以缓存以免反复进来
+        if (futures.isEmpty()) return new Result(Collections.emptyList(), true);
 
         long deadline = System.currentTimeMillis() + TIMEOUT_MS;
         List<RawSegment> segments = new ArrayList<>();
+        boolean answered = false;
         for (int i = 0; i < futures.size(); i++) {
             long waitMs = Math.max(1, deadline - System.currentTimeMillis());
             try {
                 Future<List<RawSegment>> future = completion.poll(waitMs, TimeUnit.MILLISECONDS);
-                if (future != null) segments.addAll(future.get());
+                if (future == null) continue; // 超时，剩下的也别等了
+                List<RawSegment> part = future.get();
+                if (part == null) continue; // 该家失败
+                answered = true;
+                segments.addAll(part);
             } catch (Throwable e) {
                 SpiderDebug.log("intro-skip", "provider failed error=%s", e.getMessage());
             }
         }
         for (Future<List<RawSegment>> future : futures) if (!future.isDone()) future.cancel(true);
-        return segments;
+        return new Result(segments, answered);
     }
 
     private List<RawSegment> fetchIntroDb(Query query) {
@@ -134,6 +159,7 @@ public class IntroSkipService {
         return fetch(builder.build(), PROVIDER_THE_INTRO_DB);
     }
 
+    /** @return null 表示这家没答上来（超时/报错/非 2xx），调用方据此决定要不要缓存。 */
     private List<RawSegment> fetch(HttpUrl url, String provider) {
         long start = System.currentTimeMillis();
         SpiderDebug.log("intro-skip", "%s request url=%s", provider, url.toString());
@@ -141,7 +167,8 @@ public class IntroSkipService {
         try (Response response = OkHttp.client(TIMEOUT_MS).newCall(request).execute()) {
             if (response.body() == null || !response.isSuccessful()) {
                 SpiderDebug.log("intro-skip", "%s http=%d empty=%s url=%s", provider, response.code(), response.body() == null, url.toString());
-                return Collections.emptyList();
+                // 404 是明确的「这一集没有数据」，可以缓存；其余状态码都可能是暂时的
+                return response.code() == 404 ? Collections.emptyList() : null;
             }
             String body = response.body().string();
             List<RawSegment> raw = PROVIDER_INTRO_DB.equals(provider) ? parseIntroDbRaw(body) : parseTheIntroDbRaw(body);
@@ -149,7 +176,7 @@ public class IntroSkipService {
             return raw;
         } catch (Throwable e) {
             SpiderDebug.log("intro-skip", "%s failed error=%s cost=%dms url=%s", provider, e.getMessage(), System.currentTimeMillis() - start, url.toString());
-            return Collections.emptyList();
+            return null;
         }
     }
 
@@ -267,9 +294,11 @@ public class IntroSkipService {
         return value == null ? fallback : value;
     }
 
+    /** 夹取而非 intValue()：外部数据超出 int 范围时截断会绕回小值甚至 0，静默改变去重排序。 */
     private static int integer(JsonObject object, String key, int fallback) {
         Long value = longValue(object, key);
-        return value == null ? fallback : value.intValue();
+        if (value == null) return fallback;
+        return (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, value));
     }
 
     private static boolean isEmpty(String value) {
@@ -411,7 +440,7 @@ public class IntroSkipService {
             for (int i = 0; i < segments.size(); i++) {
                 Segment existing = segments.get(i);
                 if (!existing.overlaps(segment)) continue;
-                if (segment.score() > existing.score()) segments.set(i, segment);
+                if (segment.better(existing)) segments.set(i, segment);
                 return;
             }
             segments.add(segment);
@@ -475,9 +504,9 @@ public class IntroSkipService {
          */
         private static Segment createTrailing(Kind kind, String provider, long start, long end, long durationMs, long referenceDurationMs, double confidence, int submissionCount) {
             long reference = plausibleReference(referenceDurationMs, durationMs);
-            long baseline = reference > 0 ? reference : durationMs;
-            // 结束点贴着参考结尾（或压根没给）即「一直放到文件结束」，别被折算后的取整误差带偏
-            boolean openEnded = end < 0 || (baseline > 0 && baseline - end <= OPEN_END_TOLERANCE_MS);
+            // openEnded 只能拿参考时间轴上的结尾去比。没有参考时长时（IntroDB 从不给）无从判断，
+            // 一律按「有界」处理：错判成 openEnded 会让 seek 变成切集，把片尾之后的正片一起扔掉。
+            boolean openEnded = end < 0 || (reference > 0 && reference - end <= OPEN_END_TOLERANCE_MS);
             if (reference > 0 && durationMs > 0 && Math.abs(reference - durationMs) > TIME_BASE_TOLERANCE_MS) {
                 long shift = durationMs - reference;
                 start += shift;
@@ -493,15 +522,17 @@ public class IntroSkipService {
         }
 
         /**
-         * 参考时长与本集时长必须在同一量级，否则视为单位或语义猜错，宁可不折算。
+         * 参考时长与本集时长必须足够接近，否则视为对不上同一版本，放弃折算。
          *
-         * <p>折算是整段平移，基准错一个数量级就把尾部段推到时间轴之外，结果是全部被丢弃或乱跳，
-         * 而外部看不出是数据缺失还是基准算错。本集时长未知时无从校验，只能放行。
+         * <p>折算是整段平移，基准差多少片尾就挪多少。掐头去尾、贴片、删减这类真实差异通常在
+         * 几分钟量级；差到分钟数十倍（合并版、跨版本错配）时平移量本身就比片尾还长，算出来的
+         * 落点落在正片里，跳过去等于把正片当片尾扔掉。宁可不折算保留原始时间戳。
+         * 用减法而非乘法比较，避免 reference 接近 Long.MAX_VALUE 时溢出成负数骗过检查。
          */
         private static long plausibleReference(long reference, long durationMs) {
             if (reference <= 0) return 0;
             if (durationMs <= 0) return reference;
-            boolean plausible = reference * 2 >= durationMs && reference <= durationMs * 2;
+            boolean plausible = Math.abs(reference - durationMs) <= MAX_TIME_BASE_DRIFT_MS;
             if (!plausible) SpiderDebug.log("intro-skip", "reject reference=%d durationMs=%d", reference, durationMs);
             return plausible ? reference : 0;
         }
@@ -539,13 +570,27 @@ public class IntroSkipService {
             return confidence * 100.0 + submissionCount * 2.0 + (PROVIDER_INTRO_DB.equals(provider) ? 1.0 : 0.0);
         }
 
+        /**
+         * 两段被判为同一段时该保留哪一个。
+         *
+         * <p>有界优先于无界，先于分数比较：无界段没有 seek 落点，只能按「本集看完」处理，
+         * 让它挤掉另一家给出的确切结束点，就把片尾之后的彩蛋、预告连同跳过能力一起丢了。
+         */
+        private boolean better(Segment other) {
+            if (openEnded != other.openEnded) return !openEnded;
+            return score() > other.score();
+        }
+
         private boolean overlaps(Segment other) {
             if (other == null) return false;
             // 开头段之间、尾部段之间允许跨类去重：两家对同一段的标注常不一致（一家算 recap
             // 另一家算 intro），不合并会对同一段连跳两次。开头与尾部之间不并——它们物理上
-            // 相隔整集；片尾与紧随其后的预告同属尾部，靠下面的边界判断区分，不会误并。
+            // 相隔整集。片尾与紧随其后的预告都在尾部，靠起点差与重叠比例区分。
             if (isOpening() != other.isOpening()) return false;
-            if (Math.abs(startMs - other.startMs) <= 3000 && (endMs < 0 || other.endMs < 0 || Math.abs(endMs - other.endMs) <= 5000)) return true;
+            // 无界段的 end 已被拉到文件结尾，拿它算重叠会把紧随其后的段整个吞掉（片尾吞预告）。
+            // 这种情况只按起点判断：起点隔得远就是两段不同的内容。
+            if (openEnded || other.openEnded) return Math.abs(startMs - other.startMs) <= SAME_START_TOLERANCE_MS;
+            if (Math.abs(startMs - other.startMs) <= SAME_START_TOLERANCE_MS && (endMs < 0 || other.endMs < 0 || Math.abs(endMs - other.endMs) <= 5000)) return true;
             if (endMs < 0 || other.endMs < 0) return false;
             long overlap = Math.min(endMs, other.endMs) - Math.max(startMs, other.startMs);
             if (overlap <= 0) return false;

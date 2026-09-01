@@ -104,7 +104,7 @@ public class SettingAdFragment extends BaseFragment {
         mBinding.speechAdSkipSeconds.setOnClickListener(this::editSpeechAdSkipSeconds);
         mBinding.speechAdSkipMode.setOnClickListener(this::selectSpeechAdSkipMode);
         mBinding.autoSkipIntroOutro.setOnClickListener(this::setAutoSkipIntroOutro);
-        mBinding.introSkipKinds.setOnClickListener(view -> IntroSkipKinds.show(getActivity(), this::setText));
+        mBinding.introSkipKinds.setOnClickListener(view -> IntroSkipKinds.show(requireActivity(), this::setText));
     }
 
     private void setText() {

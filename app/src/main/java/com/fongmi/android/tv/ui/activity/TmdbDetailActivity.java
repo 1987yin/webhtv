@@ -8412,6 +8412,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private boolean resetInlineOpening() {
+        // 长按清空是「这里不要有值」，别紧接着又把探测值渲染上去，看起来像没清掉
+        introSkipPlayback.suppressDetected(true);
         setInlineOpening(0);
         setInlineHideCallback();
         return true;
@@ -8433,6 +8435,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private boolean resetInlineEnding() {
+        introSkipPlayback.suppressDetected(false);
         setInlineEnding(0);
         setInlineHideCallback();
         return true;
@@ -10564,6 +10567,32 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void onIntroSkipPlanLoaded() {
         updateInlineOpeningEndingText();
         applyAutoIntroSkip();
+        preloadAdjacentIntroSkipPlans();
+    }
+
+    /**
+     * 预热前后各一集。查询不需要时长（IntroDB 不收，TheIntroDB 可选），这里传 0 即可；
+     * 缓存按剧集身份存原始段，等那一集真开播时按其实际时长折算，不再走网络。
+     */
+    private void preloadAdjacentIntroSkipPlans() {
+        if (!Setting.isIntroSkipEnabled()) return;
+        TmdbItem item = matchedTmdbItem;
+        if (item == null || item.getTmdbId() <= 0 || !item.isTv()) return;
+        if (selectedFlag == null || selectedFlag.getEpisodes() == null || selectedEpisode == null) return;
+        List<Episode> episodes = selectedFlag.getEpisodes();
+        int index = episodes.indexOf(selectedEpisode);
+        if (index < 0) return;
+        String imdbId = introSkipImdbId();
+        for (int offset : new int[]{1, -1}) {
+            int next = index + offset;
+            if (next < 0 || next >= episodes.size()) continue;
+            TmdbEpisode tmdbEpisode = episodes.get(next).getTmdbEpisode();
+            if (tmdbEpisode == null) continue;
+            int season = tmdbEpisode.getSeasonNumber();
+            int number = tmdbEpisode.getNumber();
+            if (season < 0 || number <= 0) continue;
+            introSkipPlayback.preload(new IntroSkipService.Query(item.getTmdbId(), imdbId, item.getMediaType(), season, number, 0));
+        }
     }
 
     private boolean applyAutoIntroSkip() {
@@ -10590,6 +10619,16 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             return true;
         });
         introSkipPlayback.setSkipNoticeListener(IntroSkipKinds::notifySkipped);
+        introSkipPlayback.setSkipConfirmDismisser(this::dismissIntroSkipConfirm);
+    }
+
+    private void dismissIntroSkipConfirm() {
+        if (introSkipConfirmDialog == null) return;
+        try {
+            introSkipConfirmDialog.dismiss();
+        } catch (Throwable ignored) {
+        }
+        introSkipConfirmDialog = null;
     }
 
     private IntroSkipService.Query buildIntroSkipQuery() {

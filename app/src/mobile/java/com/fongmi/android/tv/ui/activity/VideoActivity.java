@@ -1418,6 +1418,16 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             return true;
         });
         mIntroSkipPlayback.setSkipNoticeListener(IntroSkipKinds::notifySkipped);
+        mIntroSkipPlayback.setSkipConfirmDismisser(this::dismissIntroSkipConfirm);
+    }
+
+    private void dismissIntroSkipConfirm() {
+        if (mIntroSkipConfirmDialog == null) return;
+        try {
+            mIntroSkipConfirmDialog.dismiss();
+        } catch (Throwable ignored) {
+        }
+        mIntroSkipConfirmDialog = null;
     }
 
     @Override
@@ -4373,6 +4383,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private boolean onEndingReset() {
         setR1Callback();
+        mIntroSkipPlayback.suppressDetected(false);
         setEnding(0);
         return true;
     }
@@ -4420,6 +4431,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private boolean onOpeningReset() {
         setR1Callback();
+        // 长按清空是「这里不要有值」，别紧接着又把探测值渲染上去，看起来像没清掉
+        mIntroSkipPlayback.suppressDetected(true);
         setOpening(0);
         return true;
     }

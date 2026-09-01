@@ -52,7 +52,10 @@ public class IntroSkipPlayback {
     private int generation;
     private boolean loading;
     private long resumeMs;
+    private boolean suppressOpening;
+    private boolean suppressEnding;
     private SkipConfirmListener skipConfirmListener;
+    private Runnable skipConfirmDismisser;
     private SkipNoticeListener skipNoticeListener;
 
     public void reset() {
@@ -63,6 +66,20 @@ public class IntroSkipPlayback {
         plan = IntroSkipPlan.empty();
         skipped.clear();
         resumeMs = 0;
+        suppressOpening = false;
+        suppressEnding = false;
+        if (skipConfirmDismisser != null) skipConfirmDismisser.run();
+    }
+
+    /**
+     * 用户手动清空了片头/片尾，控制栏那一格暂不再显示探测值。
+     *
+     * <p>长按清空是明确的「这里不要有值」，紧接着又渲染出探测时间会让人以为清空失败。
+     * 抑制只持续到本集结束（{@link #reset()} 解除）。
+     */
+    public void suppressDetected(boolean opening) {
+        if (opening) suppressOpening = true;
+        else suppressEnding = true;
     }
 
     /**
@@ -77,6 +94,16 @@ public class IntroSkipPlayback {
         this.skipConfirmListener = listener;
     }
 
+    /**
+     * 换集/换源时收掉还挂着的确认框。
+     *
+     * <p>不收的话它会一直停在屏幕上：新一集因为「已有框在显示」而永远弹不出提示，
+     * 而用户此时点确定，动作是按上一集的段落算的。
+     */
+    public void setSkipConfirmDismisser(Runnable dismisser) {
+        this.skipConfirmDismisser = dismisser;
+    }
+
     public void setSkipNoticeListener(SkipNoticeListener listener) {
         this.skipNoticeListener = listener;
     }
@@ -88,6 +115,7 @@ public class IntroSkipPlayback {
      * 一段，与用户接下来真正会看到的跳过动作一致；不把多段合成一个数，那会谎报中间的正片。
      */
     public long getDetectedOpeningMs() {
+        if (suppressOpening) return -1;
         for (Segment segment : plan.getOpenings()) {
             // 续播已越过的段不会再触发，显示它等于报一个不会发生的时间
             if (segment.getEndMs() > 0 && isKindEnabled(segment) && !passedOnResume(segment, 0)) return segment.getEndMs();
@@ -101,7 +129,7 @@ public class IntroSkipPlayback {
      * <p>换算成「距结尾的剩余时长」，与手动片尾按钮同一语义，两者显示出来才可比。
      */
     public long getDetectedEndingMs(long durationMs) {
-        if (durationMs <= 0) return -1;
+        if (suppressEnding || durationMs <= 0) return -1;
         for (Segment segment : plan.getEndings()) {
             long start = segment.getStartMs();
             if (start > 0 && start < durationMs && isKindEnabled(segment) && !passedOnResume(segment, durationMs)) return durationMs - start;
@@ -162,43 +190,44 @@ public class IntroSkipPlayback {
         long position = player.getPosition();
         long duration = player.getDuration();
         if (position < 0) return false;
+        long resume = resumeMs;
+        if (resume > 0) {
+            // 续播 seek 还没落地，当前位置是上一段的残留值，这一轮什么都别判
+            if (position + TOLERANCE_MS < resume) return false;
+            // 落点已到：之后进度由用户自己掌握，再按续播位置抑制就会锁死整场
+            resumeMs = 0;
+        }
 
         for (Segment segment : plan.getAll()) {
             String id = id(segment);
             if (skipped.contains(id)) continue;
+            // 以下都是「此刻不适用」，只跳过本轮、不写 skipped。时长会从 0 变成真值、
+            // 用户会中途改设置、会往回拖进度，任何一条提前写死都会让这一段整集失效。
+            if (!isKindEnabled(segment)) continue;
             long start = segment.getStartMs();
-            // 用户关掉了这一类：标记掉，避免每个 tick 重复判定
-            if (!isKindEnabled(segment)) {
-                skipped.add(id);
-                continue;
-            }
-            if (duration > 0 && start >= duration) {
-                skipped.add(id);
-                continue;
-            }
-            if (passedOnResume(segment, duration)) {
-                skipped.add(id);
-                continue;
-            }
-            // 先判可达：还没播到的段一律跳过本轮。落点要等真正命中时再算——时长和位置都还会变，
-            // 提前算出的 -1 一旦被当作「本段无事可做」写进 skipped，这一段就永久不再触发。
+            if (duration > 0 && start >= duration) continue;
             if (position + TOLERANCE_MS < start) continue;
-            long target = skipTarget(segment, position, duration);
-            // 片头/回顾没有落点就无事可做（跳过去等于没跳），尾部段则交给「本集看完」
-            if (target <= 0 && segment.isOpening()) {
+            // 续播落点就在这个尾部段里：用户自己挑的位置，不能立刻判「本集看完」跳走。
+            // 这是一次明确决定（本集不再自动处理该段），所以写 skipped。
+            if (resume > 0 && segment.isEnding() && start <= resume) {
                 skipped.add(id);
                 continue;
             }
 
-            SpiderDebug.log("intro-skip", "hit kind=%s provider=%s from=%d start=%d end=%d openEnded=%s target=%d duration=%d mode=%d", segment.getKind(), segment.getProvider(), position, start, segment.getEndMs(), segment.isOpenEnded(), target, duration, mode);
+            long target = seekTarget(segment, position, duration);
+            boolean canEnd = target <= 0 && endsWithFile(segment, duration);
+            if (target <= 0 && !canEnd) continue;
+
+            SpiderDebug.log("intro-skip", "hit kind=%s provider=%s from=%d start=%d end=%d openEnded=%s target=%d canEnd=%s duration=%d mode=%d", segment.getKind(), segment.getProvider(), position, start, segment.getEndMs(), segment.isOpenEnded(), target, canEnd, duration, mode);
             if (mode == Setting.INTRO_SKIP_AUTO) {
                 skipped.add(id);
-                runSkip(player, segment, target, onEnding);
+                runSkip(player, segment, target, canEnd, onEnding);
                 return true;
             }
             if (mode == Setting.INTRO_SKIP_CONFIRM && skipConfirmListener != null) {
+                int current = generation;
                 // 只有确认框真的弹出来了才算已处理；被别的框挡住时留着下个 tick 再问
-                if (!skipConfirmListener.onSkipConfirm(segment, () -> runSkip(player, segment, skipTarget(segment, player.getPosition(), player.getDuration()), onEnding))) continue;
+                if (!skipConfirmListener.onSkipConfirm(segment, () -> confirmSkip(current, player, segment, onEnding))) continue;
                 skipped.add(id);
                 return true;
             }
@@ -208,29 +237,46 @@ public class IntroSkipPlayback {
     }
 
     /**
-     * 落点在用户点确认的那一刻重算：确认框可能挂很久，期间位置已经推进。沿用检测时算好的
-     * 落点会导致往回 seek，把用户已经看过的片尾又放一遍。
+     * 用户点确认时才决定怎么做。确认框可能挂很久：期间位置已推进，沿用检测时算好的落点会
+     * 往回 seek；更要紧的是可能已经切集，此时按上一集的段落动作会把用户带到别处。
      */
-    private void runSkip(PlayerManager player, Segment segment, long target, EndingAction onEnding) {
+    private void confirmSkip(int expectedGeneration, PlayerManager player, Segment segment, EndingAction onEnding) {
+        if (expectedGeneration != generation) return; // 已切集/换源，这个确认过期了
+        if (player.isReleased()) return;
+        long position = player.getPosition();
+        long duration = player.getDuration();
+        long target = seekTarget(segment, position, duration);
+        boolean canEnd = target <= 0 && endsWithFile(segment, duration);
+        if (target <= 0 && !canEnd) return; // 已经放过去了，无事可做
+        runSkip(player, segment, target, canEnd, onEnding);
+    }
+
+    private void runSkip(PlayerManager player, Segment segment, long target, boolean canEnd, EndingAction onEnding) {
         boolean seeked = target > 0;
         if (seeked) player.seekTo(target);
-        boolean advanced = !seeked && onEnding != null && onEnding.run();
+        boolean advanced = !seeked && canEnd && onEnding != null && onEnding.run();
         // 切不动（末集/电影）时既没跳也没换集，此时提示「已跳过」是假话
         if (skipNoticeListener != null && (seeked || advanced)) skipNoticeListener.onSkipped(segment, seeked);
     }
 
     /**
-     * 续播落点是否已经越过本段，越过则不再干预。
+     * 本段是否一路延伸到文件结束——只有这种情况「跳过」才等于「本集看完」。
      *
-     * <p>片头和片尾的判断刻意不对称：
-     * <ul>
-     * <li>片头/回顾看<b>结束点</b>。续播落在片头中间（例如片头 0→45s、续播到 15s）说明用户
-     *     正处在片头里，往前跳到段末正是这个功能该做的事。早先按起点判断，而接口对没给
-     *     start_ms 的片头会填 0，于是「起点 0 ≤ 任何续播位置」恒成立，只要有观看历史，
-     *     开头那段片头就永久不再触发。</li>
-     * <li>片尾/预告看<b>起点</b>。续播落点在片尾之内是用户自己挑的位置，此时立刻判定
-     *     「本集看完」跳下一集非常突兀。</li>
-     * </ul>
+     * <p>片尾之后还剩内容（彩蛋、预告）时不能按看完处理，那会把剩下的正片一起扔掉。
+     */
+    private boolean endsWithFile(Segment segment, long duration) {
+        if (!segment.isEnding()) return false;
+        if (segment.isOpenEnded()) return true;
+        long end = segment.getEndMs();
+        if (end <= 0) return true;
+        return duration > 0 && end >= duration - TOLERANCE_MS;
+    }
+
+    /**
+     * 续播落点是否已经越过本段——仅用于控制栏显示，判定不再走它。
+     *
+     * <p>片头看结束点、片尾看起点：接口对没给 start_ms 的片头会填 0，按起点判断会让
+     * 「起点 0 ≤ 任何续播位置」恒成立，只要有观看历史开头那段就再也不显示。
      */
     private boolean passedOnResume(Segment segment, long duration) {
         if (resumeMs <= 0) return false;
@@ -251,12 +297,13 @@ public class IntroSkipPlayback {
     }
 
     /**
-     * 本段的 seek 落点，无可跳之处返回 -1。
+     * 本段的 seek 落点，没有可跳之处返回 -1。
      *
-     * <p>尾部段多数「一直放到文件结束」，后面没有正片，seek 过去等于原地结束，
-     * 这时返回 -1 让调用方按「本集看完」处理（跳下一集）。
+     * <p>只回答「往前跳到哪」。是否该按「本集看完」处理由 {@link #endsWithFile} 单独判断——
+     * 早先两件事挤在一个返回值里，于是「片头已经放过去了」和「片尾一直到文件结束」都得到 -1，
+     * 确认片头时被当成看完直接切到了下一集。
      */
-    private long skipTarget(Segment segment, long position, long duration) {
+    private long seekTarget(Segment segment, long position, long duration) {
         if (segment.isOpenEnded()) return -1;
         long end = segment.getEndMs();
         if (end <= 0) return -1;
