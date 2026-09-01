@@ -2114,6 +2114,48 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void mobileEveryFullPageProgressOnEntryIsGuardedByShellReveal() throws Exception {
+        // 回归：删掉「整页转圈」这一层时只守住了 TMDB overlay 与缓存命中两条路，
+        // 漏了 getDetail 这条常走的主路 —— 它无条件 showProgress()，把刚揭开的骨架又压回
+        // INVISIBLE，于是原生增强进入播放页依旧是两层加载。这里把进入路径上每一处
+        // 整页 showProgress() 都钉住，必须由 shouldRevealShellWhileLoading() 让路。
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        String cached = methodBody(source, "private boolean setCachedTmdbDetail()", "private void checkLand()");
+        String detail = methodBody(source, "private void getDetail(boolean refresh)", "private void prefetchDirectTmdbDetail()");
+        String preview = methodBody(source, "private void showInitialPreview()", "private History createHistory(Vod item)");
+
+        assertTrue("the cache-hit path must not blank the page once the shell is revealed",
+                cached.contains("if (!shouldRevealShellWhileLoading()) mBinding.progressLayout.showProgress();"));
+        assertTrue("the network detail path must not blank the page once the shell is revealed",
+                detail.contains("if (!shouldRevealShellWhileLoading()) mBinding.progressLayout.showProgress();"));
+        assertFalse("getDetail must not call showProgress unconditionally",
+                detail.contains("\n        mBinding.progressLayout.showProgress();"));
+        assertTrue("the initial preview must actually switch ProgressLayout to CONTENT, not just set artwork",
+                preview.contains("mBinding.progressLayout.showContent();"));
+    }
+
+    @Test
+    public void mobileEnhancedBackdropKeepsAnOpaqueBaseColorBehindTheShell() throws Exception {
+        // 原生增强把 root/scroll/swipeLayout/progressLayout 全设成 TRANSPARENT 以便全屏 backdrop 透出，
+        // 但 contextWall 初始是 gone、图还要等网络。root 若留透明，这段空窗期会露出
+        // Material3 DynamicColors 的窗口底色(设备实测为紫色)。root 必须垫不透明底色。
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        String base = methodBody(source, "private int enhancedBackdropBaseColor()", "private void applyOriginalEnhancedBackdropLayout()");
+        String surface = methodBody(source, "private void applyFusionThemeSurface()", "private void applyContextWallScrimTheme()");
+
+        assertTrue("the enhanced backdrop base color must be opaque in both themes",
+                base.contains("0xFFF3F6F9") && base.contains("0xFF0F141A"));
+        assertTrue("initTmdbMode must seed the enhanced root with the opaque base color",
+                source.contains("mBinding.getRoot().setBackgroundColor(enhancedBackdropBaseColor());"));
+        assertTrue("theme re-application must keep the opaque base under the backdrop surface",
+                surface.contains("shouldUseTmdbBackdropSurface() ? enhancedBackdropBaseColor()"));
+        assertFalse("the backdrop surface must no longer reset the root to a transparent window background",
+                surface.contains("mTmdbFallbackToNative || shouldUseTmdbBackdropSurface() ? Color.TRANSPARENT"));
+    }
+
+    @Test
     public void leanbackVideoPageRevealsAsSingleComposedContentLayer() throws Exception {
         Path layoutFile = findLeanbackResPath().resolve(Path.of("layout", "activity_video.xml"));
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
@@ -2898,8 +2940,10 @@ public class VideoActivityLayoutTest {
         assertTrue("unmatched TMDB fallback must keep a readable dark scrim over the app wallpaper",
                 source.indexOf("mBinding.videoContextScrim.setBackgroundResource(R.drawable.shape_video_context_scrim);", scrim) > scrim
                         && source.indexOf("mBinding.videoContextScrim.setVisibility(View.VISIBLE);", scrim) > scrim);
+        // 回退必须排在 backdrop surface 判定之前：原生增强下 TMDB 未匹配时，
+        // 若先命中 backdrop surface 就会拿到不透明底色，App 壁纸再也透不出来。
         assertTrue("fusion theme refresh must not cover unmatched fallback with a solid color",
-                source.indexOf("mBinding.getRoot().setBackgroundColor(mTmdbFallbackToNative || shouldUseTmdbBackdropSurface() ? Color.TRANSPARENT", theme) > theme);
+                source.indexOf("int base = mTmdbFallbackToNative ? Color.TRANSPARENT", theme) > theme);
     }
 
     @Test
@@ -2921,11 +2965,14 @@ public class VideoActivityLayoutTest {
         assertTrue("colorful and native styled TMDB detail must receive backdrop slideshow changes",
                 source.indexOf("shouldUseTmdbBackdropSurface()", init) > init
                         && source.indexOf("setContextWall(imageUrl, true);", init) > init);
-        assertTrue("colorful and native styled TMDB detail must use the transparent fullscreen backdrop layout",
+        assertTrue("colorful and native styled TMDB detail must use the fullscreen backdrop layout with transparent inner layers",
                 source.indexOf("applyOriginalEnhancedBackdropLayout();", init) > init
                         && source.indexOf("mBinding.scroll.setBackgroundColor(Color.TRANSPARENT);", init) > init);
-        assertTrue("colorful and native styled TMDB detail must not be covered by later theme surface refreshes",
-                source.indexOf("mTmdbFallbackToNative || shouldUseTmdbBackdropSurface() ? Color.TRANSPARENT", themeSurface) > themeSurface);
+        // root 例外：内层保持透明让 backdrop 透出，但 root 垫不透明底色。contextWall 初始 gone、
+        // 图要等网络，root 若透明会露出 Material3 DynamicColors 窗口底色(实测紫)。
+        // contextWall 是首个子视图、绘制在 root 底色之上，所以垫底不会遮住 backdrop。
+        assertTrue("the backdrop surface must keep an opaque root base so the window background never shows through",
+                source.indexOf("shouldUseTmdbBackdropSurface() ? enhancedBackdropBaseColor()", themeSurface) > themeSurface);
         assertTrue("header theme refresh must re-hide the standalone hero artwork",
                 source.indexOf("mTmdbHeaderView.refreshTheme();", move) > move
                         && source.indexOf("mTmdbHeaderView.hideNativeHeroBackdrop();", move) > move);
