@@ -81,6 +81,12 @@ public class PlayerSetting {
     private static final String KEY_OSD_MINI = "player_osd_mini";
     private static boolean legacyOsdMigrated;
     private static boolean legacyBrightnessMigrated;
+    /**
+     * 当前播放会话正在使用的内核（NONE 表示没有会话，按全局默认）。
+     * 只存在于内存：进程内所有「现在用的是哪个内核」的判断都读它，退出播放后清空。
+     * 由 PlayerManager 在建引擎/切引擎时写入，volatile 以便工作线程（取播放地址）读到最新值。
+     */
+    private static volatile int activePlayer = NONE;
 
     public static int getPlayer() {
         int player = Prefers.getInt("player", EXO);
@@ -91,6 +97,25 @@ public class PlayerSetting {
 
     public static void putPlayer(int player) {
         Prefers.put("player", sanitizePlayer(player));
+    }
+
+    /**
+     * 当前实际在跑的内核，与全局默认内核解耦。
+     * 播放器里切内核只影响本次播放（并由 History 按剧集记住），不再回写全局默认，
+     * 因此运行期凡是问「现在用的是哪个内核」的地方都要读这里，而不是 getPlayer()；
+     * getPlayer() 只代表设置页里的全局默认值，也是没有播放会话时的兜底。
+     */
+    public static int getActivePlayer() {
+        int player = activePlayer;
+        return isPlayer(player) ? player : getPlayer();
+    }
+
+    public static void putActivePlayer(int player) {
+        activePlayer = isPlayer(player) ? player : NONE;
+    }
+
+    public static void clearActivePlayer() {
+        activePlayer = NONE;
     }
 
     public static boolean isImmersiveAudioMode() {

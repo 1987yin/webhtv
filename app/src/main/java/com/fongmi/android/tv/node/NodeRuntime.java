@@ -17,6 +17,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 猫源运行时：主进程侧的协调层。
@@ -40,11 +41,13 @@ public final class NodeRuntime {
     private static final AtomicBoolean STARTING = new AtomicBoolean(false);
     private static volatile boolean running;
     private static volatile String servingUrl = "";
-    private static volatile long startGeneration;
+    private static volatile String servingSourceKey = "";
+    /** 每轮启动的世代号，用来丢弃旧子进程的延迟回报。 */
+    private static final AtomicLong START_GENERATION = new AtomicLong();
 
-    /** 主进程侧的回复 Messenger，接收子进程回报。 */
-    private static Messenger replyMessenger;
-    private static NodeRuntime.Callback pendingCallback;
+    /** 主进程侧的回复 Messenger，接收子进程回报。写在后台线程、读在主线程，必须 volatile。 */
+    private static volatile Messenger replyMessenger;
+    private static volatile NodeRuntime.Callback pendingCallback;
 
     public interface Callback {
         void onProgress(String message);
@@ -78,23 +81,25 @@ public final class NodeRuntime {
      *
      * @param url 用户填的猫源地址（{@code .../index.js.md5}）
      */
-    public static void start(Context context, String url, Callback callback) {
+    public static synchronized void start(Context context, String url, Callback callback) {
         if (TextUtils.isEmpty(url)) {
             if (callback != null) callback.onError("未填写猫源地址");
             return;
         }
-        // 同一个 bundle 已就绪：直接复用
-        if (running && same(url)) {
+        // 复用要求「同一地址」且「来源身份仍与运行中的一致」：只比地址的话，服务端原地更新
+        // bundle、或本地包被改写后都会继续跑旧 JS。本地包按内容指纹判定，内容没变就无需重启。
+        if (running && same(url) && NodeBundle.servesCurrentSource(url, servingSourceKey)) {
             if (callback != null) callback.onReady(baseUrl());
             return;
         }
-       if (!STARTING.compareAndSet(false, true)) {
-           if (callback != null) callback.onError("正在启动中");
-           return;
+        if (!STARTING.compareAndSet(false, true)) {
+            if (callback != null) callback.onError("正在启动中");
+            return;
         }
+        long generation = START_GENERATION.incrementAndGet();
         pendingCallback = callback;
-        replyMessenger = new Messenger(new ReplyHandler());
-       // 换源：先杀旧子进程（如果有），再起新的
+        replyMessenger = new Messenger(new ReplyHandler(generation));
+        // 换源：先杀旧子进程（如果有），再起新的
         if (running || !TextUtils.isEmpty(servingUrl)) {
             SpiderDebug.log("node", "switching source: stopping old node service (was=%s)", servingUrl);
             notifyProgress(context, callback, context.getString(R.string.node_stopping));
@@ -103,29 +108,36 @@ public final class NodeRuntime {
             // 不等的话 startForegroundService 会投递到还没死掉的旧进程，node::Start 第二次调用会 SIGSEGV。
             waitForProcessDeath(context);
             running = false;
+            servingSourceKey = "";
             port = 0;
             notifyProgress(context, callback, context.getString(R.string.node_switch_restart));
         }
         servingUrl = NodeBundle.bundleUrl(url);
+        servingSourceKey = "";
         try {
             NodeService.start(context, url, replyMessenger);
-            long generation = ++startGeneration;
             App.post(() -> timeout(context, generation), START_TIMEOUT_MS);
         } catch (RuntimeException e) {
             STARTING.set(false);
             running = false;
             servingUrl = "";
+            servingSourceKey = "";
             port = 0;
+            pendingCallback = null;
+            replyMessenger = null;
             SpiderDebug.log("node", "failed to start node service: %s", e.getMessage());
             if (callback != null) callback.onError("猫源服务启动失败: " + e.getMessage());
         }
     }
 
-    private static void timeout(Context context, long generation) {
-        if (generation != startGeneration || !STARTING.compareAndSet(true, false)) return;
+    private static synchronized void timeout(Context context, long generation) {
+        if (generation != START_GENERATION.get() || !STARTING.compareAndSet(true, false)) return;
+        // 先让当前 reply handler 失效：stopService 是异步的，旧 :node 仍可能在退出前发 READY。
+        // 同时保留 servingUrl，让下一次 start 先等待这个旧进程真的结束，不能把重试投给旧 Service。
+        START_GENERATION.incrementAndGet();
         NodeService.stop(context);
         running = false;
-        servingUrl = "";
+        servingSourceKey = "";
         port = 0;
         NodeNotify.done(context, "猫源启动失败：服务未在预期时间内就绪");
         Notify.show("猫源启动失败：服务未在预期时间内就绪");
@@ -138,7 +150,7 @@ public final class NodeRuntime {
     /** 是否就是当前这个 bundle。 */
     private static boolean same(String url) {
         String requested = NodeBundle.bundleUrl(url);
-       return !TextUtils.isEmpty(requested) && requested.equals(servingUrl);
+        return !TextUtils.isEmpty(requested) && requested.equals(servingUrl);
     }
 
     /** 换源等主进程侧阶段进度：同时推通知栏和 callback。 */
@@ -171,19 +183,33 @@ public final class NodeRuntime {
         return false;
     }
 
-    /** 主进程侧处理子进程通过 Messenger 回报的消息。 */
+    /**
+     * 主进程侧处理子进程通过 Messenger 回报的消息。
+     *
+     * <p>每轮 start 都带自己的 generation：旧 :node 进程可能在 waitForProcessDeath 的 3 秒后
+     * 还活着并继续回报，若不校验就会把旧端口写进新一轮的 port/servingSourceKey，
+     * 表现为「选了 B 源却连到 A 源」，同时把新一轮的 callback 吃掉。
+     */
     private static class ReplyHandler extends Handler {
-        ReplyHandler() {
+        private final long generation;
+
+        ReplyHandler(long generation) {
             super(Looper.getMainLooper());
+            this.generation = generation;
         }
 
         @Override
         public void handleMessage(Message msg) {
+            if (generation != START_GENERATION.get()) {
+                SpiderDebug.log("node", "ignoring stale node reply what=%d gen=%d current=%d", msg.what, generation, START_GENERATION.get());
+                return;
+            }
             NodeRuntime.Callback callback = pendingCallback;
             switch (msg.what) {
                 case NodeService.MSG_READY: {
                     port = msg.arg1;
                     running = true;
+                    servingSourceKey = NodeBundle.installedSourceKey(App.get());
                     STARTING.set(false);
                     pendingCallback = null;
                     replyMessenger = null;
@@ -203,6 +229,7 @@ public final class NodeRuntime {
                     String text = msg.getData() != null ? msg.getData().getString("text") : "未知错误";
                     STARTING.set(false);
                     running = false;
+                    servingSourceKey = "";
                     pendingCallback = null;
                     replyMessenger = null;
                     NodeNotify.done(App.get(), "猫源启动失败：" + text);

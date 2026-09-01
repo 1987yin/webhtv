@@ -1401,6 +1401,7 @@
     <string name="dialog_select_title">选择章节</string>
     <string name="dialog_config_hint">请输入配置…</string>
     <string name="dialog_config_choose_dir">选择文件夹（猫源本地包）</string>
+    <string name="dialog_config_choose_failed">读不到所选内容，请重新选择包目录或 zip</string>
     <string name="dialog_config_name">请输入名称…</string>
     <string name="dialog_config_url">请输入地址…</string>
 
@@ -1426,6 +1427,8 @@
     <string name="error_play_stage_network">网络读取失败，请检查网络、请求头或更换线路</string>
     <string name="error_play_stage_media">媒体解析失败或没有有效音视频轨道，请更换线路或播放器</string>
     <string name="error_play_stage_decoder">音视频解码失败，请尝试切换软硬解或播放器</string>
+    <string name="error_play_stage_audio_output">音频输出失败，请重新进入播放或切换解码方式</string>
+    <string name="error_play_stage_video_output">视频输出失败，请重新进入播放或切换解码方式</string>
     <string name="error_play_stage_output">音视频输出失败，请重新进入播放或切换解码方式</string>
     <string name="error_play_stage_drm">DRM 鉴权或受保护媒体处理失败，请更换线路或播放器</string>
     <string name="error_play_stage_unknown">播放失败，请重试或切换播放器</string>

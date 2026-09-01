@@ -624,7 +624,7 @@ public class TmdbUIAdapterTest {
         int firstPrepare = source.indexOf("prepareFastTmdbPlaybackHistory(item, flag, episode);", fastMethod);
         int prepare = source.indexOf("prepareFastTmdbPlaybackHistory(item, flag, episode);", startPending);
         int firstHistoryLookup = source.indexOf("History.findPlayback", fastMethod);
-        int player = source.indexOf("mViewModel.playerContent(getKey(), flag.getFlag(), episode.getUrl());", prepare);
+        int player = source.indexOf("mViewModel.playerContent(getKey(), flag.getFlag(), episode.getUrl(), applyHistoryPlayerKernel());", prepare);
         int fullBind = source.indexOf("applyFastTmdbPlaybackFullDetailNextFrame(item);", player);
         int canApply = source.indexOf("private boolean canApplyPlayerResult()");
         int fastCanApply = source.indexOf("mFastPlaybackFlag != null && mFastPlaybackEpisode != null && mHistory != null", canApply);
@@ -712,7 +712,7 @@ public class TmdbUIAdapterTest {
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int startPending = source.indexOf("private void startPendingFastTmdbPlayback()");
         int prepareItem = source.indexOf("prepareFastTmdbPlaybackItem(item);", startPending);
-        int player = source.indexOf("mViewModel.playerContent(getKey(), flag.getFlag(), episode.getUrl());", prepareItem);
+        int player = source.indexOf("mViewModel.playerContent(getKey(), flag.getFlag(), episode.getUrl(), applyHistoryPlayerKernel());", prepareItem);
         int postHydrate = source.indexOf("mBinding.getRoot().post(() -> hydrateFastTmdbPlaybackDetail(item));", player);
         int initialHydrate = source.indexOf("hydrateFastTmdbPlaybackDetail(item);", source.indexOf("private boolean tryStartFastTmdbPlayback(Vod item)"));
         int hydrate = source.indexOf("private void hydrateFastTmdbPlaybackDetail(Vod item)");
@@ -905,7 +905,7 @@ public class TmdbUIAdapterTest {
         int activePlayer = source.indexOf("&& !player().isEmpty()", activeOwner);
         int updateResult = source.indexOf("currentInlineResult = result;", staleGuard);
         int updateParse = source.indexOf("useParse = result.shouldUseParse();", updateResult);
-        int switchResult = source.indexOf("player().switchPlayer(playerType, result, getHistoryKey(), metadata, useParse, position, speed, repeat);", updateParse);
+        int switchResult = source.indexOf("player().switchPlayer(playerType, result, activePlaybackKey(), metadata, useParse, position, speed, repeat);", updateParse);
         int oldFallback = source.indexOf("player().switchPlayerManually(playerType);", switchMethod);
 
         assertTrue(sourcePath + " is missing refreshed inline player-kernel switching", switchMethod >= 0 && refreshCall > switchMethod && refreshMethod > refreshCall);

@@ -677,6 +677,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        resetPlaybackOwnership();
         brokenSources.clear();
         resetDetailState();
         loadContent(null);
@@ -6865,12 +6866,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         String key = getKeyText();
         String flag = selectedFlag.getFlag();
         String episodeUrl = selectedEpisode.getUrl();
+        int playerKernel = inlineHistoryPlayerKernel();
         stopInlinePlayerForReload();
         showInlineLoading();
         updateInlineDisplayPanel();
         detailTasks.submit(() -> {
             try {
-                Result result = SiteApi.playerContent(key, flag, episodeUrl);
+                Result result = SiteApi.playerContent(key, flag, episodeUrl, playerKernel);
                 runOnAliveUi(() -> {
                     if (!isInlinePlaybackRequestCurrent(generation, key, flag, episodeUrl)) return;
                     String resolvedUrl = result.getUrl() == null ? "" : result.getUrl().v();
@@ -6959,8 +6961,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (resumePosition == C.TIME_UNSET) resetInlineHistoryIfNearEnding();
         inlineStartPosition = resumePosition == C.TIME_UNSET ? getInlineResumePosition() : Math.max(0, resumePosition);
         inlineStartPositionApplied = false;
-        player().switchPlayer(PlayerSetting.getPlayer());
-        updateInlineHistoryPlayer();
+        player().preparePlayer(inlineHistoryPlayerKernel());
         setInlineSpeed(getInlinePlaybackSpeed());
         updateInlineButtons(false);
         Site site = getCurrentSite();
@@ -7926,10 +7927,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private String getInlineOsdTitle() {
         if (selectedEpisode == null) return "";
         String name = playbackHistoryName();
-        String episode = selectedEpisode.getName();
-        String title = TextUtils.isEmpty(episode) ? name : name + " " + episode;
-        String progress = tmdbEpisodeInfo().compactText(this);
-        return TextUtils.isEmpty(progress) ? title : title + " · " + progress;
+        String episodeTitle = historyEpisodeTitle(selectedEpisode);
+        return TextUtils.isEmpty(episodeTitle) || TextUtils.equals(name, episodeTitle)
+                ? name : getString(R.string.detail_title, name, episodeTitle);
     }
 
     private void onInlineLut() {
@@ -8240,7 +8240,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                         inlineHttpRefreshAttempted = false;
                         useParse = result.shouldUseParse();
                         inlinePlayerSwitchLoading = false;
-                        player().switchPlayer(playerType, result, getHistoryKey(), metadata, useParse, position, speed, repeat);
+                        player().switchPlayer(playerType, result, activePlaybackKey(), metadata, useParse, position, speed, repeat);
+                        rememberInlinePlayerKernel(playerType);
                     }
                     finishInlinePlayerSwitch();
                 });
@@ -8280,7 +8281,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void finishInlinePlayerSwitch() {
-        updateInlineHistoryPlayer();
         syncInlineHistory();
         binding.playerExternal.setText(player().getPlayerText());
         setInlineDecodeText(inlineDecodeText(true));
@@ -9401,6 +9401,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerPanel.requestFocus();
         Util.toggleFullscreen(this, true);
         setInlineFullscreenOrientation();
+        // 手动点全屏按钮不走 applyInlineShortDramaMode（那条只在 STATE_READY 触发），
+        // 这里也要按新形态重算手势，否则短剧进全屏后仍是长视频那套轴向。
+        syncInlineShortDramaGesture();
         scheduleMobileInlineSideControlMarginUpdate();
     }
 
@@ -9422,15 +9425,30 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             return;
         }
         inlineShortDramaMode = true;
+        syncInlineShortDramaGesture();
         setInlineFullscreenOrientation();
         setInlineShortDramaVideoFrame(!shouldUseShortDramaPortrait());
         setInlinePreviewScale(SHORT_DRAMA_SCALE);
         hideInlineControls();
     }
 
+    /**
+     * 手势轴向跟着呈现形态走：短剧内嵌全屏时整屏上下滑切集、长按后上下滑调亮度/音量。
+     * <p>
+     * 判据不用 {@code inlineShortDramaMode}：切集时 startInlinePlayback 会先
+     * resetInlineShortDramaMode 再等 STATE_READY 重新 apply，那段缓冲窗口里形态并没变，
+     * 手势却会退回长视频那套，连滑两集时第二次落在侧边就被当成调亮度。
+     * shouldUseInlineShortDramaMode 在尺寸未知时返回 true，正好覆盖这段窗口；
+     * 横屏短剧不走竖屏铺满形态，也就不换手势。
+     */
+    private void syncInlineShortDramaGesture() {
+        if (inlineGestureDetector != null) inlineGestureDetector.setShortDrama(inlineFullscreen && shouldUseInlineShortDramaMode());
+    }
+
     private void resetInlineShortDramaMode() {
         boolean restoreScale = inlineShortDramaMode;
         inlineShortDramaMode = false;
+        syncInlineShortDramaGesture();
         setInlineShortDramaVideoFrame(false);
         if (restoreScale && inlineStarted) setInlineScale(getInlineScale());
     }
@@ -10594,10 +10612,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void updateInlineHistoryProgress() {
-        if (history == null || service() == null || player() == null || player().isReleased() || !isOwner()) {
-            updateInlineHistoryPlayer();
-            return;
-        }
+        if (history == null || service() == null || player() == null || player().isReleased() || !isOwner()) return;
         updateInlineHistoryProgress(System.currentTimeMillis(), player().getPosition(), player().getDuration());
     }
 
@@ -10606,11 +10621,22 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         history.setCreateTime(time);
         if (position > 0) history.setPosition(position);
         if (duration > 0) history.setDuration(duration);
-        updateInlineHistoryPlayer();
     }
 
-    private void updateInlineHistoryPlayer() {
-        if (history != null && service() != null && player() != null && !player().isReleased()) history.setPlayer(player().getPlayerType());
+    /**
+     * 用户显式换内核后记住选定值。
+     * 记的是用户选的值而不是引擎状态：引擎会被播放失败后的自动回退改掉，
+     * 那不代表用户改了选择；例行的进度同步也一律不碰这个字段，
+     * 否则上一部剧遗留的会话内核会覆盖本剧记住的选择。
+     */
+    private void rememberInlinePlayerKernel(int type) {
+        if (history == null || !PlayerSetting.isPlayer(type)) return;
+        history.setPlayer(type);
+    }
+
+    /** 本剧记住的内核；没有记录时退回设置页的全局默认。 */
+    private int inlineHistoryPlayerKernel() {
+        return history == null ? PlayerSetting.getPlayer() : history.getPlayerOrDefault();
     }
 
     private void requestIntroSkipPlan() {
@@ -10660,7 +10686,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             updateInlineHistoryProgress(time, position, duration);
         } else {
             history.setCreateTime(time);
-            updateInlineHistoryPlayer();
         }
         if (canUpdateProgress) PlaybackEventCollector.get().onProgress(history, player());
         if (canUpdateProgress && history.canSave() && history.canSync()) syncInlineHistory();

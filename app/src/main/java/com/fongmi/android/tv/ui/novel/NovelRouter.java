@@ -122,11 +122,14 @@ public final class NovelRouter {
         // 阅读器已在前台 → 回传解析结果，不重复启动（切换章节场景）
         WebReaderActivity reader = currentReader;
         if (reader != null && !reader.isFinishing() && !reader.isDestroyed()) {
+            if (!reader.hasPendingHostChapterRequest() && NovelRouter.consumeStaleChapterResult()) return false;
+            // 不在这里清表：结清哪一条只有阅读器知道（它持有本次请求的令牌），
+            // 在这里猜或整表清空都会抹掉另一次仍在途的请求，返回键会重新失效。
             reader.onEpisodeResolved(kind, result.getRealUrl(), extractTitle(result.getRealUrl()));
             return true;
         }
-        // 用户刚关闭阅读器（1.5 秒内）：这是返回后残留的回调，不再拉起
-        if (readerClosedAt > 0 && System.currentTimeMillis() - readerClosedAt < 1500) return false;
+        // 刚关闭 / 属于已关阅读器的在途切章：都是返回后残留的回调，不再拉起
+        if (shouldSuppressRelaunch()) return false;
 
         if (ctx instanceof NovelReaderHost) setHost((NovelReaderHost) ctx);
 
@@ -236,12 +239,15 @@ public final class NovelRouter {
         // 阅读器已在前台 → 回传解析结果，不重复启动（切换章节场景）
         WebReaderActivity reader = currentReader;
         if (reader != null && !reader.isFinishing() && !reader.isDestroyed()) {
+            if (!reader.hasPendingHostChapterRequest() && NovelRouter.consumeStaleChapterResult()) return false;
+            // 不在这里清表：结清哪一条只有阅读器知道（它持有本次请求的令牌），
+            // 在这里猜或整表清空都会抹掉另一次仍在途的请求，返回键会重新失效。
             reader.onEpisodeResolved(kind, payload, title);
             return true;
         }
 
-        // 用户刚关闭阅读器（1.5 秒内）：这是返回后残留的 playerContent 回调，不再拉起
-        if (readerClosedAt > 0 && System.currentTimeMillis() - readerClosedAt < 1500) return false;
+        // 刚关闭 / 属于已关阅读器的在途切章：都是返回后残留的 playerContent 回调，不再拉起
+        if (shouldSuppressRelaunch()) return false;
 
         ArrayList<Episode> ch = new ArrayList<>();
         if (episodes != null) ch.addAll(episodes);
@@ -440,8 +446,102 @@ public final class NovelRouter {
         java.lang.ref.WeakReference<NovelReaderHost> ref = hostRef;
         return ref == null ? null : ref.get();
     }
-    /** 阅读器关闭时间戳，用于拦截「返回后残留 playerContent 回调又重新拉起阅读器」。 */
+    /** 阅读器关闭时刻（单调时钟），用于拦截「返回后残留 playerContent 回调又重新拉起阅读器」。 */
     public static volatile long readerClosedAt = 0L;
+
+    /**
+     * 阅读器关闭代号：每次交还前台自增一次。
+     *
+     * 单靠 readerClosedAt 的 1500ms 窗口不够 —— 用户点了下一章又立刻返回时，爬虫可能几秒后才回，
+     * 这条迟到的结果落在窗口外就会重新拉起阅读器（就是「返回不了、只能强杀」的表现）。
+     * 阅读器发起切章时记下代号，结果回来时比对：代号变过说明这期间阅读器被关过，结果作废。
+     */
+    private static volatile long readerCloseGen = 0L;
+
+    /**
+     * 交给宿主解析、尚未收尾的切章请求数。
+     *
+     * 只需要「数量」而不需要「身份」：抑制规则本身是「用户按返回那一刻若有请求在途，
+     * 它们的结果一律不许再拉起阅读器」。按身份追踪反而做不对 —— 结果送达那一刻
+     * 拿不到「这是哪一章的」，之前按令牌 / 按最早 / 整表清空的写法都会删错条目。
+     */
+    private static final java.util.concurrent.atomic.AtomicInteger inFlightChapters = new java.util.concurrent.atomic.AtomicInteger();
+
+    /** 关闭时在途的请求数：它们的结果还在路上，必须逐个拦下。 */
+    private static final java.util.concurrent.atomic.AtomicInteger staleChapterResults = new java.util.concurrent.atomic.AtomicInteger();
+
+    /** 上述待拦额度的失效时刻（单调时钟）；过期即清，避免永久吞掉合法打开。 */
+    private static volatile long staleUntil = 0L;
+
+    /**
+     * 待拦结果的有效期。
+     *
+     * 宿主解析有多条静默失败路径不回到本类（playerContent 报错走 onError、
+     * 二次解析出来是普通视频地址），那些结果永远不会到达。用时限兜底，
+     * 否则额度下不去，用户之后主动打开别的书会被一直误吞。
+     * 取 45s：HTML 侧切章看门狗 30s 就会放弃并回退章节。
+     */
+    private static final long PENDING_CHAPTER_TTL = 45_000L;
+
+    /** 交还前台时调用：作废所有在途的切章结果。 */
+    public static void markReaderClosed() {
+        // 单调时钟：wall clock 被 NTP 校正 / 用户改时间往回跳时，
+        // 「现在 - 关闭时刻」会变成大负数而恒小于窗口，静默期就永不结束，
+        // 之后所有阅读打开都被当成残留回调拦掉。
+        readerClosedAt = android.os.SystemClock.elapsedRealtime();
+        readerCloseGen++;
+        // 关闭这一刻仍在途的请求，其结果都属于「上一轮」，逐个拦下。
+        // 没有在途请求时不留额度 —— 否则会无条件吞掉关闭后的第一次合法打开。
+        int pending = inFlightChapters.getAndSet(0);
+        if (pending > 0) {
+            staleChapterResults.addAndGet(pending);
+            staleUntil = Math.max(staleUntil, readerClosedAt + PENDING_CHAPTER_TTL);
+        }
+    }
+
+    /** 阅读器把切章交给宿主解析前调用。 */
+    public static void noteChapterRequest() {
+        inFlightChapters.incrementAndGet();
+    }
+
+    /** 一次在途请求已收尾（结果送达或判失败）。 */
+    public static void endChapterRequest() {
+        inFlightChapters.updateAndGet(n -> n > 0 ? n - 1 : 0);
+    }
+
+    /**
+     * 这条结果是否属于「已经被关掉的那个阅读器」发起的切章。
+     * 是则必须丢弃：用户已经返回，重新拉起阅读器就是返回键失效的根因。
+     */
+    private static boolean isStaleChapterResult() {
+        if (staleChapterResults.get() <= 0) return false;
+        if (android.os.SystemClock.elapsedRealtime() > staleUntil) {
+            staleChapterResults.set(0);
+            return false;
+        }
+        staleChapterResults.updateAndGet(n -> n > 0 ? n - 1 : 0);
+        return true;
+    }
+
+    /** 公开一次性消费判定：true 表示这是已关闭阅读器的迟到结果。 */
+    public static boolean consumeStaleChapterResult() {
+        return isStaleChapterResult();
+    }
+
+
+
+    /** 关闭后的静默期：刚返回时残留的回调一律不再拉起阅读器。 */
+    private static boolean justClosed() {
+        return readerClosedAt > 0 && android.os.SystemClock.elapsedRealtime() - readerClosedAt < 1500;
+    }
+
+    /** 前台没有阅读器时，判断这条结果该不该拉起新阅读器。 */
+    private static boolean shouldSuppressRelaunch() {
+        // 两个判定都要执行，不能用 || 短路：isStaleChapterResult() 是一次性的读后清，
+        // 被短路掉标记就留了下来，等静默期过后用户主动打开另一本书时会被它误吞。
+        boolean stale = isStaleChapterResult();
+        return justClosed() || stale;
+    }
 
     /**
      * 播放入口汇聚点（PlaybackActivity.startPlayer）调用：
@@ -491,13 +591,16 @@ public final class NovelRouter {
         // 阅读器已在前台 → 回传解析结果，不重复启动（解决「切换章节回不到播放器」）
         WebReaderActivity reader = currentReader;
         if (reader != null && !reader.isFinishing() && !reader.isDestroyed()) {
+            if (!reader.hasPendingHostChapterRequest() && NovelRouter.consumeStaleChapterResult()) return false;
+            // 不在这里清表：结清哪一条只有阅读器知道（它持有本次请求的令牌），
+            // 在这里猜或整表清空都会抹掉另一次仍在途的请求，返回键会重新失效。
             reader.onEpisodeResolved(kind, payload, extractTitle(payload));
             return true;
         }
 
         // 用户刚关闭阅读器（1.5 秒内），说明这是返回后残留的 playerContent 回调，
         // 不再拉起阅读器，让播放器页面正常展示。
-        if (readerClosedAt > 0 && System.currentTimeMillis() - readerClosedAt < 1500) {
+        if (shouldSuppressRelaunch()) {
             return false;
         }
 

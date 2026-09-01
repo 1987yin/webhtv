@@ -94,7 +94,8 @@ public class ConfigDialog extends BaseAlertDialog {
         binding.choose.setEndIconOnClickListener(this::onChoose);
         // 猫源本地包是一整个文件夹（index.js + index.config.js），文件选择器选不到目录，
         // 所以单独给一个入口。选 zip 仍走上面那个文件选择。
-        binding.choose.setStartIconOnClickListener(this::onChooseDir);
+        binding.choose.setStartIconVisible(type == 0);
+        if (type == 0) binding.choose.setStartIconOnClickListener(this::onChooseDir);
         binding.url.addTextChangedListener(new CustomTextListener() {
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
@@ -221,8 +222,11 @@ public class ConfigDialog extends BaseAlertDialog {
     private final ActivityResultLauncher<Intent> launcher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
         if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) return;
         String name = binding.name.getText().toString().trim();
-        String path = FileChooser.getPathFromUri(result.getData().getData());
-        if (TextUtils.isEmpty(path)) return;
+        String path = FileChooser.getPersistentPathFromUri(result.getData().getData());
+        if (TextUtils.isEmpty(path)) {
+            Notify.show(R.string.dialog_config_choose_failed);
+            return;
+        }
         String url = "file:/" + path.replace(Path.rootPath(), "");
         ((ConfigListener) requireParentFragment()).setConfig(saveConfig(url, name));
         dismiss();
