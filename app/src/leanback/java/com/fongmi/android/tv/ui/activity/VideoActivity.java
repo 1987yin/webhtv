@@ -435,6 +435,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private View mDialogReturnFocus;
     private Result mPendingDetail;
     private Result mPendingPlayer;
+    private int playerContentGeneration;
+    private int playerContentRequestId;
+    private String playerContentKey = "";
+    private String playerContentFlag = "";
+    private String playerContentEpisode = "";
     private Result mAppliedPlayerResult;
     private AudioPlaybackResolver.Resolved mImmersiveAudioResolved;
     private boolean mImmersiveAudioRequested;
@@ -447,6 +452,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private boolean tmdbHistoryResumePending;
     private boolean pendingLutImport;
     private boolean playerKernelSwitchRefreshing;
+    private int playerKernelSwitchRequestId;
     private int mPendingPlayerKernel = PlayerSetting.NONE;
 
     private final ActivityResultLauncher<Intent> mLutDir = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -1284,6 +1290,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         getIntent().removeExtra(EXTRA_RESUME_HISTORY_CID);
         getIntent().removeExtra(EXTRA_RESUME_HISTORY_KEY);
         getIntent().putExtras(intent);
+        resetPlaybackOwnership();
+        if (mViewModel != null) mViewModel.cancelPlayerContent();
+        invalidatePlayerContent();
+        playerKernelSwitchRequestId++;
         setAudioStageVisible(false);
         restoreImmersiveAudioRequest();
         resetDetailForNewIntent();
@@ -1856,6 +1866,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         beginPlayHealth();
         prepareFastTmdbPlaybackHistory(item, flag, episode);
         SpiderDebug.log("video-flow", "fast tmdb playback start cost=%dms key=%s flag=%s episode=%s url=%s", System.currentTimeMillis() - start, getKey(), flag.getFlag(), episode.getName(), episode.getUrl());
+        beginPlayerContentRequest(getKey(), flag.getFlag(), episode.getUrl());
         mViewModel.playerContent(getKey(), flag.getFlag(), episode.getUrl(), applyHistoryPlayerKernel());
         mBinding.getRoot().post(() -> hydrateFastTmdbPlaybackDetail(item));
         applyFastTmdbPlaybackFullDetailNextFrame(item);
@@ -2159,6 +2170,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBackdropSignature = null;
         mBackdropSlideshowActive = false;
         if (mViewModel != null) mViewModel.stopSearch();
+        if (mViewModel != null) mViewModel.cancelPlayerContent();
+        invalidatePlayerContent();
         if (mBroken != null) mBroken.clear();
         clearDetailAdapters();
         clearTmdbDetailViews();
@@ -2166,11 +2179,12 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.name.setText(getName());
         mBinding.widget.title.setText(getName());
         mBinding.video.requestFocus();
-        updateNavigationKey();
         if (service() != null) {
             player().reset();
             player().stop();
+            player().clear();
         }
+        updateNavigationKey();
         mBinding.progressLayout.showProgress();
     }
 
@@ -2629,6 +2643,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         clearLyrics();
         clearKaraokeState();
         if (shouldUseImmersiveAudio()) setAudioStageVisible(true);
+        beginPlayerContentRequest(getKey(), playFlag, episode.getUrl());
         mViewModel.playerContent(getKey(), playFlag, episode.getUrl(), applyHistoryPlayerKernel());
         mBinding.widget.title.setSelected(true);
         updateHistory(episode);
@@ -2636,7 +2651,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void setPlayer(Result result) {
-        if (isFinishing() || isDestroyed()) return;
+        if (result == null || isFinishing() || isDestroyed()) return;
         SpiderDebug.log("video-flow", "player finish cost=%dms useParse=%s multi=%s msg=%s", System.currentTimeMillis() - playerStartTime, result.shouldUseParse(), result.getUrl().isMulti(), result.getMsg());
         if (service() == null) {
             mPendingPlayer = result;
@@ -2701,6 +2716,61 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private boolean canApplyPlayerResult() {
         if (mFlagAdapter != null && mFlagAdapter.getItemCount() > 0 && mEpisodeAdapter != null && mEpisodeAdapter.getItemCount() > 0) return true;
         return mFastPlaybackFlag != null && mFastPlaybackEpisode != null && mHistory != null;
+    }
+
+    private void beginPlayerContentRequest(String key, String flag, String episode) {
+        mPendingPlayer = null;
+        invalidatePlayerContent();
+        playerContentKey = key;
+        playerContentFlag = flag;
+        playerContentEpisode = episode;
+    }
+
+    private void invalidatePlayerContent() {
+        playerContentGeneration++;
+        playerContentRequestId++;
+        playerKernelSwitchRequestId++;
+        playerContentKey = "";
+        playerContentFlag = "";
+        playerContentEpisode = "";
+        playerKernelSwitchRefreshing = false;
+    }
+
+    private boolean isCurrentPlayerContentContext(String key, String flag, String episode) {
+        Flag currentFlag = getFlag();
+        Episode currentEpisode = getEpisode();
+        return TextUtils.equals(key, getKey())
+                && currentFlag != null
+                && TextUtils.equals(flag, currentFlag.getFlag())
+                && currentEpisode != null
+                && TextUtils.equals(episode, currentEpisode.getUrl());
+    }
+
+    private boolean isCurrentPlayerContentRequest(int requestId, int generation,
+                                                   String key, String flag, String episode) {
+        return !isFinishing() && !isDestroyed()
+                && requestId == playerContentRequestId
+                && generation == playerContentGeneration
+                && isCurrentPlayerContentContext(key, flag, episode);
+    }
+
+    private int beginPlayerContentSwitch(int requestId, String key, String flag, String episode) {
+        playerContentGeneration++;
+        playerContentRequestId = requestId;
+        playerContentKey = key;
+        playerContentFlag = flag;
+        playerContentEpisode = episode;
+        return playerContentGeneration;
+    }
+
+    private boolean canApplyPlayerContentRequest(int requestId, int generation,
+                                                  String key, String flag, String episode) {
+        return isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)
+                && service() != null
+                && player() != null
+                && !player().isReleased()
+                && !player().isEmpty()
+                && isOwner();
     }
 
     private void recordDetailHealth(Result result, long cost) {
@@ -3873,6 +3943,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     private void onRefresh() {
         saveHistory();
+        if (mViewModel != null) mViewModel.cancelPlayerContent();
+        invalidatePlayerContent();
         subtitlePlaybackSession.stop(this);
         player().stop();
         player().clear();
@@ -3976,6 +4048,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         String flag = currentFlag.getFlag();
         String episode = currentEpisode.getUrl();
         MediaMetadata metadata = buildMetadata();
+        int requestId = ++playerKernelSwitchRequestId;
+        int generation = beginPlayerContentSwitch(requestId, key, flag, episode);
         playerKernelSwitchRefreshing = true;
         mClock.setCallback(null);
         clearLyrics();
@@ -3983,9 +4057,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         Task.execute(() -> {
             try {
                 Result result = SiteApi.playerContent(key, flag, episode, nextType);
-                App.post(() -> switchPlayerKernelWithResult(nextType, result, position, speed, repeat, metadata));
+                App.post(() -> switchPlayerKernelWithResult(requestId, generation, key, flag, episode, nextType, result, position, speed, repeat, metadata));
             } catch (Throwable e) {
                 App.post(() -> {
+                    if (!isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)) return;
                     playerKernelSwitchRefreshing = false;
                     setPlayerKernel();
                     setDecode();
@@ -3996,12 +4071,16 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         return true;
     }
 
-    private void switchPlayerKernelWithResult(int type, Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
+    private void switchPlayerKernelWithResult(int requestId, int generation, String key, String flag, String episode,
+                                              int type, Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
+        if (requestId != playerKernelSwitchRequestId
+                || !isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)) return;
         playerKernelSwitchRefreshing = false;
+        if (!canApplyPlayerContentRequest(requestId, generation, key, flag, episode)) return;
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
         } else {
-            player().switchPlayer(type, result, getHistoryKey(), metadata, isUseParse(), position, speed, repeat);
+            player().switchPlayer(type, result, activePlaybackKey(), metadata, isUseParse(), position, speed, repeat);
             rememberPlayerKernel(type);
         }
         setPlayerKernel();
@@ -5018,7 +5097,25 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void hideSeekProgressIfReady() {
-        if (service() == null || player() == null || player().getPlaybackState() != Player.STATE_READY) return;
+        if (service() == null || player() == null || player().isReleased() || player().isEmpty() || !isOwner() || player().getPlaybackState() != Player.STATE_READY) return;
+        showPlaybackContent();
+    }
+
+    /**
+     * 加载圈的兜底收口。
+     *
+     * <p>圈只在 {@code STATE_READY} 分支被收（onStateChanged），而那条回调受 isOwner() 把关。
+     * 归属判定一旦因任何原因失配，圈就永久留在屏上——画面在动、圈不走。这里不依赖归属，
+     * 直接读播放器状态：已在播且已 READY 就收圈。要求 {@code !isEmpty()}，避免详情尚未加载完
+     * （播放器还空着）时把详情页自己的加载态误收。
+     *
+     * <p>挂在 mR3（网速刷新，圈可见时每秒一跳）上，圈不可见时该循环本就已停，无额外开销。
+     */
+    private void hidePlaybackProgressIfStale() {
+        if (mBinding.progress.getRoot().getVisibility() != View.VISIBLE) return;
+        if (service() == null || player() == null || player().isReleased() || player().isEmpty()) return;
+        if (!isOwner()) return;
+        if (player().getPlaybackState() != Player.STATE_READY) return;
         showPlaybackContent();
     }
 
@@ -8844,6 +8941,7 @@ public void onLutSelected(LutPreset preset) {
 
     private void setTraffic() {
         Traffic.setSpeed(mBinding.progress.traffic, service() == null ? null : player());
+        hidePlaybackProgressIfStale();
         App.post(mR3, 1000);
     }
 
