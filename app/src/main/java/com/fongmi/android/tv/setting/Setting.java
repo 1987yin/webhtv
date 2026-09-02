@@ -77,6 +77,12 @@ public class Setting {
     public static final int INTRO_SKIP_OFF = 0;
     public static final int INTRO_SKIP_AUTO = 1;
     public static final int INTRO_SKIP_CONFIRM = 2;
+    public static final int INTRO_SKIP_KIND_RECAP = 1;
+    public static final int INTRO_SKIP_KIND_INTRO = 1 << 1;
+    public static final int INTRO_SKIP_KIND_OUTRO = 1 << 2;
+    public static final int INTRO_SKIP_KIND_PREVIEW = 1 << 3;
+    public static final int INTRO_SKIP_KIND_ALL = INTRO_SKIP_KIND_RECAP | INTRO_SKIP_KIND_INTRO | INTRO_SKIP_KIND_OUTRO | INTRO_SKIP_KIND_PREVIEW;
+    public static final int INTRO_SKIP_KIND_DEFAULT = INTRO_SKIP_KIND_RECAP | INTRO_SKIP_KIND_INTRO | INTRO_SKIP_KIND_OUTRO;
     public static final int DETAIL_INTERACTION_ORIGINAL = 1;
     public static final int DETAIL_THEME_CURRENT = DETAIL_STYLE_NATIVE;
     private static final Type STRING_LIST = new TypeToken<List<String>>() {}.getType();
@@ -1451,6 +1457,22 @@ public class Setting {
 
     public static void putAutoSkipIntroOutro(boolean enabled) {
         putIntroSkipMode(enabled ? INTRO_SKIP_AUTO : INTRO_SKIP_OFF);
+    }
+
+    /**
+     * 允许跳过的片段类型位掩码。默认回顾 + 片头 + 片尾，预告不默认开——预告在片尾之后，
+     * 跳掉它等于直接进下一集，属于更激进的行为，让用户自己选。
+     */
+    public static int getIntroSkipKinds() {
+        return Prefers.getInt("intro_skip_kinds", INTRO_SKIP_KIND_DEFAULT);
+    }
+
+    public static void putIntroSkipKinds(int kinds) {
+        Prefers.put("intro_skip_kinds", kinds & INTRO_SKIP_KIND_ALL);
+    }
+
+    public static boolean isIntroSkipKindEnabled(int kind) {
+        return (getIntroSkipKinds() & kind) != 0;
     }
 
     public static int getSearchUi() {

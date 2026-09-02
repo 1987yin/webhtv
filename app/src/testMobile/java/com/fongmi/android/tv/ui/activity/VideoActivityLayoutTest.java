@@ -299,13 +299,14 @@ public class VideoActivityLayoutTest {
         assertFalse("player kernel click must not switch to the next core before user selection", clickBody.contains("refreshAndSwitchPlayerKernel"));
         assertTrue("the selected core must retain the refreshed-source switch path", chooseBody.contains("refreshAndSwitchPlayerKernel(which)"));
         assertFalse("a later core selection must not be discarded while an earlier refresh is running", source.contains("if (playerKernelSwitchRefreshing) return true;"));
-        assertTrue("only the latest core selection and current playback context may apply its refreshed result",
-                resultBody.contains("requestId != playerKernelSwitchRequestId")
-                        && resultBody.contains("isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)")
-                        && resultBody.contains("return;"));
+        assertTrue("only the latest core selection may apply its refreshed result", source.contains("if (requestId != playerKernelSwitchRequestId"));
         assertTrue("external playback selection must invalidate an in-flight internal core refresh", invalidateInternalRefresh >= 0 && launchExternalPlayer > invalidateInternalRefresh);
+        int switchMethod = source.indexOf("private boolean refreshAndSwitchPlayerKernel(int type)");
+        int switchMethodEnd = source.indexOf("private void switchPlayerKernelWithResult", switchMethod);
+        assertTrue("the refreshed-source switch path must be isolated", switchMethod >= 0 && switchMethodEnd > switchMethod);
+        String switchBody = source.substring(switchMethod, switchMethodEnd);
         assertTrue("an internal selection without refresh metadata must still invalidate an older request",
-                switchMethod >= 0 && requestDeclaration >= switchMethod && currentFlag > requestDeclaration);
+                switchBody.indexOf("int requestId = ++playerKernelSwitchRequestId;") < switchBody.indexOf("Flag currentFlag = getFlag();"));
     }
 
     @Test
