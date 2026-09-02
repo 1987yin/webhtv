@@ -1549,18 +1549,35 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void updateEpisodeViewportHeight() {
+        updateEpisodeTouchHandling();
         if (mBinding.episode.getVisibility() != View.VISIBLE) return;
         int limit = ResUtil.isPad() || ResUtil.isLand(this) ? ResUtil.dp2px(328) : ResUtil.dp2px(280);
         // The episode list lives inside a scroll container, so capping it by the
         // current on-screen remainder can collapse the viewport to a single row
         // when the section is laid out below the fold. Keep a stable cap here
         // and let the parent page handle the rest of the scrolling.
-        int height = Setting.isOriginalEnhancedDetailPage() ? 0 : limit;
-        if (!Setting.isOriginalEnhancedDetailPage() && isTmdbEpisodeCardMode()) height = Math.max(height, getEpisodeCardMinHeight());
+        int height = usesOuterEpisodePageScroll() ? 0 : limit;
+        if (!usesOuterEpisodePageScroll() && isTmdbEpisodeCardMode()) height = Math.max(height, getEpisodeCardMinHeight());
         if (height == mEpisodeMaxHeight) return;
         mEpisodeMaxHeight = height;
         mBinding.episode.setMaxHeight(height);
         mBinding.episode.requestLayout();
+    }
+
+    private void updateEpisodeTouchHandling() {
+        mBinding.episode.setOnTouchListener((view, event) -> {
+            if (!usesOuterEpisodePageScroll()) return false;
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+                if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(false);
+            }
+            return false;
+        });
+    }
+
+    private boolean usesOuterEpisodePageScroll() {
+        return Setting.isOriginalEnhancedDetailPage()
+                || mTmdbControlsMoved && shouldUseTmdbBackdropSurface();
     }
 
     private boolean isTmdbEpisodeCardMode() {
@@ -8256,7 +8273,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         }
         moveFusionPlayerActionsToTmdb(playbackControls);
         mTmdbControlsMoved = true;
-        updateOriginalEnhancedScrollContentHeight();
+        updateTmdbPlaybackScrollContentHeight();
+        mBinding.episode.post(this::updateEpisodeViewportHeight);
         updateEpisodeGroupVisibility();
         mTmdbHeaderView.refreshTheme();
         if (shouldUseTmdbBackdropSurface()) mTmdbHeaderView.hideNativeHeroBackdrop();
@@ -8272,15 +8290,16 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             item.parent.addView(item.view, Math.min(item.index, item.parent.getChildCount()), item.layoutParams);
         }
         mTmdbControlsMoved = false;
-        updateOriginalEnhancedScrollContentHeight();
+        updateTmdbPlaybackScrollContentHeight();
+        mBinding.episode.post(this::updateEpisodeViewportHeight);
         updateEpisodeGroupVisibility();
     }
 
-    private void updateOriginalEnhancedScrollContentHeight() {
+    private void updateTmdbPlaybackScrollContentHeight() {
         if (mBinding == null || mBinding.scroll.getChildCount() == 0) return;
         View child = mBinding.scroll.getChildAt(0);
         if (!(child instanceof ViewGroup content)) return;
-        int height = Setting.isOriginalEnhancedDetailPage() && mTmdbControlsMoved
+        int height = mTmdbControlsMoved && usesOuterEpisodePageScroll()
                 ? ViewGroup.LayoutParams.WRAP_CONTENT : ViewGroup.LayoutParams.MATCH_PARENT;
         ViewGroup.LayoutParams params = content.getLayoutParams();
         if (params == null || params.height == height) return;
