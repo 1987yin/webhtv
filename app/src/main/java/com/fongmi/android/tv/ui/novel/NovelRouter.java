@@ -6,11 +6,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 
 import com.fongmi.android.tv.api.SiteApi;
+import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.ComicSourceConfig;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Flag;
+import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.bean.NovelSourceConfig;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Vod;
@@ -23,6 +26,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 集数点击 / 播放入口路由器：决定是「小说/漫画阅读」还是「普通播放」。
@@ -38,6 +44,7 @@ public final class NovelRouter {
 
     private static final ExecutorService executor = Executors.newSingleThreadExecutor();
     private static final Handler main = new Handler(Looper.getMainLooper());
+    private static final AtomicInteger HISTORY_REQUESTS = new AtomicInteger();
 
     public interface Fallback { void run(); }
 
@@ -279,6 +286,198 @@ public final class NovelRouter {
         String pure = pureSiteKey(key);
         if (pure.isEmpty()) return false;
         return ComicSourceConfig.isEnabledByKey(pure) || NovelSourceConfig.isEnabledByKey(pure);
+    }
+
+    /** Opens a readable history item directly, falling back when the source is not readable. */
+    public static boolean openHistory(Activity activity, History history, int targetCid, Fallback fallback) {
+        return openHistory(activity, history, null, null, null, targetCid, fallback);
+    }
+
+    /** Opens a resolved cross-source history item directly in the reader. */
+    public static boolean openHistory(Activity activity, History history, Vod target,
+                                      Flag targetFlag, Episode targetEpisode, int targetCid,
+                                      Fallback fallback) {
+        if (activity == null || history == null) return false;
+        String siteKey = pureSiteKey(target == null ? history.getSiteKey() : target.getSiteKey());
+        String vodId = target == null ? history.getVodId() : target.getId();
+        if (TextUtils.isEmpty(vodId) || targetCid != VodConfig.getCid()) return false;
+        if (!isReadableHistoryCandidate(isReaderSite(siteKey), history, targetEpisode)) return false;
+
+        ProgressDialog dialog = new ProgressDialog(activity);
+        dialog.setMessage("正在打开阅读器...");
+        dialog.setCancelable(true);
+        dialog.setCanceledOnTouchOutside(true);
+        dialog.show();
+
+        int request = HISTORY_REQUESTS.incrementAndGet();
+        AtomicBoolean canceled = new AtomicBoolean(false);
+        Future<ReaderData> future = executor.submit(() -> {
+            ReaderData data = resolveHistory(history, target, targetFlag, targetEpisode, targetCid);
+            main.post(() -> {
+                try {
+                    dialog.dismiss();
+                } catch (Throwable ignore) {
+                }
+                if (canceled.get() || request != HISTORY_REQUESTS.get()
+                        || targetCid != VodConfig.getCid() || isDead(activity)) return;
+                if (data != null) openReaderData(activity, data);
+                else if (fallback != null) fallback.run();
+            });
+            return data;
+        });
+        dialog.setOnCancelListener(ignored -> {
+            canceled.set(true);
+            future.cancel(true);
+        });
+        return true;
+    }
+
+    static boolean isReadableHistoryCandidate(boolean readerSite, History history, Episode targetEpisode) {
+        if (history == null) return false;
+        return isReaderUrl(history.getEpisodeUrl())
+                || isReaderUrl(targetEpisode == null ? null : targetEpisode.getUrl())
+                || readerSite
+                || ReaderHistory.isReaderRecord(history);
+    }
+
+    private static ReaderData resolveHistory(History history, Vod target,
+                                             Flag targetFlag, Episode targetEpisode, int targetCid) {
+        try {
+            String siteKey = pureSiteKey(target == null ? history.getSiteKey() : target.getSiteKey());
+            String vodId = target == null ? history.getVodId() : target.getId();
+            Vod vod = target;
+            if (vod == null || vod.getFlags().isEmpty()) {
+                Result detail = SiteApi.detailContent(siteKey, vodId);
+                vod = detail == null ? null : detail.getVod();
+                if (vod == null || vod.getFlags().isEmpty()) return null;
+                vod.checkName(history.getVodName());
+                vod.checkPic(history.getVodPic());
+            }
+            if (TextUtils.isEmpty(vodId)) vodId = vod.getId();
+            if (TextUtils.isEmpty(vodId) || vod.getFlags().isEmpty()) return null;
+            if (targetCid != VodConfig.getCid()) return null;
+
+            Flag flag = targetFlag;
+            Episode episode = targetEpisode;
+            if (flag == null || episode == null) {
+                flag = com.fongmi.android.tv.ui.helper.TmdbUIAdapter.selectPlaybackFlag(
+                        vod.getFlags(), history.getSourceBindingKey(),
+                        history.getEpisodeUrl(), history.getVodFlag());
+                if (flag != null) episode = findHistoryEpisode(flag, history);
+            }
+            if (flag == null || episode == null) {
+                for (Flag candidate : vod.getFlags()) {
+                    episode = findHistoryEpisode(candidate, history);
+                    if (episode != null) {
+                        flag = candidate;
+                        break;
+                    }
+                }
+            }
+            if (flag == null || episode == null) {
+                if (!canDefaultToFirstChapter(vod, history)) return null;
+                flag = vod.getFlags().get(0);
+                episode = flag.getEpisodes().get(0);
+            }
+            if (TextUtils.isEmpty(episode.getUrl())) return null;
+
+            String payload = episode.getUrl();
+            int kind = isComic(payload) ? 2 : isNovel(payload) ? 1 : 0;
+            if (kind == 0) {
+                Result result = SiteApi.playerContent(siteKey, flag.getFlag(), payload);
+                String content = firstContent(result);
+                if (TextUtils.isEmpty(content)) return null;
+                kind = readerUrlKind(result);
+                if (kind == 0) kind = kindBySiteRule(siteKey, result);
+                if (kind == 0) return null;
+                payload = content;
+            }
+
+            if (targetCid != VodConfig.getCid()) return null;
+
+            String name = TextUtils.isEmpty(vod.getName()) ? history.getVodName() : vod.getName();
+            String pic = TextUtils.isEmpty(vod.getPic()) ? history.getVodPic() : vod.getPic();
+            seedCrossSourceHistory(history, siteKey, vodId, flag.getFlag(), episode, name, pic, targetCid);
+            ArrayList<Episode> chapters = chaptersOf(flag, episode);
+            return new ReaderData(kind, payload, siteKey, flag.getFlag(), vodId, name, pic,
+                    chapters, indexOf(chapters, episode));
+        } catch (Throwable ignore) {
+            return null;
+        }
+    }
+
+    static Episode findHistoryEpisode(Flag flag, History history) {
+        if (flag == null || history == null) return null;
+        String url = history.getEpisodeUrl();
+        if (!TextUtils.isEmpty(url)) {
+            for (Episode episode : flag.getEpisodes()) {
+                if (episode != null && TextUtils.equals(url, episode.getUrl())) return episode;
+            }
+        }
+        String name = history.getVodRemarks();
+        return TextUtils.isEmpty(name) ? null : flag.find(name, true);
+    }
+
+    private static void seedCrossSourceHistory(History history, String siteKey, String vodId,
+                                               String flag, Episode episode, String name, String pic,
+                                               int targetCid) {
+        if (history == null || TextUtils.isEmpty(siteKey) || TextUtils.isEmpty(vodId)) return;
+        History target = ReaderHistory.find(targetCid, siteKey, vodId);
+        if (target != null) {
+            target.setCid(targetCid);
+            target.setVodName(name);
+            target.setVodPic(pic);
+            target.setVodFlag(flag);
+            target.setVodRemarks(episode.getName());
+            target.setEpisodeUrl(episode.getUrl());
+            target.setCreateTime(System.currentTimeMillis());
+            ReaderHistory.saveRow(target);
+            return;
+        }
+
+        History seed = new History();
+        seed.setKey(ReaderHistory.buildKey(siteKey, vodId, targetCid));
+        seed.setCid(targetCid);
+        seed.setVodName(name);
+        seed.setVodPic(pic);
+        seed.setVodFlag(flag);
+        seed.setVodRemarks(episode.getName());
+        seed.setEpisodeUrl(episode.getUrl());
+        seed.setPosition(0);
+        seed.setDuration(0);
+        seed.setTmdbId(0);
+        seed.setMediaType(ReaderHistory.MEDIA_TYPE);
+        seed.setTmdbSeasonNumber(0);
+        seed.setTmdbEpisodeNumber(0);
+        seed.setCreateTime(System.currentTimeMillis());
+        ReaderHistory.saveRow(seed);
+    }
+
+    private static boolean canDefaultToFirstChapter(Vod vod, History history) {
+        if (vod == null || vod.getFlags() == null || vod.getFlags().size() != 1) return false;
+        Flag flag = vod.getFlags().get(0);
+        if (flag == null || flag.getEpisodes() == null || flag.getEpisodes().size() != 1) return false;
+        return TextUtils.isEmpty(history.getEpisodeUrl())
+                && TextUtils.isEmpty(history.getVodRemarks());
+    }
+
+    private static void openReaderData(Activity activity, ReaderData data) {
+        Intent intent = new Intent(activity, WebReaderActivity.class);
+        intent.putExtra(WebReaderActivity.EXTRA_KIND, data.kind);
+        intent.putExtra(WebReaderActivity.EXTRA_CACHE_KEY,
+                WebReaderActivity.cacheLargeData(data.payload, data.chapters));
+        intent.putExtra(WebReaderActivity.EXTRA_SITE_KEY, data.siteKey);
+        intent.putExtra(WebReaderActivity.EXTRA_FLAG, data.flag);
+        intent.putExtra(WebReaderActivity.EXTRA_VOD_ID, data.vodId);
+        intent.putExtra(WebReaderActivity.EXTRA_VOD_NAME, data.name);
+        intent.putExtra(WebReaderActivity.EXTRA_VOD_PIC, data.pic);
+        intent.putExtra(WebReaderActivity.EXTRA_INDEX, data.index);
+        activity.startActivity(intent);
+    }
+
+    private record ReaderData(int kind, String payload, String siteKey, String flag,
+                              String vodId, String name, String pic,
+                              ArrayList<Episode> chapters, int index) {
     }
 
     /**

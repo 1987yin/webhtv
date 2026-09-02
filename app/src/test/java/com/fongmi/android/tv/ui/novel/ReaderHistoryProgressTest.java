@@ -1,9 +1,15 @@
 package com.fongmi.android.tv.ui.novel;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertNotEquals;
+
+import com.fongmi.android.tv.bean.History;
+import com.fongmi.android.tv.db.AppDatabase;
 
 import org.junit.Test;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
 
 /**
  * 阅读进度的落库编码：历史列表按 position/duration 画进度条。
@@ -12,6 +18,24 @@ import org.junit.Test;
  * 而升级前写入的存量 0 基记录读回来也不会平移。
  */
 public class ReaderHistoryProgressTest {
+
+    @Test
+    public void readerKeysAndTypeMarkIsolateRowsFromPlaybackHistory() {
+        History playback = new History();
+        playback.setKey("site" + AppDatabase.SYMBOL + "vod" + AppDatabase.SYMBOL + 7);
+        playback.setMediaType("movie");
+
+        assertFalse(ReaderHistory.isReaderRecord(playback));
+
+        String readerKey = ReaderHistory.buildKey("site", "vod", 7);
+        History reader = new History();
+        reader.setKey(readerKey);
+        reader.setMediaType(ReaderHistory.MEDIA_TYPE);
+
+        assertTrue(ReaderHistory.isReaderRecord(reader));
+        assertTrue(readerKey.endsWith(AppDatabase.SYMBOL + ReaderHistory.MEDIA_TYPE));
+        assertNotEquals(playback.getKey(), readerKey);
+    }
 
     @Test
     public void finishedChapterFillsTheBar() {

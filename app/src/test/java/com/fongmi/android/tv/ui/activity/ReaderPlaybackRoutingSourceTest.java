@@ -26,6 +26,79 @@ public class ReaderPlaybackRoutingSourceTest {
     }
 
     @Test
+    public void historyEntryUsesReaderRouteBeforeCreatingPlaybackPage() throws Exception {
+        String coordinator = read("app/src/main/java/com/fongmi/android/tv/ui/activity/HistoryResumeCoordinator.java");
+        String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
+
+        int readerRoute = coordinator.indexOf("NovelRouter.openHistory(activity, history");
+        int playbackRoute = coordinator.indexOf("VideoActivity.startFromHistory(activity, history");
+        int historyMethod = router.indexOf("public static boolean openHistory(");
+        int currentSourceGate = coordinator.indexOf("!Setting.isGlobalHistoryEnabled() || history.isCurrentSourceAvailable()");
+
+        assertTrue("history entry must try the reader route first", readerRoute >= 0);
+        assertTrue("reader history route must run before the playback fallback",
+                playbackRoute < 0 || readerRoute < playbackRoute);
+        assertTrue("cross-config history must resolve its source before trying the reader route",
+                currentSourceGate >= 0 && currentSourceGate < readerRoute);
+        assertTrue("history reader route must resolve the recorded book, not a blank playback page",
+                historyMethod >= 0
+                        && router.indexOf("history.getVodId()", historyMethod) > historyMethod
+                        && router.indexOf("history.getEpisodeUrl()", historyMethod) > historyMethod);
+    }
+
+    @Test
+    public void historyReaderRouteUsesTheCompleteResolvedPayload() throws Exception {
+        String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
+
+        int resolve = router.indexOf("private static ReaderData resolveHistory(");
+        int payload = router.indexOf("String content = firstContent(result);", resolve);
+
+        assertTrue("history reader routing must pass the complete playUrl+url payload to WebReaderActivity",
+                resolve >= 0 && payload > resolve);
+    }
+
+    @Test
+    public void historyReaderRouteBindsTargetConfigAndSupportsCancellation() throws Exception {
+        String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
+        String coordinator = read("app/src/main/java/com/fongmi/android/tv/ui/activity/HistoryResumeCoordinator.java");
+
+        int open = router.indexOf("public static boolean openHistory(Activity activity, History history, Vod target,");
+        assertTrue("history route must capture an immutable target config", open >= 0
+                && router.indexOf("int targetCid", open) > open
+                && router.indexOf("targetCid != VodConfig.getCid()", open) > open);
+        assertTrue("history route must invalidate superseded and cancelled requests",
+                router.contains("AtomicBoolean canceled = new AtomicBoolean(false);")
+                        && router.contains("request != HISTORY_REQUESTS.get()")
+                        && router.contains("future.cancel(true);"));
+        assertTrue("cross-source resume must pass its target config into the reader route",
+                coordinator.contains("resolved.episode(), targetCid,"));
+    }
+
+    @Test
+    public void readerHistoryIsNamespacedAwayFromPlaybackHistory() throws Exception {
+        String source = read("app/src/main/java/com/fongmi/android/tv/ui/novel/ReaderHistory.java");
+
+        assertTrue("reader progress must use an explicit reader key namespace",
+                source.contains("private static final String KEY_NAMESPACE = AppDatabase.SYMBOL + MEDIA_TYPE;"));
+        assertTrue("reader rows must be typed before they can be reused",
+                source.contains("static boolean isReaderRecord(@Nullable History history)"));
+        assertTrue("saving reader progress must preserve a captured config id",
+                source.contains("private static void saveSync(int cid, Record record"));
+    }
+
+    @Test
+    public void readerProgressRefreshesHistoryAfterEverySave() throws Exception {
+        String source = read("app/src/main/java/com/fongmi/android/tv/ui/novel/ReaderHistory.java");
+
+        String savedThenRefreshed = "saveRow(history);\n        App.post(RefreshEvent::history);";
+
+        assertTrue("reader history must save and refresh the updated row together",
+                source.contains(savedThenRefreshed));
+        assertTrue("reader history must refresh the history view after saving progress",
+                source.contains(savedThenRefreshed));
+    }
+
+    @Test
     public void readerDispatchKeepsHostPageInBackstack() throws Exception {
         for (String path : new String[] {
                 "app/src/mobile/java/com/fongmi/android/tv/ui/activity/VideoActivity.java",
