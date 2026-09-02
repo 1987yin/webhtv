@@ -3,13 +3,13 @@
 ## Recovery anchor
 
 - 目标：将 `origin/beta` 在 C6 之后的最新应用代码合并到 `dev2`，保留当前应用行为和可回滚边界。
-- 状态：实施中，已冻结来源，等待执行无提交合并和定向验证。
+- 状态：已完成；代码合并、定向验证、原子提交和本地恢复 tag 均已完成，未推送远端。
 - 当前基线：`dev2@1b376ee0461fdf9a2e424c73cfb46f31f8301f9b`。
 - beta 目标：`origin/beta@7db1b9d188e27877154757528d441150142b90ed`。
 - 合并基点：`1b376ee0461fdf9a2e424c73cfb46f31f8301f9b`；目标提交的第二父提交就是当前 `dev2`。
 - 保护范围：guard 启动时工作树已复核为干净；本任务不触碰 `app/src/main/java/com/fongmi/android/tv/bean/Result.java` 及其他未声明路径。
 - 回滚：合并未提交前使用 `git merge --abort`；提交后使用本任务恢复 tag 或 `git revert -m 1 <merge-commit>`。
-- 下一动作：执行 `git merge --no-commit --no-ff origin/beta`，检查树和冲突后运行定向 TMDB 测试及 Mobile/Leanback Java 编译。
+- 下一动作：如需发布，再由用户明确授权推送当前 `dev2` 和恢复 tag；本任务不再修改代码。
 
 ## Authority and scope
 
@@ -82,3 +82,14 @@
 - Rollback anchor：未提交合并可用 `git merge --abort`；收口后使用本次恢复 tag 或 `git revert -m 1 <merge-commit>`。
 - Unresolved：仅剩 guard 原子提交和恢复 tag，以及将其确切身份补入本记录。
 - Next action：运行 `task_guard.sh finish`，创建 C7 合并提交和本地 annotated recovery tag。
+
+## Checkpoint 3：2026-09-02 18:10 Asia/Shanghai
+
+- Completed：C7 合并已由 task guard 原子收口。
+- Implementation：本地合并提交为 `a8f2015363819c70b4e7ae67d419035e579b857f`；父提交为 `1b376ee0461fdf9a2e424c73cfb46f31f8301f9b` 与 `7db1b9d188e27877154757528d441150142b90ed`；恢复 tag 为 `recovery/C7-beta-sync/20260902101049-a8f201536381`。
+- Source/result：`origin/beta@7db1b9d188e27877154757528d441150142b90ed` 的有效代码路径已与 `HEAD` 一致；6 个 beta 增量文件已合入。
+- Validation：定向 `TmdbMatchCacheTest` 与 Mobile/Leanback Arm64 Java 编译返回 `exit=0`，Gradle 报告 `BUILD SUCCESSFUL in 2m 21s`；`git diff --check`、冲突检查和 task guard check 通过。仅记录既有 `CXX5202` 32 位 native library warning，未改动 native 资产。
+- Workspace：分支 `dev2`，相对 `origin/dev2` ahead 7；没有未提交改动，没有未合并路径；本轮未 push。
+- Rollback anchor：回退到 `1b376ee0461fdf9a2e424c73cfb46f31f8301f9b`，共享分支使用 `git revert -m 1 a8f2015363819c70b4e7ae67d419035e579b857f`。
+- Status：C7 已完成；真实设备回归不属于本轮授权或验收范围。
+- Next action：等待用户决定是否将当前 `dev2` 和新恢复 tag 推送到远端。
