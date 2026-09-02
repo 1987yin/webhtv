@@ -5349,7 +5349,7 @@ public void resetTrack(int type) {
         mpvAutoVulkanDisabledForItem = false;
         mpv.setVulkanRenderOverride(null);
         boolean automaticOutput = MpvPerformanceSetting.getOutputMode() == MpvPerformanceSetting.OUTPUT_AUTO;
-        if (automaticOutput) callback.onPlayerOutputPending();
+        if (shouldKeepVideoShutterClosed()) callback.onPlayerOutputPending();
         mpv.setSurfaceDirectOverride(null);
         boolean autoDirectEligible = MpvAutoOutputPolicy.canStartSurfaceDirect(
                 engine.isHard(),
@@ -9105,7 +9105,7 @@ public void resetTrack(int type) {
             setDanmakus(target.getDanmakus());
             waitingLutBeforePlay = false;
             applySubtitleStyle();
-            engine.start(target.checkUa(), position, wasPlayWhenReady);
+            startWithProxy(target, position, wasPlayWhenReady);
             if (speed != 1f) setSpeed(speed);
             setRepeatOne(repeat);
             App.post(runnable, Constant.TIMEOUT_PLAY);
