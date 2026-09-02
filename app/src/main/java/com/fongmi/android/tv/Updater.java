@@ -587,14 +587,26 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
 
     private boolean signaturesMatch(PackageInfo installed, PackageInfo archive) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            if (installed.signingInfo == null || archive.signingInfo == null) return false;
+            // Some OEM ROMs do not populate signingInfo for getPackageArchiveInfo().
+            // Keep the installed signature authoritative, but let an unreadable
+            // candidate reach the OS installer, which remains the compatibility gate.
+            if (installed.signingInfo == null) return false;
+            if (archive.signingInfo == null) return true;
             if (installed.signingInfo.hasMultipleSigners() || archive.signingInfo.hasMultipleSigners()) {
-                return fingerprints(installed.signingInfo.getApkContentsSigners()).equals(fingerprints(archive.signingInfo.getApkContentsSigners()));
+                Set<String> installedPrints = fingerprints(installed.signingInfo.getApkContentsSigners());
+                Set<String> archivePrints = fingerprints(archive.signingInfo.getApkContentsSigners());
+                if (installedPrints.isEmpty()) return false;
+                if (archivePrints.isEmpty()) return true;
+                return installedPrints.equals(archivePrints);
             }
             Set<String> current = fingerprints(installed.signingInfo.getApkContentsSigners());
             Set<String> candidateHistory = fingerprints(archive.signingInfo.getSigningCertificateHistory());
-            return !current.isEmpty() && candidateHistory.containsAll(current);
+            if (current.isEmpty()) return false;
+            if (candidateHistory.isEmpty()) return true;
+            return candidateHistory.containsAll(current);
         }
+        if (fingerprints(installed.signatures).isEmpty()) return false;
+        if (fingerprints(archive.signatures).isEmpty()) return true;
         return fingerprints(installed.signatures).equals(fingerprints(archive.signatures));
     }
 
