@@ -3,13 +3,13 @@
 ## Recovery anchor
 
 - 目标：将 `origin/beta` 最新头合并到当前 `dev2`，评审合并树及已提交未推送的实时字幕快捷切换代码，修复有效问题并循环复审至通过，提交、推送并拉取远端最新代码。
-- 状态：合并完成，评审问题已修复，最终验证通过，待提交。
-- 当前基线：`dev2@b7b2b1a6c92d4691e12c313e7111325c6f5d4113`。
+- 状态：已完成并推送；评审问题已修复，最终验证通过。
+- 当前基线：`dev2@a33ff92b8e65e11330ab17270b5f86a4c0b08183`。
 - beta 目标：`origin/beta@c975ae1ed482a4bf47f106f5931bd2392e8ecce3`。
 - 合并基线：`db4b1650f73c819b3eebd7e7534e7b9e4ec65ff4`。
 - 受保护路径：`app/src/main/java/com/fongmi/android/tv/bean/Result.java`，本任务不采用、不修改、不提交。
-- 回滚：合并未提交前使用 `git merge --abort`；提交后使用 `git revert` 回退本次合并提交。
-- 下一动作：由 task guard 原子提交合并树并创建恢复 tag；随后按授权推送并执行 `git pull --ff-only`，再补写提交/远端结果。
+- 回滚：本次合并已提交，使用 `git revert a33ff92b8e65e11330ab17270b5f86a4c0b08183` 回退；恢复 tag 保留为回滚锚点。
+- 下一动作：代码任务已闭合；有设备时补验原生增强详情页和实时字幕关闭/切换失败场景。
 
 ## Authority and scope
 
@@ -64,10 +64,10 @@
 
 ## Current status
 
-- 合并：已完成，工作树中的 beta 三处有效差异已暂存，未创建提交。
+- 合并：已完成并创建提交 `a33ff92b8e65e11330ab17270b5f86a4c0b08183`，包含 beta 有效树和字幕竞态修复。
 - 评审：已修复独立审查发现的两项 Important 和一项 Medium：模型切换失败回退代次竞态、Mobile 缓冲覆盖 shell、Leanback 无初始预览焦点恢复；未发现 Critical。
 - 验证：修复后的四个目标测试类共 171 项全部通过（failures/errors/skipped 均为 0）；Mobile 与 Leanback Arm64 Java 编译均 `BUILD SUCCESSFUL`。
-- 提交/推送/拉取：待执行。
+- 提交/推送/拉取：已完成；恢复 tag 为 `recovery/C6-beta-sync/20260902090623-a33ff92b8e65`，`dev2` 与该 tag 已推送，`git pull --ff-only` 返回 `up-to-date`。
 
 ## Checkpoint 1: 2026-09-02 13:55 Asia/Shanghai
 
@@ -124,3 +124,16 @@
 - Rollback anchor: 提交前使用 `git merge --abort`；提交后使用本次 task guard recovery tag 或 `git revert` 回退合并提交。
 - Unresolved: 真实设备播放验证仍未执行；需在 Mobile/Leanback 上补验慢速/失败 backdrop、TMDB 不匹配回退、无初始预览焦点、缓冲状态和实时字幕“切换失败后立即关闭/再次启用”。提交、恢复 tag、推送和 `git pull --ff-only` 尚未完成。
 - Next action: 执行最终 guard check 后运行 `task_guard.sh finish`，创建 C6 合并提交和恢复 tag。
+
+## Checkpoint 6: 2026-09-02 17:25 Asia/Shanghai
+
+- Completed: C6 合并、评审修复、最终验证、原子提交、恢复 tag、远端推送和 fast-forward 拉取全部完成。
+- Source identities: `origin/beta@c975ae1ed482a4bf47f106f5931bd2392e8ecce3`；local/remote `dev2@a33ff92b8e65e11330ab17270b5f86a4c0b08183`；beta effective merge base `db4b1650f73c819b3eebd7e7534e7b9e4ec65ff4`。
+- Implementation: `a33ff92b8e65e11330ab17270b5f86a4c0b08183`；task guard recovery tag `recovery/C6-beta-sync/20260902090623-a33ff92b8e65`。
+- Review: 独立只读审查发现 2 项 Important、1 项 Medium，均确认属于当前代码真实缺口并已修复；最终本地复核未发现 Critical/Important。
+- Validation: `TrackDialogTest` 10 项、`VideoActivityLayoutTest` 150 项、`RealtimeSubtitleModelCatalogTest` 5 项、`RealtimeSubtitleTranslatorTest` 6 项，合计 171 项均 `failures=0 errors=0 skipped=0`；Mobile/Leanback Arm64 Java 编译均返回 `BUILD SUCCESSFUL`；`git diff --check`、冲突标记扫描和 task guard check 通过。
+- Remote: 首次默认 HTTPS 推送遇到 `SSL_ERROR_SYSCALL`；使用 Git `HTTP/1.1` 重试后 `dev2` 和恢复 tag 均推送成功，随后 `git pull --ff-only` 返回 `up-to-date`。
+- Workspace: branch `dev2`, HEAD `a33ff92b8e65e11330ab17270b5f86a4c0b08183`；仅保留受保护的预先脏改动 `app/src/main/java/com/fongmi/android/tv/bean/Result.java`，未纳入 C6 提交。
+- Rollback anchor: 使用 `git revert a33ff92b8e65e11330ab17270b5f86a4c0b08183` 回退本次合并；恢复 tag 指向同一已验证提交。
+- Unresolved: 尚未执行真实设备播放回归；需补验 Mobile API 29/31/35 动态取色、慢速/失败 backdrop、TMDB 不匹配回退、Leanback 无初始预览焦点、播放器缓冲，以及实时字幕“切换失败后立即关闭/再次启用”。
+- Next action: 有设备时执行上述代表性播放回归；在此之前不再修改 C6 代码或构建产物。
