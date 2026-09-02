@@ -404,7 +404,7 @@ private int mAudioBackgroundRandomNonce;
     private int deferredFullscreenOrientation = Configuration.ORIENTATION_UNDEFINED;
     private int mEpisodeSpanCount;
     private int mEpisodeBottomInset;
-    private int mEpisodeMaxHeight;
+    private int mEpisodeMaxHeight = -1;
     private Runnable mR1;
     private Runnable mR2;
     private Runnable mR3;
@@ -1555,9 +1555,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         // current on-screen remainder can collapse the viewport to a single row
         // when the section is laid out below the fold. Keep a stable cap here
         // and let the parent page handle the rest of the scrolling.
-        int height = limit;
-        if (isTmdbEpisodeCardMode()) height = Math.max(height, getEpisodeCardMinHeight());
-        if (height <= 0 || height == mEpisodeMaxHeight) return;
+        int height = Setting.isOriginalEnhancedDetailPage() ? 0 : limit;
+        if (!Setting.isOriginalEnhancedDetailPage() && isTmdbEpisodeCardMode()) height = Math.max(height, getEpisodeCardMinHeight());
+        if (height == mEpisodeMaxHeight) return;
         mEpisodeMaxHeight = height;
         mBinding.episode.setMaxHeight(height);
         mBinding.episode.requestLayout();

@@ -2968,11 +2968,27 @@ public class VideoActivityLayoutTest {
 
         assertTrue(sourcePath + " is missing updateEpisodeViewportHeight", method >= 0);
         assertTrue("episode viewport must keep a stable dp cap for scrollable detail pages",
-                methodBody.contains("int height = limit;"));
+                methodBody.contains("int height = Setting.isOriginalEnhancedDetailPage() ? 0 : limit;")
+                        && methodBody.contains("!Setting.isOriginalEnhancedDetailPage() && isTmdbEpisodeCardMode()"));
         assertTrue("episode viewport must not collapse based on current remaining screen height",
                 !methodBody.contains("available ="));
         assertTrue("episode viewport must not depend on root height after the method starts",
                 !methodBody.contains("mBinding.getRoot().getHeight()"));
+    }
+
+    @Test
+    public void mobileOriginalEnhancedEpisodeViewportUsesOuterPageScrollWithoutHeightCap() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int method = source.indexOf("private void updateEpisodeViewportHeight()");
+        int nextMethod = source.indexOf("private boolean isTmdbEpisodeCardMode()", method);
+        String methodBody = nextMethod > method ? source.substring(method, nextMethod) : source.substring(method);
+
+        assertTrue(sourcePath + " is missing updateEpisodeViewportHeight", method >= 0);
+        assertTrue("original enhanced playback must remove the inner episode viewport height cap",
+                methodBody.contains("int height = Setting.isOriginalEnhancedDetailPage() ? 0 : limit;"));
+        assertTrue("the first original-enhanced layout pass must replace the XML max-height default",
+                source.contains("private int mEpisodeMaxHeight = -1;"));
     }
 
     @Test
