@@ -301,7 +301,6 @@ public class VideoActivityLayoutTest {
         assertFalse("a later core selection must not be discarded while an earlier refresh is running", source.contains("if (playerKernelSwitchRefreshing) return true;"));
         assertTrue("only the latest core selection may apply its refreshed result", source.contains("if (requestId != playerKernelSwitchRequestId"));
         assertTrue("external playback selection must invalidate an in-flight internal core refresh", invalidateInternalRefresh >= 0 && launchExternalPlayer > invalidateInternalRefresh);
-        int switchMethod = source.indexOf("private boolean refreshAndSwitchPlayerKernel(int type)");
         int switchMethodEnd = source.indexOf("private void switchPlayerKernelWithResult", switchMethod);
         assertTrue("the refreshed-source switch path must be isolated", switchMethod >= 0 && switchMethodEnd > switchMethod);
         String switchBody = source.substring(switchMethod, switchMethodEnd);
