@@ -1274,6 +1274,7 @@
     <string name="subtitle_manual_apply_failed">已找到字幕但无法应用</string>
     <string name="subtitle_manual_inactive">请先开始播放再搜索字幕</string>
     <string name="player_subtitle_realtime_model">实时识别语言</string>
+    <string name="subtitle_realtime_source_language">原声识别语言</string>
     <string name="subtitle_realtime_model_status">%1$s · %2$s</string>
     <string name="subtitle_realtime_model_select_title">选择音频原语言</string>
     <string name="subtitle_realtime_model_delete_action">删除模型</string>
@@ -1759,6 +1760,16 @@
         <item>es</item>
         <item>ja</item>
         <item>zh-en</item>
+    </string-array>
+    <string-array name="select_realtime_subtitle_language">
+        <item>普通话</item>
+        <item>粤语</item>
+        <item>英语</item>
+        <item>德语</item>
+        <item>法语</item>
+        <item>西班牙语</item>
+        <item>日语</item>
+        <item>中英混合</item>
     </string-array>
     <string-array name="select_subtitle_language">
         <item>中文优先</item>

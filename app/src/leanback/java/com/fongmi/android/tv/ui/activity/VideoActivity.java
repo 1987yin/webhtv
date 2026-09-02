@@ -2427,8 +2427,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
      * TMDB 富集在原地补齐。会被 TMDB 覆盖的站源文本先压掉，避免揭开后再跳一次文本。
      */
     private void revealShellWhileTmdbLoads() {
+        boolean hiddenByLoading = !mBinding.progressLayout.isContent();
         if (!mBinding.progressLayout.isContent()) mBinding.progressLayout.showContent();
         if (shouldUseTmdbLayout()) suppressTmdbNativeTextFields();
+        if (hiddenByLoading && !mBinding.getRoot().hasFocus()) {
+            mBinding.video.post(() -> {
+                if (!mBinding.getRoot().hasFocus()) mBinding.video.requestFocus();
+            });
+        }
         SpiderDebug.log("tmdb-tv", "detail shell revealed while tmdb loads (single loading layer)");
     }
 

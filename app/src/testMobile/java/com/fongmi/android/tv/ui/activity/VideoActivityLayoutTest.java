@@ -287,20 +287,25 @@ public class VideoActivityLayoutTest {
         String chooseBody = chooseMethod >= 0 && chooseMethodEnd > chooseMethod ? source.substring(chooseMethod, chooseMethodEnd) : "";
         int invalidateInternalRefresh = chooseBody.indexOf("playerKernelSwitchRequestId++;");
         int launchExternalPlayer = chooseBody.indexOf("PlayerHelper.choose", invalidateInternalRefresh);
+        int resultMethod = source.indexOf("private void switchPlayerKernelWithResult(");
+        int resultMethodEnd = source.indexOf("private boolean onTextLong()", resultMethod);
+        String resultBody = resultMethod >= 0 && resultMethodEnd > resultMethod ? source.substring(resultMethod, resultMethodEnd) : "";
+        int switchMethod = source.indexOf("private boolean refreshAndSwitchPlayerKernel(");
+        int requestDeclaration = source.indexOf("int requestId = ++playerKernelSwitchRequestId;", switchMethod);
+        int currentFlag = source.indexOf("Flag currentFlag = getFlag();", switchMethod);
 
         assertTrue(sourcePath + " is missing onPlayerKernel", clickMethod >= 0);
         assertTrue("player kernel click must open the shared chooser", clickBody.contains("onChoose();"));
         assertFalse("player kernel click must not switch to the next core before user selection", clickBody.contains("refreshAndSwitchPlayerKernel"));
         assertTrue("the selected core must retain the refreshed-source switch path", chooseBody.contains("refreshAndSwitchPlayerKernel(which)"));
         assertFalse("a later core selection must not be discarded while an earlier refresh is running", source.contains("if (playerKernelSwitchRefreshing) return true;"));
-        assertTrue("only the latest core selection may apply its refreshed result", source.contains("if (requestId != playerKernelSwitchRequestId"));
+        assertTrue("only the latest core selection and current playback context may apply its refreshed result",
+                resultBody.contains("requestId != playerKernelSwitchRequestId")
+                        && resultBody.contains("isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)")
+                        && resultBody.contains("return;"));
         assertTrue("external playback selection must invalidate an in-flight internal core refresh", invalidateInternalRefresh >= 0 && launchExternalPlayer > invalidateInternalRefresh);
-        int switchMethod = source.indexOf("private boolean refreshAndSwitchPlayerKernel(int type)");
-        int switchMethodEnd = source.indexOf("private void switchPlayerKernelWithResult", switchMethod);
-        assertTrue("the refreshed-source switch path must be isolated", switchMethod >= 0 && switchMethodEnd > switchMethod);
-        String switchBody = source.substring(switchMethod, switchMethodEnd);
         assertTrue("an internal selection without refresh metadata must still invalidate an older request",
-                switchBody.indexOf("int requestId = ++playerKernelSwitchRequestId;") < switchBody.indexOf("Flag currentFlag = getFlag();"));
+                switchMethod >= 0 && requestDeclaration >= switchMethod && currentFlag > requestDeclaration);
     }
 
     @Test
@@ -1366,7 +1371,7 @@ public class VideoActivityLayoutTest {
         int end = source.indexOf("private void hideProgress()", method);
         String body = method >= 0 && end > method ? source.substring(method, end) : "";
         int showOverlay = body.indexOf("mBinding.progress.getRoot().setVisibility(View.VISIBLE);");
-        int initialDetailGuard = body.indexOf("if (mVod == null && shouldLoadTmdbDetail() && !mTmdbContentLoaded) mBinding.progressLayout.showProgress();");
+        int initialDetailGuard = body.indexOf("if (mVod == null && shouldLoadTmdbDetail() && !mTmdbContentLoaded && !shouldRevealShellWhileLoading()) mBinding.progressLayout.showProgress();");
         int preserveDetail = body.indexOf("else if (mVod != null && !mBinding.progressLayout.isContent()) mBinding.progressLayout.showContent();");
 
         assertTrue(sourcePath + " is missing showProgress", method >= 0);
@@ -2185,12 +2190,18 @@ public class VideoActivityLayoutTest {
         Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         String body = methodBody(source, "private void revealTmdbDetail()", "private void applyTmdbDetailFields()");
+        String shell = methodBody(source, "private void revealShellWhileTmdbLoads()", "private void finishTmdbDetail()");
 
         assertTrue(sourcePath + " is missing revealTmdbDetail", !body.isEmpty());
         assertTrue("the later TMDB reveal must know whether loading actually hid the content",
                 body.contains("boolean hiddenByLoading = !mBinding.progressLayout.isContent();"));
         assertTrue("focus must only be pulled back to the player when loading had hidden the content",
                 body.contains("if (hiddenByLoading) mBinding.video.post(() -> mBinding.video.requestFocus());"));
+        assertTrue("a shell revealed without an initial preview must restore focus only when nothing else is focused",
+                shell.contains("boolean hiddenByLoading = !mBinding.progressLayout.isContent();")
+                        && shell.contains("if (hiddenByLoading && !mBinding.getRoot().hasFocus())")
+                        && shell.contains("mBinding.video.post(() -> {")
+                        && shell.contains("if (!mBinding.getRoot().hasFocus()) mBinding.video.requestFocus();"));
     }
 
     @Test
