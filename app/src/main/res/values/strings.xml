@@ -1264,6 +1264,7 @@
     <string name="subtitle_manual_apply_failed">Subtitle found but could not be applied</string>
     <string name="subtitle_manual_inactive">Start playback before searching subtitles</string>
     <string name="player_subtitle_realtime_model">Real-time recognition language</string>
+    <string name="subtitle_realtime_source_language">Original audio language</string>
     <string name="subtitle_realtime_model_status">%1$s · %2$s</string>
     <string name="subtitle_realtime_model_select_title">Select audio source language</string>
     <string name="subtitle_realtime_model_delete_action">Delete model</string>
@@ -1782,6 +1783,16 @@
         <item>es</item>
         <item>ja</item>
         <item>zh-en</item>
+    </string-array>
+    <string-array name="select_realtime_subtitle_language">
+        <item>Mandarin</item>
+        <item>Cantonese</item>
+        <item>English</item>
+        <item>German</item>
+        <item>French</item>
+        <item>Spanish</item>
+        <item>Japanese</item>
+        <item>Chinese + English</item>
     </string-array>
     <string-array name="select_subtitle_language">
         <item>Chinese first</item>

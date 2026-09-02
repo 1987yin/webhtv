@@ -2502,11 +2502,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             if (initialTmdbItem != null) {
                 tmdbBundle = loadTmdbBundle(initialTmdbItem);
             } else {
+                boolean manual = isManualTmdbMatch();
                 TmdbItem match = getCachedTmdbMatch();
                 if (match != null) {
                     try {
                         tmdbBundle = loadTmdbBundle(match);
-                        if (TmdbMatchPolicy.isUnwantedSplitSeasonVariant(getNameText(), tmdbBundle.detail())) {
+                        // 手动选择由用户拍板，分季变体检查只用于过滤自动匹配的误命中。
+                        if (!manual && TmdbMatchPolicy.isUnwantedSplitSeasonVariant(getNameText(), tmdbBundle.detail())) {
                             logTmdbMatch("缓存匹配跳过：当前标题=%s，缓存标题=%s，TMDB=%d 是分季变体", getNameText(), match.getTitle(), match.getTmdbId());
                             match = null;
                             tmdbBundle = null;
@@ -3242,7 +3244,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private TmdbItem getCachedTmdbMatch() {
         if (!isTmdbAllowedForCurrentSite()) return null;
-        TmdbItem item = Setting.getTmdbMatchCache().find(getKeyText(), getIdText(), getTmdbRawTitle());
+        TmdbMatchCache cache = Setting.getTmdbMatchCache();
+        // 手动选择优先，且不做标题兼容性校验：用户之所以手动选，正是因为标题解析结果不对。
+        TmdbItem manual = cache.findManual(getKeyText(), getIdText(), getTmdbRawTitle());
+        if (manual != null) return manual;
+        TmdbItem item = cache.find(getKeyText(), getIdText(), getTmdbRawTitle());
         if (!isCachedTmdbMatchCompatible(item)) return null;
         return item;
     }
@@ -3268,11 +3274,52 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return TmdbSitePolicy.isEnabled(tmdbConfig, getKeyText(), getIdText());
     }
 
+    private boolean isManualTmdbMatch() {
+        return isTmdbAllowedForCurrentSite()
+                && Setting.getTmdbMatchCache().isManual(getKeyText(), getIdText(), getTmdbRawTitle());
+    }
+
     private void saveTmdbMatch(TmdbItem item) {
         if (item == null || item.getTmdbId() <= 0) return;
-        TmdbMatchCache cache = Setting.getTmdbMatchCache();
-        cache.put(getKeyText(), getIdText(), getTmdbRawTitle(), item);
-        Setting.putTmdbMatchCache(cache);
+        // 读-改-写要整体互斥：自动匹配在后台线程写，手动选择在主线程写，
+        // 不加锁会让后到的自动结果基于旧快照覆盖掉刚落盘的手动选择。
+        synchronized (Setting.class) {
+            TmdbMatchCache cache = Setting.getTmdbMatchCache();
+            cache.put(getKeyText(), getIdText(), getTmdbRawTitle(), item);
+            Setting.putTmdbMatchCache(cache);
+        }
+    }
+
+    /** 记录用户手动选定的 TMDB 条目，覆盖此前的自动匹配并锁定后续自动写入。 */
+    private void saveManualTmdbMatch(TmdbItem item) {
+        if (item == null || item.getTmdbId() <= 0) return;
+        List<String> aliases = tmdbSourceTitleAliases();
+        synchronized (Setting.class) {
+            TmdbMatchCache cache = Setting.getTmdbMatchCache();
+            cache.putManual(getKeyText(), getIdText(), aliases, item);
+            Setting.putTmdbMatchCache(cache);
+        }
+    }
+
+    /**
+     * 站源标题在富集后会被改写，手动绑定要覆盖所有可能作为读取键的别名。
+     * 别名只取站源侧信号，且与 getTmdbRawTitle() 的优先级一一对应：
+     * vod.getName() 在富集后已是"上一次"的 TMDB 标题，把它当别名写进去会留下一条
+     * 指向旧条目的精确键（A→B→C 连续切换后 key(标题A) 仍指向 B），历史记录里存的
+     * 正是那个旧标题，History.resolveTmdbIdentity 反查就会读回旧选择。
+     * 因此只在 sourceVodName 为空、即它确实是读取键时才纳入。
+     */
+    private List<String> tmdbSourceTitleAliases() {
+        List<String> aliases = new ArrayList<>();
+        addTmdbSourceTitleAlias(aliases, sourceVodName);
+        if (aliases.isEmpty()) addTmdbSourceTitleAlias(aliases, vod == null ? "" : vod.getName());
+        addTmdbSourceTitleAlias(aliases, getNameText());
+        return aliases;
+    }
+
+    private void addTmdbSourceTitleAlias(List<String> aliases, String title) {
+        if (TextUtils.isEmpty(title) || aliases.contains(title)) return;
+        aliases.add(title);
     }
 
     private void saveManualTmdbLearning(TmdbItem item) {
@@ -3469,6 +3516,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                         return;
                     }
                     resetManualTmdbPresentation();
+                    // 必须先落盘：applyTmdbResultNow 里的 enrichVod 会把 vod.getName()
+                    // 改写成 TMDB 标题，之后再取别名就会把 TMDB 标题当成站源标题记进去。
+                    saveManualTmdbMatch(bundle.item());
                     applyTmdbResultNow(new TmdbLoadResult(bundle, List.of()));
                     scheduleManualTmdbEpisodeRebind(applyGeneration, bundle.item());
                     saveManualTmdbLearning(bundle.item());
