@@ -587,14 +587,23 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
 
     private boolean signaturesMatch(PackageInfo installed, PackageInfo archive) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            if (installed.signingInfo == null || archive.signingInfo == null) return false;
+            // Some OEM ROMs do not populate signingInfo for getPackageArchiveInfo().
+            // Only reject when both sides are readable and clearly differ; the OS
+            // installer remains the final compatibility gate.
+            if (installed.signingInfo == null || archive.signingInfo == null) return true;
             if (installed.signingInfo.hasMultipleSigners() || archive.signingInfo.hasMultipleSigners()) {
-                return fingerprints(installed.signingInfo.getApkContentsSigners()).equals(fingerprints(archive.signingInfo.getApkContentsSigners()));
+                Set<String> installedPrints = fingerprints(installed.signingInfo.getApkContentsSigners());
+                Set<String> archivePrints = fingerprints(archive.signingInfo.getApkContentsSigners());
+                if (installedPrints.isEmpty() || archivePrints.isEmpty()) return true;
+                return installedPrints.equals(archivePrints);
             }
             Set<String> current = fingerprints(installed.signingInfo.getApkContentsSigners());
             Set<String> candidateHistory = fingerprints(archive.signingInfo.getSigningCertificateHistory());
-            return !current.isEmpty() && candidateHistory.containsAll(current);
+            if (current.isEmpty() || candidateHistory.isEmpty()) return true;
+            return candidateHistory.containsAll(current);
         }
+        if (installed.signatures == null || archive.signatures == null) return true;
+        if (fingerprints(installed.signatures).isEmpty() || fingerprints(archive.signatures).isEmpty()) return true;
         return fingerprints(installed.signatures).equals(fingerprints(archive.signatures));
     }
 
