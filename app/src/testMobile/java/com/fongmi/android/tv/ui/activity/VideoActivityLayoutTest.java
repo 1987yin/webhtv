@@ -2992,6 +2992,32 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void mobileOriginalEnhancedEpisodeGridLetsTheOuterScrollContentGrowAfterReparenting() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int move = source.indexOf("private void moveFlagAndEpisodeToTmdb()");
+        int restore = source.indexOf("private void restoreFlagAndEpisodeFromTmdb()");
+        int helper = source.indexOf("private void updateOriginalEnhancedScrollContentHeight()");
+        int helperEnd = source.indexOf("private void moveTmdbSourceToFlagTitle", helper);
+        String moveBody = restore > move ? source.substring(move, restore) : source.substring(move);
+        String restoreBody = helper > restore ? source.substring(restore, helper) : source.substring(restore);
+        String helperBody = helperEnd > helper ? source.substring(helper, helperEnd) : source.substring(helper);
+
+        assertTrue(sourcePath + " is missing original enhanced scroll content height sync", helper >= 0);
+        assertTrue("reparenting the episode grid must let the outer scroll child expand to content height",
+                helperBody.contains("View child = mBinding.scroll.getChildAt(0);")
+                        && helperBody.contains("if (!(child instanceof ViewGroup content)) return;")
+                        && helperBody.contains("int height = Setting.isOriginalEnhancedDetailPage() && mTmdbControlsMoved")
+                        && helperBody.contains("? ViewGroup.LayoutParams.WRAP_CONTENT : ViewGroup.LayoutParams.MATCH_PARENT;")
+                        && helperBody.contains("content.setLayoutParams(params);")
+                        && helperBody.contains("mBinding.scroll.requestLayout();"));
+        assertTrue("the expanded content height must be applied after moving the episode grid into TMDB controls",
+                moveBody.contains("updateOriginalEnhancedScrollContentHeight();"));
+        assertTrue("the full-height content contract must be restored when TMDB controls move back",
+                restoreBody.contains("updateOriginalEnhancedScrollContentHeight();"));
+    }
+
+    @Test
     public void leanbackVideoContextWallIsCoveredByBackdropMask() throws Exception {
         Path layoutFile = findLeanbackResPath().resolve(Path.of("layout", "activity_video.xml"));
         Element contextWall = findAndroidId(layoutFile.toFile(), "contextWall");

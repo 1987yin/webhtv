@@ -8256,6 +8256,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         }
         moveFusionPlayerActionsToTmdb(playbackControls);
         mTmdbControlsMoved = true;
+        updateOriginalEnhancedScrollContentHeight();
         updateEpisodeGroupVisibility();
         mTmdbHeaderView.refreshTheme();
         if (shouldUseTmdbBackdropSurface()) mTmdbHeaderView.hideNativeHeroBackdrop();
@@ -8271,7 +8272,22 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             item.parent.addView(item.view, Math.min(item.index, item.parent.getChildCount()), item.layoutParams);
         }
         mTmdbControlsMoved = false;
+        updateOriginalEnhancedScrollContentHeight();
         updateEpisodeGroupVisibility();
+    }
+
+    private void updateOriginalEnhancedScrollContentHeight() {
+        if (mBinding == null || mBinding.scroll.getChildCount() == 0) return;
+        View child = mBinding.scroll.getChildAt(0);
+        if (!(child instanceof ViewGroup content)) return;
+        int height = Setting.isOriginalEnhancedDetailPage() && mTmdbControlsMoved
+                ? ViewGroup.LayoutParams.WRAP_CONTENT : ViewGroup.LayoutParams.MATCH_PARENT;
+        ViewGroup.LayoutParams params = content.getLayoutParams();
+        if (params == null || params.height == height) return;
+        params.height = height;
+        content.setLayoutParams(params);
+        content.requestLayout();
+        mBinding.scroll.requestLayout();
     }
 
     private void moveTmdbSourceToFlagTitle(View tmdbRoot) {
