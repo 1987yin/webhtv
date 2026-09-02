@@ -98,6 +98,37 @@ public class TmdbMatchCacheTest {
         assertEquals(100, cache.find("site", "shared", "【】").getTmdbId());
     }
 
+    @Test
+    public void manualMatchOutranksAutomaticGuessInTheGlobalTitleScope() {
+        TmdbMatchCache cache = new TmdbMatchCache();
+
+        // 自动匹配把同名作品写进全局标题域，别的站源会沿用它。
+        cache.put("site-a", "vod-a", "凡人修仙传", item(100, "凡人修仙传"));
+        assertEquals(100, cache.find("site-b", "vod-b", "凡人修仙传").getTmdbId());
+
+        // 用户手动纠正后，跨站沿用应改读手动结论，而不是降级成"谁都读不到"的冲突标记。
+        cache.putManual("site-c", "vod-c", List.of("凡人修仙传"), item(200, "凡人修仙传"));
+        assertEquals(200, cache.find("site-b", "vod-b", "凡人修仙传").getTmdbId());
+
+        // 反向：后来的自动猜测不得把手动结论冲掉。
+        cache.put("site-d", "vod-d", "凡人修仙传", item(300, "凡人修仙传"));
+        assertEquals(200, cache.find("site-b", "vod-b", "凡人修仙传").getTmdbId());
+        // "手动"的排他性只属于原条目，别的条目不会被误判为手动。
+        assertFalse(cache.isManual("site-b", "vod-b", "凡人修仙传"));
+    }
+
+    @Test
+    public void manualMatchIsReadableWithoutAnySourceTitle() {
+        TmdbMatchCache cache = new TmdbMatchCache();
+
+        cache.putManual("site", "vod", List.of("凡人修仙传 更新至120集"), item(200, "凡人修仙传"));
+
+        // Intent 未带 name 时查询标题为空，仍应读回手动选择（沿用条目级语义）。
+        assertEquals(200, cache.findManual("site", "vod", "").getTmdbId());
+        assertTrue(cache.isManual("site", "vod", ""));
+        assertEquals(200, cache.find("site", "vod").getTmdbId());
+    }
+
     private static TmdbItem item(int id, String title) {
         return new TmdbItem(id, "tv", title, "", "", "", "");
     }

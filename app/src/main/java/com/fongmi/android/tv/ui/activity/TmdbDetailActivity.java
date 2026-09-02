@@ -3281,11 +3281,18 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         }
     }
 
-    /** 站源标题在富集后会被改写，手动绑定要覆盖所有可能作为读取键的别名。 */
+    /**
+     * 站源标题在富集后会被改写，手动绑定要覆盖所有可能作为读取键的别名。
+     * 别名只取站源侧信号，且与 getTmdbRawTitle() 的优先级一一对应：
+     * vod.getName() 在富集后已是"上一次"的 TMDB 标题，把它当别名写进去会留下一条
+     * 指向旧条目的精确键（A→B→C 连续切换后 key(标题A) 仍指向 B），历史记录里存的
+     * 正是那个旧标题，History.resolveTmdbIdentity 反查就会读回旧选择。
+     * 因此只在 sourceVodName 为空、即它确实是读取键时才纳入。
+     */
     private List<String> tmdbSourceTitleAliases() {
         List<String> aliases = new ArrayList<>();
         addTmdbSourceTitleAlias(aliases, sourceVodName);
-        addTmdbSourceTitleAlias(aliases, vod == null ? "" : vod.getName());
+        if (aliases.isEmpty()) addTmdbSourceTitleAlias(aliases, vod == null ? "" : vod.getName());
         addTmdbSourceTitleAlias(aliases, getNameText());
         return aliases;
     }

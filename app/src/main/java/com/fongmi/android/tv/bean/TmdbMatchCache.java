@@ -70,14 +70,15 @@ public class TmdbMatchCache {
 
     private Entry findManualEntry(String siteKey, String vodId, String sourceTitle) {
         if (TextUtils.isEmpty(siteKey) || TextUtils.isEmpty(vodId)) return null;
-        if (!TextUtils.isEmpty(sourceTitle)) {
-            Entry scoped = getItems().get(key(siteKey, vodId, sourceTitle));
-            if (isManual(scoped)) return scoped;
-        }
+        Entry anchor = getItems().get(key(siteKey, vodId));
+        // 没有标题可比时（如 Intent 未带 name）无从区分同一 vodId 下的多部作品，
+        // 只能沿用条目级语义，与两参 find(siteKey, vodId) 的既有行为保持一致。
+        if (TextUtils.isEmpty(sourceTitle)) return isManual(anchor) ? anchor : null;
+        Entry scoped = getItems().get(key(siteKey, vodId, sourceTitle));
+        if (isManual(scoped)) return scoped;
         // 条目级锚点：站源标题会被 TMDB 富集改写成 TMDB 标题，手动选择必须能在标题变化后仍被读回。
         // 但同一 vodId 下可能挂着多个不同作品（见 TmdbMatchCacheTest 的共享 vodId 用例），
         // 所以锚点只在标题确实指向同一作品时才生效。
-        Entry anchor = getItems().get(key(siteKey, vodId));
         return isManual(anchor) && anchor.matchesManualTitle(matchTitle(sourceTitle)) ? anchor : null;
     }
 
@@ -107,7 +108,8 @@ public class TmdbMatchCache {
     /**
      * 记录手动选择。sourceTitles 传入所有已知的站源标题别名（详情名、Intent 名、当前 Vod 名），
      * 任一别名都能读回同一条目；同时写入条目级锚点，标题被改写后依然命中。
-     * 不写全局标题域：手动选择只对当前条目成立，跨站沿用应继续走自动匹配。
+     * 仍照旧维护全局标题域：手动纠正过的结果不能把被否掉的旧猜测留在那里给别的站源读；
+     * 但 findManualEntry 不看标题域，所以"手动"的排他性只作用于当前条目。
      */
     public void putManual(String siteKey, String vodId, List<String> sourceTitles, TmdbItem item) {
         if (TextUtils.isEmpty(siteKey) || TextUtils.isEmpty(vodId) || item == null || item.getTmdbId() <= 0) return;
@@ -122,6 +124,7 @@ public class TmdbMatchCache {
         for (String sourceTitle : sourceTitles) {
             if (TextUtils.isEmpty(sourceTitle)) continue;
             getItems().put(key(siteKey, vodId, sourceTitle), entry);
+            putTitle(sourceTitle, entry);
         }
     }
 
@@ -143,12 +146,22 @@ public class TmdbMatchCache {
         return TextUtils.isEmpty(title) ? "" : TITLE_SCOPE + AppDatabase.SYMBOL + title;
     }
 
+    /**
+     * 维护全局标题域（同名作品跨站沿用）。手动结论优先于自动猜测：
+     * 用户纠正过的标题不能再把被否掉的旧猜测留给别的站源，也不该因为与旧猜测不一致
+     * 而降级成冲突标记（那会让所有站源都读不到）。只有两个都是手动且指向不同条目时，
+     * 才是真正的同名歧义，此时才标冲突。
+     */
     private void putTitle(String sourceTitle, Entry entry) {
         String key = titleKey(sourceTitle);
         if (TextUtils.isEmpty(key) || entry == null) return;
         Entry cached = getItems().get(key);
         if (cached == null || sameTmdb(cached, entry)) {
             getItems().put(key, entry);
+        } else if (isManual(entry) && !isManual(cached)) {
+            getItems().put(key, entry);
+        } else if (isManual(cached) && !isManual(entry)) {
+            // 保留手动结论，别让某个站源的自动猜测把它冲掉。
         } else {
             getItems().put(key, Entry.conflict(sourceTitle));
         }

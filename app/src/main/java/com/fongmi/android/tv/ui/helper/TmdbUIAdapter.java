@@ -1638,12 +1638,23 @@ public class TmdbUIAdapter {
         }
     }
 
+    /**
+     * 别名只取站源侧信号。vod.getName() 在 enrichVod 之后已是"上一次"的 TMDB 标题，
+     * 无条件写进去会留下一条指向旧条目的精确键（A→B→C 连续切换后 key(标题A) 仍指向 B），
+     * 而历史记录里存的正是那个旧标题，反查就会读回旧选择。但它未被富集时又正是
+     * getCachedMatch 的读取键，不能一概丢弃——用当前已加载条目的标题判断它是否已被改写。
+     */
     private List<String> manualMatchTitleAliases(Vod vod) {
         List<String> aliases = new ArrayList<>();
         addTitleAlias(aliases, sourceCacheTitle);
         addTitleAlias(aliases, activityIntentTitle());
-        addTitleAlias(aliases, vod == null ? "" : vod.getName());
+        String vodTitle = vod == null ? "" : vod.getName();
+        if (!isEnrichedVodTitle(vodTitle)) addTitleAlias(aliases, vodTitle);
         return aliases;
+    }
+
+    private boolean isEnrichedVodTitle(String vodTitle) {
+        return tmdbItem != null && !TextUtils.isEmpty(vodTitle) && vodTitle.equals(tmdbItem.getTitle());
     }
 
     private static void addTitleAlias(List<String> aliases, String title) {
