@@ -300,6 +300,11 @@ private String mArtworkRequestUrl;
 private String mArtworkRequestOwner;
 private Vod mPendingDetailVod;
 private Result mPendingPlayerResult;
+private int playerContentGeneration;
+private int playerContentRequestId;
+private String playerContentKey = "";
+private String playerContentFlag = "";
+private String playerContentEpisode = "";
 private Result mAppliedPlayerResult;
 private AudioPlaybackResolver.Resolved mImmersiveAudioResolved;
 private int mAudioArtworkColor = Color.rgb(55, 45, 68);
@@ -394,6 +399,7 @@ private int mAudioBackgroundRandomNonce;
     private boolean mNativePersonalDoubanLoading;
     private boolean mEpisodeGridMode = Setting.getTmdbEpisodeGridMode();
     private int playerKernelSwitchRequestId;
+    private int decodeSwitchRequestId;
     private int mPendingPlayerKernel = PlayerSetting.NONE;
     private boolean decodeSwitchRefreshing;
     private int deferredFullscreenOrientation = Configuration.ORIENTATION_UNDEFINED;
@@ -1338,6 +1344,17 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         getIntent().removeExtra(EXTRA_RESUME_HISTORY_KEY);
         getIntent().putExtras(intent);
         resetPlaybackOwnership();
+        if (mViewModel != null) mViewModel.cancelPlayerContent();
+        invalidatePlayerContent();
+        mPendingDetailVod = null;
+        mPendingPlayerResult = null;
+        mAppliedPlayerResult = null;
+        if (service() != null) {
+            subtitlePlaybackSession.stop(this);
+            player().reset();
+            player().stop();
+            player().clear();
+        }
         if (mTmdbUIAdapter != null) mTmdbUIAdapter.beginDetailRequest();
         mSourceEpisodeSeasonCache.clear();
         mSourceVodName = "";
@@ -1965,7 +1982,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         VodEventGuard.alignCachedIdentity(cached, getKey(), getId());
         detailStartTime = System.currentTimeMillis();
         detailHealthRecorded = true;
-        mBinding.progressLayout.showProgress();
+        if (!shouldRevealShellWhileLoading()) mBinding.progressLayout.showProgress();
         SpiderDebug.log("video-flow", "detail cache hit queued key=%s id=%s name=%s", getKey(), getId(), cached.getName());
         mBinding.getRoot().postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
@@ -1989,7 +2006,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         detailHealthRecorded = false;
         cancelTmdbDetailFallback();
         SpiderDebug.log("video-flow", "detail start key=%s id=%s name=%s refresh=%s", getKey(), getId(), getName(), refresh);
-        mBinding.progressLayout.showProgress();
+        // 骨架已经揭开时不能再整页转圈：那会把刚露出的视频窗口与选集重新压成 INVISIBLE，
+        // 变回「先整页转一次、再在播放器窗口里转一次」的两层加载。
+        if (!shouldRevealShellWhileLoading()) mBinding.progressLayout.showProgress();
         prefetchDirectTmdbDetail();
         mViewModel.detailContent(getKey(), getId(), refresh);
     }
@@ -2005,6 +2024,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         revealManualSearch = false;
         if (!isAutoMode()) mViewModel.stopSearch();
         saveHistory();
+        if (mViewModel != null) mViewModel.cancelPlayerContent();
+        invalidatePlayerContent();
         getIntent().putExtra("key", item.getSiteKey());
         getIntent().putExtra("pic", item.getPic());
         getIntent().putExtra("id", item.getId());
@@ -2140,7 +2161,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void setText(Vod item) {
         setDetailLyrics(item.getContent());
-        if (shouldWaitForTmdbDetailReveal()) {
+        // 富集仍在进行时不填充会被 TMDB 覆盖的站源文本：骨架可以先揭开，
+        // 但文本要等 TMDB 落定再写，避免揭开后再跳一次。
+        if (isTmdbDetailEnrichmentPending()) {
             applyFusionNativeTextColors();
             return;
         }
@@ -2353,14 +2376,72 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         clearLyrics();
         clearKaraokeState();
         if (shouldUseImmersiveAudio()) setAudioStageVisible(true);
+        beginPlayerContentRequest(getKey(), playFlag, episode.getUrl());
         mViewModel.playerContent(getKey(), playFlag, episode.getUrl(), applyHistoryPlayerKernel());
         mBinding.control.title.setSelected(true);
         updateHistory(episode);
         showProgress();
     }
 
+    private void beginPlayerContentRequest(String key, String flag, String episode) {
+        if (mViewModel != null) mViewModel.cancelPlayerContent();
+        mPendingPlayerResult = null;
+        invalidatePlayerContent();
+        playerContentKey = key;
+        playerContentFlag = flag;
+        playerContentEpisode = episode;
+    }
+
+    private void invalidatePlayerContent() {
+        playerContentGeneration++;
+        playerContentRequestId++;
+        playerKernelSwitchRequestId++;
+        decodeSwitchRequestId++;
+        playerContentKey = "";
+        playerContentFlag = "";
+        playerContentEpisode = "";
+        decodeSwitchRefreshing = false;
+    }
+
+    private boolean isCurrentPlayerContentContext(String key, String flag, String episode) {
+        Flag currentFlag = getFlag();
+        Episode currentEpisode = getEpisode();
+        return TextUtils.equals(key, getKey())
+                && currentFlag != null
+                && TextUtils.equals(flag, currentFlag.getFlag())
+                && currentEpisode != null
+                && TextUtils.equals(episode, currentEpisode.getUrl());
+    }
+
+    private int beginPlayerContentSwitch(int requestId, String key, String flag, String episode) {
+        playerContentGeneration++;
+        playerContentRequestId = requestId;
+        playerContentKey = key;
+        playerContentFlag = flag;
+        playerContentEpisode = episode;
+        return playerContentGeneration;
+    }
+
+    private boolean isCurrentPlayerContentRequest(int requestId, int generation,
+                                                   String key, String flag, String episode) {
+        return !isFinishing() && !isDestroyed()
+                && requestId == playerContentRequestId
+                && generation == playerContentGeneration
+                && isCurrentPlayerContentContext(key, flag, episode);
+    }
+
+    private boolean canApplyPlayerContentRequest(int requestId, int generation,
+                                                  String key, String flag, String episode) {
+        return isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)
+                && service() != null
+                && player() != null
+                && !player().isReleased()
+                && !player().isEmpty()
+                && isOwner();
+    }
+
     private void setPlayer(Result result) {
-        if (isFinishing() || isDestroyed()) return;
+        if (result == null || isFinishing() || isDestroyed()) return;
         if (service() == null) {
             mPendingPlayerResult = result;
             return;
@@ -4308,6 +4389,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void onRefresh() {
         saveHistory();
+        if (mViewModel != null) mViewModel.cancelPlayerContent();
+        invalidatePlayerContent();
         subtitlePlaybackSession.stop(this);
         player().stop();
         player().clear();
@@ -4341,6 +4424,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         String flag = getFlag().getFlag();
         String episode = getEpisode().getUrl();
         MediaMetadata metadata = buildMetadata();
+        int requestId = ++decodeSwitchRequestId;
+        int generation = beginPlayerContentSwitch(requestId, key, flag, episode);
         decodeSwitchRefreshing = true;
         setNextDecodeText();
         setDecodeSwitchPending(true);
@@ -4349,9 +4434,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         Task.execute(() -> {
             try {
                 Result result = SiteApi.playerContent(key, flag, episode);
-                App.post(() -> switchDecodeWithResult(result, position, speed, repeat, metadata));
+                App.post(() -> switchDecodeWithResult(requestId, generation, key, flag, episode, result, position, speed, repeat, metadata));
             } catch (Throwable e) {
                 App.post(() -> {
+                    if (!isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)) return;
                     decodeSwitchRefreshing = false;
                     setDecodeSwitchPending(false);
                     setDecode();
@@ -4362,15 +4448,19 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return true;
     }
 
-    private void switchDecodeWithResult(Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
+    private void switchDecodeWithResult(int requestId, int generation, String key, String flag, String episode,
+                                        Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
+        if (requestId != decodeSwitchRequestId
+                || !isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)) return;
         decodeSwitchRefreshing = false;
+        setDecodeSwitchPending(false);
+        if (!canApplyPlayerContentRequest(requestId, generation, key, flag, episode)) return;
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             player().toggleDecode();
         } else {
             player().switchDecode(result, activePlaybackKey(), metadata, isUseParse(), position, speed, repeat);
         }
         setR1Callback();
-        setDecodeSwitchPending(false);
         setDecode();
     }
 
@@ -4509,15 +4599,17 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         String flag = currentFlag.getFlag();
         String episode = currentEpisode.getUrl();
         MediaMetadata metadata = buildMetadata();
+        int generation = beginPlayerContentSwitch(requestId, key, flag, episode);
         mClock.setCallback(null);
         SpiderDebug.log("video-flow", "switch player refresh start type=%d key=%s flag=%s episode=%s", nextType, key, flag, episode);
         Task.execute(() -> {
             try {
                 Result result = SiteApi.playerContent(key, flag, episode, nextType);
-                App.post(() -> switchPlayerKernelWithResult(requestId, nextType, result, position, speed, repeat, metadata));
+                App.post(() -> switchPlayerKernelWithResult(requestId, generation, key, flag, episode, nextType, result, position, speed, repeat, metadata));
             } catch (Throwable e) {
                 App.post(() -> {
-                    if (requestId != playerKernelSwitchRequestId) return;
+                    if (requestId != playerKernelSwitchRequestId
+                            || !isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)) return;
                     setPlayerKernel();
                     setDecode();
                     setR1Callback();
@@ -4528,8 +4620,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return true;
     }
 
-    private void switchPlayerKernelWithResult(int requestId, int type, Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
-        if (requestId != playerKernelSwitchRequestId) return;
+    private void switchPlayerKernelWithResult(int requestId, int generation, String key, String flag, String episode,
+                                              int type, Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
+        if (requestId != playerKernelSwitchRequestId
+                || !isCurrentPlayerContentRequest(requestId, generation, key, flag, episode)) return;
+        if (!canApplyPlayerContentRequest(requestId, generation, key, flag, episode)) return;
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
         } else {
@@ -5151,8 +5246,21 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return !getName().isEmpty() || !getPic().isEmpty() || !getWallPic().isEmpty();
     }
 
-    private boolean shouldWaitForTmdbDetailReveal() {
+    /** TMDB 富集是否仍在进行：决定要不要先填充会被 TMDB 覆盖的站源文本。 */
+    private boolean isTmdbDetailEnrichmentPending() {
         return shouldLoadTmdbDetail() && !mTmdbContentLoaded && !mTmdbFallbackToNative;
+    }
+
+    private boolean shouldWaitForTmdbDetailReveal() {
+        return isTmdbDetailEnrichmentPending() && !shouldRevealShellWhileLoading();
+    }
+
+    /**
+     * 原生增强把详情与播放放在同一页：进入即揭开页面骨架，加载态只由播放器窗口内那一层表达，
+     * 不再让详情区整块转圈与播放器转圈同屏叠出两层「加载中」。
+     */
+    private boolean shouldRevealShellWhileLoading() {
+        return Setting.isOriginalEnhancedDetailPage();
     }
 
     private boolean canRevealPlaybackContent() {
@@ -5160,6 +5268,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void showInitialPreview() {
+        // 原生增强把详情与播放放在同一页：进入即揭开骨架并填上 intent 已知的标题，
+        // 否则 ProgressLayout 停在初始态、随后被 getDetail 的整页转圈盖掉。
+        if (shouldRevealShellWhileLoading()) {
+            if (!mBinding.progressLayout.isContent()) mBinding.progressLayout.showContent();
+            if (!getName().isEmpty()) mBinding.name.setText(getName());
+        }
         if (!getPic().isEmpty()) setArtwork(getPic());
         else if (!getWallPic().isEmpty()) setContextWall(getWallPic());
     }
@@ -6871,7 +6985,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void hideSeekProgressIfReady() {
-        if (service() == null || player() == null || player().getPlaybackState() != Player.STATE_READY) return;
+        if (service() == null || player() == null || player().isReleased() || player().isEmpty() || !isOwner() || player().getPlaybackState() != Player.STATE_READY) return;
         showPlaybackContent();
     }
 
@@ -6888,6 +7002,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     private void hidePlaybackProgressIfStale() {
         if (mBinding.progress.getRoot().getVisibility() != View.VISIBLE) return;
         if (service() == null || player() == null || player().isReleased() || player().isEmpty()) return;
+        if (!isOwner()) return;
         if (player().getPlaybackState() != Player.STATE_READY) return;
         showPlaybackContent();
     }
@@ -7430,7 +7545,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         } else if (shouldUseTmdbBackdropSurface()) {
             // 原生增强模式：启用全屏背景
             applyOriginalEnhancedBackdropLayout();
-            mBinding.getRoot().setBackgroundColor(Color.TRANSPARENT);
+            mBinding.getRoot().setBackgroundColor(enhancedBackdropBaseColor());
             mBinding.scroll.setBackgroundColor(Color.TRANSPARENT);
             mBinding.swipeLayout.setBackgroundColor(Color.TRANSPARENT);
             mBinding.progressLayout.setBackgroundColor(Color.TRANSPARENT);
@@ -7490,6 +7605,16 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             mBinding.videoContextScrim.setVisibility(View.VISIBLE);
             applyContextWallScrimTheme();
         }
+    }
+
+    /**
+     * 原生增强靠全屏 backdrop 当背景，但 contextWall 初始是 gone、图也要等网络。
+     * root 若留 TRANSPARENT，这段空窗期会直接露出 Material3 动态取色的窗口底色（设备上可能是紫色）。
+     * 给 root 垫一层不透明底色即可：contextWall 是首个子视图、绘制在内容之下，
+     * 图到达后它自己就盖住这层底色，不需要再改回 TRANSPARENT。
+     */
+    private int enhancedBackdropBaseColor() {
+        return isTmdbPlaybackLightTheme() ? 0xFFF3F6F9 : 0xFF0F141A;
     }
 
     private void applyOriginalEnhancedBackdropLayout() {
@@ -7576,7 +7701,13 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void applyFusionThemeSurface() {
         boolean light = isFusionLightTheme();
-        mBinding.getRoot().setBackgroundColor(mTmdbFallbackToNative || shouldUseTmdbBackdropSurface() ? Color.TRANSPARENT : light ? 0xFFF3F6F9 : 0xFF0F141A);
+        // 顺序有意义：TMDB 未匹配回退要透出 App 壁纸，必须优先于 backdrop surface 判定。
+        // 其次是原生增强(backdrop surface)：垫不透明底色而非 TRANSPARENT，否则 backdrop 图到达前
+        // 会露出窗口动态取色。contextWall 是首个子视图、绘制在 root 底色之上，图到达后自然盖住。
+        int base = mTmdbFallbackToNative ? Color.TRANSPARENT
+                : shouldUseTmdbBackdropSurface() ? enhancedBackdropBaseColor()
+                : light ? 0xFFF3F6F9 : 0xFF0F141A;
+        mBinding.getRoot().setBackgroundColor(base);
         mBinding.scroll.setBackgroundColor(Color.TRANSPARENT);
         mBinding.swipeLayout.setBackgroundColor(Color.TRANSPARENT);
         mBinding.progressLayout.setBackgroundColor(Color.TRANSPARENT);
