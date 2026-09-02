@@ -588,22 +588,25 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
     private boolean signaturesMatch(PackageInfo installed, PackageInfo archive) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             // Some OEM ROMs do not populate signingInfo for getPackageArchiveInfo().
-            // Only reject when both sides are readable and clearly differ; the OS
-            // installer remains the final compatibility gate.
-            if (installed.signingInfo == null || archive.signingInfo == null) return true;
+            // Keep the installed signature authoritative, but let an unreadable
+            // candidate reach the OS installer, which remains the compatibility gate.
+            if (installed.signingInfo == null) return false;
+            if (archive.signingInfo == null) return true;
             if (installed.signingInfo.hasMultipleSigners() || archive.signingInfo.hasMultipleSigners()) {
                 Set<String> installedPrints = fingerprints(installed.signingInfo.getApkContentsSigners());
                 Set<String> archivePrints = fingerprints(archive.signingInfo.getApkContentsSigners());
-                if (installedPrints.isEmpty() || archivePrints.isEmpty()) return true;
+                if (installedPrints.isEmpty()) return false;
+                if (archivePrints.isEmpty()) return true;
                 return installedPrints.equals(archivePrints);
             }
             Set<String> current = fingerprints(installed.signingInfo.getApkContentsSigners());
             Set<String> candidateHistory = fingerprints(archive.signingInfo.getSigningCertificateHistory());
-            if (current.isEmpty() || candidateHistory.isEmpty()) return true;
+            if (current.isEmpty()) return false;
+            if (candidateHistory.isEmpty()) return true;
             return candidateHistory.containsAll(current);
         }
-        if (installed.signatures == null || archive.signatures == null) return true;
-        if (fingerprints(installed.signatures).isEmpty() || fingerprints(archive.signatures).isEmpty()) return true;
+        if (fingerprints(installed.signatures).isEmpty()) return false;
+        if (fingerprints(archive.signatures).isEmpty()) return true;
         return fingerprints(installed.signatures).equals(fingerprints(archive.signatures));
     }
 
