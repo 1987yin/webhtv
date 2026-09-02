@@ -313,6 +313,7 @@ public final class RealtimeSubtitleController {
             }
             releaseRecognizer(previousRecognizer, previousTranslator);
             main.post(() -> {
+                if (request != generation || !enabled) return;
                 disableNativeSubtitle();
                 startCueTicker();
             });
@@ -320,10 +321,16 @@ public final class RealtimeSubtitleController {
         } catch (Throwable e) {
             if (request != generation || DOWNLOAD_CANCELLED.equals(e.getMessage())) return;
             if (replacing && (previousRecognizer != null || previousTranslator != null)) {
-                enabled = true;
-                preparing = false;
-                if (!TextUtils.isEmpty(activeModelId)) Setting.putRealtimeSubtitleModel(activeModelId);
-                main.post(this::startCueTicker);
+                synchronized (this) {
+                    if (request != generation) return;
+                    enabled = true;
+                    preparing = false;
+                    if (!TextUtils.isEmpty(activeModelId)) Setting.putRealtimeSubtitleModel(activeModelId);
+                }
+                main.post(() -> {
+                    if (request != generation || !enabled) return;
+                    startCueTicker();
+                });
                 notifyState(request, State.ON, message(e));
                 return;
             }

@@ -1732,7 +1732,6 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     private void checkCast() {
         if (isCast() && !isFullscreen()) enterFullscreen();
         else if (mAudioStageVisible) mBinding.progressLayout.showContent();
-        else if (shouldLoadTmdbDetail() && Setting.isOriginalEnhancedDetailPage()) mBinding.progressLayout.showProgress();
         else if (hasInitialPreview()) showInitialPreview();
         else mBinding.progressLayout.showProgress();
     }
@@ -1751,7 +1750,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (cached == null) return false;
         detailStartTime = System.currentTimeMillis();
         detailHealthRecorded = true;
-        mBinding.progressLayout.showProgress();
+        if (!shouldRevealShellWhileLoading()) mBinding.progressLayout.showProgress();
         SpiderDebug.log("video-flow", "detail cache hit queued key=%s id=%s name=%s", getKey(), getId(), cached.getName());
         if (tryStartFastTmdbPlayback(cached)) {
             return true;
@@ -2355,7 +2354,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         if (loadTmdbDetail) hideNativePersonalRecommendations();
         else loadNativePersonalRecommendations(item);
         if (loadTmdbDetail && shouldShowTmdbLoadingOverlay()) showTmdbDetailLoading();
-        else if (loadTmdbDetail) SpiderDebug.log("tmdb-tv", "detail loading overlay skipped during fast playback");
+        else if (loadTmdbDetail) revealShellWhileTmdbLoads();
 
         // TMDB 增强：自动匹配并增强 Vod
         if (mTmdbUIAdapter != null && mTmdbUIAdapter.isReady()) {
@@ -2375,7 +2374,15 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private boolean shouldShowTmdbLoadingOverlay() {
-        return !mFastTmdbPlaybackStarted;
+        return !mFastTmdbPlaybackStarted && !shouldRevealShellWhileLoading();
+    }
+
+    /**
+     * 原生增强把详情与播放放在同一页：进入即揭开页面骨架，加载态只由播放器窗口内那一层表达，
+     * 不再先整页转圈、揭开后再转一次，避免同一次进入出现两层「加载中」。
+     */
+    private boolean shouldRevealShellWhileLoading() {
+        return Setting.isOriginalEnhancedDetailPage();
     }
 
     private void setOriginalEnhancedActionVisibility(boolean hide) {
@@ -2406,6 +2413,22 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         SpiderDebug.log("tmdb-tv", "detail loading show (full-screen progress)");
     }
 
+    /**
+     * 不遮挡整页的加载方式：站源详情到手即揭开骨架（视频窗口、选集、线路都在位），
+     * TMDB 富集在原地补齐。会被 TMDB 覆盖的站源文本先压掉，避免揭开后再跳一次文本。
+     */
+    private void revealShellWhileTmdbLoads() {
+        boolean hiddenByLoading = !mBinding.progressLayout.isContent();
+        if (!mBinding.progressLayout.isContent()) mBinding.progressLayout.showContent();
+        if (shouldUseTmdbLayout()) suppressTmdbNativeTextFields();
+        if (hiddenByLoading && !mBinding.getRoot().hasFocus()) {
+            mBinding.video.post(() -> {
+                if (!mBinding.getRoot().hasFocus()) mBinding.video.requestFocus();
+            });
+        }
+        SpiderDebug.log("tmdb-tv", "detail shell revealed while tmdb loads (single loading layer)");
+    }
+
     // TMDB 数据成功返回：揭开内容（仅一次）并应用 TMDB 字段（每次都应用）
     private void finishTmdbDetail() {
         revealTmdbDetail();
@@ -2417,12 +2440,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     // 揭开全屏 loading、一次性显示全部内容，幂等（超时或数据到达都会调用，只执行一次）
     private void revealTmdbDetail() {
         if (mTmdbDetailRevealed) return;
+        boolean hiddenByLoading = !mBinding.progressLayout.isContent();
         mTmdbDetailRevealed = true;
         mTmdbDetailLoading = false;
         App.removeCallbacks(mTmdbDetailTimeout);
         mBinding.progressLayout.showContent();
-        // 内容从 INVISIBLE 恢复为 VISIBLE 后，焦点需要重新回到播放器
-        mBinding.video.post(() -> mBinding.video.requestFocus());
+        // 内容从 INVISIBLE 恢复为 VISIBLE 后，焦点需要重新回到播放器。
+        // 骨架已经先揭开时不能再抢焦点，否则会把用户已经移到选集上的焦点拽回播放器。
+        if (hiddenByLoading) mBinding.video.post(() -> mBinding.video.requestFocus());
         SpiderDebug.log("tmdb-tv", "detail loading reveal (show content)");
     }
 

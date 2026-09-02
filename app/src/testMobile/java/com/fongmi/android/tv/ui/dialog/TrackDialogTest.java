@@ -168,6 +168,22 @@ public class TrackDialogTest {
                 controller.contains("notifyState(request, State.PREPARING, \"\")")
                         && controller.contains("notifyState(request, State.ON, \"\")")
                         && controller.contains("private void notifyState(int expectedGeneration, State state, String message)"));
+        assertTrue("a stale model-ready callback must not disable native subtitles after realtime subtitles were turned off",
+                controller.contains("if (request != generation || !enabled) return;")
+                        && controller.contains("disableNativeSubtitle();")
+                        && controller.contains("startCueTicker();"));
+        int replacementFailureStart = controller.indexOf("if (replacing && (previousRecognizer != null || previousTranslator != null))");
+        int replacementFailureEnd = controller.indexOf("enabled = false;", replacementFailureStart);
+        String replacementFailureBody = replacementFailureStart >= 0 && replacementFailureEnd > replacementFailureStart
+                ? controller.substring(replacementFailureStart, replacementFailureEnd) : "";
+        assertTrue("a failed model switch must recheck its generation before restoring the previous session",
+                replacementFailureBody.contains("synchronized (this)")
+                        && replacementFailureBody.contains("if (request != generation) return;")
+                        && replacementFailureBody.indexOf("if (request != generation) return;") > replacementFailureBody.indexOf("synchronized (this)"));
+        assertTrue("a stale model-switch recovery callback must not restart the subtitle ticker",
+                replacementFailureBody.contains("main.post(() -> {")
+                        && replacementFailureBody.contains("if (request != generation || !enabled) return;")
+                        && replacementFailureBody.contains("startCueTicker();"));
     }
 
     @Test
