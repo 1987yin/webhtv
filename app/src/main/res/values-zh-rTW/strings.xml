@@ -243,6 +243,19 @@
     <string name="intro_skip_confirm_intro">跳過片頭</string>
     <string name="intro_skip_confirm_recap">跳過前情提要</string>
     <string name="intro_skip_confirm_outro">跳過片尾</string>
+    <string name="intro_skip_confirm_preview">跳過下集預告</string>
+    <!-- 控制列上顯示的自動偵測值（非使用者手動設定），%1$s 為時間 -->
+    <string name="intro_skip_detected_value">~%1$s</string>
+    <string name="intro_skip_kind_recap">前情回顧</string>
+    <string name="intro_skip_kind_intro">片頭</string>
+    <string name="intro_skip_kind_outro">片尾</string>
+    <string name="intro_skip_kind_preview">下集預告</string>
+    <string name="setting_intro_skip_kinds">跳過的片段類型</string>
+    <string name="intro_skip_kinds_none">未選擇</string>
+    <string name="intro_skip_kinds_all">全部</string>
+    <!-- 自動跳過後的提示，%1$s 為片段類型 -->
+    <string name="intro_skip_notice_seeked">已跳過%1$s</string>
+    <string name="intro_skip_notice_ended">%1$s已跳過，進入下一集</string>
     <string name="personal_recommendation_confirm_title">啟用個性推薦</string>
     <string name="personal_recommendation_confirm_message">個性推薦會讀取本機觀看歷史中的影片名稱，並可能將當前影片名和歷史影片名作為搜尋關鍵詞發送到 TMDB 或豆瓣，用於生成相關作品列表。\n\n不會發送播放地址、帳號資訊、站源配置或播放進度。你可以隨時關閉此功能。</string>
     <string name="setting_search_ui">搜尋佈局</string>
