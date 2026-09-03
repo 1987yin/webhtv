@@ -269,6 +269,19 @@
     <string name="intro_skip_confirm_intro">Skip intro</string>
     <string name="intro_skip_confirm_recap">Skip recap</string>
     <string name="intro_skip_confirm_outro">Skip outro</string>
+    <string name="intro_skip_confirm_preview">Skip next-episode preview</string>
+    <!-- Detected (not user-set) intro/outro time shown on the control bar; %1$s is the timestamp -->
+    <string name="intro_skip_detected_value">~%1$s</string>
+    <string name="intro_skip_kind_recap">Recap</string>
+    <string name="intro_skip_kind_intro">Intro</string>
+    <string name="intro_skip_kind_outro">Outro</string>
+    <string name="intro_skip_kind_preview">Preview</string>
+    <string name="setting_intro_skip_kinds">Segments to skip</string>
+    <string name="intro_skip_kinds_none">None</string>
+    <string name="intro_skip_kinds_all">All</string>
+    <!-- Shown after an automatic skip; %1$s is the segment type -->
+    <string name="intro_skip_notice_seeked">Skipped %1$s</string>
+    <string name="intro_skip_notice_ended">Skipped %1$s, going to the next episode</string>
     <string name="personal_recommendation_confirm_title">Enable personal recommendations</string>
     <string name="personal_recommendation_confirm_message">Personal recommendations read movie and show titles from local viewing history, and may send the current title and history titles to TMDB or Douban as search keywords to build related lists.\n\nPlayback URLs, account information, source configuration, and playback progress are not sent. You can turn this off at any time.</string>
     <string name="setting_search_thread">Search threads</string>
@@ -1264,6 +1277,7 @@
     <string name="subtitle_manual_apply_failed">Subtitle found but could not be applied</string>
     <string name="subtitle_manual_inactive">Start playback before searching subtitles</string>
     <string name="player_subtitle_realtime_model">Real-time recognition language</string>
+    <string name="subtitle_realtime_source_language">Original audio language</string>
     <string name="subtitle_realtime_model_status">%1$s · %2$s</string>
     <string name="subtitle_realtime_model_select_title">Select audio source language</string>
     <string name="subtitle_realtime_model_delete_action">Delete model</string>
@@ -1782,6 +1796,16 @@
         <item>es</item>
         <item>ja</item>
         <item>zh-en</item>
+    </string-array>
+    <string-array name="select_realtime_subtitle_language">
+        <item>Mandarin</item>
+        <item>Cantonese</item>
+        <item>English</item>
+        <item>German</item>
+        <item>French</item>
+        <item>Spanish</item>
+        <item>Japanese</item>
+        <item>Chinese + English</item>
     </string-array>
     <string-array name="select_subtitle_language">
         <item>Chinese first</item>
