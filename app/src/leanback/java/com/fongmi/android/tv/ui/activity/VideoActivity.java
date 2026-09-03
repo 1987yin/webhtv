@@ -7156,6 +7156,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus) mKeyDown.releaseSpeed();
         if (!hasFocus || mDialogReturnFocus == null) return;
         View target = mDialogReturnFocus;
         mDialogReturnFocus = null;
@@ -7235,6 +7236,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (KeyUtil.isActionUp(event) && KeyUtil.isBackKey(event) && mBinding.lutQuick.hideIfVisible()) return true;
+        if (mKeyDown.isChangingSpeed() && KeyUtil.isActionUp(event)) {
+            mKeyDown.releaseSpeed();
+            if (isVisible(mBinding.lutQuick)) return dispatchLutQuickKey(event);
+        }
         if (isVisible(mBinding.lutQuick)) return dispatchLutQuickKey(event);
         if (isFullscreen() && KeyUtil.isMenuKey(event)) {
             if (Setting.getFullscreenMenuKey() == 1) onEpisodes();
@@ -7491,6 +7496,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     @Override
     protected void onStop() {
         super.onStop();
+        mKeyDown.releaseSpeed();
         mPlayerUi.onStop();
         if (mKaraoke != null) mKaraoke.clear();
         stopAudioCoverRotation();
