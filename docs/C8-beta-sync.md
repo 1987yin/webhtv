@@ -3,11 +3,11 @@
 ## Recovery anchor
 
 - Objective: merge the latest `origin/beta` into `dev2`, review the effective tree including the local unpushed commit and current task changes, fix actionable defects, verify, review the repaired tree again, commit, push, and pull the latest remote state.
-- Status: beta merge is recorded by two-parent commit `5cf2f2e7fddd48454d10b86c27cc9f02e979098a`; post-merge repairs and final verification are complete, pending task-guard closure and remote synchronization.
+- Status: C8 is complete and pushed; beta merge `5cf2f2e7fddd48454d10b86c27cc9f02e979098a` is preserved, post-merge repairs and final verification passed, and the repair commit/tag are synchronized to `origin/dev2`.
 - Branch and baseline: `dev2`, base `b235cee7408b8531c257f94fb65b0b4f4068d4c2`.
 - Beta target: `origin/beta@308694aaadd59d9d1ef230bded83cf84dafa114c`.
 - Scope: `app/**` and `docs/**`; unrelated pre-existing paths remain protected and are not part of this task.
-- Next action: verify remote ancestry, then run `task_guard.sh finish` for the atomic repair commit and recovery tag.
+- Next action: code task closed; retain the recovery tag as the local rollback anchor. Optional device playback follow-up is outside this task's acceptance gate.
 
 ## Authority and review boundary
 
@@ -75,7 +75,7 @@
 - Merge: committed as `5cf2f2e7fddd48454d10b86c27cc9f02e979098a`, with no unresolved paths or conflict markers.
 - Code review: local root-cause review repaired the checksum gate, reader routing/cancellation/progress boundaries, IntroSkip lifecycle/cache/parser boundaries, and TMDB callback ownership; no further Critical/Important issue was found in the final semantic pass.
 - Verification: `assembleDebug` succeeded; the focused Mobile Arm64 run passed 72/72, the added `duration=0` IntroSkip regression passed separately, and the final combined dual Arm64 Java compile plus focused test command passed with 73/73 and no skips/errors.
-- Next action: verify remote ancestry, then invoke `task_guard.sh finish`.
+- Commit/push/pull: repair commit `1d08c6fba24763023bf51792d344a3912b6d3cdb` and recovery tag `recovery/C8-beta-sync/20260903160741-1d08c6fba247` were created by task guard, pushed to `origin/dev2`, and followed by `git pull --ff-only` returning `Already up to date`.
 
 ## Checkpoint 1: 2026-09-03 13:18 Asia/Shanghai - resumed C8 diagnosis
 
@@ -123,5 +123,15 @@
 - Files/artifacts changed: IntroSkip lifecycle/cache/parser logic, update manifest/signature validation, reader routing/cancellation/progress handling, mobile/Leanback/TMDB callback guards, regression tests, and C8 documentation; no native/lock/AAR/APK/.so/dependency ownership change.
 - Validation: final command `:app:compileMobileArm64_v8aDebugJavaWithJavac :app:compileLeanbackArm64_v8aDebugJavaWithJavac :app:testMobileArm64_v8aDebugUnitTest` with six `--tests` selectors returned `BUILD SUCCESSFUL in 2m 26s`; XML totals are 73 tests, 0 failures, 0 errors, 0 skips.
 - Rollback anchor: retain merge commit `5cf2f2e7fddd48454d10b86c27cc9f02e979098a`; after the repair commit is created, revert the repair commit and use `git revert -m 1 5cf2f2e7fddd48454d10b86c27cc9f02e979098a` to remove the beta merge if required.
-- Unresolved: remote ancestry check, task-guard repair commit/recovery tag, assessment-row final hash, push, and fast-forward pull.
-- Next action: inspect remote ancestry, then execute `task_guard.sh finish` without rerunning tests.
+- Unresolved: none for the approved code-sync scope; device playback regression remains an optional follow-up outside this task's acceptance gate.
+- Next action: code task closed; retain the recovery tag as the rollback anchor.
+
+
+## Checkpoint 5: 2026-09-04 00:10 Asia/Shanghai - task closed and synchronized
+
+- Completed: task guard committed the repaired C8 tree atomically and created the annotated recovery tag; the current branch and tag were pushed successfully.
+- Source identities: repair commit `1d08c6fba24763023bf51792d344a3912b6d3cdb`; recovery tag `recovery/C8-beta-sync/20260903160741-1d08c6fba247`; beta merge remains the two-parent commit `5cf2f2e7fddd48454d10b86c27cc9f02e979098a`; beta target remains `308694aaadd59d9d1ef230bded83cf84dafa114c`.
+- Validation: final combined Mobile/Leanback Arm64 Java compilation and six-selector Mobile Arm64 test command returned `BUILD SUCCESSFUL in 2m 26s`; XML totals were 73 tests, 0 failures, 0 errors, and 0 skips; `git diff --check` passed.
+- Remote: pushed `dev2` and the recovery tag with Git HTTP/1.1; `git pull --ff-only` returned `Already up to date`.
+- Workspace: the approved C8 scope is closed; no native, lock, AAR, APK, `.so`, FFmpeg, Media3, MPV, JNI, or dependency ownership change was made. Device playback remains an optional follow-up, not an acceptance requirement for this sync task.
+- Rollback: use the recovery tag for the verified restore point; revert the repair commit and, if needed, revert the beta merge with `git revert -m 1 5cf2f2e7fddd48454d10b86c27cc9f02e979098a`.
