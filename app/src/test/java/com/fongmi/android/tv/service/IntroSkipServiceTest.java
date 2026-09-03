@@ -303,4 +303,29 @@ public class IntroSkipServiceTest {
         assertEquals(2_640_000, reference.getEndings().get(0).getStartMs());
         assertEquals(2_580_000, shorter.getEndings().get(0).getStartMs());
     }
+
+    @Test
+    public void resolvedSegments_keepDistinctStableIdentitiesForMultipleSameProviderSegments() {
+        List<IntroSkipService.RawSegment> raw = IntroSkipService.parseTheIntroDbRaw(
+                "{\"duration_ms\":2700000,\"intro\":["
+                        + "{\"start_ms\":0,\"end_ms\":45000},"
+                        + "{\"start_ms\":160000,\"end_ms\":253000}]}" );
+
+        IntroSkipPlan reference = IntroSkipPlan.from(raw, 2_700_000);
+        IntroSkipPlan shorter = IntroSkipPlan.from(raw, 2_699_000);
+
+        assertEquals(2, reference.getOpenings().size());
+        assertNotEquals(reference.getOpenings().get(0).getIdentity(), reference.getOpenings().get(1).getIdentity());
+        assertEquals(reference.getOpenings().get(0).getIdentity(), shorter.getOpenings().get(0).getIdentity());
+        assertEquals(reference.getOpenings().get(1).getIdentity(), shorter.getOpenings().get(1).getIdentity());
+    }
+
+    @Test
+    public void trailingSegmentEndingAfterReferenceDurationIsNotMarkedOpenEnded() {
+        String body = "{\"duration_ms\":1500000,\"credits\":[{\"start_ms\":1380000,\"end_ms\":1600000}]}";
+
+        IntroSkipPlan plan = IntroSkipService.parseTheIntroDb(body, 1_500_000);
+
+        assertTrue(plan.getEndings().isEmpty());
+    }
 }

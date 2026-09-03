@@ -826,6 +826,19 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
+    public void leanbackSpeedBoostReleaseIsGuarded() throws Exception {
+        String leanback = new String(Files.readAllBytes(findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"))), StandardCharsets.UTF_8);
+        String keyDown = new String(Files.readAllBytes(findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "custom", "CustomKeyDownVod.java"))), StandardCharsets.UTF_8);
+        String releaseBody = methodBody(keyDown, "public void releaseSpeed()", "public void setFull(boolean full)");
+
+        assertTrue("CustomKeyDownVod must expose the guarded speed release state", keyDown.contains("public boolean isChangingSpeed()") && keyDown.contains("public void releaseSpeed()"));
+        assertTrue("releaseSpeed must clear the flag and end the boost", releaseBody.contains("changeSpeed = false;") && releaseBody.contains("listener.onSpeedEnd();"));
+        assertTrue("dispatchKeyEvent must release the boost when a key is released outside the state machine", methodBody(leanback, "public boolean dispatchKeyEvent(KeyEvent event)", "private boolean dispatchLutQuickKey(KeyEvent event)").contains("mKeyDown.releaseSpeed()"));
+        assertTrue("onWindowFocusChanged must release the boost when window focus is lost", methodBody(leanback, "public void onWindowFocusChanged(boolean hasFocus)", "private boolean isInitAuto()").contains("mKeyDown.releaseSpeed()"));
+        assertTrue("onStop must release the boost", methodBody(leanback, "protected void onStop()", "protected void onBackInvoked()").contains("mKeyDown.releaseSpeed()"));
+    }
+
+    @Test
     public void refreshedPlayerKernelSwitchKeepsManualFailureSemantics() throws Exception {
         Path sourcePath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "player", "PlayerManager.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
@@ -2975,20 +2988,74 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
-    public void mobileVideoEpisodeViewportUsesStableCapInsideScrollPage() throws Exception {
+    public void mobileVideoEpisodeViewportKeepsItsCapUnlessThePageOwnsTmdbEpisodeScroll() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int method = source.indexOf("private void updateEpisodeViewportHeight()");
-        int nextMethod = source.indexOf("private boolean isTmdbEpisodeCardMode()", method);
+        int nextMethod = source.indexOf("private boolean usesOuterEpisodePageScroll()", method);
         String methodBody = nextMethod > method ? source.substring(method, nextMethod) : source.substring(method);
+        int outerScroll = source.indexOf("private boolean usesOuterEpisodePageScroll()");
+        int outerScrollEnd = source.indexOf("private boolean isTmdbEpisodeCardMode()", outerScroll);
+        String outerScrollBody = outerScrollEnd > outerScroll ? source.substring(outerScroll, outerScrollEnd) : source.substring(outerScroll);
 
         assertTrue(sourcePath + " is missing updateEpisodeViewportHeight", method >= 0);
-        assertTrue("episode viewport must keep a stable dp cap for scrollable detail pages",
-                methodBody.contains("int height = limit;"));
+        assertTrue("episode viewport must keep a stable dp cap unless the page owns the TMDB episode scroll",
+                methodBody.contains("int height = usesOuterEpisodePageScroll() ? 0 : limit;")
+                        && methodBody.contains("!usesOuterEpisodePageScroll() && isTmdbEpisodeCardMode()"));
+        assertTrue("the outer page scroll contract must cover original enhanced pages and reparented backdrop TMDB playback",
+                outerScrollBody.contains("Setting.isOriginalEnhancedDetailPage()")
+                        && outerScrollBody.contains("mTmdbControlsMoved && shouldUseTmdbBackdropSurface()"));
+        assertTrue("a reparented outer-scroll episode grid must release vertical gestures to its page",
+                source.contains("mBinding.episode.setOnTouchListener((view, event) -> {")
+                        && source.contains("if (!usesOuterEpisodePageScroll()) return false;")
+                        && source.contains("int action = event.getActionMasked();")
+                        && source.contains("action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE")
+                        && source.contains("view.getParent().requestDisallowInterceptTouchEvent(false);"));
         assertTrue("episode viewport must not collapse based on current remaining screen height",
                 !methodBody.contains("available ="));
         assertTrue("episode viewport must not depend on root height after the method starts",
                 !methodBody.contains("mBinding.getRoot().getHeight()"));
+    }
+
+    @Test
+    public void mobileOriginalEnhancedEpisodeViewportUsesOuterPageScrollWithoutHeightCap() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int outerScroll = source.indexOf("private boolean usesOuterEpisodePageScroll()");
+        int outerScrollEnd = source.indexOf("private boolean isTmdbEpisodeCardMode()", outerScroll);
+        String outerScrollBody = outerScrollEnd > outerScroll ? source.substring(outerScroll, outerScrollEnd) : source.substring(outerScroll);
+
+        assertTrue(sourcePath + " is missing usesOuterEpisodePageScroll", outerScroll >= 0);
+        assertTrue("original enhanced playback must remove the inner episode viewport height cap",
+                outerScrollBody.contains("Setting.isOriginalEnhancedDetailPage()"));
+        assertTrue("the first original-enhanced layout pass must replace the XML max-height default",
+                source.contains("private int mEpisodeMaxHeight = -1;"));
+    }
+
+    @Test
+    public void mobileBackdropTmdbEpisodeGridLetsTheOuterScrollContentGrowAfterReparenting() throws Exception {
+        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
+        int move = source.indexOf("private void moveFlagAndEpisodeToTmdb()");
+        int restore = source.indexOf("private void restoreFlagAndEpisodeFromTmdb()");
+        int helper = source.indexOf("private void updateTmdbPlaybackScrollContentHeight()");
+        int helperEnd = source.indexOf("private void moveTmdbSourceToFlagTitle", helper);
+        String moveBody = restore > move ? source.substring(move, restore) : source.substring(move);
+        String restoreBody = helper > restore ? source.substring(restore, helper) : source.substring(restore);
+        String helperBody = helperEnd > helper ? source.substring(helper, helperEnd) : source.substring(helper);
+
+        assertTrue(sourcePath + " is missing TMDB playback scroll content height sync", helper >= 0);
+        assertTrue("reparenting the episode grid must let the outer scroll child expand to content height",
+                helperBody.contains("View child = mBinding.scroll.getChildAt(0);")
+                        && helperBody.contains("if (!(child instanceof ViewGroup content)) return;")
+                        && helperBody.contains("int height = mTmdbControlsMoved && usesOuterEpisodePageScroll()")
+                        && helperBody.contains("? ViewGroup.LayoutParams.WRAP_CONTENT : ViewGroup.LayoutParams.MATCH_PARENT;")
+                        && helperBody.contains("content.setLayoutParams(params);")
+                        && helperBody.contains("mBinding.scroll.requestLayout();"));
+        assertTrue("the expanded content height must be applied after moving the episode grid into TMDB controls",
+                moveBody.contains("updateTmdbPlaybackScrollContentHeight();"));
+        assertTrue("the full-height content contract must be restored when TMDB controls move back",
+                restoreBody.contains("updateTmdbPlaybackScrollContentHeight();"));
     }
 
     @Test

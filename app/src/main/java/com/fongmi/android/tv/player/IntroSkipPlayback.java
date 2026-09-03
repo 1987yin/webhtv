@@ -324,12 +324,8 @@ public class IntroSkipPlayback {
         return text.length() == 0 ? "none" : text.toString();
     }
 
-    /**
-     * 段落身份。刻意不含时间边界：尾部段会随本集时长折算而平移，把边界写进 id 会让同一段
-     * 在时长抖动后换出新 id，逃出 skipped 再触发一次，表现为重复跳过 / 重复换集。
-     * 同类同源在一集里只会有一段（去重已保证），所以类型 + 数据源足够唯一。
-     */
+    /** 段落身份来自服务层的原始边界，既区分同源多段，也不随本地时间轴折算漂移。 */
     private String id(Segment segment) {
-        return segment.getKind() + "|" + segment.getProvider();
+        return segment.getIdentity();
     }
 }
