@@ -362,6 +362,7 @@ public class IntroSkipService {
         private final long referenceDurationMs;
         private final double confidence;
         private final int submissionCount;
+        private final String identity;
 
         RawSegment(Segment.Kind kind, String provider, Long startMs, Long endMs, long referenceDurationMs, double confidence, int submissionCount) {
             this.kind = kind;
@@ -371,10 +372,12 @@ public class IntroSkipService {
             this.referenceDurationMs = referenceDurationMs;
             this.confidence = confidence;
             this.submissionCount = submissionCount;
+            this.identity = String.valueOf(kind) + "|" + String.valueOf(provider) + "|"
+                    + String.valueOf(startMs) + "|" + String.valueOf(endMs);
         }
 
         Segment resolve(long durationMs) {
-            return Segment.create(kind, provider, startMs, endMs, durationMs, referenceDurationMs, confidence, submissionCount);
+            return Segment.create(kind, provider, startMs, endMs, durationMs, referenceDurationMs, confidence, submissionCount, identity);
         }
     }
 
@@ -467,8 +470,9 @@ public class IntroSkipService {
         private final boolean openEnded;
         private final double confidence;
         private final int submissionCount;
+        private final String identity;
 
-        private Segment(Kind kind, String provider, long startMs, long endMs, boolean openEnded, double confidence, int submissionCount) {
+        private Segment(Kind kind, String provider, long startMs, long endMs, boolean openEnded, double confidence, int submissionCount, String identity) {
             this.kind = kind;
             this.provider = provider;
             this.startMs = startMs;
@@ -476,21 +480,23 @@ public class IntroSkipService {
             this.openEnded = openEnded;
             this.confidence = confidence;
             this.submissionCount = submissionCount;
+            this.identity = identity;
         }
 
-        private static Segment create(Kind kind, String provider, Long startMs, Long endMs, long durationMs, long referenceDurationMs, double confidence, int submissionCount) {
+        private static Segment create(Kind kind, String provider, Long startMs, Long endMs, long durationMs, long referenceDurationMs, double confidence, int submissionCount, String identity) {
             if (kind == null) return null;
             boolean trailing = kind == Kind.OUTRO || kind == Kind.PREVIEW;
             long start = startMs == null && !trailing ? 0 : startMs == null ? -1 : startMs;
             long end = endMs == null ? -1 : endMs;
             if (start < 0) return null;
-            if (trailing) return createTrailing(kind, provider, start, end, durationMs, referenceDurationMs, confidence, submissionCount);
+            if (endMs != null && end < 0) return null;
+            if (trailing) return createTrailing(kind, provider, start, end, durationMs, referenceDurationMs, confidence, submissionCount, identity);
             if (durationMs > 0) {
                 if (start >= durationMs) return null;
                 if (end > durationMs) end = durationMs;
             }
             if (end <= start) return null;
-            return new Segment(kind, provider, start, end, false, Math.max(0, confidence), Math.max(0, submissionCount));
+            return new Segment(kind, provider, start, end, false, Math.max(0, confidence), Math.max(0, submissionCount), identity);
         }
 
         /**
@@ -502,11 +508,12 @@ public class IntroSkipService {
          * 整段被丢弃——这正是片头能跳、片尾不跳的主因。参考时长缺失时无从折算，
          * 只能沿用原始时间戳。
          */
-        private static Segment createTrailing(Kind kind, String provider, long start, long end, long durationMs, long referenceDurationMs, double confidence, int submissionCount) {
+        private static Segment createTrailing(Kind kind, String provider, long start, long end, long durationMs, long referenceDurationMs, double confidence, int submissionCount, String identity) {
             long reference = plausibleReference(referenceDurationMs, durationMs);
+            if (reference > 0 && end > reference && end - reference > OPEN_END_TOLERANCE_MS) return null;
             // openEnded 只能拿参考时间轴上的结尾去比。没有参考时长时（IntroDB 从不给）无从判断，
             // 一律按「有界」处理：错判成 openEnded 会让 seek 变成切集，把片尾之后的正片一起扔掉。
-            boolean openEnded = end < 0 || (reference > 0 && reference - end <= OPEN_END_TOLERANCE_MS);
+            boolean openEnded = end < 0 || (reference > 0 && end <= reference && reference - end <= OPEN_END_TOLERANCE_MS);
             if (reference > 0 && durationMs > 0 && Math.abs(reference - durationMs) > TIME_BASE_TOLERANCE_MS) {
                 long shift = durationMs - reference;
                 start += shift;
@@ -518,7 +525,7 @@ public class IntroSkipService {
             }
             if (start <= 0) return null; // 尾部段不可能从 0 开始，整集当片尾必是错配
             if (end >= 0 && end <= start) return null;
-            return new Segment(kind, provider, start, end, openEnded, Math.max(0, confidence), Math.max(0, submissionCount));
+            return new Segment(kind, provider, start, end, openEnded, Math.max(0, confidence), Math.max(0, submissionCount), identity);
         }
 
         /**
@@ -543,6 +550,11 @@ public class IntroSkipService {
 
         public String getProvider() {
             return provider;
+        }
+
+        /** 原始数据边界生成的稳定身份，不随本地片源时长折算而变化。 */
+        public String getIdentity() {
+            return identity;
         }
 
         public long getStartMs() {
