@@ -51,6 +51,7 @@
 | 26 | `P4-4` | MPV | 自动播放意图与延迟 pause 回调隔离 | **已完成**：`e8a1582d74844df0292cb27c6c8259a3d5eb5dfa` / `recovery/P4-4-MPV-AUTOPLAY-PAUSE-RACE/20260829135715-e8a1582d7484`；V2453A/API 35 冷启动和两次快速媒体替换均保持自动播放，两个暖切换样本约 3 秒推进约 2.8 秒；不改 native/FFmpeg/渲染链 | [P4-4-mpv-autoplay-pause-race.md](P4-4-mpv-autoplay-pause-race.md) |
 | 27 | `C5` | 通用/上游应用同步 | 合并 `origin/beta` 最新历史投影、播放 ownership、沉浸融合标题和 armv7 C2 资产修复 | **已完成并推送**：`fc5b6ba029348c2c06214a80e4c080d6b210269a` / `recovery/C5-beta-sync/20260901135541-fc5b6ba02934`；83 项定向测试、双端 Arm64 Java 编译及双 ABI MPV 资产门禁通过 | [C5-beta-sync.md](C5-beta-sync.md) |
 | 28 | `C6` | 通用/上游应用同步 | 合并 `origin/beta` 最新原生增强详情页 loading/backdrop 修复，并复审未推送的实时字幕原声识别语言快捷切换 | **已完成并推送**：提交 `a33ff92b8e65e11330ab17270b5f86a4c0b08183` / 恢复 tag `recovery/C6-beta-sync/20260902090623-a33ff92b8e65`；beta `c975ae1ed482a4bf47f106f5931bd2392e8ecce3`；四个目标测试类共 171 项通过，Mobile/Leanback Arm64 Java 编译通过；评审发现的 2 项 Important/1 项 Medium 已修复；设备播放回归待补验 | [C6-beta-sync.md](C6-beta-sync.md) |
+| 29 | `C9` | 通用/上游应用同步 | 合并 `origin/beta` 在 C6 之后的播放器、片段跳过、实时字幕、更新校验和移动详情页修复，并复审当前未推送的移动滚动改动 | **实施中**：beta `308694aaadd59d9d1ef230bded83cf84dafa114c`；合并与评审记录见 [C9-beta-sync.md](C9-beta-sync.md) | [C9-beta-sync.md](C9-beta-sync.md) |
 
 `C1` 是跨播放器真实输入验收维度，不单独形成代码任务或文档；它写入对应的 E/P 任务文档。`E-SP3` 已在 `fongmi-sync` 完成 App/Media3 合并，保留既有 `E4-J1`/`E6-1`/`E7-1`/`E7-2 + C3` 能力；`E9-3` 与已完成的 `P1` 现已共同进入集成树，后续按既定顺序处理 P2 阶段。
 
