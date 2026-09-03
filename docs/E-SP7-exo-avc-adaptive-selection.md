@@ -115,3 +115,11 @@
 - 设备限制：当前 ADB 只有 `emulator-5554` 和 `emulator-5556`，没有 Dangbei X7 Ultra；真实同资源分辨率、decoder、掉帧和 CPU A/B 尚待设备条件具备后补验。
 - 当前状态：源码修复已完成并通过静态/单测/两产品 Java 编译，待 task guard 完成原子提交和本地 recovery tag。
 - 下一步：执行 task guard finish；后续设备 A/B 结果追加到本文，不改变本次源码提交边界。
+
+## Checkpoint 4：2026-09-03 beta 合并后复核
+
+- 合并基线：当前第一父为 `ff438637b89587cf4f378843338a4122ba07e9d3`，beta 第二父为 `bcfe7b22a05e32913448a228f9513c690bc8233f`；beta 暂存差异未触及 `ExoUtil.java`、`ExoUtilTest.java` 或 E-SP7 业务路径。
+- 代码复核：`applyVideoLimit()` 的 `setForceHighestSupportedBitrate(false)`、最大分辨率/码率/帧率约束和无轨道限制分支均保持原实施边界。
+- 合并后验证：E-SP7 `ExoUtilTest` 定向任务通过；Mobile Arm64 与 Leanback Arm64 Java 编译通过，Leanback 最终执行耗时 5 分 59 秒。
+- 结论：beta 合并未覆盖或削弱 E-SP7，当前没有需要在提交前修正的 E-SP7 相关问题；真实 Dangbei X7 Ultra 同资源 A/B 仍未执行。
+- 下一步：随 C9 beta 合并原子提交创建恢复标签并推送；设备 A/B 结果后续追加，不改变本次源码提交边界。

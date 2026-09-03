@@ -52,6 +52,7 @@
 | 27 | `C5` | 通用/上游应用同步 | 合并 `origin/beta` 最新历史投影、播放 ownership、沉浸融合标题和 armv7 C2 资产修复 | **已完成并推送**：`fc5b6ba029348c2c06214a80e4c080d6b210269a` / `recovery/C5-beta-sync/20260901135541-fc5b6ba02934`；83 项定向测试、双端 Arm64 Java 编译及双 ABI MPV 资产门禁通过 | [C5-beta-sync.md](C5-beta-sync.md) |
 | 28 | `C6` | 通用/上游应用同步 | 合并 `origin/beta` 最新原生增强详情页 loading/backdrop 修复，并复审未推送的实时字幕原声识别语言快捷切换 | **已完成并推送**：提交 `a33ff92b8e65e11330ab17270b5f86a4c0b08183` / 恢复 tag `recovery/C6-beta-sync/20260902090623-a33ff92b8e65`；beta `c975ae1ed482a4bf47f106f5931bd2392e8ecce3`；四个目标测试类共 171 项通过，Mobile/Leanback Arm64 Java 编译通过；评审发现的 2 项 Important/1 项 Medium 已修复；设备播放回归待补验 | [C6-beta-sync.md](C6-beta-sync.md) |
 | 29 | `E-SP7` | Exo 性能/播放行为 | H.264/AVC 受约束轨道恢复自适应选轨，避免 800Kbps 视频固定到过高分辨率导致掉帧 | **已实施，待真实设备 A/B 验收**：`ExoUtil.applyVideoLimit()` 已恢复自适应选轨；定向单测和 Mobile arm64 Java 编译通过 | [E-SP7-exo-avc-adaptive-selection.md](E-SP7-exo-avc-adaptive-selection.md) |
+| 30 | `C9` | 通用/上游应用同步 | 合并 `origin/beta` 在 C6 之后的播放器、片段跳过、实时字幕、更新校验和移动详情页修复，并复审 E-SP7 合并树 | **已完成评审，待提交推送**：beta `bcfe7b22a05e32913448a228f9513c690bc8233f`；E-SP7 定向测试、beta 受影响 175 项测试和两产品 Java 编译通过；详细记录见 [C9-beta-sync.md](C9-beta-sync.md) | [C9-beta-sync.md](C9-beta-sync.md) |
 
 `C1` 是跨播放器真实输入验收维度，不单独形成代码任务或文档；它写入对应的 E/P 任务文档。`E-SP3` 已在 `fongmi-sync` 完成 App/Media3 合并，保留既有 `E4-J1`/`E6-1`/`E7-1`/`E7-2 + C3` 能力；`E9-3` 与已完成的 `P1` 现已共同进入集成树，后续按既定顺序处理 P2 阶段。
 
@@ -4953,3 +4954,11 @@ C3 的触发来源主要是 media `990abc2368fd74779f525ee345734470659f3d53`（`
 - 需要继续观察的分叉：Exo FFmpeg 兜底与降载、Exo PreCache worker 生命周期、Exo 音频采集管线、MPV 自动直出保护、IJK 首帧 watchdog 和依赖/锁文件链。
 - 验证边界：本轮只做静态 diff、符号调用路径和默认值核对，未执行实机 A/B 或 native 行为复测。
 - 下一动作：按用户指示先合并最新 beta，再复核 E-SP7 合并树，随后输出其他播放差异的同步意见表。
+
+## 检查点 58：2026-09-03 beta 合并与 E-SP7 复核
+
+- 合并基线：`dev4@ff438637b89587cf4f378843338a4122ba07e9d3` 合并 `origin/beta@bcfe7b22a05e32913448a228f9513c690bc8233f`，共同基线为 `59fd2688f79d4e6ef46da23a162c8236920629e6`；仅评估索引发生内容冲突，已组合保留 E-SP7 与 C9 两行。
+- E-SP7：`a228e988d488f178890b64592f9dd89761f8e011` 的源码与测试未被 beta 覆盖；合并后定向 ExoUtilTest 通过，Mobile/Leanback Arm64 Java 编译通过。
+- beta：`IntroSkipServiceTest` 22 项与 `VideoActivityLayoutTest` 153 项共 175 项通过，失败/错误/跳过均为 0；片段身份、速度键释放和移动详情页外层滚动改动未发现需阻断提交的问题。
+- 结论：允许提交并推送当前合并树；C9 仍需保留真实设备播放和 OEM 行为作为后续补验，不把 Java/单测结果扩大为设备端完全验收。
+- 下一动作：task guard finish 创建两父合并提交和本地 annotated recovery tag，然后推送当前 `dev4` 与该新 tag。
