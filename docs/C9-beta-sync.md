@@ -2,15 +2,15 @@
 
 ## Recovery anchor
 
-- 目标：将 `origin/beta` 最新代码合并到当前 `dev3`，评审合并树及已提交未推送改动，修复有效问题并循环复审至通过，提交、推送，最后拉取远端最新代码。
-- 状态：实施中；合并已执行但尚未提交，评审与修复验证未完成。
-- 当前第一父基线：`dev3@c0192b6c716451d284e2d4b04c71000950413223`。
-- beta 目标：`origin/beta@308694aaadd59d9d1ef230bded83cf84dafa114c`。
-- 合并基线：`adbc9913857d7b1f406ae3ee00143d9e4c41aeda`。
-- 受保护路径：任务开始前已存在的未跟踪目录 `.claude/`；不修改、不暂存、不提交。
-- 任务 guard：`review-beta-sync-20260903`，模式 `standard`，范围 `app`、`docs`。
+- 目标：将 `origin/beta` 最新代码合并到当前 `dev4`，评审合并树及 E-SP7 相关改动，验证通过后提交、推送。
+- 状态：合并已完成，E-SP7 与 beta 受影响测试已通过，待 task guard 完成原子提交、创建恢复标签并推送。
+- 当前第一父基线：`dev4@ff438637b89587cf4f378843338a4122ba07e9d3`。
+- beta 目标：`origin/beta@bcfe7b22a05e32913448a228f9513c690bc8233f`。
+- 合并基线：`59fd2688f79d4e6ef46da23a162c8236920629e6`。
+- 受保护路径：无；任务开始前工作区干净。
+- 任务 guard：`C9-beta-sync`，模式 `standard`，范围为本次 beta 变更路径和三份任务记录。
 - 回滚：提交前使用 `git merge --abort`；提交后使用本任务恢复 tag 或 `git revert` 回退两父合并提交。
-- 下一动作：先完成第一轮回归测试与独立评审意见核对；有效问题按 TDD 修复后重新评审完整修复差异。
+- 下一动作：记录最终验证结果后执行 task guard finish，随后只推送当前 `dev4` 和新恢复标签。
 
 ## Authority and scope
 
@@ -21,7 +21,7 @@
 
 ## Frozen commit ledger
 
-`origin/beta` 相对 C6 目标 `c975ae1ed482a4bf47f106f5931bd2392e8ecce3` 的完整可达提交如下。合并提交、文档提交和已被当前第一父包含的提交均保留在账本中，不因功能影响为零而省略。
+`origin/beta` 相对 C6 目标 `c975ae1ed482a4bf47f106f5931bd2392e8ecce3` 的历史可达提交如下。合并提交、文档提交和已被当前第一父包含的提交均保留在账本中，不因功能影响为零而省略；本次 dev4 合并使用的最新 beta 增量另列在下方。
 
 | # | Repository | Full commit | Parent(s) | Functional area | Disposition |
 | ---: | --- | --- | --- | --- | --- |
@@ -55,6 +55,22 @@
 | 2 | `ddb9045561faec417555e764806f66736469c030` | 原生增强集数区域外层滚动高度 | 已提交未推送；最终树复审 |
 | 3 | `c0192b6c716451d284e2d4b04c71000950413223` | backdrop 集数区域外层滚动和触摸交接 | 已提交未推送；最终树复审 |
 
+## Latest beta extension used by this merge
+
+本次实际目标为 `origin/beta@bcfe7b22a05e32913448a228f9513c690bc8233f`，相对当前第一父 `dev4@ff438637b89587cf4f378843338a4122ba07e9d3` 的共同基线 `59fd2688f79d4e6ef46da23a162c8236920629e6` 新增以下 9 个完整提交：
+
+| # | Full commit | Parent(s) | Functional area | Disposition |
+| ---: | --- | --- | --- | --- |
+| 1 | `1c1ab72ec8cbfca852e5c3191f4ec8c0eabb1d05` | `adbc9913857d7b1f406ae3ee00143d9e4c41aeda` | 移动端原生增强详情页可用高度 | 已合并；由布局测试覆盖 |
+| 2 | `ddb9045561faec417555e764806f66736469c030` | `1c1ab72ec8cbfca852e5c3191f4ec8c0eabb1d05` | 原生增强详情页集数区域外层滚动高度 | 已合并；由布局测试覆盖 |
+| 3 | `308694aaadd59d9d1ef230bded83cf84dafa114c` | `e7c1c9cccc7949022cae432085dcbdc2576e3fd4`, `59fd2688f79d4e6ef46da23a162c8236920629e6` | beta 发布集成承载 | 合并承载；处置跟随最终树 |
+| 4 | `c0192b6c716451d284e2d4b04c71000950413223` | `ddb9045561faec417555e764806f66736469c030` | backdrop 集数区域外层滚动和触摸交接 | 已合并；由布局测试覆盖 |
+| 5 | `0c71cad17573f7fe36458a4785ee969ba36da171` | `308694aaadd59d9d1ef230bded83cf84dafa114c` | 电视端速度加速键失焦/漏释放修复 | 已合并；由布局测试覆盖 |
+| 6 | `97e980c8bda8af2187ac7e678ca59d5c78dbd40e` | `c0192b6c716451d284e2d4b04c71000950413223`, `308694aaadd59d9d1ef230bded83cf84dafa114c` | beta 同步复审与最终修复承载 | 最终树已复审 |
+| 7 | `9b2f02bd302c5dcb52352716ae2be0b9d84188f5` | `308694aaadd59d9d1ef230bded83cf84dafa114c`, `97e980c8bda8af2187ac7e678ca59d5c78dbd40e` | dev3 PR 合并承载 | 合并承载；处置跟随最终树 |
+| 8 | `0c62583d4d9e86b672850d737ca9ef9e57dec3fc` | `0c71cad17573f7fe36458a4785ee969ba36da171`, `9b2f02bd302c5dcb52352716ae2be0b9d84188f5` | beta 分支合并承载 | 合并承载；处置跟随最终树 |
+| 9 | `bcfe7b22a05e32913448a228f9513c690bc8233f` | `9b2f02bd302c5dcb52352716ae2be0b9d84188f5`, `0c62583d4d9e86b672850d737ca9ef9e57dec3fc` | beta 最新发布目标合并 | 本次合并目标；已完成最终树复审 |
+
 ## Current behavior and decision
 
 - 合并方式：当前 `dev3` 作为第一父，`origin/beta` 作为第二父，已执行 `git merge --no-commit --no-ff origin/beta`，Git 自动合并成功，无未合并路径。
@@ -86,6 +102,25 @@
 - 2026-09-03 Asia/Shanghai：刷新 `origin/beta`，确认目标 `308694aaadd59d9d1ef230bded83cf84dafa114c`；确认 C6 目标 `c975ae1ed482a4bf47f106f5931bd2392e8ecce3` 为其祖先，完整新增范围为 21 个提交。
 - 2026-09-03 Asia/Shanghai：启动 guard `review-beta-sync-20260903`，范围 `app`、`docs`；首次 bash 调用因环境无 WSL 失败，改用 `G:/Git/bin/bash.exe` 后启动成功。
 - 2026-09-03 Asia/Shanghai：执行 `git merge --no-commit --no-ff origin/beta`，自动合并成功；当前 `HEAD` 未移动，`MERGE_HEAD` 为 beta 目标。
+
+## Checkpoint 3: 2026-09-03 dev4 beta merge and E-SP7 review closure
+
+- Current merge: first parent `ff438637b89587cf4f378843338a4122ba07e9d3`, second parent `bcfe7b22a05e32913448a228f9513c690bc8233f`, merge base `59fd2688f79d4e6ef46da23a162c8236920629e6`; only the assessment index conflicted and was resolved by retaining both C9 and E-SP7 rows.
+- E-SP7 review: `a228e988d488f178890b64592f9dd89761f8e011` remains unchanged; `applyVideoLimit()` still uses `setForceHighestSupportedBitrate(false)`, and the beta tree does not modify `ExoUtil.java`, `ExoUtilTest.java`, or E-SP7 runtime code.
+- Validation: E-SP7 `ExoUtilTest` passed; Mobile and Leanback Arm64 Java compilation passed; `IntroSkipServiceTest` 22/22 and `VideoActivityLayoutTest` 153/153 passed, with zero failures, errors, or skips.
+- Review decision: no Critical/Important issue remains in the final beta delta; existing Gradle deprecation and `CXX5202` 32-bit native-library warnings are pre-existing.
+- Remaining limitation: no Dangbei X7 Ultra playback A/B was available, so codec/frame-drop behavior remains a device follow-up and is not claimed as fully device-validated here.
+- Next action: run task guard finish, create the annotated recovery tag, and push `dev4` plus the new tag.
+
+## Checkpoint 2: 2026-09-03 dev4 beta 合并与 E-SP7 复核
+
+- 合并树：第一父 `ff438637b89587cf4f378843338a4122ba07e9d3`，第二父 `bcfe7b22a05e32913448a228f9513c690bc8233f`，合并基线 `59fd2688f79d4e6ef46da23a162c8236920629e6`；唯一冲突为总评估索引的 C9/E-SP7 行，已保留两项记录并清除冲突标记。
+- E-SP7 复核：`a228e988d488f178890b64592f9dd89761f8e011` 的 `ExoUtil.applyVideoLimit()` 仍保持 `setForceHighestSupportedBitrate(false)`；beta 暂存树不包含 `ExoUtil.java`、`ExoUtilTest.java` 或 E-SP7 业务代码覆盖。
+- E-SP7 验证：`:app:testMobileArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.player.exo.ExoUtilTest --no-daemon` 通过；Mobile 与 Leanback Arm64 Java 编译均通过，Leanback 最终执行 `BUILD SUCCESSFUL in 5m 59s`。
+- beta 受影响测试：`IntroSkipServiceTest` 22 项、`VideoActivityLayoutTest` 153 项，共 175 项，失败 0、错误 0、跳过 0。
+- 评审结论：片段身份改为原始边界稳定身份，电视端速度键在失焦、按键释放和退出时释放，移动详情页外层滚动与 episode viewport 约束接线完整；未发现应在本次合并前修复的 Critical/Important 问题。
+- 现有警告：Gradle deprecation 和仓库已有的 `CXX5202` 32 位 native library 警告，均未由本次 beta 变更新增。
+- 下一步：执行 task guard 原子提交、恢复标签和推送；真实设备播放仍作为后续补验，不阻断本次源码合并。
 
 ## Checkpoint 1: merged tree awaiting first review
 
