@@ -75,6 +75,12 @@
 
 多个仓库共同实现的同一功能不会按仓库拆散，而会归并为一个可实施阶段；每个阶段记录完整 commit ID、依赖关系、当前项目已有实现、收益、风险、冲突点、建议动作和验证项。
 
+## 检查点 59：2026-09-03 C10 二进制依赖对齐完成
+
+- `C10` 已完成：提交 `79597d2c688a804f2f6f4f3b27815f5c60595da8`，恢复标签 `recovery/C10-binary-upstream-align/20260903111337-79597d2c688a`。
+- 正式 Media3/Nextlib AAR、sidecar、lock、Media3/Nextlib patch 和 MPV stable override 已按 `fish2018/webhtv:main@ec478b0b697422a7785171c7b51a35b7a526564e` 对齐；未改 Java 播放策略或已打包播放器 `.so`。
+- 双 ABI MPV ELF 门禁及 Mobile/Leanback Arm64 Java 编译通过；目标设备播放 A/B 和 native 重建仍是后续独立证据，不改变本阶段关闭状态。
+
 ## 审计口径
 
 - 当前项目基线以 `README.md`、`third_party/fongmi-repositories-lock.json`、`third_party/media-lock.json` 和 `third_party/mpv-native-lock.json` 为准。

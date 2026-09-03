@@ -83,4 +83,12 @@
 - 范围验证：无 `app/src/main/java`、JNI、已打包播放器 `.so` 或无关 Gradle 依赖改动；`git diff --cached --check` 与 task guard scope check 通过。
 - 既有提示：Gradle deprecation 与 `CXX5202` 32 位 native library warning 仍存在，不是本任务引入。
 - 未验证边界：未重建 native、未运行目标电视播放 A/B；当前结论限于上游输入对齐、静态二进制门禁和 Java 接口兼容。
-- 下一动作：执行 task guard finish，创建 C10 原子提交与本地 annotated recovery tag；不推送。
+- C10 实施提交：`79597d2c688a804f2f6f4f3b27815f5c60595da8`。
+- C10 recovery tag：`recovery/C10-binary-upstream-align/20260903111337-79597d2c688a`。
+- 当前状态：二进制/依赖输入上游对齐已完成并闭合；不推送，后续仅在目标设备上补充播放 A/B 证据。
+
+## Checkpoint 4：2026-09-03 C10 文档收口
+
+- 已完成提交：`79597d2c688a804f2f6f4f3b27815f5c60595da8`。
+- 已完成恢复标签：`recovery/C10-binary-upstream-align/20260903111337-79597d2c688a`。
+- 任务状态：C10 已关闭；本次只同步正式播放器二进制/依赖输入，未修改 Exo、MPV、IJK Java 行为。
