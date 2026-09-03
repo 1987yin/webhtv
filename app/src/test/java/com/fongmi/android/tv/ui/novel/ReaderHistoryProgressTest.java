@@ -1,13 +1,14 @@
 package com.fongmi.android.tv.ui.novel;
 
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertFalse;
 
 import com.fongmi.android.tv.bean.History;
+import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.db.AppDatabase;
 
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 
@@ -110,5 +111,57 @@ public class ReaderHistoryProgressTest {
         assertEquals(0, ReaderHistory.toAnchor(5, 0));
         assertEquals(0, ReaderHistory.toAnchor(-1, 10));
         assertEquals(0, ReaderHistory.toPosition(-5, 10));
+    }
+
+    @Test
+    public void readerPayloadUsesTheFieldThatTriggeredReaderRouting() {
+        Result result = new Result();
+        result.setPlayUrl("novel://{\"title\":\"chapter\",\"content\":\"text\"}");
+        result.setUrl("https://example.invalid/video.m3u8");
+
+        assertEquals(result.getPlayUrl(), NovelRouter.readerPayload(result));
+    }
+
+    @Test
+    public void resolvedChapterChangeCopiesSourceProgressInsteadOfKeepingAnotherChapter() {
+        History source = history("source", 21, 50);
+        History target = history("old-target", 8, 10);
+
+        NovelRouter.alignResolvedHistoryProgress(target, source, "new-target");
+
+        assertEquals(21, target.getPosition());
+        assertEquals(50, target.getDuration());
+    }
+
+    @Test
+    public void sameResolvedChapterKeepsExistingTargetProgress() {
+        History source = history("chapter", 21, 50);
+        History target = history("chapter", 8, 10);
+
+        NovelRouter.alignResolvedHistoryProgress(target, source, "chapter");
+
+        assertEquals(8, target.getPosition());
+        assertEquals(10, target.getDuration());
+    }
+
+    @Test
+    public void videoProgressDoesNotBecomeAReaderAnchor() {
+        History source = history("source", 120_000, 2_700_000);
+        source.setMediaType("tv");
+        History target = history("old-target", 8, 10);
+
+        NovelRouter.alignResolvedHistoryProgress(target, source, "new-target");
+
+        assertFalse(target.hasPlaybackTime());
+    }
+
+    private static History history(String episodeUrl, long position, long duration) {
+        History history = new History();
+        history.setKey("site" + AppDatabase.SYMBOL + episodeUrl);
+        history.setEpisodeUrl(episodeUrl);
+        history.setMediaType(ReaderHistory.MEDIA_TYPE);
+        history.setPosition(position);
+        history.setDuration(duration);
+        return history;
     }
 }

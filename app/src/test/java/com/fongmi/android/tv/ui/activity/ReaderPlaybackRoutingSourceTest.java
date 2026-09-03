@@ -51,10 +51,12 @@ public class ReaderPlaybackRoutingSourceTest {
         String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
 
         int resolve = router.indexOf("private static ReaderData resolveHistory(");
-        int payload = router.indexOf("String content = firstContent(result);", resolve);
+        int payload = router.indexOf("String content = readerPayload(result);", resolve);
 
         assertTrue("history reader routing must pass the complete playUrl+url payload to WebReaderActivity",
                 resolve >= 0 && payload > resolve);
+        assertEquals("all Result reader entry points must use the same resolved payload",
+                4, countOccurrences(router, "String payload = readerPayload(result);"));
     }
 
     @Test
@@ -96,6 +98,50 @@ public class ReaderPlaybackRoutingSourceTest {
                 source.contains(savedThenRefreshed));
         assertTrue("reader history must refresh the history view after saving progress",
                 source.contains(savedThenRefreshed));
+    }
+
+    @Test
+    public void readerAsyncDialogsCancelTheirBackgroundLaunches() throws Exception {
+        String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
+
+        assertEquals("route, openHistory and openSite must all wire cancellation",
+                3, countOccurrences(router, "setOnCancelListener"));
+        assertTrue(router.contains("future.cancel(true);"));
+        assertTrue(router.contains("canceled.get()"));
+    }
+
+    @Test
+    public void crossSourceReaderSeedMigratesKeyAndAlignsChapterProgress() throws Exception {
+        String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
+
+        assertTrue(router.contains("target.replace(expectedKey);"));
+        assertTrue(router.contains("alignResolvedHistoryProgress(target, history, episode.getUrl());"));
+        assertTrue(router.contains("target.setMediaType(ReaderHistory.MEDIA_TYPE);"));
+    }
+
+    @Test
+    public void crossSourceReaderRouteDoesNotCopyVideoTimeIntoReaderAnchors() throws Exception {
+        String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
+
+        assertTrue("reader candidate gating must require a reader source or reader record",
+                router.contains("ReaderHistory.isReaderRecord(history)")
+                        && router.contains("isReaderUrl(targetEpisode == null ? null : targetEpisode.getUrl())"));
+        assertTrue("progress alignment must check the source record type before copying anchors",
+                router.contains("ReaderHistory.isReaderRecord(source)")
+                        && router.contains("source.hasPlaybackTime()"));
+        assertTrue("new target rows must align progress before saving",
+                router.contains("alignResolvedHistoryProgress(seed, history, episode.getUrl());"));
+    }
+
+    @Test
+    public void cancelledHistoryRequestCannotWriteResolvedReaderHistory() throws Exception {
+        String router = read("app/src/main/java/com/fongmi/android/tv/ui/novel/NovelRouter.java");
+
+        assertTrue("history resolution must carry its cancellation token",
+                router.contains("resolveHistory(history, target, targetFlag, targetEpisode, targetCid, canceled)"));
+        assertTrue("history seeding must recheck cancellation immediately before writing",
+                router.contains("if (canceled.get()) return;")
+                        && router.contains("seedCrossSourceHistory(history, siteKey, vodId"));
     }
 
     @Test
