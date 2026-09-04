@@ -96,6 +96,15 @@ public final class GithubProxy {
         return String.join("\n", list);
     }
 
+    public static String addSources(String configured, String value) {
+        if (isEmpty(value)) return configured;
+        List<String> list = sources(configured);
+        for (String source : sources(value)) {
+            if (!list.contains(source)) list.add(source);
+        }
+        return String.join("\n", list);
+    }
+
     public static String removeSource(String source) {
         if (isEmpty(source)) return Setting.getGithubProxy();
         String normalized = normalize(source);
@@ -107,6 +116,11 @@ public final class GithubProxy {
     public static String normalizeConfig(String value) {
         List<String> sources = sources(value);
         return sources.isEmpty() ? defaultSources() : String.join("\n", sources);
+    }
+
+    public static String probeUrl(String source) {
+        String proxy = normalize(isEmpty(source) ? first(Setting.getGithubProxy()) : source);
+        return proxy + "https://github.com/Silent1566/webhtv/releases/download/update-channel/update.json";
     }
 
     public static final class Config {

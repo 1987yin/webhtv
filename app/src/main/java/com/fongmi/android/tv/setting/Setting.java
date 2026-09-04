@@ -781,6 +781,7 @@ public class Setting {
         if (!Prefers.getPrefers().contains("update_github_proxy")) return;
 
         String proxy = Prefers.getString("update_github_proxy");
+        boolean hadGlobalSources = Prefers.getPrefers().contains("github_proxy");
         if (GithubProxy.DIRECT.equals(proxy)) {
             putGithubProxyEnabled(false);
         } else {
@@ -788,9 +789,10 @@ public class Setting {
                     ? Prefers.getString("update_github_proxy_url")
                     : legacyGithubProxyUrl(proxy);
             if (!url.isEmpty()) {
-                putGithubProxy(url);
+                putGithubProxy(GithubProxy.addSources(Prefers.getString("github_proxy"), legacyGithubProxySources(url)));
                 putGithubProxyEnabled(true);
                 putGithubProxyMode(Prefers.getString("update_github_proxy_mode", GithubProxy.MODE_FULL_URL));
+                if (!hadGlobalSources) putGithubProxy(url);
             }
         }
 
@@ -807,6 +809,17 @@ public class Setting {
             case "gh_monlor" -> "https://gh.monlor.com";
             default -> "";
         };
+    }
+
+    private static String legacyGithubProxySources(String selectedUrl) {
+        String custom = Prefers.getString("update_github_proxy_url");
+        return String.join("\n",
+                "https://github.chenc.dev",
+                "https://gh.acmsz.top",
+                "https://ghfast.top",
+                "https://gh.monlor.com",
+                custom
+        );
     }
 
     public static boolean isAdblock() {

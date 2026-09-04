@@ -64,6 +64,23 @@ public class GithubProxyTest {
     }
 
     @Test
+    public void addSourcesDeduplicatesExistingSources() {
+        String configured = GithubProxy.addSources(
+                "https://ghfast.top/\nhttps://example.com/\nhttps://ghfast.top",
+                "https://example.com/\nhttps://99z.top"
+        );
+
+        assertEquals("https://ghfast.top/\nhttps://example.com/\nhttps://99z.top/",
+                configured);
+    }
+
+    @Test
+    public void probeUrlUsesNormalizedSourceAndFixedTarget() {
+        assertEquals("https://ghfast.top/https://github.com/Silent1566/webhtv/releases/download/update-channel/update.json",
+                GithubProxy.probeUrl("https://ghfast.top"));
+    }
+
+    @Test
     public void configRewritesFullUrlAndStripScheme() {
         String url = "https://github.com/Silent1566/webhtv/releases/download/v1/app.apk";
 

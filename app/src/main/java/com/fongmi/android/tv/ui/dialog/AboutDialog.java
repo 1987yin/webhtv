@@ -15,6 +15,7 @@ import android.view.WindowManager;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.FragmentActivity;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.BuildConfig;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.DialogAboutBinding;
@@ -25,13 +26,20 @@ import com.fongmi.android.tv.utils.AppVersion;
 import com.fongmi.android.tv.utils.GithubProxy;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.Util;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.github.catvod.net.OkHttp;
+
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
 public final class AboutDialog {
 
     private static final int DIALOG_VERTICAL_MARGIN_DP = 96;
     private static final int FULLSCREEN_INSET_DP = 32;
+    private static final long PROBE_TIMEOUT_MS = TimeUnit.SECONDS.toMillis(5);
 
     private AboutDialog() {
     }
@@ -104,6 +112,7 @@ public final class AboutDialog {
             Setting.putGithubProxy(GithubProxy.defaultSources());
             refreshGithubProxy(binding);
         });
+        binding.probe.setOnClickListener(v -> probeLatency(binding));
 
         View.OnKeyListener dpadNav = (v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
@@ -131,6 +140,7 @@ public final class AboutDialog {
             return false;
         };
         binding.enabled.setOnKeyListener(dpadNav);
+        binding.probe.setOnKeyListener(dpadNav);
         binding.input.setOnKeyListener(dpadNav);
         binding.reset.setOnKeyListener(dpadNav);
 
@@ -151,6 +161,27 @@ public final class AboutDialog {
         githubDialog.show();
         LightDialog.apply(githubDialog);
         configureGithubProxyWindow(activity, githubDialog, binding);
+    }
+
+    private static void probeLatency(DialogGithubProxyBinding binding) {
+        GithubProxyAdapter adapter = (GithubProxyAdapter) binding.list.getAdapter();
+        if (adapter == null || adapter.isProbing()) return;
+        List<String> sources = GithubProxy.getSources();
+        adapter.startProbe(sources);
+        for (String source : sources) {
+            Task.submitLarge(() -> {
+                long start = System.nanoTime();
+                try (var response = OkHttp.newCall(OkHttp.client(PROBE_TIMEOUT_MS), GithubProxy.probeUrl(source), source).execute()) {
+                    long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+                    String value = response.isSuccessful()
+                            ? App.get().getString(R.string.setting_github_proxy_latency, elapsed)
+                            : App.get().getString(R.string.setting_github_proxy_latency_failed);
+                    App.post(() -> adapter.setLatency(source, value));
+                } catch (Exception e) {
+                    App.post(() -> adapter.setLatency(source, App.get().getString(R.string.setting_github_proxy_latency_failed)));
+                }
+            });
+        }
     }
 
     private static void configureGithubProxyWindow(FragmentActivity activity, AlertDialog dialog, DialogGithubProxyBinding binding) {
