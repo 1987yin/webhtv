@@ -1482,6 +1482,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 .setPositiveButton(android.R.string.ok, (dialog, which) -> action.run())
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
+            mIntroSkipConfirmDialog.setOnDismissListener(dialog -> {
+                mIntroSkipPlayback.cancelConfirmation(segment);
+                if (mIntroSkipConfirmDialog == dialog) mIntroSkipConfirmDialog = null;
+            });
             return true;
         });
         mIntroSkipPlayback.setSkipNoticeListener(IntroSkipKinds::notifySkipped);
@@ -6678,13 +6682,15 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void onIntroSkipPlanLoaded() {
+        if (isFinishing() || isDestroyed() || player() == null || player().isReleased() || !isOwner()) return;
         setOpeningEndingText();
         applyAutoIntroSkip();
         preloadAdjacentIntroSkipPlans();
     }
 
     private boolean applyAutoIntroSkip() {
-        if (!Setting.isIntroSkipEnabled() || player() == null) return false;
+        if (!Setting.isIntroSkipEnabled() || isFinishing() || isDestroyed()
+                || player() == null || player().isReleased() || !isOwner()) return false;
         // notify=true：片尾无处可跳（末集/电影）时至少要有提示，不能静默无反应
         return mIntroSkipPlayback.apply(player(), () -> advanceEpisode(true));
     }
@@ -7049,6 +7055,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus) mKeyDown.releaseSpeed();
         if (!hasFocus || mDialogReturnFocus == null) return;
         View target = mDialogReturnFocus;
         mDialogReturnFocus = null;
@@ -7128,6 +7135,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (KeyUtil.isActionUp(event) && KeyUtil.isBackKey(event) && mBinding.lutQuick.hideIfVisible()) return true;
+        if (mKeyDown.isChangingSpeed() && KeyUtil.isActionUp(event)) {
+            mKeyDown.releaseSpeed();
+            if (isVisible(mBinding.lutQuick)) return dispatchLutQuickKey(event);
+        }
         if (isVisible(mBinding.lutQuick)) return dispatchLutQuickKey(event);
         if (isFullscreen() && KeyUtil.isMenuKey(event)) {
             if (Setting.getFullscreenMenuKey() == 1) onEpisodes();
@@ -7384,6 +7395,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     @Override
     protected void onStop() {
         super.onStop();
+        mKeyDown.releaseSpeed();
         mPlayerUi.onStop();
         if (mKaraoke != null) mKaraoke.clear();
         stopAudioCoverRotation();
@@ -7421,6 +7433,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     protected void markPlaybackExiting() {
         if (isPlaybackExiting()) return;
         super.markPlaybackExiting();
+        mIntroSkipPlayback.reset();
         cancelAiSeasonAnalysis(false);
         mPersonalRecommendationGeneration++;
         mPersonalRecommendationTasks.close();
@@ -7430,6 +7443,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
     @Override
     protected void onDestroy() {
+        mIntroSkipPlayback.reset();
         cancelAiSeasonAnalysis(false);
         mLyricsSearchSeq++;
         mLyricsRefreshSeq++;

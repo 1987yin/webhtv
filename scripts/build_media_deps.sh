@@ -238,7 +238,7 @@ apply_media_patches() {
     "$patch_dir/media3-upstream-playback-fixes-2026-08.patch"
     "$patch_dir/media3-exo-hdr-parser-safety.patch"
     "$patch_dir/media3-deferred-cues.patch"
-    "$patch_dir/media3-exo-eac3-joc-pixel-guard.patch"
+    "$patch_dir/media3-exo-pixel-eac3-joc-guard.patch"
     "$patch_dir/media3-exo-dts-14bit-frame-size.patch"
     "$patch_dir/media3-exo-subtitle-byte-safety.patch"
     "$patch_dir/media3-exo-cue-data-contract.patch"

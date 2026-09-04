@@ -51,7 +51,11 @@
 | 26 | `P4-4` | MPV | 自动播放意图与延迟 pause 回调隔离 | **已完成**：`e8a1582d74844df0292cb27c6c8259a3d5eb5dfa` / `recovery/P4-4-MPV-AUTOPLAY-PAUSE-RACE/20260829135715-e8a1582d7484`；V2453A/API 35 冷启动和两次快速媒体替换均保持自动播放，两个暖切换样本约 3 秒推进约 2.8 秒；不改 native/FFmpeg/渲染链 | [P4-4-mpv-autoplay-pause-race.md](P4-4-mpv-autoplay-pause-race.md) |
 | 27 | `C5` | 通用/上游应用同步 | 合并 `origin/beta` 最新历史投影、播放 ownership、沉浸融合标题和 armv7 C2 资产修复 | **已完成并推送**：`fc5b6ba029348c2c06214a80e4c080d6b210269a` / `recovery/C5-beta-sync/20260901135541-fc5b6ba02934`；83 项定向测试、双端 Arm64 Java 编译及双 ABI MPV 资产门禁通过 | [C5-beta-sync.md](C5-beta-sync.md) |
 | 28 | `C6` | 通用/上游应用同步 | 合并 `origin/beta` 最新原生增强详情页 loading/backdrop 修复，并复审未推送的实时字幕原声识别语言快捷切换 | **已完成并推送**：提交 `a33ff92b8e65e11330ab17270b5f86a4c0b08183` / 恢复 tag `recovery/C6-beta-sync/20260902090623-a33ff92b8e65`；beta `c975ae1ed482a4bf47f106f5931bd2392e8ecce3`；四个目标测试类共 171 项通过，Mobile/Leanback Arm64 Java 编译通过；评审发现的 2 项 Important/1 项 Medium 已修复；设备播放回归待补验 | [C6-beta-sync.md](C6-beta-sync.md) |
-| 29 | `C9` | 通用/上游应用同步 | 合并 `origin/beta` 在 C6 之后的播放器、片段跳过、实时字幕、更新校验和移动详情页修复，并复审当前未推送的移动滚动改动 | **实施中**：beta `308694aaadd59d9d1ef230bded83cf84dafa114c`；合并与评审记录见 [C9-beta-sync.md](C9-beta-sync.md) | [C9-beta-sync.md](C9-beta-sync.md) |
+| 29 | `C7` | 通用/上游应用同步 | 合并 `origin/beta` 在 C6 之后的 TMDB 手动匹配持久化、标题锚点隔离和读改写竞态修复 | **已完成（本地未推送）**：目标 `7db1b9d188e27877154757528d441150142b90ed`；本地合并提交 `a8f2015363819c70b4e7ae67d419035e579b857f`；恢复 tag `recovery/C7-beta-sync/20260902101049-a8f201536381`；定向 TMDB 测试和 Mobile/Leanback Arm64 Java 编译通过 | [C7-beta-sync.md](C7-beta-sync.md) |
+| 30 | `C8` | 通用/上游应用同步 | 合并 `origin/beta` 在 C7 之后的片头片尾跳过、播放器生命周期、阅读器路由和更新包签名校验变更，并复审当前未推送改动 | **已完成并推送**：修复提交 `1d08c6fba24763023bf51792d344a3912b6d3cdb` / 恢复 tag `recovery/C8-beta-sync/20260903160741-1d08c6fba247`；beta 目标 `308694aaadd59d9d1ef230bded83cf84dafa114c`，合并提交 `5cf2f2e7fddd48454d10b86c27cc9f02e979098a` 已保留；73 项定向测试、Mobile/Leanback Arm64 Java 编译和 `git diff --check` 通过；`dev2` 与恢复 tag 已推送，`git pull --ff-only` 已更新到最新 | [C8-beta-sync.md](C8-beta-sync.md) |
+| 29 | `E-SP7` | Exo 性能/播放行为 | H.264/AVC 受约束轨道恢复自适应选轨，避免 800Kbps 视频固定到过高分辨率导致掉帧 | **已实施，待真实设备 A/B 验收**：`ExoUtil.applyVideoLimit()` 已恢复自适应选轨；定向单测和 Mobile arm64 Java 编译通过 | [E-SP7-exo-avc-adaptive-selection.md](E-SP7-exo-avc-adaptive-selection.md) |
+| 30 | `C9` | 通用/上游应用同步 | 合并 `origin/beta` 在 C6 之后的播放器、片段跳过、实时字幕、更新校验和移动详情页修复，并复审 E-SP7 合并树 | **已完成并推送**：`80ded1386a108dc8d1b08610c5b616d4d0f1f77f` / `recovery/C9-beta-sync/20260903072404-80ded1386a10`；E-SP7 定向测试、beta 受影响 175 项测试和两产品 Java 编译通过 | [C9-beta-sync.md](C9-beta-sync.md) |
+| 31 | `C10` | 通用/播放器供应链 | 播放器 AAR、Maven sidecar、lock、MPV native override 和构建输入以上游为准 | **清理已验证，待提交**：正式发布输入及全部 MPV native override 已与 `fish2018/webtv:main@ec478b0b697422a7785171c7b51a35b7a526564e` 对齐；v556 残留已删除，双 ABI MPV ELF 门禁通过，详情见 [C10-binary-upstream-alignment.md](C10-binary-upstream-alignment.md) | [C10-binary-upstream-alignment.md](C10-binary-upstream-alignment.md) |
 
 `C1` 是跨播放器真实输入验收维度，不单独形成代码任务或文档；它写入对应的 E/P 任务文档。`E-SP3` 已在 `fongmi-sync` 完成 App/Media3 合并，保留既有 `E4-J1`/`E6-1`/`E7-1`/`E7-2 + C3` 能力；`E9-3` 与已完成的 `P1` 现已共同进入集成树，后续按既定顺序处理 P2 阶段。
 
@@ -72,6 +76,12 @@
 3. 通用功能：评估应独立合并，还是随 Exo/MPV 某个阶段一起合并。
 
 多个仓库共同实现的同一功能不会按仓库拆散，而会归并为一个可实施阶段；每个阶段记录完整 commit ID、依赖关系、当前项目已有实现、收益、风险、冲突点、建议动作和验证项。
+
+## 检查点 59：2026-09-03 C10 二进制依赖对齐完成
+
+- `C10` 已完成：提交 `79597d2c688a804f2f6f4f3b27815f5c60595da8`，恢复标签 `recovery/C10-binary-upstream-align/20260903111337-79597d2c688a`。
+- 正式 Media3/Nextlib AAR、sidecar、lock、Media3/Nextlib patch 和 MPV stable override 已按 `fish2018/webhtv:main@ec478b0b697422a7785171c7b51a35b7a526564e` 对齐；未改 Java 播放策略或已打包播放器 `.so`。
+- 双 ABI MPV ELF 门禁及 Mobile/Leanback Arm64 Java 编译通过；目标设备播放 A/B 和 native 重建仍是后续独立证据，不改变本阶段关闭状态。
 
 ## 审计口径
 
@@ -4928,3 +4938,36 @@ C3 的触发来源主要是 media `990abc2368fd74779f525ee345734470659f3d53`（`
 - 回滚锚点：`backup/dev2-beta-baseline-20260830`、`backup/dev2-before-beta-overwrite-20260830`；合并源 `4489ca9ecc91c2c30fd23610cb0342aa1224717b` 保持不变。
 - 未决：尚未创建合并提交。
 - 下一动作：创建 dev2 两父合并提交并创建 `recovery/dev2-beta-fongmi-sync-20260830/<timestamp>` 本地 annotated tag，不推送。
+
+## 检查点 55：2026-09-03 E-SP7 Exo H.264 自适应选轨实施启动
+
+- 用户已批准实施 E-SP7；唯一任务文档为 [E-SP7-exo-avc-adaptive-selection.md](E-SP7-exo-avc-adaptive-selection.md)。
+- 当前基线：分支 `dev4`，HEAD `59fd2688f79d4e6ef46da23a162c8236920629e6`，实施前工作区无脏文件。
+- 根因：本地 `1536c1bcc8d409d6f2479764a8fee20c45fd1fc8` 在受约束 `applyVideoLimit()` 中启用 `setForceHighestSupportedBitrate(true)`；上游 `fish2018/webhtv@ec478b0b697422a7785171c7b51a35b7a526564e` 和 AndroidX Media3 `release@2bc207851df311340767e913931ca7b28cab1794` 均支持恢复自适应选轨。
+- 范围：仅 `ExoUtil.java`、`ExoUtilTest.java`、E-SP7 任务文档和本索引；不改 AAR、lock、FFmpeg、MPV、native 或其他播放器。
+- 当前状态：task guard `E-SP7/upstream` 已启动；下一动作是先运行修改后的 `ExoUtilTest` 证明旧源码不满足新回归断言，再修改生产代码。
+
+## 检查点 56：2026-09-03 E-SP7 Exo H.264 自适应选轨修复完成
+
+- 实现：`app/src/main/java/com/fongmi/android/tv/player/exo/ExoUtil.java` 的受约束 `applyVideoLimit()` 已将 `setForceHighestSupportedBitrate(true)` 改为 `false`；无轨道限制分支未改变。
+- 测试：先红后绿的 `:app:testMobileArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.player.exo.ExoUtilTest --no-daemon` 通过，绿灯执行记录为 `BUILD SUCCESSFUL in 58s`；共 16 项 ExoUtilTest，无失败。
+- 编译：`:app:compileMobileArm64_v8aDebugJavaWithJavac --no-daemon` 通过，执行记录为 `BUILD SUCCESSFUL in 57s`。
+- 范围：仅 E-SP7 源码、测试、任务文档和本索引；没有修改 Media3 AAR、lock、FFmpeg、MPV、native、JNI 或其他播放器。
+- 当前基线：分支 `dev4`，实施前 HEAD `59fd2688f79d4e6ef46da23a162c8236920629e6`；真实 Dangbei X7 Ultra 同资源 A/B 尚未执行，设备端掉帧改善仍待用户/设备证据确认。
+- 下一动作：完成限定范围安全检查后，由 task guard 创建 E-SP7 原子提交和 annotated recovery tag。
+
+## 检查点 57：2026-09-03 播放差异只读审计收口
+
+- 审计基线：`dev4@a228e988d488f178890b64592f9dd89761f8e011` 对比 `fish2018/webhtv:main@ec478b0b697422a7785171c7b51a35b7a526564e`；工作区干净。
+- 结论：在当前源码证据下，没有发现第二个与 E-SP7 同级别、可直接判定的单点回归；本地差异主要为有意叠加的播放能力、稳定性保护和 native 补丁链。
+- 需要继续观察的分叉：Exo FFmpeg 兜底与降载、Exo PreCache worker 生命周期、Exo 音频采集管线、MPV 自动直出保护、IJK 首帧 watchdog 和依赖/锁文件链。
+- 验证边界：本轮只做静态 diff、符号调用路径和默认值核对，未执行实机 A/B 或 native 行为复测。
+- 下一动作：按用户指示先合并最新 beta，再复核 E-SP7 合并树，随后输出其他播放差异的同步意见表。
+
+## 检查点 58：2026-09-03 beta 合并与 E-SP7 复核
+
+- 合并基线：`dev4@ff438637b89587cf4f378843338a4122ba07e9d3` 合并 `origin/beta@bcfe7b22a05e32913448a228f9513c690bc8233f`，共同基线为 `59fd2688f79d4e6ef46da23a162c8236920629e6`；仅评估索引发生内容冲突，已组合保留 E-SP7 与 C9 两行。
+- E-SP7：`a228e988d488f178890b64592f9dd89761f8e011` 的源码与测试未被 beta 覆盖；合并后定向 ExoUtilTest 通过，Mobile/Leanback Arm64 Java 编译通过。
+- beta：`IntroSkipServiceTest` 22 项与 `VideoActivityLayoutTest` 153 项共 175 项通过，失败/错误/跳过均为 0；片段身份、速度键释放和移动详情页外层滚动改动未发现需阻断提交的问题。
+- 结论：允许提交并推送当前合并树；C9 仍需保留真实设备播放和 OEM 行为作为后续补验，不把 Java/单测结果扩大为设备端完全验收。
+- 下一动作：task guard finish 创建两父合并提交和本地 annotated recovery tag，然后推送当前 `dev4` 与该新 tag。
