@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.service;
 
+import android.os.SystemClock;
+
 import androidx.annotation.NonNull;
 
 import com.fongmi.android.tv.utils.Task;
@@ -41,6 +43,9 @@ public class IntroSkipService {
     private static final long MAX_TIME_BASE_DRIFT_MS = TimeUnit.MINUTES.toMillis(5);
     /** 起点差在此范围内视为两家在说同一段。 */
     private static final long SAME_START_TOLERANCE_MS = 3000;
+    /** 外部时间轴超过一周即视为异常输入，不进入播放器。 */
+    private static final long MAX_MEDIA_TIME_MS = TimeUnit.DAYS.toMillis(7);
+    private static final int MAX_SUBMISSION_COUNT = 1_000_000;
     /**
      * 下集预告的字段名。两家文档都取不到（域名被网络策略拦），这里按常见拼法都试一遍；
      * 命中不了只是没有预告段，不影响其余三类。实机日志确认字段名后可收敛成一个。
@@ -53,57 +58,98 @@ public class IntroSkipService {
      * 进键：进了键就意味着同一集在 onPrepare（时长还是 0）和 STATE_READY（时长已知）会各发
      * 一轮请求，HLS 时长抖动 1 秒也会穿透缓存，更没法预载还没开播、时长未知的邻集。
      */
-    private static final Map<String, List<RawSegment>> CACHE = Collections.synchronizedMap(new LinkedHashMap<>(32, 0.75f, true) {
+    private static final Map<String, CacheEntry> CACHE = Collections.synchronizedMap(new LinkedHashMap<>(32, 0.75f, true) {
         @Override
-        protected boolean removeEldestEntry(Map.Entry<String, List<RawSegment>> eldest) {
+        protected boolean removeEldestEntry(Map.Entry<String, CacheEntry> eldest) {
             return size() > MAX_CACHE;
         }
     });
+    /** 固定数量的锁条带，避免按外部剧集 key 建无限增长的锁表。 */
+    private static final Object[] CACHE_LOCKS = createCacheLocks();
+
+    private static Object[] createCacheLocks() {
+        Object[] locks = new Object[32];
+        for (int i = 0; i < locks.length; i++) locks[i] = new Object();
+        return locks;
+    }
 
     public IntroSkipPlan load(@NonNull Query query) {
-        List<RawSegment> raw = loadRaw(query);
-        if (raw.isEmpty()) return IntroSkipPlan.empty();
-        IntroSkipPlan plan = IntroSkipPlan.from(raw, query.durationMs);
-        SpiderDebug.log("intro-skip", "plan resolved raw=%d openings=%d endings=%d durationMs=%d", raw.size(), plan.getOpenings().size(), plan.getEndings().size(), query.durationMs);
-        return plan;
+        return loadResult(query).getPlan();
     }
 
     /** 只把结果灌进缓存，不折算——用于预热邻集，此时时长还无从得知。 */
     public void preload(@NonNull Query query) {
-        loadRaw(query);
+        loadResult(query);
     }
 
-    private List<RawSegment> loadRaw(@NonNull Query query) {
-        if (!query.hasLookupKey()) return Collections.emptyList();
+    /** 返回计划以及本次是否完整，供播放层决定是否允许抑制后续重试。 */
+    public LoadResult loadResult(@NonNull Query query) {
+        if (!query.hasLookupKey()) return new LoadResult(IntroSkipPlan.empty(), true);
         String key = query.cacheKey();
-        List<RawSegment> cached = CACHE.get(key);
-        if (cached != null) {
-            SpiderDebug.log("intro-skip", "cache hit key=%s segments=%d", key, cached.size());
-            return cached;
+        Object lock = CACHE_LOCKS[key.hashCode() & (CACHE_LOCKS.length - 1)];
+        synchronized (lock) {
+            CacheEntry cached = CACHE.get(key);
+            if (cached != null && canUseCachedResponse(cached.durationMs, query.durationMs)) {
+                IntroSkipPlan plan = IntroSkipPlan.from(cached.segments, query.durationMs);
+                SpiderDebug.log("intro-skip", "cache hit key=%s segments=%d cachedDurationMs=%d durationMs=%d", key, cached.segments.size(), cached.durationMs, query.durationMs);
+                return new LoadResult(plan, true);
+            }
+            if (cached != null) SpiderDebug.log("intro-skip", "cache refresh key=%s cachedDurationMs=%d durationMs=%d", key, cached.durationMs, query.durationMs);
+            SpiderDebug.log("intro-skip", "query start tmdbId=%d imdbId=%s mediaType=%s season=%d episode=%d durationMs=%d", query.tmdbId, query.imdbId, query.mediaType, query.season, query.episode, query.durationMs);
+            RemoteResult result = loadRemote(query);
+            // 部分 provider 失败时不写入缓存，下一次请求仍能重试失败的一方。
+            if (result.cacheable && (cached == null || shouldReplaceCachedResponse(cached.durationMs, query.durationMs))) {
+                CACHE.put(key, new CacheEntry(result.segments, query.durationMs));
+            }
+            IntroSkipPlan plan = IntroSkipPlan.from(result.segments, query.durationMs);
+            SpiderDebug.log("intro-skip", "query done key=%s segments=%d cacheable=%s durationMs=%d", key, result.segments.size(), result.cacheable, query.durationMs);
+            return new LoadResult(plan, result.cacheable);
         }
-        SpiderDebug.log("intro-skip", "query start tmdbId=%d imdbId=%s mediaType=%s season=%d episode=%d", query.tmdbId, query.imdbId, query.mediaType, query.season, query.episode);
-        Result result = loadRemote(query);
-        // 只缓存「问到了」的结果。超时/报错时缓存空表等于把这一集永久标记成没有数据：
-        // 键里没有时长、缓存也没有 TTL，之后每次都命中这条空记录，连重试的机会都没有；
-        // 预载还会提前把这种毒化结果种到用户即将播的那几集上。
-        if (result.answered) CACHE.put(key, result.segments);
-        SpiderDebug.log("intro-skip", "query done key=%s segments=%d answered=%s", key, result.segments.size(), result.answered);
-        return result.segments;
     }
 
-    /** 一次远端查询的结果。answered 为假表示两家都没给出有效答复，不该写进缓存。 */
-    private static final class Result {
+    public static final class LoadResult {
+
+        private final IntroSkipPlan plan;
+        private final boolean cacheable;
+
+        private LoadResult(IntroSkipPlan plan, boolean cacheable) {
+            this.plan = plan == null ? IntroSkipPlan.empty() : plan;
+            this.cacheable = cacheable;
+        }
+
+        public IntroSkipPlan getPlan() {
+            return plan;
+        }
+
+        public boolean isCacheable() {
+            return cacheable;
+        }
+    }
+
+    /** 一次远端查询的结果；cacheable=false 表示至少一家 provider 没有可靠完成。 */
+    private static final class RemoteResult {
 
         private final List<RawSegment> segments;
-        private final boolean answered;
+        private final boolean cacheable;
 
-        private Result(List<RawSegment> segments, boolean answered) {
-            this.segments = segments;
-            this.answered = answered;
+        private RemoteResult(List<RawSegment> segments, boolean cacheable) {
+            this.segments = segments == null ? Collections.emptyList() : segments;
+            this.cacheable = cacheable;
         }
     }
 
-    private Result loadRemote(Query query) {
+    private static final class CacheEntry {
+
+        private final List<RawSegment> segments;
+        private final long durationMs;
+
+        private CacheEntry(List<RawSegment> segments, long durationMs) {
+            this.segments = segments == null ? Collections.emptyList() : segments;
+            this.durationMs = Math.max(0, durationMs);
+        }
+    }
+
+    private RemoteResult loadRemote(Query query) {
         List<Future<List<RawSegment>>> futures = new ArrayList<>();
         ExecutorCompletionService<List<RawSegment>> completion = new ExecutorCompletionService<>(Task.largeExecutor());
         if (!isEmpty(query.imdbId) && query.season > 0 && query.episode > 0) {
@@ -113,26 +159,38 @@ public class IntroSkipService {
             futures.add(completion.submit(() -> fetchTheIntroDb(query)));
         }
         // 没有可用的查询条件不是失败，是确定的「查不了」，可以缓存以免反复进来
-        if (futures.isEmpty()) return new Result(Collections.emptyList(), true);
+        if (futures.isEmpty()) return new RemoteResult(Collections.emptyList(), true);
 
-        long deadline = System.currentTimeMillis() + TIMEOUT_MS;
+        long deadline = SystemClock.elapsedRealtime() + TIMEOUT_MS;
         List<RawSegment> segments = new ArrayList<>();
-        boolean answered = false;
+        int completed = 0;
+        boolean failed = false;
         for (int i = 0; i < futures.size(); i++) {
-            long waitMs = Math.max(1, deadline - System.currentTimeMillis());
+            long waitMs = deadline - SystemClock.elapsedRealtime();
+            if (waitMs <= 0) {
+                failed = true;
+                break;
+            }
             try {
                 Future<List<RawSegment>> future = completion.poll(waitMs, TimeUnit.MILLISECONDS);
-                if (future == null) continue; // 超时，剩下的也别等了
+                if (future == null) {
+                    failed = true; // 超时，剩下的也别等了
+                    break;
+                }
                 List<RawSegment> part = future.get();
-                if (part == null) continue; // 该家失败
-                answered = true;
+                completed++;
+                if (part == null) {
+                    failed = true; // 该家失败
+                    continue;
+                }
                 segments.addAll(part);
             } catch (Throwable e) {
+                failed = true;
                 SpiderDebug.log("intro-skip", "provider failed error=%s", e.getMessage());
             }
         }
         for (Future<List<RawSegment>> future : futures) if (!future.isDone()) future.cancel(true);
-        return new Result(segments, answered);
+        return new RemoteResult(segments, isCacheableResponse(futures.size(), completed, failed));
     }
 
     private List<RawSegment> fetchIntroDb(Query query) {
@@ -161,7 +219,7 @@ public class IntroSkipService {
 
     /** @return null 表示这家没答上来（超时/报错/非 2xx），调用方据此决定要不要缓存。 */
     private List<RawSegment> fetch(HttpUrl url, String provider) {
-        long start = System.currentTimeMillis();
+        long start = SystemClock.elapsedRealtime();
         SpiderDebug.log("intro-skip", "%s request url=%s", provider, url.toString());
         Request request = new Request.Builder().url(url).get().build();
         try (Response response = OkHttp.client(TIMEOUT_MS).newCall(request).execute()) {
@@ -171,11 +229,15 @@ public class IntroSkipService {
                 return response.code() == 404 ? Collections.emptyList() : null;
             }
             String body = response.body().string();
+            if (parseObject(body) == null) {
+                SpiderDebug.log("intro-skip", "%s invalid json url=%s", provider, url.toString());
+                return null;
+            }
             List<RawSegment> raw = PROVIDER_INTRO_DB.equals(provider) ? parseIntroDbRaw(body) : parseTheIntroDbRaw(body);
-            SpiderDebug.log("intro-skip", "%s loaded segments=%d cost=%dms url=%s", provider, raw.size(), System.currentTimeMillis() - start, url.toString());
+            SpiderDebug.log("intro-skip", "%s loaded segments=%d cost=%dms url=%s", provider, raw.size(), SystemClock.elapsedRealtime() - start, url.toString());
             return raw;
         } catch (Throwable e) {
-            SpiderDebug.log("intro-skip", "%s failed error=%s cost=%dms url=%s", provider, e.getMessage(), System.currentTimeMillis() - start, url.toString());
+            SpiderDebug.log("intro-skip", "%s failed error=%s cost=%dms url=%s", provider, e.getMessage(), SystemClock.elapsedRealtime() - start, url.toString());
             return null;
         }
     }
@@ -226,7 +288,8 @@ public class IntroSkipService {
         if (ms != null && ms > 0) return ms;
         Double sec = doubleValue(root, "duration_sec");
         if (sec == null) sec = doubleValue(root, "runtime_sec");
-        return sec == null || sec <= 0 ? 0 : Math.round(sec * 1000.0);
+        Long millis = secondsToMillis(sec);
+        return millis == null ? 0 : millis;
     }
 
     private static JsonObject parseObject(String body) {
@@ -243,17 +306,18 @@ public class IntroSkipService {
         if (object == null) return;
         Long start = millis(object, "start_ms", "start_sec");
         Long end = millis(object, "end_ms", "end_sec");
-        segments.add(new RawSegment(kind, PROVIDER_INTRO_DB, start, end, referenceDurationMs, number(object, "confidence", 0.5), integer(object, "submission_count", 0)));
+        segments.add(new RawSegment(kind, PROVIDER_INTRO_DB, key, start, end, referenceDurationMs, number(object, "confidence", 0.5), integer(object, "submission_count", 0)));
     }
 
     private static void addTheIntroDbSegments(List<RawSegment> segments, JsonObject root, String key, Segment.Kind kind, long referenceDurationMs) {
         JsonArray array = array(root, key);
-        for (JsonElement element : array) {
+        for (int index = 0; index < array.size(); index++) {
+            JsonElement element = array.get(index);
             if (!element.isJsonObject()) continue;
             JsonObject object = element.getAsJsonObject();
             Long start = millis(object, "start_ms", null);
             Long end = millis(object, "end_ms", null);
-            segments.add(new RawSegment(kind, PROVIDER_THE_INTRO_DB, start, end, referenceDurationMs, 0.5, 0));
+            segments.add(new RawSegment(kind, PROVIDER_THE_INTRO_DB, key + "#" + index, start, end, referenceDurationMs, 0.5, 0));
         }
     }
 
@@ -272,18 +336,26 @@ public class IntroSkipService {
         if (ms != null) return ms;
         if (secKey == null) return null;
         Double sec = doubleValue(object, secKey);
-        return sec == null ? null : Math.round(sec * 1000.0);
+        return secondsToMillis(sec);
     }
 
     private static Long longValue(JsonObject object, String key) {
         Double value = doubleValue(object, key);
-        return value == null ? null : Math.round(value);
+        if (value == null || value < 0 || value > MAX_MEDIA_TIME_MS) return null;
+        return Math.round(value);
+    }
+
+    private static Long secondsToMillis(Double seconds) {
+        if (seconds == null || seconds < 0 || seconds > MAX_MEDIA_TIME_MS / 1000.0) return null;
+        double millis = seconds * 1000.0;
+        return Double.isFinite(millis) && millis <= MAX_MEDIA_TIME_MS ? Math.round(millis) : null;
     }
 
     private static Double doubleValue(JsonObject object, String key) {
         try {
             if (object == null || key == null || !object.has(key) || object.get(key).isJsonNull()) return null;
-            return object.get(key).getAsDouble();
+            double value = object.get(key).getAsDouble();
+            return Double.isFinite(value) ? value : null;
         } catch (Throwable e) {
             return null;
         }
@@ -291,18 +363,38 @@ public class IntroSkipService {
 
     private static double number(JsonObject object, String key, double fallback) {
         Double value = doubleValue(object, key);
-        return value == null ? fallback : value;
+        return clampConfidence(value == null ? fallback : value);
+    }
+
+    static double clampConfidence(double value) {
+        if (!Double.isFinite(value)) return 0;
+        return Math.max(0, Math.min(1, value));
     }
 
     /** 夹取而非 intValue()：外部数据超出 int 范围时截断会绕回小值甚至 0，静默改变去重排序。 */
     private static int integer(JsonObject object, String key, int fallback) {
         Long value = longValue(object, key);
         if (value == null) return fallback;
-        return (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, value));
+        return (int) Math.min(MAX_SUBMISSION_COUNT, value);
     }
 
     private static boolean isEmpty(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    /** 只有所有已发起的 provider 都可靠返回，结果才允许进入无 TTL 的内存缓存。 */
+    static boolean isCacheableResponse(int providerCount, int completedCount, boolean failed) {
+        return providerCount > 0 && providerCount == completedCount && !failed;
+    }
+
+    /** 未知时长的缓存可用于预载/查询，但不能阻止正式请求获取时长感知结果。 */
+    static boolean canUseCachedResponse(long cachedDurationMs, long requestedDurationMs) {
+        return requestedDurationMs <= 0 || cachedDurationMs > 0;
+    }
+
+    /** 只允许已知时长结果替换未知时长结果，避免预载响应覆盖正式响应。 */
+    static boolean shouldReplaceCachedResponse(long cachedDurationMs, long incomingDurationMs) {
+        return cachedDurationMs <= 0 && incomingDurationMs > 0;
     }
 
     public static final class Query {
@@ -320,7 +412,7 @@ public class IntroSkipService {
             this.mediaType = mediaType == null ? "" : mediaType.trim().toLowerCase(Locale.ROOT);
             this.season = season;
             this.episode = episode;
-            this.durationMs = durationMs;
+            this.durationMs = Math.min(MAX_MEDIA_TIME_MS, Math.max(0, durationMs));
         }
 
         public boolean hasLookupKey() {
@@ -357,27 +449,26 @@ public class IntroSkipService {
 
         private final Segment.Kind kind;
         private final String provider;
+        private final String identity;
         private final Long startMs;
         private final Long endMs;
         private final long referenceDurationMs;
         private final double confidence;
         private final int submissionCount;
-        private final String identity;
 
-        RawSegment(Segment.Kind kind, String provider, Long startMs, Long endMs, long referenceDurationMs, double confidence, int submissionCount) {
+        RawSegment(Segment.Kind kind, String provider, String identity, Long startMs, Long endMs, long referenceDurationMs, double confidence, int submissionCount) {
             this.kind = kind;
             this.provider = provider;
+            this.identity = identity;
             this.startMs = startMs;
             this.endMs = endMs;
             this.referenceDurationMs = referenceDurationMs;
             this.confidence = confidence;
             this.submissionCount = submissionCount;
-            this.identity = String.valueOf(kind) + "|" + String.valueOf(provider) + "|"
-                    + String.valueOf(startMs) + "|" + String.valueOf(endMs);
         }
 
         Segment resolve(long durationMs) {
-            return Segment.create(kind, provider, startMs, endMs, durationMs, referenceDurationMs, confidence, submissionCount, identity);
+            return Segment.create(kind, provider, identity, startMs, endMs, durationMs, referenceDurationMs, confidence, submissionCount);
         }
     }
 
@@ -465,38 +556,38 @@ public class IntroSkipService {
 
         private final Kind kind;
         private final String provider;
+        private final String identity;
         private final long startMs;
         private final long endMs;
         private final boolean openEnded;
         private final double confidence;
         private final int submissionCount;
-        private final String identity;
 
-        private Segment(Kind kind, String provider, long startMs, long endMs, boolean openEnded, double confidence, int submissionCount, String identity) {
+        private Segment(Kind kind, String provider, String identity, long startMs, long endMs, boolean openEnded, double confidence, int submissionCount) {
             this.kind = kind;
             this.provider = provider;
+            this.identity = isEmpty(identity) ? kind + "|" + provider + "|" + startMs + "|" + endMs : identity;
             this.startMs = startMs;
             this.endMs = endMs;
             this.openEnded = openEnded;
             this.confidence = confidence;
             this.submissionCount = submissionCount;
-            this.identity = identity;
         }
 
-        private static Segment create(Kind kind, String provider, Long startMs, Long endMs, long durationMs, long referenceDurationMs, double confidence, int submissionCount, String identity) {
+        private static Segment create(Kind kind, String provider, String identity, Long startMs, Long endMs, long durationMs, long referenceDurationMs, double confidence, int submissionCount) {
             if (kind == null) return null;
             boolean trailing = kind == Kind.OUTRO || kind == Kind.PREVIEW;
             long start = startMs == null && !trailing ? 0 : startMs == null ? -1 : startMs;
             long end = endMs == null ? -1 : endMs;
             if (start < 0) return null;
             if (endMs != null && end < 0) return null;
-            if (trailing) return createTrailing(kind, provider, start, end, durationMs, referenceDurationMs, confidence, submissionCount, identity);
+            if (trailing) return createTrailing(kind, provider, identity, start, end, durationMs, referenceDurationMs, confidence, submissionCount);
             if (durationMs > 0) {
                 if (start >= durationMs) return null;
                 if (end > durationMs) end = durationMs;
             }
             if (end <= start) return null;
-            return new Segment(kind, provider, start, end, false, Math.max(0, confidence), Math.max(0, submissionCount), identity);
+            return new Segment(kind, provider, identity, start, end, false, Math.max(0, confidence), Math.max(0, submissionCount));
         }
 
         /**
@@ -508,24 +599,27 @@ public class IntroSkipService {
          * 整段被丢弃——这正是片头能跳、片尾不跳的主因。参考时长缺失时无从折算，
          * 只能沿用原始时间戳。
          */
-        private static Segment createTrailing(Kind kind, String provider, long start, long end, long durationMs, long referenceDurationMs, double confidence, int submissionCount, String identity) {
+        private static Segment createTrailing(Kind kind, String provider, String identity, long start, long end, long durationMs, long referenceDurationMs, double confidence, int submissionCount) {
             long reference = plausibleReference(referenceDurationMs, durationMs);
             if (reference > 0 && end > reference && end - reference > OPEN_END_TOLERANCE_MS) return null;
             // openEnded 只能拿参考时间轴上的结尾去比。没有参考时长时（IntroDB 从不给）无从判断，
             // 一律按「有界」处理：错判成 openEnded 会让 seek 变成切集，把片尾之后的正片一起扔掉。
-            boolean openEnded = end < 0 || (reference > 0 && end <= reference && reference - end <= OPEN_END_TOLERANCE_MS);
-            if (reference > 0 && durationMs > 0 && Math.abs(reference - durationMs) > TIME_BASE_TOLERANCE_MS) {
+            boolean missingEnd = end < 0;
+            boolean openEnded = reference > 0
+                    && (missingEnd || reference >= end && reference - end <= OPEN_END_TOLERANCE_MS);
+            if (reference > 0 && durationMs > 0 && !withinDistance(reference, durationMs, TIME_BASE_TOLERANCE_MS)) {
                 long shift = durationMs - reference;
-                start += shift;
-                if (end >= 0) end += shift;
+                start = safeAdd(start, shift);
+                if (end >= 0) end = safeAdd(end, shift);
+                if (start == Long.MIN_VALUE || end == Long.MIN_VALUE) return null;
             }
             if (durationMs > 0) {
-                if (openEnded || end > durationMs) end = durationMs;
+                if (missingEnd || openEnded || end > durationMs) end = durationMs;
                 if (start >= durationMs) return null;
             }
             if (start <= 0) return null; // 尾部段不可能从 0 开始，整集当片尾必是错配
             if (end >= 0 && end <= start) return null;
-            return new Segment(kind, provider, start, end, openEnded, Math.max(0, confidence), Math.max(0, submissionCount), identity);
+            return new Segment(kind, provider, identity, start, end, openEnded, Math.max(0, confidence), Math.max(0, submissionCount));
         }
 
         /**
@@ -539,9 +633,21 @@ public class IntroSkipService {
         private static long plausibleReference(long reference, long durationMs) {
             if (reference <= 0) return 0;
             if (durationMs <= 0) return reference;
-            boolean plausible = Math.abs(reference - durationMs) <= MAX_TIME_BASE_DRIFT_MS;
+            boolean plausible = withinDistance(reference, durationMs, MAX_TIME_BASE_DRIFT_MS);
             if (!plausible) SpiderDebug.log("intro-skip", "reject reference=%d durationMs=%d", reference, durationMs);
             return plausible ? reference : 0;
+        }
+
+        static boolean withinDistance(long left, long right, long tolerance) {
+            if (tolerance < 0) return false;
+            long distance = left >= right ? left - right : right - left;
+            return distance >= 0 && distance <= tolerance;
+        }
+
+        private static long safeAdd(long value, long delta) {
+            if (delta > 0 && value > Long.MAX_VALUE - delta) return Long.MIN_VALUE;
+            if (delta < 0 && value < Long.MIN_VALUE - delta) return Long.MIN_VALUE;
+            return value + delta;
         }
 
         public Kind getKind() {
@@ -601,8 +707,9 @@ public class IntroSkipService {
             if (isOpening() != other.isOpening()) return false;
             // 无界段的 end 已被拉到文件结尾，拿它算重叠会把紧随其后的段整个吞掉（片尾吞预告）。
             // 这种情况只按起点判断：起点隔得远就是两段不同的内容。
-            if (openEnded || other.openEnded) return Math.abs(startMs - other.startMs) <= SAME_START_TOLERANCE_MS;
-            if (Math.abs(startMs - other.startMs) <= SAME_START_TOLERANCE_MS && (endMs < 0 || other.endMs < 0 || Math.abs(endMs - other.endMs) <= 5000)) return true;
+            if (openEnded || other.openEnded) return withinDistance(startMs, other.startMs, SAME_START_TOLERANCE_MS);
+            if (withinDistance(startMs, other.startMs, SAME_START_TOLERANCE_MS)
+                    && (endMs < 0 || other.endMs < 0 || withinDistance(endMs, other.endMs, 5000))) return true;
             if (endMs < 0 || other.endMs < 0) return false;
             long overlap = Math.min(endMs, other.endMs) - Math.max(startMs, other.startMs);
             if (overlap <= 0) return false;

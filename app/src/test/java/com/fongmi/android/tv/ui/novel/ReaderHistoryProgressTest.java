@@ -1,9 +1,16 @@
 package com.fongmi.android.tv.ui.novel;
 
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertFalse;
+
+import com.fongmi.android.tv.bean.History;
+import com.fongmi.android.tv.bean.Result;
+import com.fongmi.android.tv.db.AppDatabase;
+
+import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import org.junit.Test;
 
 /**
  * 阅读进度的落库编码：历史列表按 position/duration 画进度条。
@@ -12,6 +19,24 @@ import org.junit.Test;
  * 而升级前写入的存量 0 基记录读回来也不会平移。
  */
 public class ReaderHistoryProgressTest {
+
+    @Test
+    public void readerKeysAndTypeMarkIsolateRowsFromPlaybackHistory() {
+        History playback = new History();
+        playback.setKey("site" + AppDatabase.SYMBOL + "vod" + AppDatabase.SYMBOL + 7);
+        playback.setMediaType("movie");
+
+        assertFalse(ReaderHistory.isReaderRecord(playback));
+
+        String readerKey = ReaderHistory.buildKey("site", "vod", 7);
+        History reader = new History();
+        reader.setKey(readerKey);
+        reader.setMediaType(ReaderHistory.MEDIA_TYPE);
+
+        assertTrue(ReaderHistory.isReaderRecord(reader));
+        assertTrue(readerKey.endsWith(AppDatabase.SYMBOL + ReaderHistory.MEDIA_TYPE));
+        assertNotEquals(playback.getKey(), readerKey);
+    }
 
     @Test
     public void finishedChapterFillsTheBar() {
@@ -86,5 +111,57 @@ public class ReaderHistoryProgressTest {
         assertEquals(0, ReaderHistory.toAnchor(5, 0));
         assertEquals(0, ReaderHistory.toAnchor(-1, 10));
         assertEquals(0, ReaderHistory.toPosition(-5, 10));
+    }
+
+    @Test
+    public void readerPayloadUsesTheFieldThatTriggeredReaderRouting() {
+        Result result = new Result();
+        result.setPlayUrl("novel://{\"title\":\"chapter\",\"content\":\"text\"}");
+        result.setUrl("https://example.invalid/video.m3u8");
+
+        assertEquals(result.getPlayUrl(), NovelRouter.readerPayload(result));
+    }
+
+    @Test
+    public void resolvedChapterChangeCopiesSourceProgressInsteadOfKeepingAnotherChapter() {
+        History source = history("source", 21, 50);
+        History target = history("old-target", 8, 10);
+
+        NovelRouter.alignResolvedHistoryProgress(target, source, "new-target");
+
+        assertEquals(21, target.getPosition());
+        assertEquals(50, target.getDuration());
+    }
+
+    @Test
+    public void sameResolvedChapterKeepsExistingTargetProgress() {
+        History source = history("chapter", 21, 50);
+        History target = history("chapter", 8, 10);
+
+        NovelRouter.alignResolvedHistoryProgress(target, source, "chapter");
+
+        assertEquals(8, target.getPosition());
+        assertEquals(10, target.getDuration());
+    }
+
+    @Test
+    public void videoProgressDoesNotBecomeAReaderAnchor() {
+        History source = history("source", 120_000, 2_700_000);
+        source.setMediaType("tv");
+        History target = history("old-target", 8, 10);
+
+        NovelRouter.alignResolvedHistoryProgress(target, source, "new-target");
+
+        assertFalse(target.hasPlaybackTime());
+    }
+
+    private static History history(String episodeUrl, long position, long duration) {
+        History history = new History();
+        history.setKey("site" + AppDatabase.SYMBOL + episodeUrl);
+        history.setEpisodeUrl(episodeUrl);
+        history.setMediaType(ReaderHistory.MEDIA_TYPE);
+        history.setPosition(position);
+        history.setDuration(duration);
+        return history;
     }
 }

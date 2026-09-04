@@ -1,29 +1,17 @@
 diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/mediacodec/MediaCodecUtil.java b/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/mediacodec/MediaCodecUtil.java
+index 761c0d44e9..41f2744cab 100644
 --- a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/mediacodec/MediaCodecUtil.java
 +++ b/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/mediacodec/MediaCodecUtil.java
-@@ -49,6 +49,7 @@
- import java.util.Collections;
- import java.util.HashMap;
- import java.util.List;
+@@ -50,0 +51 @@ import java.util.List;
 +import java.util.Objects;
- import org.checkerframework.checker.nullness.qual.EnsuresNonNull;
- import org.checkerframework.checker.nullness.qual.RequiresNonNull;
- 
-@@ -384,5 +385,9 @@ public static List<String> getAlternativeCodecMimeTypes(Format format) {
-     if (MimeTypes.AUDIO_E_AC3_JOC.equals(format.sampleMimeType)) {
-       // E-AC3 decoders can decode JOC streams, but in 2-D rather than 3-D.
+@@ -385 +386,5 @@ public final class MediaCodecUtil {
 -      return Collections.singletonList(MimeTypes.AUDIO_E_AC3);
 +      // Some devices (e.g. Pixel) integrate an EAC3 decoder that does not support EAC3-JOC
 +      // stream decoding.
 +      return supportsEac3JocFallbackDecoding()
 +          ? Collections.singletonList(MimeTypes.AUDIO_E_AC3)
 +          : Collections.emptyList();
-     }
-     if (MimeTypes.AUDIO_MEDIA3_DTS_HD_MA_CORELESS.equals(format.sampleMimeType)) {
-@@ -434,6 +439,17 @@ public static List<String> getAlternativeCodecMimeTypes(Format format) {
-     return Collections.emptyList();
-   }
- 
+@@ -437,0 +443,11 @@ public final class MediaCodecUtil {
 +  /**
 +   * Returns whether the device supports decoding E-AC3 JOC streams using a standard E-AC3 decoder
 +   * (in 2-D rather than 3-D).
@@ -35,23 +23,13 @@ diff --git a/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/mediaco
 +    return !Objects.equals(Build.MANUFACTURER, "Google");
 +  }
 +
-   // Internal methods.
- 
-   /**
 diff --git a/libraries/exoplayer/src/test/java/androidx/media3/exoplayer/mediacodec/MediaCodecUtilTest.java b/libraries/exoplayer/src/test/java/androidx/media3/exoplayer/mediacodec/MediaCodecUtilTest.java
+index 8d7d19b64d..0c31d3095f 100644
 --- a/libraries/exoplayer/src/test/java/androidx/media3/exoplayer/mediacodec/MediaCodecUtilTest.java
 +++ b/libraries/exoplayer/src/test/java/androidx/media3/exoplayer/mediacodec/MediaCodecUtilTest.java
-@@ -29,5 +29,6 @@
- import org.junit.Test;
- import org.junit.runner.RunWith;
+@@ -30,0 +31 @@ import org.junit.runner.RunWith;
 +import org.robolectric.shadows.ShadowBuild;
- 
- /** Unit tests for {@link MediaCodecUtil}. */
- @RunWith(AndroidJUnit4.class)
-@@ -261,6 +262,21 @@ public void getAlternativeCodecMimeType_withNonFallbackCompatibleFormat_returnsE
-         .isEqualTo(Collections.singletonList(MimeTypes.VIDEO_AV1));
-   }
- 
+@@ -262,0 +264,14 @@ public final class MediaCodecUtilTest {
 +  @Test
 +  public void getAlternativeCodecMimeTypes_withEac3JocFormatOnNonGoogleDevice_returnsEac3() {
 +    ShadowBuild.setManufacturer("Samsung");
@@ -66,7 +44,3 @@ diff --git a/libraries/exoplayer/src/test/java/androidx/media3/exoplayer/mediaco
 +    Format format = new Format.Builder().setSampleMimeType(MimeTypes.AUDIO_E_AC3_JOC).build();
 +    assertThat(MediaCodecUtil.getAlternativeCodecMimeTypes(format)).isEmpty();
 +  }
-+
-   private static void assertHevcBaseLayerCodecProfileAndLevelForFormat(
-       Format format, int profile, int level) {
-     MediaCodecProfileAndLevel codecProfileAndLevel =

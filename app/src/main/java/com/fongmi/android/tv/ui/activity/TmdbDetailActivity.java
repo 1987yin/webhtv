@@ -10618,7 +10618,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     @Override
     protected void onDestroy() {
-        if (mAdFeedbackDialog != null) mAdFeedbackDialog.close();
+        introSkipPlayback.reset();
         loadGeneration++;
         cancelAiSeasonAnalysis(false);
         detailTasks.close();
@@ -10784,6 +10784,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void onIntroSkipPlanLoaded() {
+        if (isFinishing() || isDestroyed() || !isInlinePlayerMode() || !inlineStarted
+                || service() == null || player() == null || player().isReleased() || !isOwner()) return;
         updateInlineOpeningEndingText();
         applyAutoIntroSkip();
         preloadAdjacentIntroSkipPlans();
@@ -10815,7 +10817,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private boolean applyAutoIntroSkip() {
-        if (!Setting.isIntroSkipEnabled() || player() == null) return false;
+        if (!Setting.isIntroSkipEnabled() || isFinishing() || isDestroyed() || !isInlinePlayerMode()
+                || !inlineStarted || service() == null || player() == null || player().isReleased() || !isOwner()) return false;
         // notify=true：片尾无处可跳（末集/电影）时至少要有提示，不能静默无反应
         return introSkipPlayback.apply(player(), () -> advanceInlineEpisode(true));
     }
@@ -10835,6 +10838,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                     .setPositiveButton(android.R.string.ok, (dialog, which) -> action.run())
                     .setNegativeButton(android.R.string.cancel, null)
                     .show();
+            introSkipConfirmDialog.setOnDismissListener(dialog -> {
+                introSkipPlayback.cancelConfirmation(segment);
+                if (introSkipConfirmDialog == dialog) introSkipConfirmDialog = null;
+            });
             return true;
         });
         introSkipPlayback.setSkipNoticeListener(IntroSkipKinds::notifySkipped);
