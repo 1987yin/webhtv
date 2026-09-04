@@ -580,6 +580,7 @@ public class IntroSkipService {
             long start = startMs == null && !trailing ? 0 : startMs == null ? -1 : startMs;
             long end = endMs == null ? -1 : endMs;
             if (start < 0) return null;
+            if (endMs != null && end < 0) return null;
             if (trailing) return createTrailing(kind, provider, identity, start, end, durationMs, referenceDurationMs, confidence, submissionCount);
             if (durationMs > 0) {
                 if (start >= durationMs) return null;
@@ -600,6 +601,7 @@ public class IntroSkipService {
          */
         private static Segment createTrailing(Kind kind, String provider, String identity, long start, long end, long durationMs, long referenceDurationMs, double confidence, int submissionCount) {
             long reference = plausibleReference(referenceDurationMs, durationMs);
+            if (reference > 0 && end > reference && end - reference > OPEN_END_TOLERANCE_MS) return null;
             // openEnded 只能拿参考时间轴上的结尾去比。没有参考时长时（IntroDB 从不给）无从判断，
             // 一律按「有界」处理：错判成 openEnded 会让 seek 变成切集，把片尾之后的正片一起扔掉。
             boolean missingEnd = end < 0;
@@ -656,6 +658,7 @@ public class IntroSkipService {
             return provider;
         }
 
+        /** 原始数据边界生成的稳定身份，不随本地片源时长折算而变化。 */
         public String getIdentity() {
             return identity;
         }

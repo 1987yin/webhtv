@@ -391,15 +391,13 @@ public class IntroSkipPlayback {
     }
 
     /**
-     * 段落身份。刻意不含时间边界：尾部段会随本集时长折算而平移，把边界写进 id 会让同一段
-     * 在时长抖动后换出新 id，逃出 skipped 再触发一次，表现为重复跳过 / 重复换集。
-     * 同类同源在一集里只会有一段（去重已保证），所以类型 + 数据源足够唯一。
+     * 段落身份。两个 provider 对首段使用不同字段名（例如 intro 与 intro#0），共享一次性状态；
+     * 后续数组项保留序号，避免同一 provider 的多个片段互相吞掉。映射后的身份不含本地折算
+     * 后的时间边界，所以本集时长小幅抖动不会换出新 id；跨 provider 的同义字段也归到同一别名。
      */
     private String id(Segment segment) {
         if (segment == null) return "";
         String identity = segment.getIdentity();
-        // 两个 provider 对首段使用不同的字段名（例如 intro 与 intro#0），需要共享一次性状态；
-        // 后续数组项保留序号，避免同一 provider 的多个片段互相吞掉。
         if (identity.endsWith("#0")) identity = identity.substring(0, identity.length() - 2);
         if (identity.startsWith("credits")) identity = "outro" + identity.substring("credits".length());
         if (identity.startsWith("trailer")) identity = "preview" + identity.substring("trailer".length());
