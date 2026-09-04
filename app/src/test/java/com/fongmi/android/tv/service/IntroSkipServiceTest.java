@@ -305,6 +305,56 @@ public class IntroSkipServiceTest {
     }
 
     @Test
+    public void segmentIdentitySeparatesSameProviderSameKindSegments() {
+        IntroSkipPlan plan = IntroSkipService.parseTheIntroDb(
+                "{\"intro\":[{\"start_ms\":0,\"end_ms\":45000},{\"start_ms\":160000,\"end_ms\":253000}]}",
+                2_841_680);
+
+        assertEquals(2, plan.getOpenings().size());
+        assertNotEquals(plan.getOpenings().get(0).getIdentity(),
+                plan.getOpenings().get(1).getIdentity());
+    }
+
+    @Test
+    public void cachePolicyRequiresEveryProviderAndPrefersKnownDuration() {
+        assertFalse(IntroSkipService.isCacheableResponse(2, 1, false));
+        assertFalse(IntroSkipService.isCacheableResponse(2, 2, true));
+        assertTrue(IntroSkipService.isCacheableResponse(2, 2, false));
+
+        assertFalse(IntroSkipService.canUseCachedResponse(0, 2_700_000));
+        assertTrue(IntroSkipService.canUseCachedResponse(2_700_000, 0));
+        assertTrue(IntroSkipService.canUseCachedResponse(2_700_000, 2_640_000));
+        assertTrue(IntroSkipService.shouldReplaceCachedResponse(0, 2_700_000));
+        assertFalse(IntroSkipService.shouldReplaceCachedResponse(2_700_000, 0));
+    }
+
+    @Test
+    public void distanceComparisonRejectsLongOverflow() {
+        assertFalse(IntroSkipService.Segment.withinDistance(Long.MAX_VALUE, Long.MIN_VALUE, 5));
+        assertFalse(IntroSkipService.Segment.withinDistance(Long.MIN_VALUE, Long.MAX_VALUE, 5));
+    }
+
+    @Test
+    public void unknownTrailingEndIsNotOpenEndedWithoutExplicitReference() {
+        IntroSkipPlan plan = IntroSkipService.parseTheIntroDb(
+                "{\"credits\":[{\"start_ms\":1380000,\"end_ms\":null}]}", 1_500_000);
+
+        assertEquals(1, plan.getEndings().size());
+        assertFalse(plan.getEndings().get(0).isOpenEnded());
+    }
+
+    @Test
+    public void parserRejectsOverflowingTimesAndClampsConfidence() {
+        IntroSkipPlan plan = IntroSkipService.parseIntroDb(
+                "{\"intro\":{\"start_sec\":1e300,\"end_sec\":1e300,\"confidence\":99}}",
+                2_700_000);
+
+        assertTrue(plan.isEmpty());
+        assertEquals(1, IntroSkipService.clampConfidence(99), 0.0);
+        assertEquals(0, IntroSkipService.clampConfidence(-1), 0.0);
+    }
+
+    @Test
     public void resolvedSegments_keepDistinctStableIdentitiesForMultipleSameProviderSegments() {
         List<IntroSkipService.RawSegment> raw = IntroSkipService.parseTheIntroDbRaw(
                 "{\"duration_ms\":2700000,\"intro\":["

@@ -1489,6 +1489,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 .setPositiveButton(android.R.string.ok, (dialog, which) -> action.run())
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
+            mIntroSkipConfirmDialog.setOnDismissListener(dialog -> {
+                mIntroSkipPlayback.cancelConfirmation(segment);
+                if (mIntroSkipConfirmDialog == dialog) mIntroSkipConfirmDialog = null;
+            });
             return true;
         });
         mIntroSkipPlayback.setSkipNoticeListener(IntroSkipKinds::notifySkipped);
@@ -6785,13 +6789,15 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     private void onIntroSkipPlanLoaded() {
+        if (isFinishing() || isDestroyed() || player() == null || player().isReleased() || !isOwner()) return;
         setOpeningEndingText();
         applyAutoIntroSkip();
         preloadAdjacentIntroSkipPlans();
     }
 
     private boolean applyAutoIntroSkip() {
-        if (!Setting.isIntroSkipEnabled() || player() == null) return false;
+        if (!Setting.isIntroSkipEnabled() || isFinishing() || isDestroyed()
+                || player() == null || player().isReleased() || !isOwner()) return false;
         // notify=true：片尾无处可跳（末集/电影）时至少要有提示，不能静默无反应
         return mIntroSkipPlayback.apply(player(), () -> advanceEpisode(true));
     }
@@ -7534,6 +7540,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     protected void markPlaybackExiting() {
         if (isPlaybackExiting()) return;
         super.markPlaybackExiting();
+        mIntroSkipPlayback.reset();
         cancelAiSeasonAnalysis(false);
         mPersonalRecommendationGeneration++;
         mPersonalRecommendationTasks.close();
@@ -7543,7 +7550,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
     @Override
     protected void onDestroy() {
-        if (mAdFeedbackDialog != null) mAdFeedbackDialog.close();
+        mIntroSkipPlayback.reset();
         cancelAiSeasonAnalysis(false);
         mLyricsSearchSeq++;
         mLyricsRefreshSeq++;
