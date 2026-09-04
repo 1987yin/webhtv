@@ -123,3 +123,10 @@
 - 已完成提交：`79597d2c688a804f2f6f4f3b27815f5c60595da8`。
 - 已完成恢复标签：`recovery/C10-binary-upstream-align/20260903111337-79597d2c688a`。
 - 任务状态：C10 已关闭；本次只同步正式播放器二进制/依赖输入，未修改 Exo、MPV、IJK Java 行为。
+
+## Checkpoint 8：2026-09-04 beta 对齐复核
+
+- 已合并：`dev4@902decfcf0f9d84b6b50370206cd18d2dbbbdad9` 与 `origin/beta@bb53d224e084348518bd13c6733d3c359db4ed51`，远端侧新增内容为已验证的 E-SP7 合并提交。
+- 复核结论：合并树相对 `origin/beta` 仅保留 C10 供应链/文档改动；相对 `upstream/main@ec478b0b697422a7785171c7b51a35b7a526564e`，播放器 AAR、lock、patch、MPV native override 和已打包 MPV/IJK `.so` 无差异。
+- 引用检查：v556、旧 Media3 patch 名称和三个已删除 MPV patch 均无活动引用；两份 lock JSON 可解析，13 个 Media3 patch 路径存在。
+- 边界：本次未重建 native、未修改 Java 播放逻辑；沿用 C10 已通过的 Mobile/Leanback Java 编译和 MPV ELF 门禁结果。
