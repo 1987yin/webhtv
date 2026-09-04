@@ -54,6 +54,7 @@ public class IntroSkipPlayback {
     private long resumeMs;
     private boolean suppressOpening;
     private boolean suppressEnding;
+    private String pendingConfirmationId = "";
     private SkipConfirmListener skipConfirmListener;
     private Runnable skipConfirmDismisser;
     private SkipNoticeListener skipNoticeListener;
@@ -68,6 +69,7 @@ public class IntroSkipPlayback {
         resumeMs = 0;
         suppressOpening = false;
         suppressEnding = false;
+        pendingConfirmationId = "";
         if (skipConfirmDismisser != null) skipConfirmDismisser.run();
     }
 
@@ -108,6 +110,37 @@ public class IntroSkipPlayback {
         this.skipNoticeListener = listener;
     }
 
+    /** 开始询问一个片段；同一时间只允许一个确认框占用状态。 */
+    public boolean beginConfirmation(Segment segment) {
+        String id = id(segment);
+        if (id.isEmpty() || skipped.contains(id) || !pendingConfirmationId.isEmpty()) return false;
+        pendingConfirmationId = id;
+        return true;
+    }
+
+    public boolean isConfirmationPending(Segment segment) {
+        String id = id(segment);
+        return !id.isEmpty() && id.equals(pendingConfirmationId);
+    }
+
+    public boolean isSegmentHandled(Segment segment) {
+        String id = id(segment);
+        return !id.isEmpty() && skipped.contains(id);
+    }
+
+    /** 取消、关闭或过期的确认不应使片段永久失效。 */
+    public void cancelConfirmation(Segment segment) {
+        if (isConfirmationPending(segment)) pendingConfirmationId = "";
+    }
+
+    /** 只有实际执行了跳转/换集后才把片段记为已处理。 */
+    public void completeConfirmation(Segment segment) {
+        String id = id(segment);
+        if (id.isEmpty()) return;
+        skipped.add(id);
+        if (id.equals(pendingConfirmationId)) pendingConfirmationId = "";
+    }
+
     /**
      * 探测到的片头落点（正片从这里继续），无数据返回 -1。
      *
@@ -118,6 +151,7 @@ public class IntroSkipPlayback {
         if (suppressOpening) return -1;
         for (Segment segment : plan.getOpenings()) {
             // 续播已越过的段不会再触发，显示它等于报一个不会发生的时间
+            if (isSegmentHandled(segment)) continue;
             if (segment.getEndMs() > 0 && isKindEnabled(segment) && !passedOnResume(segment, 0)) return segment.getEndMs();
         }
         return -1;
@@ -132,6 +166,7 @@ public class IntroSkipPlayback {
         if (suppressEnding || durationMs <= 0) return -1;
         for (Segment segment : plan.getEndings()) {
             long start = segment.getStartMs();
+            if (isSegmentHandled(segment)) continue;
             if (start > 0 && start < durationMs && isKindEnabled(segment) && !passedOnResume(segment, durationMs)) return durationMs - start;
         }
         return -1;
@@ -164,11 +199,13 @@ public class IntroSkipPlayback {
         loading = true;
         loadingKey = key;
         Task.execute(() -> {
-            IntroSkipPlan loaded = service.load(query);
+            IntroSkipService.LoadResult result = service.loadResult(query);
+            IntroSkipPlan loaded = result.getPlan();
             App.post(() -> {
                 if (current != generation || !key.equals(loadingKey)) return;
                 loading = false;
-                loadedKey = key;
+                // 不完整的 provider 响应不能把本次 key 标成最终结果，否则同一集后续不会重试。
+                loadedKey = result.isCacheable() ? key : "";
                 // 无条件采纳，空计划也要。解析层给出空，是「这些段对不上本集时间轴」的明确判定；
                 // 留着上一次按 duration=0 算出的旧计划，会拿错误的落点去跳（把正片中段当片尾）。
                 // skipped 不清：id 不含时间边界，重解析后仍能命中，已跳过的段不会重来。
@@ -184,7 +221,7 @@ public class IntroSkipPlayback {
      * 「用户是否开了这一类」和「有没有可 seek 的落点」，不再按片头/片尾分两套逻辑。
      */
     public boolean apply(PlayerManager player, EndingAction onEnding) {
-        if (player == null || plan == null || plan.isEmpty()) return false;
+        if (player == null || player.isReleased() || plan == null || plan.isEmpty()) return false;
         int mode = Setting.getIntroSkipMode();
         if (mode == Setting.INTRO_SKIP_OFF) return false;
         long position = player.getPosition();
@@ -220,17 +257,32 @@ public class IntroSkipPlayback {
 
             SpiderDebug.log("intro-skip", "hit kind=%s provider=%s from=%d start=%d end=%d openEnded=%s target=%d canEnd=%s duration=%d mode=%d", segment.getKind(), segment.getProvider(), position, start, segment.getEndMs(), segment.isOpenEnded(), target, canEnd, duration, mode);
             if (mode == Setting.INTRO_SKIP_AUTO) {
-                skipped.add(id);
-                runSkip(player, segment, target, canEnd, onEnding);
-                return true;
+                int expectedGeneration = generation;
+                if (runSkip(player, segment, target, canEnd, onEnding)) {
+                    if (expectedGeneration == generation) skipped.add(id);
+                    return true;
+                }
+                continue;
             }
             if (mode == Setting.INTRO_SKIP_CONFIRM && skipConfirmListener != null) {
                 int current = generation;
                 // 只有确认框真的弹出来了才算已处理；被别的框挡住时留着下个 tick 再问
-                if (!skipConfirmListener.onSkipConfirm(segment, () -> confirmSkip(current, player, segment, onEnding))) continue;
-                skipped.add(id);
+                if (isConfirmationPending(segment)) return true;
+                if (!beginConfirmation(segment)) continue;
+                boolean shown;
+                try {
+                    shown = skipConfirmListener.onSkipConfirm(segment,
+                            () -> confirmSkip(current, player, segment, onEnding));
+                } catch (Throwable ignored) {
+                    shown = false;
+                }
+                if (!shown) {
+                    cancelConfirmation(segment);
+                    continue;
+                }
                 return true;
             }
+            cancelConfirmation(segment);
             return false;
         }
         return false;
@@ -240,23 +292,37 @@ public class IntroSkipPlayback {
      * 用户点确认时才决定怎么做。确认框可能挂很久：期间位置已推进，沿用检测时算好的落点会
      * 往回 seek；更要紧的是可能已经切集，此时按上一集的段落动作会把用户带到别处。
      */
-    private void confirmSkip(int expectedGeneration, PlayerManager player, Segment segment, EndingAction onEnding) {
-        if (expectedGeneration != generation) return; // 已切集/换源，这个确认过期了
-        if (player.isReleased()) return;
+    private boolean confirmSkip(int expectedGeneration, PlayerManager player, Segment segment, EndingAction onEnding) {
+        if (!isConfirmationPending(segment)) return false;
+        if (expectedGeneration != generation || player == null || player.isReleased()) {
+            cancelConfirmation(segment);
+            return false; // 已切集/换源，这个确认过期了
+        }
         long position = player.getPosition();
         long duration = player.getDuration();
         long target = seekTarget(segment, position, duration);
         boolean canEnd = target <= 0 && endsWithFile(segment, duration);
-        if (target <= 0 && !canEnd) return; // 已经放过去了，无事可做
-        runSkip(player, segment, target, canEnd, onEnding);
+        if (target <= 0 && !canEnd) {
+            cancelConfirmation(segment);
+            return false; // 已经放过去了，无事可做
+        }
+        boolean success = runSkip(player, segment, target, canEnd, onEnding);
+        if (success && expectedGeneration == generation) completeConfirmation(segment);
+        else if (!success) cancelConfirmation(segment);
+        return success;
     }
 
-    private void runSkip(PlayerManager player, Segment segment, long target, boolean canEnd, EndingAction onEnding) {
+    private boolean runSkip(PlayerManager player, Segment segment, long target, boolean canEnd, EndingAction onEnding) {
         boolean seeked = target > 0;
+        if (player == null || player.isReleased()) return false;
         if (seeked) player.seekTo(target);
-        boolean advanced = !seeked && canEnd && onEnding != null && onEnding.run();
+        // 末集也算「本次已处理」：EndingAction 会自行提示无下一集，若返回 false 仍继续留在
+        // 当前时间点，下一次进度回调会不断重复触发同一个动作。
+        boolean endingAttempted = !seeked && canEnd && onEnding != null;
+        boolean advanced = endingAttempted && onEnding.run();
         // 切不动（末集/电影）时既没跳也没换集，此时提示「已跳过」是假话
         if (skipNoticeListener != null && (seeked || advanced)) skipNoticeListener.onSkipped(segment, seeked);
+        return seeked || endingAttempted;
     }
 
     /**
@@ -264,12 +330,12 @@ public class IntroSkipPlayback {
      *
      * <p>片尾之后还剩内容（彩蛋、预告）时不能按看完处理，那会把剩下的正片一起扔掉。
      */
-    private boolean endsWithFile(Segment segment, long duration) {
-        if (!segment.isEnding()) return false;
+    static boolean endsWithFile(Segment segment, long duration) {
+        if (segment == null || !segment.isEnding() || duration <= 0) return false;
         if (segment.isOpenEnded()) return true;
         long end = segment.getEndMs();
         if (end <= 0) return true;
-        return duration > 0 && end >= duration - TOLERANCE_MS;
+        return end >= duration - TOLERANCE_MS;
     }
 
     /**
@@ -324,8 +390,19 @@ public class IntroSkipPlayback {
         return text.length() == 0 ? "none" : text.toString();
     }
 
-    /** 段落身份来自服务层的原始边界，既区分同源多段，也不随本地时间轴折算漂移。 */
+    /**
+     * 段落身份。两个 provider 对首段使用不同字段名（例如 intro 与 intro#0），共享一次性状态；
+     * 后续数组项保留序号，避免同一 provider 的多个片段互相吞掉。映射后的身份不含本地折算
+     * 后的时间边界，所以本集时长小幅抖动不会换出新 id；跨 provider 的同义字段也归到同一别名。
+     */
     private String id(Segment segment) {
-        return segment.getIdentity();
+        if (segment == null) return "";
+        String identity = segment.getIdentity();
+        if (identity.endsWith("#0")) identity = identity.substring(0, identity.length() - 2);
+        if (identity.startsWith("credits")) identity = "outro" + identity.substring("credits".length());
+        if (identity.startsWith("trailer")) identity = "preview" + identity.substring("trailer".length());
+        if (identity.startsWith("next_episode")) identity = "preview" + identity.substring("next_episode".length());
+        if (identity.startsWith("next_preview")) identity = "preview" + identity.substring("next_preview".length());
+        return segment.getKind() + "|" + identity;
     }
 }

@@ -26,8 +26,8 @@
         "sha256": "a6a8bbf95630e70938dacde7e36c97ed330c5c426644893090cfc3280dc6ed20"
       },
       {
-        "path": "third_party/patches/media3-exo-eac3-joc-pixel-guard.patch",
-        "sha256": "f36790e77d65cd2638c14eb38f23dbdd3125a2aec09acb031fe6baaa06ab7c41"
+        "path": "third_party/patches/media3-exo-pixel-eac3-joc-guard.patch",
+        "sha256": "3c5b6ca8294603a1dfa12404a236513497afd0a78cef938360304c8484f28791"
       },
       {
         "path": "third_party/patches/media3-exo-dts-14bit-frame-size.patch",

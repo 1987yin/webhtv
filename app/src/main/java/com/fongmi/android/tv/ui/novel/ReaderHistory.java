@@ -35,13 +35,21 @@ public final class ReaderHistory {
 
     /** 旧版小说进度的放大倍数（现仅用于兼容历史记录）。 */
     public static final long SCALE = 10000L;
+    /** 历史表是阅读与影视共用表，阅读记录必须显式标注类型。 */
+    public static final String MEDIA_TYPE = "reader";
+
+    private static final String KEY_NAMESPACE = AppDatabase.SYMBOL + MEDIA_TYPE;
 
     private ReaderHistory() {
     }
 
     /** 阅读记录 key，与音频一致带上 cid，避免换配置后串记录。 */
     public static String buildKey(String siteKey, String vodId) {
-        return siteKey + AppDatabase.SYMBOL + vodId + AppDatabase.SYMBOL + VodConfig.getCid();
+        return buildKey(siteKey, vodId, VodConfig.getCid());
+    }
+
+    public static String buildKey(String siteKey, String vodId, int cid) {
+        return siteKey + AppDatabase.SYMBOL + vodId + AppDatabase.SYMBOL + cid + KEY_NAMESPACE;
     }
 
     private static String buildLegacyKey(String siteKey, String vodId) {
@@ -55,10 +63,24 @@ public final class ReaderHistory {
     /** 查询已保存的阅读记录；null 表示没读过。 */
     @Nullable
     public static History find(String siteKey, String vodId) {
+        return find(VodConfig.getCid(), siteKey, vodId);
+    }
+
+    @Nullable
+    public static History find(int cid, String siteKey, String vodId) {
         if (!canUse(siteKey, vodId)) return null;
-        History history = History.find(buildKey(siteKey, vodId));
-        if (history == null) history = History.find(buildLegacyKey(siteKey, vodId));
-        return history;
+        History history = History.find(cid, buildKey(siteKey, vodId, cid));
+        if (isReaderRecord(history)) return history;
+        // 老版本阅读记录没有类型标记，且旧 key 可能与普通视频完全相同；无法可靠区分时
+        // 宁可让旧进度失效，也不能把同键的影视进度当作阅读进度或被其覆盖。
+        History legacy = History.find(cid, buildLegacyKey(siteKey, vodId));
+        return isReaderRecord(legacy) ? legacy : null;
+    }
+
+    static boolean isReaderRecord(@Nullable History history) {
+        if (history == null) return false;
+        if (MEDIA_TYPE.equals(history.getMediaType())) return true;
+        return history.getKey().endsWith(KEY_NAMESPACE);
     }
 
     /**
@@ -72,7 +94,8 @@ public final class ReaderHistory {
         if (total <= 0) return;
         long duration = total;
         long position = toPosition(anchor, duration);
-        Task.execute(() -> saveSync(record, chapterName, chapterUrl, position, duration));
+        int cid = VodConfig.getCid();
+        Task.execute(() -> saveSync(cid, record, chapterName, chapterUrl, position, duration));
     }
 
     /**
@@ -103,29 +126,32 @@ public final class ReaderHistory {
         return (int) Math.max(0, position);
     }
 
-    private static void saveSync(Record record, String chapterName, String chapterUrl, long position, long duration) {
-        String key = buildKey(record.siteKey, record.vodId);
-        History history = find(record.siteKey, record.vodId);
-        boolean created = history == null;
-        if (created) {
+    private static void saveSync(int cid, Record record, String chapterName, String chapterUrl,
+                                 long position, long duration) {
+        String key = buildKey(record.siteKey, record.vodId, cid);
+        History history = find(cid, record.siteKey, record.vodId);
+        if (history == null) {
             history = new History();
             history.setKey(key);
         } else if (!key.equals(history.getKey())) {
             history.replace(key);
-            created = true;
         }
-        boolean changedChapter = !TextUtils.equals(chapterUrl, history.getEpisodeUrl());
-        history.setCid(VodConfig.getCid());
+        history.setCid(cid);
         history.setVodName(record.vodName);
         history.setVodPic(record.vodPic);
         history.setVodFlag(record.vodFlag);
         history.setVodRemarks(chapterName);
         history.setEpisodeUrl(chapterUrl);
+        history.setMediaType(MEDIA_TYPE);
         history.setPosition(position);
         history.setDuration(duration);
         history.setCreateTime(System.currentTimeMillis());
-        history.save();
-        if (created || changedChapter) App.post(RefreshEvent::history);
+        saveRow(history);
+        App.post(RefreshEvent::history);
+    }
+
+    static void saveRow(History history) {
+        AppDatabase.get().getHistoryDao().insertOrUpdate(history);
     }
 
     /** 阅读身份（一本书 / 一部漫画）。 */

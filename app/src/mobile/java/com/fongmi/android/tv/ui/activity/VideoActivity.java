@@ -1432,6 +1432,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                 .setPositiveButton(android.R.string.ok, (dialog, which) -> action.run())
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
+            mIntroSkipConfirmDialog.setOnDismissListener(dialog -> {
+                mIntroSkipPlayback.cancelConfirmation(segment);
+                if (mIntroSkipConfirmDialog == dialog) mIntroSkipConfirmDialog = null;
+            });
             return true;
         });
         mIntroSkipPlayback.setSkipNoticeListener(IntroSkipKinds::notifySkipped);
@@ -3144,20 +3148,26 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     /** @return 是否真的切走了。末集切不动，调用方据此决定要不要提示「进入下一集」。 */
     private boolean advanceEpisode(boolean notify) {
         setR1Callback();
-        Episode item = getAdjacentEpisode(1);
+        int offset = mHistory != null && mHistory.isRevPlay() ? -1 : 1;
+        Episode item = getAdjacentEpisode(offset);
         if (!item.isSelected()) {
             onItemClick(item);
             return true;
         }
-        if (notify) Notify.show(R.string.error_play_next);
+        if (notify) Notify.show(offset > 0 ? R.string.error_play_next : R.string.error_play_prev);
         return false;
     }
 
     private void checkPrev() {
+        checkPrev(true);
+    }
+
+    private void checkPrev(boolean notify) {
         setR1Callback();
-        Episode item = getAdjacentEpisode(-1);
+        int offset = mHistory != null && mHistory.isRevPlay() ? 1 : -1;
+        Episode item = getAdjacentEpisode(offset);
         if (!item.isSelected()) onItemClick(item);
-        else Notify.show(R.string.error_play_prev);
+        else if (notify) Notify.show(offset > 0 ? R.string.error_play_next : R.string.error_play_prev);
     }
 
     private Episode getAdjacentEpisode(int offset) {
@@ -7135,13 +7145,15 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onIntroSkipPlanLoaded() {
+        if (isFinishing() || isDestroyed() || player() == null || player().isReleased() || !isOwner()) return;
         setOpeningEndingText();
         applyAutoIntroSkip();
         preloadAdjacentIntroSkipPlans();
     }
 
     private boolean applyAutoIntroSkip() {
-        if (!Setting.isIntroSkipEnabled() || player() == null) return false;
+        if (!Setting.isIntroSkipEnabled() || isFinishing() || isDestroyed()
+                || player() == null || player().isReleased() || !isOwner()) return false;
         // notify=true：片尾无处可跳（末集/电影）时至少要有提示，不能静默无反应
         return mIntroSkipPlayback.apply(player(), () -> advanceEpisode(true));
     }
@@ -8986,6 +8998,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     protected void markPlaybackExiting() {
         if (isPlaybackExiting()) return;
         super.markPlaybackExiting();
+        mIntroSkipPlayback.reset();
         cancelAiSeasonAnalysis(false);
         mPersonalRecommendationGeneration++;
         mPersonalRecommendationTasks.close();
@@ -8994,6 +9007,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
     @Override
     protected void onDestroy() {
+        mIntroSkipPlayback.reset();
         cancelAiSeasonAnalysis(false);
         dismissKaraokeResultDialogForRecreation();
         mLyricsSearchSeq++;
