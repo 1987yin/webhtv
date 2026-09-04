@@ -78,6 +78,14 @@ public final class AboutDialog {
         });
         binding.list.setAdapter(adapter);
         binding.list.setHasFixedSize(true);
+        binding.modeGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+            if (isChecked) Setting.putGithubProxyMode(checkedId == R.id.modeStrip
+                    ? GithubProxy.MODE_STRIP_SCHEME
+                    : GithubProxy.MODE_FULL_URL);
+        });
+        binding.modeGroup.check(GithubProxy.MODE_STRIP_SCHEME.equals(Setting.getGithubProxyMode())
+                ? R.id.modeStrip
+                : R.id.modeFull);
         binding.enabled.setChecked(Setting.isGithubProxyEnabled());
         binding.enabled.setOnCheckedChangeListener((buttonView, isChecked) -> Setting.putGithubProxyEnabled(isChecked));
         refreshGithubProxy(binding);
@@ -100,16 +108,22 @@ public final class AboutDialog {
         View.OnKeyListener dpadNav = (v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
             if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && v == binding.enabled) {
-                return binding.input.requestFocus();
+                return binding.modeGroup.requestFocus();
             }
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP && v == binding.enabled) {
                 return binding.list.requestFocus();
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && v == binding.modeGroup) {
+                return binding.input.requestFocus();
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP && v == binding.modeGroup) {
+                return binding.enabled.requestFocus();
             }
             if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && v == binding.input) {
                 return binding.reset.requestFocus();
             }
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP && v == binding.input) {
-                return binding.enabled.requestFocus();
+                return binding.modeGroup.requestFocus();
             }
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP && v == binding.reset) {
                 return binding.input.requestFocus();

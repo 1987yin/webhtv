@@ -26,9 +26,9 @@ import com.fongmi.android.tv.bean.TmdbMatchCache;
 import com.fongmi.android.tv.bean.TmdbSeasonMatchCache;
 import com.fongmi.android.tv.bean.Update;
 import com.fongmi.android.tv.utils.AppCache;
-import com.fongmi.android.tv.update.GithubProxy;
 import com.fongmi.android.tv.update.OciMirror;
 import com.fongmi.android.tv.update.UpdateSource;
+import com.fongmi.android.tv.utils.GithubProxy;
 import com.fongmi.android.tv.utils.WebViewUtil;
 import com.github.catvod.crawler.DebugLogStore;
 import com.github.catvod.crawler.SpiderDebug;
@@ -735,30 +735,6 @@ public class Setting {
         Prefers.put("update_source", UpdateSource.normalize(source));
     }
 
-    public static String getUpdateGithubProxy() {
-        return GithubProxy.find(Prefers.getString("update_github_proxy", GithubProxy.DIRECT)).id;
-    }
-
-    public static void putUpdateGithubProxy(String proxy) {
-        Prefers.put("update_github_proxy", GithubProxy.find(proxy).id);
-    }
-
-    public static String getUpdateGithubProxyUrl() {
-        return Prefers.getString("update_github_proxy_url");
-    }
-
-    public static void putUpdateGithubProxyUrl(String url) {
-        Prefers.put("update_github_proxy_url", url == null ? "" : url.trim());
-    }
-
-    public static String getUpdateGithubProxyMode() {
-        return GithubProxy.normalizeMode(Prefers.getString("update_github_proxy_mode", GithubProxy.MODE_FULL_URL));
-    }
-
-    public static void putUpdateGithubProxyMode(String mode) {
-        Prefers.put("update_github_proxy_mode", GithubProxy.normalizeMode(mode));
-    }
-
     public static String getUpdateOciMirror() {
         return OciMirror.find(Prefers.getString("update_oci_mirror", OciMirror.DEFAULT)).id;
     }
@@ -776,6 +752,7 @@ public class Setting {
     }
 
     public static String getGithubProxy() {
+        migrateLegacyGithubProxy();
         return Prefers.getString("github_proxy", com.fongmi.android.tv.utils.GithubProxy.defaultSources());
     }
 
@@ -783,6 +760,14 @@ public class Setting {
         Prefers.put("github_proxy", com.fongmi.android.tv.utils.GithubProxy.normalizeConfig(value));
     }
 
+    public static String getGithubProxyMode() {
+        migrateLegacyGithubProxy();
+        return GithubProxy.normalizeMode(Prefers.getString("github_proxy_mode", GithubProxy.MODE_FULL_URL));
+    }
+
+    public static void putGithubProxyMode(String mode) {
+        Prefers.put("github_proxy_mode", GithubProxy.normalizeMode(mode));
+    }
 
     public static boolean isGithubProxyEnabled() {
         return Prefers.getBoolean("github_proxy_enabled", true);
@@ -790,6 +775,38 @@ public class Setting {
 
     public static void putGithubProxyEnabled(boolean enabled) {
         Prefers.put("github_proxy_enabled", enabled);
+    }
+
+    private static void migrateLegacyGithubProxy() {
+        if (!Prefers.getPrefers().contains("update_github_proxy")) return;
+
+        String proxy = Prefers.getString("update_github_proxy");
+        if (GithubProxy.DIRECT.equals(proxy)) {
+            putGithubProxyEnabled(false);
+        } else {
+            String url = "custom".equals(proxy)
+                    ? Prefers.getString("update_github_proxy_url")
+                    : legacyGithubProxyUrl(proxy);
+            if (!url.isEmpty()) {
+                putGithubProxy(url);
+                putGithubProxyEnabled(true);
+                putGithubProxyMode(Prefers.getString("update_github_proxy_mode", GithubProxy.MODE_FULL_URL));
+            }
+        }
+
+        Prefers.remove("update_github_proxy");
+        Prefers.remove("update_github_proxy_url");
+        Prefers.remove("update_github_proxy_mode");
+    }
+
+    private static String legacyGithubProxyUrl(String proxy) {
+        return switch (proxy) {
+            case "github_chenc" -> "https://github.chenc.dev";
+            case "gh_acmsz" -> "https://gh.acmsz.top";
+            case "ghfast" -> "https://ghfast.top";
+            case "gh_monlor" -> "https://gh.monlor.com";
+            default -> "";
+        };
     }
 
     public static boolean isAdblock() {

@@ -36,8 +36,36 @@
         android:text="@string/setting_github_proxy_enabled"
         android:textColor="#202124"
         android:textSize="15sp"
-        app:thumbTint="@color/dialog_switch_thumb"
-        app:trackTint="@color/dialog_switch_track" />
+    app:thumbTint="@color/dialog_switch_thumb"
+    app:trackTint="@color/dialog_switch_track" />
+
+    <com.google.android.material.button.MaterialButtonToggleGroup
+        android:id="@+id/modeGroup"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="10dp"
+        app:selectionRequired="true"
+        app:singleSelection="true">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/modeFull"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="@string/update_proxy_mode_full"
+            android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/modeStrip"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="@string/update_proxy_mode_strip"
+            android:textSize="12sp" />
+
+    </com.google.android.material.button.MaterialButtonToggleGroup>
 
     <androidx.appcompat.widget.LinearLayoutCompat
         android:layout_width="match_parent"

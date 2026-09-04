@@ -54,8 +54,10 @@ public class BackupPreferenceFilterTest {
 
         assertTrue(Backup.include("github_proxy", settingsOnly));
         assertTrue(Backup.include("github_proxy_enabled", settingsOnly));
+        assertTrue(Backup.include("github_proxy_mode", settingsOnly));
         assertFalse(Backup.include("github_proxy", webHomeOnly));
         assertFalse(Backup.include("github_proxy_enabled", webHomeOnly));
+        assertFalse(Backup.include("github_proxy_mode", webHomeOnly));
     }
 
     @Test
@@ -143,9 +145,9 @@ public class BackupPreferenceFilterTest {
         SyncOptions settings = new SyncOptions().config(false).spider(false).settings(true);
 
         assertTrue(Backup.include("update_source", settings));
-        assertTrue(Backup.include("update_github_proxy", settings));
-        assertTrue(Backup.include("update_github_proxy_url", settings));
-        assertTrue(Backup.include("update_github_proxy_mode", settings));
+        assertFalse(Backup.include("update_github_proxy", settings));
+        assertFalse(Backup.include("update_github_proxy_url", settings));
+        assertFalse(Backup.include("update_github_proxy_mode", settings));
         assertTrue(Backup.include("update_oci_mirror", settings));
         assertTrue(Backup.include("update_oci_mirror_url", settings));
         assertFalse(Backup.include("update_channel", settings));
