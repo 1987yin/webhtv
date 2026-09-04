@@ -85,7 +85,7 @@ public final class AboutDialog {
             }
         });
         binding.list.setAdapter(adapter);
-        binding.list.setHasFixedSize(true);
+        binding.list.setHasFixedSize(false);
         binding.modeGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
             if (isChecked) Setting.putGithubProxyMode(checkedId == R.id.modeStrip
                     ? GithubProxy.MODE_STRIP_SCHEME
@@ -191,7 +191,7 @@ public final class AboutDialog {
         // 以 MATCH_PARENT 塞进 @id/custom，窗口给满高度后列表即可自由伸展。
         WindowManager.LayoutParams params = window.getAttributes();
         params.width = WindowManager.LayoutParams.MATCH_PARENT;
-        params.height = WindowManager.LayoutParams.MATCH_PARENT;
+        params.height = WindowManager.LayoutParams.WRAP_CONTENT;
         window.setAttributes(params);
         // 弹窗有 URL 输入框。小窗居中时系统还能上推窗口避让键盘，铺满全屏后没有余量，
         // 必须显式 ADJUST_RESIZE 让窗口自身缩小，否则输入框会被屏幕键盘盖住。
@@ -204,14 +204,6 @@ public final class AboutDialog {
                 child.findViewById(R.id.remove).setFocusable(false);
             }
         });
-        ViewGroup.LayoutParams listParams = binding.list.getLayoutParams();
-        listParams.height = 0;
-        if (listParams instanceof androidx.appcompat.widget.LinearLayoutCompat.LayoutParams) {
-            ((androidx.appcompat.widget.LinearLayoutCompat.LayoutParams) listParams).weight = 1;
-        } else if (listParams instanceof android.widget.LinearLayout.LayoutParams) {
-            ((android.widget.LinearLayout.LayoutParams) listParams).weight = 1;
-        }
-        binding.list.setLayoutParams(listParams);
     }
 
     private static void refreshGithubProxy(DialogGithubProxyBinding binding) {
