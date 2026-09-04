@@ -54,7 +54,8 @@
 | 29 | `C7` | 通用/上游应用同步 | 合并 `origin/beta` 在 C6 之后的 TMDB 手动匹配持久化、标题锚点隔离和读改写竞态修复 | **已完成（本地未推送）**：目标 `7db1b9d188e27877154757528d441150142b90ed`；本地合并提交 `a8f2015363819c70b4e7ae67d419035e579b857f`；恢复 tag `recovery/C7-beta-sync/20260902101049-a8f201536381`；定向 TMDB 测试和 Mobile/Leanback Arm64 Java 编译通过 | [C7-beta-sync.md](C7-beta-sync.md) |
 | 30 | `C8` | 通用/上游应用同步 | 合并 `origin/beta` 在 C7 之后的片头片尾跳过、播放器生命周期、阅读器路由和更新包签名校验变更，并复审当前未推送改动 | **已完成并推送**：修复提交 `1d08c6fba24763023bf51792d344a3912b6d3cdb` / 恢复 tag `recovery/C8-beta-sync/20260903160741-1d08c6fba247`；beta 目标 `308694aaadd59d9d1ef230bded83cf84dafa114c`，合并提交 `5cf2f2e7fddd48454d10b86c27cc9f02e979098a` 已保留；73 项定向测试、Mobile/Leanback Arm64 Java 编译和 `git diff --check` 通过；`dev2` 与恢复 tag 已推送，`git pull --ff-only` 已更新到最新 | [C8-beta-sync.md](C8-beta-sync.md) |
 | 29 | `E-SP7` | Exo 性能/播放行为 | H.264/AVC 受约束轨道恢复自适应选轨，避免 800Kbps 视频固定到过高分辨率导致掉帧 | **已实施，待真实设备 A/B 验收**：`ExoUtil.applyVideoLimit()` 已恢复自适应选轨；定向单测和 Mobile arm64 Java 编译通过 | [E-SP7-exo-avc-adaptive-selection.md](E-SP7-exo-avc-adaptive-selection.md) |
-| 30 | `C9` | 通用/上游应用同步 | 合并 `origin/beta` 在 C6 之后的播放器、片段跳过、实时字幕、更新校验和移动详情页修复，并复审 E-SP7 合并树 | **已完成评审，待提交推送**：beta `bcfe7b22a05e32913448a228f9513c690bc8233f`；E-SP7 定向测试、beta 受影响 175 项测试和两产品 Java 编译通过；详细记录见 [C9-beta-sync.md](C9-beta-sync.md) | [C9-beta-sync.md](C9-beta-sync.md) |
+| 30 | `C9` | 通用/上游应用同步 | 合并 `origin/beta` 在 C6 之后的播放器、片段跳过、实时字幕、更新校验和移动详情页修复，并复审 E-SP7 合并树 | **已完成并推送**：`80ded1386a108dc8d1b08610c5b616d4d0f1f77f` / `recovery/C9-beta-sync/20260903072404-80ded1386a10`；E-SP7 定向测试、beta 受影响 175 项测试和两产品 Java 编译通过 | [C9-beta-sync.md](C9-beta-sync.md) |
+| 31 | `C10` | 通用/播放器供应链 | 播放器 AAR、Maven sidecar、lock、MPV native override 和构建输入以上游为准 | **清理已验证，待提交**：正式发布输入及全部 MPV native override 已与 `fish2018/webtv:main@ec478b0b697422a7785171c7b51a35b7a526564e` 对齐；v556 残留已删除，双 ABI MPV ELF 门禁通过，详情见 [C10-binary-upstream-alignment.md](C10-binary-upstream-alignment.md) | [C10-binary-upstream-alignment.md](C10-binary-upstream-alignment.md) |
 
 `C1` 是跨播放器真实输入验收维度，不单独形成代码任务或文档；它写入对应的 E/P 任务文档。`E-SP3` 已在 `fongmi-sync` 完成 App/Media3 合并，保留既有 `E4-J1`/`E6-1`/`E7-1`/`E7-2 + C3` 能力；`E9-3` 与已完成的 `P1` 现已共同进入集成树，后续按既定顺序处理 P2 阶段。
 
@@ -75,6 +76,12 @@
 3. 通用功能：评估应独立合并，还是随 Exo/MPV 某个阶段一起合并。
 
 多个仓库共同实现的同一功能不会按仓库拆散，而会归并为一个可实施阶段；每个阶段记录完整 commit ID、依赖关系、当前项目已有实现、收益、风险、冲突点、建议动作和验证项。
+
+## 检查点 59：2026-09-03 C10 二进制依赖对齐完成
+
+- `C10` 已完成：提交 `79597d2c688a804f2f6f4f3b27815f5c60595da8`，恢复标签 `recovery/C10-binary-upstream-align/20260903111337-79597d2c688a`。
+- 正式 Media3/Nextlib AAR、sidecar、lock、Media3/Nextlib patch 和 MPV stable override 已按 `fish2018/webhtv:main@ec478b0b697422a7785171c7b51a35b7a526564e` 对齐；未改 Java 播放策略或已打包播放器 `.so`。
+- 双 ABI MPV ELF 门禁及 Mobile/Leanback Arm64 Java 编译通过；目标设备播放 A/B 和 native 重建仍是后续独立证据，不改变本阶段关闭状态。
 
 ## 审计口径
 
