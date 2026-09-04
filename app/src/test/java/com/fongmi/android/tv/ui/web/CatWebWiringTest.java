@@ -130,8 +130,32 @@ public class CatWebWiringTest {
         int store = source.indexOf("VodDetailCache.putContent(sourceKey, id, content)");
         assertTrue("SiteApi 必须有详情缓存写入", store >= 0);
 
-        int guard = source.lastIndexOf("!CatAction.blank(result.getVod())", store);
+        int guard = source.lastIndexOf("CatAction.blank(result.getVod())", store);
         assertTrue("写缓存前必须排除「什么都没有」的详情", guard > 0 && guard < store);
+    }
+
+    /**
+     * 这次 spider 调用顺带开了网页，这条详情就绝不能进缓存。
+     *
+     * <p>开页是 spider 调用的副作用（bundle 反向调 {@code /msg}），缓存命中时不调 spider，
+     * 副作用也就不再发生——第二次点击网页不开、还会停在空详情页上，即「只有第一次生效」。
+     *
+     * <p>只靠 {@code blank} 挡不住：动作项的 {@code vod_pic} 本来就是二维码/proxy 地址，
+     * bundle 回带 pic 时 {@code blank} 即不成立。所以必须另有一条按副作用判定的挡板，
+     * 且它要横跨 spider 调用取样——调用前记一次时刻，写缓存前再看开页是否落在其后。
+     */
+    @Test
+    public void webOpeningDetailIsNotCached() throws IOException {
+        String source = read("com/fongmi/android/tv/api/SiteApi.java");
+        int sample = source.indexOf("long beforeSpider = System.currentTimeMillis()");
+        assertTrue("必须在调 spider 之前先取一次时刻", sample > 0);
+
+        int spider = source.indexOf("site.recent().spider().detailContent(", sample);
+        assertTrue("取样必须在 spider 调用之前，否则跨不过副作用发生的那一刻", spider > sample);
+
+        int store = source.indexOf("VodDetailCache.putContent(sourceKey, id, content)");
+        int compare = source.lastIndexOf("CatWebEvent.requestedAfter(beforeSpider)", store);
+        assertTrue("写缓存前必须判定这次调用有没有开过页", compare > sample && compare < store);
     }
 
     @Test

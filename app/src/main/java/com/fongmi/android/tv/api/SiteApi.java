@@ -12,6 +12,7 @@ import com.fongmi.android.tv.bean.Class;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
+import com.fongmi.android.tv.event.CatWebEvent;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.utils.PushParser;
@@ -139,6 +140,9 @@ public class SiteApi {
         }
 
         Result result;
+        // 取一次时刻，隔着 spider 调用；调用后若最近一次开页请求落在这之后，就是这次调用开的页。
+        // 那是个副作用，缓存会吞掉它，见 cacheDetail 的说明。
+        long beforeSpider = System.currentTimeMillis();
         if (isSpider(site)) {
             String detailContent = site.recent().spider().detailContent(Arrays.asList(requestId));
             SpiderDebug.log("detail", detailContent);
@@ -153,15 +157,39 @@ public class SiteApi {
         }
         Source.get().parse(result.getVod().setFlags());
         result = applyPushTitle(push, result);
-        // 「什么都没有」的条目不值得缓存，缓存了还有害：猫源的设置项正是这种形态，
-        // 它的副作用（请求宿主开网页）发生在 spider 调用里，命中缓存就跳过了 spider，
-        // 于是网页再也不开，只剩一个空详情页。
-        if (!result.getList().isEmpty() && !CatAction.blank(result.getVod())) {
-            String content = result.toString();
-            VodDetailCache.putContent(sourceKey, id, content);
-            SpiderDebug.log("detail-cache", "store key=%s,id=%s,size=%d", key, id, content.length());
-        }
+        cacheDetail(key, sourceKey, id, result, beforeSpider);
         return result;
+    }
+
+    /**
+     * 把详情结果写进缓存，除非这条不该缓存。
+     *
+     * <p>「打开设置网页」是 spider 调用的<b>副作用</b>：bundle 收到 detail 请求后反向调宿主的
+     * {@code /msg}。而缓存命中时压根不调 spider——所以缓存住这种条目，第二次点击就什么都不会
+     * 发生：网页不开，还会停在一个空详情页上（{@code shouldYieldDetail} 也会因为
+     * {@code lastRequestAt} 停在上一次而失配）。这正是「设置类入口只有第一次点击生效、
+     * 过 5 分钟又能点一次」的由来。
+     *
+     * <p>判定看副作用本身，不看结果的形状。原先只用 {@link CatAction#blank} 挡（四个字段全空
+     * 才算动作项），可动作项的 {@code vod_pic} 本来就是二维码/proxy 地址——bundle 只要在
+     * detail 响应里回带 pic 或动作名，{@code blank} 就不成立，条目照样被缓存。开过页就是
+     * 开过页，与响应里有什么字段无关，也不必知道每家 bundle 怎么拼这个响应。
+     *
+     * <p>{@code blank} 那条保留：坏掉的 spider 返回空对象时，把空结果缓存下来同样没意义。
+     *
+     * @param beforeSpider 调 spider 之前的时刻。判定用 {@code >=}，所以同一毫秒内的陈旧开页
+     *                     记录会让这条详情也躲过缓存——那个方向是安全的，代价只是下次点击
+     *                     多走一次 spider。并发的另一次开页同理。
+     */
+    private static void cacheDetail(String key, String sourceKey, String id, Result result, long beforeSpider) {
+        if (result.getList().isEmpty() || CatAction.blank(result.getVod())) return;
+        if (CatWebEvent.requestedAfter(beforeSpider)) {
+            SpiderDebug.log("detail-cache", "skip key=%s,id=%s reason=webOpened", key, id);
+            return;
+        }
+        String content = result.toString();
+        VodDetailCache.putContent(sourceKey, id, content);
+        SpiderDebug.log("detail-cache", "store key=%s,id=%s,size=%d", key, id, content.length());
     }
 
     private static String detailCacheSourceKey(String key, Site site) {
