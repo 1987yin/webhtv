@@ -173,9 +173,7 @@ public final class AboutDialog {
                 long start = System.nanoTime();
                 try (var response = OkHttp.newCall(OkHttp.client(PROBE_TIMEOUT_MS), GithubProxy.probeUrl(source), source).execute()) {
                     long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
-                    String value = response.isSuccessful()
-                            ? App.get().getString(R.string.setting_github_proxy_latency, elapsed)
-                            : App.get().getString(R.string.setting_github_proxy_latency_failed);
+                    String value = App.get().getString(R.string.setting_github_proxy_latency, elapsed);
                     App.post(() -> adapter.setLatency(source, value));
                 } catch (Exception e) {
                     App.post(() -> adapter.setLatency(source, App.get().getString(R.string.setting_github_proxy_latency_failed)));
@@ -185,19 +183,27 @@ public final class AboutDialog {
     }
 
     private static void configureGithubProxyWindow(FragmentActivity activity, AlertDialog dialog, DialogGithubProxyBinding binding) {
-        if (!Util.isLeanback()) return;
+        boolean leanback = Util.isLeanback();
         Window window = dialog.getWindow();
         if (window == null) return;
-        // 电视端铺满全屏：不再按屏幕比例手算宽高，列表改为吃掉剩余空间。
+        // 手机与电视都铺满全屏：不再按屏幕比例手算宽高，列表改为吃掉剩余空间。
         // 这个弹窗经 MaterialAlertDialogBuilder.setView 装载，root 会被 AlertController
         // 以 MATCH_PARENT 塞进 @id/custom，窗口给满高度后列表即可自由伸展。
         WindowManager.LayoutParams params = window.getAttributes();
         params.width = WindowManager.LayoutParams.MATCH_PARENT;
         params.height = WindowManager.LayoutParams.MATCH_PARENT;
         window.setAttributes(params);
-        // 这个弹窗有 URL 输入框。小窗居中时系统还能上推窗口避让键盘，铺满全屏后没有余量，
+        // 弹窗有 URL 输入框。小窗居中时系统还能上推窗口避让键盘，铺满全屏后没有余量，
         // 必须显式 ADJUST_RESIZE 让窗口自身缩小，否则输入框会被屏幕键盘盖住。
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        if (leanback) binding.list.requestFocus();
+        else binding.list.post(() -> {
+            for (int i = 0; i < binding.list.getChildCount(); i++) {
+                View child = binding.list.getChildAt(i);
+                child.findViewById(R.id.text).setFocusable(false);
+                child.findViewById(R.id.remove).setFocusable(false);
+            }
+        });
         ViewGroup.LayoutParams listParams = binding.list.getLayoutParams();
         listParams.height = 0;
         if (listParams instanceof androidx.appcompat.widget.LinearLayoutCompat.LayoutParams) {
