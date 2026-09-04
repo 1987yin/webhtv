@@ -481,12 +481,11 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         Collect all = Collect.all();
         all.setSelected("all".equals(activeSiteKey));
         items.add(all);
-        boolean fixedOrder = Setting.getSearchResultSort() == 1;
         for (int i = 1; i < mAllCollectItems.size(); i++) {
             Collect raw = mAllCollectItems.get(i);
             if (!matchFilter(raw.getSite())) continue;
             List<Vod> visible = SearchResultFilter.filter(raw.getList(), getKeyword(), mSimilarity);
-            if (!SearchSourceVisibility.shouldShow(mSimilarity, fixedOrder, !visible.isEmpty())) continue;
+            if (!SearchSourceVisibility.shouldShow(!visible.isEmpty())) continue;
             Collect item = new Collect(raw.getSite(), visible);
             item.setPage(mPaging.getPage(raw.getSite().getKey()));
             item.setSelected(raw.getSite().getKey().equals(activeSiteKey));
