@@ -6,11 +6,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 
 import com.fongmi.android.tv.api.SiteApi;
+import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.ComicSourceConfig;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Flag;
+import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.bean.NovelSourceConfig;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Vod;
@@ -23,6 +26,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 集数点击 / 播放入口路由器：决定是「小说/漫画阅读」还是「普通播放」。
@@ -37,7 +43,16 @@ import java.util.concurrent.Executors;
 public final class NovelRouter {
 
     private static final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private static final Handler main = new Handler(Looper.getMainLooper());
+    private static final AtomicInteger HISTORY_REQUESTS = new AtomicInteger();
+    private static final AtomicInteger CONTENT_REQUESTS = new AtomicInteger();
+
+    private static Handler mainHandler() {
+        return MainHandler.INSTANCE;
+    }
+
+    private static class MainHandler {
+        private static final Handler INSTANCE = new Handler(Looper.getMainLooper());
+    }
 
     public interface Fallback { void run(); }
 
@@ -61,11 +76,13 @@ public final class NovelRouter {
         pd.setMessage("正在识别内容…");
         pd.setCancelable(true);
         pd.show();
-        executor.execute(() -> {
+        int request = CONTENT_REQUESTS.incrementAndGet();
+        AtomicBoolean canceled = new AtomicBoolean(false);
+        Future<?> future = executor.submit(() -> {
             Runnable launch = null;
             try {
                 Result r = SiteApi.playerContent(pure, flag == null ? "" : flag.getFlag(), episode.getUrl());
-                String u = firstContent(r);
+                String u = readerPayload(r);
                 if (isComic(u)) {
                     final String p = u;
                     launch = () -> openPics(ctx, siteKey, flag, vod, episode, p);
@@ -86,12 +103,17 @@ public final class NovelRouter {
             }
             // startActivity 统一回主线程执行，与 dismiss 保持时序
             final Runnable finalLaunch = launch;
-            main.post(() -> {
+            mainHandler().post(() -> {
                 try { pd.dismiss(); } catch (Throwable ignore) {}
-                if (isDead(ctx)) return;
+                if (canceled.get() || request != CONTENT_REQUESTS.get() || isDead(ctx)) return;
                 if (finalLaunch != null) finalLaunch.run();
                 else if (fallback != null) fallback.run();
             });
+        });
+        pd.setOnCancelListener(ignored -> {
+            canceled.set(true);
+            CONTENT_REQUESTS.compareAndSet(request, request + 1);
+            future.cancel(true);
         });
         return true;
     }
@@ -125,7 +147,9 @@ public final class NovelRouter {
             if (!reader.hasPendingHostChapterRequest() && NovelRouter.consumeStaleChapterResult()) return false;
             // 不在这里清表：结清哪一条只有阅读器知道（它持有本次请求的令牌），
             // 在这里猜或整表清空都会抹掉另一次仍在途的请求，返回键会重新失效。
-            reader.onEpisodeResolved(kind, result.getRealUrl(), extractTitle(result.getRealUrl()));
+            String payload = readerPayload(result);
+            if (TextUtils.isEmpty(payload)) return false;
+            reader.onEpisodeResolved(kind, payload, extractTitle(payload));
             return true;
         }
         // 刚关闭 / 属于已关阅读器的在途切章：都是返回后残留的回调，不再拉起
@@ -133,7 +157,8 @@ public final class NovelRouter {
 
         if (ctx instanceof NovelReaderHost) setHost((NovelReaderHost) ctx);
 
-        String payload = result.getRealUrl();
+        String payload = readerPayload(result);
+        if (TextUtils.isEmpty(payload)) return false;
         ArrayList<Episode> ch = new ArrayList<>();
         if (chapters != null) ch.addAll(chapters);
         int index = 0;
@@ -169,7 +194,7 @@ public final class NovelRouter {
     }
 
     /** 从 Result 多字段中提取首个有效 play_url。优先返回带 novel:///pics:///manga:// 协议前缀的字段，避免内容藏在 msg/header 时漏判。 */
-    private static String firstContent(Result r) {
+    public static String readerPayload(Result r) {
         if (r == null) return null;
         String playUrl = r.getPlayUrl();
         String urlV = null;
@@ -195,7 +220,7 @@ public final class NovelRouter {
 
     /** 判定 play_url 协议类型：0=非阅读/普通视频；1=novel:// 小说；2=pics:///manga:// 漫画。 */
     public static int readerUrlKind(Result r) {
-        String u = firstContent(r);
+        String u = readerPayload(r);
         if (u == null) return 0;
         u = u.trim();
         if (u.startsWith("novel://")) return 1;
@@ -230,7 +255,7 @@ public final class NovelRouter {
         if (kind == 0) return false;
 
         Episode current = episodes == null || position < 0 || position >= episodes.size() ? null : episodes.get(position);
-        String payload = result.getRealUrl();
+        String payload = readerPayload(result);
         String title = extractTitle(payload);
         if (title == null || title.isEmpty()) title = current == null ? vodName : current.getName();
 
@@ -281,6 +306,232 @@ public final class NovelRouter {
         return ComicSourceConfig.isEnabledByKey(pure) || NovelSourceConfig.isEnabledByKey(pure);
     }
 
+    /** Opens a readable history item directly, falling back when the source is not readable. */
+    public static boolean openHistory(Activity activity, History history, int targetCid, Fallback fallback) {
+        return openHistory(activity, history, null, null, null, targetCid, fallback);
+    }
+
+    /** Opens a resolved cross-source history item directly in the reader. */
+    public static boolean openHistory(Activity activity, History history, Vod target,
+                                      Flag targetFlag, Episode targetEpisode, int targetCid,
+                                      Fallback fallback) {
+        if (activity == null || history == null) return false;
+        String siteKey = pureSiteKey(target == null ? history.getSiteKey() : target.getSiteKey());
+        String vodId = target == null ? history.getVodId() : target.getId();
+        if (TextUtils.isEmpty(vodId) || targetCid != VodConfig.getCid()) return false;
+        if (!isReadableHistoryCandidate(isReaderSite(siteKey), history, targetEpisode)) return false;
+
+        ProgressDialog dialog = new ProgressDialog(activity);
+        dialog.setMessage("正在打开阅读器...");
+        dialog.setCancelable(true);
+        dialog.setCanceledOnTouchOutside(true);
+        dialog.show();
+
+        int request = HISTORY_REQUESTS.incrementAndGet();
+        AtomicBoolean canceled = new AtomicBoolean(false);
+        Future<ReaderData> future = executor.submit(() -> {
+            ReaderData data = resolveHistory(history, target, targetFlag, targetEpisode, targetCid, canceled);
+            mainHandler().post(() -> {
+                try {
+                    dialog.dismiss();
+                } catch (Throwable ignore) {
+                }
+                if (canceled.get() || request != HISTORY_REQUESTS.get()
+                        || targetCid != VodConfig.getCid() || isDead(activity)) return;
+                if (data != null) openReaderData(activity, data);
+                else if (fallback != null) fallback.run();
+            });
+            return data;
+        });
+        dialog.setOnCancelListener(ignored -> {
+            synchronized (canceled) {
+                canceled.set(true);
+            }
+            future.cancel(true);
+        });
+        return true;
+    }
+
+    static boolean isReadableHistoryCandidate(boolean readerSite, History history, Episode targetEpisode) {
+        if (history == null) return false;
+        return isReaderUrl(history.getEpisodeUrl())
+                || isReaderUrl(targetEpisode == null ? null : targetEpisode.getUrl())
+                || readerSite
+                || ReaderHistory.isReaderRecord(history);
+    }
+
+    private static ReaderData resolveHistory(History history, Vod target,
+                                             Flag targetFlag, Episode targetEpisode, int targetCid,
+                                             AtomicBoolean canceled) {
+        try {
+            if (canceled.get()) return null;
+            String siteKey = pureSiteKey(target == null ? history.getSiteKey() : target.getSiteKey());
+            String vodId = target == null ? history.getVodId() : target.getId();
+            Vod vod = target;
+            if (vod == null || vod.getFlags().isEmpty()) {
+                Result detail = SiteApi.detailContent(siteKey, vodId);
+                if (canceled.get()) return null;
+                vod = detail == null ? null : detail.getVod();
+                if (vod == null || vod.getFlags().isEmpty()) return null;
+                vod.checkName(history.getVodName());
+                vod.checkPic(history.getVodPic());
+            }
+            if (TextUtils.isEmpty(vodId)) vodId = vod.getId();
+            if (TextUtils.isEmpty(vodId) || vod.getFlags().isEmpty()) return null;
+            if (targetCid != VodConfig.getCid()) return null;
+
+            Flag flag = targetFlag;
+            Episode episode = targetEpisode;
+            if (flag == null || episode == null) {
+                flag = com.fongmi.android.tv.ui.helper.TmdbUIAdapter.selectPlaybackFlag(
+                        vod.getFlags(), history.getSourceBindingKey(),
+                        history.getEpisodeUrl(), history.getVodFlag());
+                if (flag != null) episode = findHistoryEpisode(flag, history);
+            }
+            if (flag == null || episode == null) {
+                for (Flag candidate : vod.getFlags()) {
+                    episode = findHistoryEpisode(candidate, history);
+                    if (episode != null) {
+                        flag = candidate;
+                        break;
+                    }
+                }
+            }
+            if (flag == null || episode == null) {
+                if (!canDefaultToFirstChapter(vod, history)) return null;
+                flag = vod.getFlags().get(0);
+                episode = flag.getEpisodes().get(0);
+            }
+            if (TextUtils.isEmpty(episode.getUrl())) return null;
+
+            String payload = episode.getUrl();
+            int kind = isComic(payload) ? 2 : isNovel(payload) ? 1 : 0;
+            if (kind == 0) {
+                Result result = SiteApi.playerContent(siteKey, flag.getFlag(), payload);
+                if (canceled.get()) return null;
+                String content = readerPayload(result);
+                if (TextUtils.isEmpty(content)) return null;
+                kind = readerUrlKind(result);
+                if (kind == 0) kind = kindBySiteRule(siteKey, result);
+                if (kind == 0) return null;
+                payload = content;
+            }
+
+            if (targetCid != VodConfig.getCid()) return null;
+
+            String name = TextUtils.isEmpty(vod.getName()) ? history.getVodName() : vod.getName();
+            String pic = TextUtils.isEmpty(vod.getPic()) ? history.getVodPic() : vod.getPic();
+            seedCrossSourceHistory(history, siteKey, vodId, flag.getFlag(), episode, name, pic, targetCid, canceled);
+            ArrayList<Episode> chapters = chaptersOf(flag, episode);
+            return new ReaderData(kind, payload, siteKey, flag.getFlag(), vodId, name, pic,
+                    chapters, indexOf(chapters, episode));
+        } catch (Throwable ignore) {
+            return null;
+        }
+    }
+
+    static Episode findHistoryEpisode(Flag flag, History history) {
+        if (flag == null || history == null) return null;
+        String url = history.getEpisodeUrl();
+        if (!TextUtils.isEmpty(url)) {
+            for (Episode episode : flag.getEpisodes()) {
+                if (episode != null && TextUtils.equals(url, episode.getUrl())) return episode;
+            }
+        }
+        String name = history.getVodRemarks();
+        return TextUtils.isEmpty(name) ? null : flag.find(name, true);
+    }
+
+    private static void seedCrossSourceHistory(History history, String siteKey, String vodId,
+                                               String flag, Episode episode, String name, String pic,
+                                               int targetCid) {
+        if (history == null || TextUtils.isEmpty(siteKey) || TextUtils.isEmpty(vodId)) return;
+        History target = ReaderHistory.find(targetCid, siteKey, vodId);
+        if (target != null) {
+            String expectedKey = ReaderHistory.buildKey(siteKey, vodId, targetCid);
+            target.replace(expectedKey);
+            alignResolvedHistoryProgress(target, history, episode.getUrl());
+            target.setCid(targetCid);
+            target.setVodName(name);
+            target.setVodPic(pic);
+            target.setVodFlag(flag);
+            target.setVodRemarks(episode.getName());
+            target.setEpisodeUrl(episode.getUrl());
+            target.setMediaType(ReaderHistory.MEDIA_TYPE);
+            target.setCreateTime(System.currentTimeMillis());
+            ReaderHistory.saveRow(target);
+            return;
+        }
+
+        History seed = new History();
+        seed.setKey(ReaderHistory.buildKey(siteKey, vodId, targetCid));
+        seed.setCid(targetCid);
+        seed.setVodName(name);
+        seed.setVodPic(pic);
+        seed.setVodFlag(flag);
+        seed.setVodRemarks(episode.getName());
+        alignResolvedHistoryProgress(seed, history, episode.getUrl());
+        seed.setEpisodeUrl(episode.getUrl());
+        seed.setTmdbId(0);
+        seed.setMediaType(ReaderHistory.MEDIA_TYPE);
+        seed.setTmdbSeasonNumber(0);
+        seed.setTmdbEpisodeNumber(0);
+        seed.setCreateTime(System.currentTimeMillis());
+        ReaderHistory.saveRow(seed);
+    }
+
+    private static void seedCrossSourceHistory(History history, String siteKey, String vodId,
+                                               String flag, Episode episode, String name, String pic,
+                                               int targetCid, AtomicBoolean canceled) {
+        synchronized (canceled) {
+            if (canceled.get()) return;
+            seedCrossSourceHistory(history, siteKey, vodId, flag, episode, name, pic, targetCid);
+        }
+    }
+
+    /**
+     * A resolved chapter must not inherit the target row's progress when its URL changed.
+     * Keep progress only when the target row already represents the resolved chapter; otherwise
+     * use the source row's progress, or clear it when the source has no valid chapter position.
+     */
+    static void alignResolvedHistoryProgress(History target, History source, String resolvedEpisodeUrl) {
+        if (target == null || source == null || TextUtils.isEmpty(resolvedEpisodeUrl)) return;
+        if (TextUtils.equals(target.getEpisodeUrl(), resolvedEpisodeUrl)) return;
+        if (ReaderHistory.isReaderRecord(source) && source.hasPlaybackTime()) {
+            target.setPosition(source.getPosition());
+            target.setDuration(source.getDuration());
+        } else {
+            target.resetPlaybackPosition();
+        }
+    }
+
+    private static boolean canDefaultToFirstChapter(Vod vod, History history) {
+        if (vod == null || vod.getFlags() == null || vod.getFlags().size() != 1) return false;
+        Flag flag = vod.getFlags().get(0);
+        if (flag == null || flag.getEpisodes() == null || flag.getEpisodes().size() != 1) return false;
+        return TextUtils.isEmpty(history.getEpisodeUrl())
+                && TextUtils.isEmpty(history.getVodRemarks());
+    }
+
+    private static void openReaderData(Activity activity, ReaderData data) {
+        Intent intent = new Intent(activity, WebReaderActivity.class);
+        intent.putExtra(WebReaderActivity.EXTRA_KIND, data.kind);
+        intent.putExtra(WebReaderActivity.EXTRA_CACHE_KEY,
+                WebReaderActivity.cacheLargeData(data.payload, data.chapters));
+        intent.putExtra(WebReaderActivity.EXTRA_SITE_KEY, data.siteKey);
+        intent.putExtra(WebReaderActivity.EXTRA_FLAG, data.flag);
+        intent.putExtra(WebReaderActivity.EXTRA_VOD_ID, data.vodId);
+        intent.putExtra(WebReaderActivity.EXTRA_VOD_NAME, data.name);
+        intent.putExtra(WebReaderActivity.EXTRA_VOD_PIC, data.pic);
+        intent.putExtra(WebReaderActivity.EXTRA_INDEX, data.index);
+        activity.startActivity(intent);
+    }
+
+    private record ReaderData(int kind, String payload, String siteKey, String flag,
+                              String vodId, String name, String pic,
+                              ArrayList<Episode> chapters, int index) {
+    }
+
     /**
      * 站点级分流：命中小说 / 漫画源规则时，后台取详情 + 解析首章，直接进阅读器，
      * 不再打开播放页（解决「先进播放页再报错」）。
@@ -296,8 +547,10 @@ public final class NovelRouter {
         pd.setMessage("正在加载…");
         pd.setCancelable(true);
         pd.show();
+        int request = CONTENT_REQUESTS.incrementAndGet();
+        AtomicBoolean canceled = new AtomicBoolean(false);
 
-        executor.execute(() -> {
+        Future<?> future = executor.submit(() -> {
             String error = null;
             Runnable launch = null;
             try {
@@ -314,7 +567,7 @@ public final class NovelRouter {
                 if (kind == 0) {
                     // 章节 url 不是阅读协议 → 解析首章内容
                     Result r = SiteApi.playerContent(pure, flag.getFlag(), ep.getUrl());
-                    String u = firstContent(r);
+                    String u = readerPayload(r);
                     if (u == null || u.isEmpty()) throw new IllegalStateException("章节内容为空");
                     kind = isComic(u) ? 2 : isNovel(u) ? 1 : 0;
                     if (kind == 0) {
@@ -346,13 +599,18 @@ public final class NovelRouter {
             final String finalError = error;
             final Runnable finalLaunch = launch;
             final boolean fallback = launch == null && error == null;
-            main.post(() -> {
+            mainHandler().post(() -> {
                 try { pd.dismiss(); } catch (Throwable ignore) {}
-                if (isDead(activity)) return;
+                if (canceled.get() || request != CONTENT_REQUESTS.get() || isDead(activity)) return;
                 if (finalLaunch != null) finalLaunch.run();
                 else if (fallback) openPlayerFallback(activity, key, id, name, pic, mark);
                 else Notify.show(finalError);
             });
+        });
+        pd.setOnCancelListener(ignored -> {
+            canceled.set(true);
+            CONTENT_REQUESTS.compareAndSet(request, request + 1);
+            future.cancel(true);
         });
         return true;
     }
@@ -409,7 +667,7 @@ public final class NovelRouter {
         // 要求二次解析 → 内容还没解析出来，不是阅读数据
         if (result.needParse()) return 0;
 
-        String u = firstContent(result);
+        String u = readerPayload(result);
         if (u == null || u.isEmpty()) return 0;
         u = u.trim();
 
@@ -560,7 +818,7 @@ public final class NovelRouter {
         int kind = readerUrlKind(result);
         if (kind == 0) return false;
 
-        String payload = result.getRealUrl();
+        String payload = readerPayload(result);
         String flag = result.getFlag() == null ? "" : result.getFlag();
 
         // 关键修复：startPlayer 传入的 key 是 getHistoryKey()（siteKey@@@vodId@@@1），

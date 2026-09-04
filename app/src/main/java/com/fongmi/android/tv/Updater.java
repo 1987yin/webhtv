@@ -564,12 +564,16 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
     private String validate(File file, Update update) {
         if (file == null || !file.exists() || file.length() <= 0) return ResUtil.getString(R.string.update_download_invalid);
         if (update != null && update.size > 0 && file.length() != update.size) return ResUtil.getString(R.string.update_download_incomplete);
-        if (update != null && !TextUtils.isEmpty(update.sha256) && !update.sha256.equalsIgnoreCase(sha256(file))) return ResUtil.getString(R.string.update_download_checksum);
-        if (!validatePackage(file, update)) return ResUtil.getString(R.string.update_download_identity);
+        boolean checksumVerified = false;
+        if (update != null && !TextUtils.isEmpty(update.sha256)) {
+            if (!update.sha256.equalsIgnoreCase(sha256(file))) return ResUtil.getString(R.string.update_download_checksum);
+            checksumVerified = true;
+        }
+        if (!validatePackage(file, update, checksumVerified)) return ResUtil.getString(R.string.update_download_identity);
         return "";
     }
 
-    private boolean validatePackage(File file, Update update) {
+    private boolean validatePackage(File file, Update update, boolean checksumVerified) {
         try {
             PackageManager manager = App.get().getPackageManager();
             int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
@@ -579,34 +583,38 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
             long archiveCode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? archive.getLongVersionCode() : archive.versionCode;
             if (update != null && update.code > 0 && archiveCode != update.code) return false;
             if (update != null && !TextUtils.isEmpty(update.versionName) && !update.versionName.equals(archive.versionName)) return false;
-            return signaturesMatch(installed, archive);
+            return signaturesMatch(installed, archive, checksumVerified);
         } catch (Exception e) {
             return false;
         }
     }
 
-    private boolean signaturesMatch(PackageInfo installed, PackageInfo archive) {
+    static boolean canAcceptUnreadableArchiveSignature(boolean checksumVerified) {
+        return checksumVerified;
+    }
+
+    private boolean signaturesMatch(PackageInfo installed, PackageInfo archive, boolean checksumVerified) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             // Some OEM ROMs do not populate signingInfo for getPackageArchiveInfo().
             // Keep the installed signature authoritative, but let an unreadable
             // candidate reach the OS installer, which remains the compatibility gate.
             if (installed.signingInfo == null) return false;
-            if (archive.signingInfo == null) return true;
+            if (archive.signingInfo == null) return canAcceptUnreadableArchiveSignature(checksumVerified);
             if (installed.signingInfo.hasMultipleSigners() || archive.signingInfo.hasMultipleSigners()) {
                 Set<String> installedPrints = fingerprints(installed.signingInfo.getApkContentsSigners());
                 Set<String> archivePrints = fingerprints(archive.signingInfo.getApkContentsSigners());
                 if (installedPrints.isEmpty()) return false;
-                if (archivePrints.isEmpty()) return true;
+                if (archivePrints.isEmpty()) return canAcceptUnreadableArchiveSignature(checksumVerified);
                 return installedPrints.equals(archivePrints);
             }
             Set<String> current = fingerprints(installed.signingInfo.getApkContentsSigners());
             Set<String> candidateHistory = fingerprints(archive.signingInfo.getSigningCertificateHistory());
             if (current.isEmpty()) return false;
-            if (candidateHistory.isEmpty()) return true;
+            if (candidateHistory.isEmpty()) return canAcceptUnreadableArchiveSignature(checksumVerified);
             return candidateHistory.containsAll(current);
         }
         if (fingerprints(installed.signatures).isEmpty()) return false;
-        if (fingerprints(archive.signatures).isEmpty()) return true;
+        if (fingerprints(archive.signatures).isEmpty()) return canAcceptUnreadableArchiveSignature(checksumVerified);
         return fingerprints(installed.signatures).equals(fingerprints(archive.signatures));
     }
 
