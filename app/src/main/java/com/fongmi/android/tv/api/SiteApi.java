@@ -164,18 +164,18 @@ public class SiteApi {
     /**
      * 把详情结果写进缓存，除非这条不该缓存。
      *
-     * <p>「打开设置网页」是 spider 调用的<b>副作用</b>：bundle 收到 detail 请求后反向调宿主的
-     * {@code /msg}。而缓存命中时压根不调 spider——所以缓存住这种条目，第二次点击就什么都不会
-     * 发生：网页不开，还会停在一个空详情页上（{@code shouldYieldDetail} 也会因为
-     * {@code lastRequestAt} 停在上一次而失配）。这正是「设置类入口只有第一次点击生效、
-     * 过 5 分钟又能点一次」的由来。
+     * <p>设置类入口的实际工作发生在 {@code detailContent} <b>里面</b>——弹输入框、写配置、扫码、
+     * 请求宿主开网页。缓存命中时压根不调 spider，那些副作用就再也不发生：第二次点击弹窗不出、
+     * 网页不开，宿主还会拿着占位结果直奔播放页。这正是「设置类入口只有第一次点击生效，
+     * 第二次进播放页；过 5 分钟又能点一次」的由来。
      *
-     * <p>判定看副作用本身，不看结果的形状。原先只用 {@link CatAction#blank} 挡（四个字段全空
-     * 才算动作项），可动作项的 {@code vod_pic} 本来就是二维码/proxy 地址——bundle 只要在
-     * detail 响应里回带 pic 或动作名，{@code blank} 就不成立，条目照样被缓存。开过页就是
-     * 开过页，与响应里有什么字段无关，也不必知道每家 bundle 怎么拼这个响应。
-     *
-     * <p>{@code blank} 那条保留：坏掉的 spider 返回空对象时，把空结果缓存下来同样没意义。
+     * <p>三道挡板，各挡一种形态：
+     * <ul>
+     *   <li>{@link CatAction#blank}：什么都没有的条目（猫源老式动作项），缓存它也没意义
+     *   <li>{@link #hasMetadata}：只有占位线路、没有元数据的条目（设置类站点的签名）
+     *   <li>{@link CatWebEvent#requestedAfter}：这次调用顺带开过网页，那是副作用
+     * </ul>
+     * 前两道看结果形状，第三道看副作用——形状千变万化，副作用是确凿的，两类都要。
      *
      * @param beforeSpider 调 spider 之前的时刻。判定用 {@code >=}，所以同一毫秒内的陈旧开页
      *                     记录会让这条详情也躲过缓存——那个方向是安全的，代价只是下次点击
@@ -183,6 +183,10 @@ public class SiteApi {
      */
     private static void cacheDetail(String key, String sourceKey, String id, Result result, long beforeSpider) {
         if (result.getList().isEmpty() || CatAction.blank(result.getVod())) return;
+        if (!hasMetadata(result.getVod())) {
+            SpiderDebug.log("detail-cache", "skip key=%s,id=%s reason=noMetadata", key, id);
+            return;
+        }
         if (CatWebEvent.requestedAfter(beforeSpider)) {
             SpiderDebug.log("detail-cache", "skip key=%s,id=%s reason=webOpened", key, id);
             return;
@@ -190,6 +194,32 @@ public class SiteApi {
         String content = result.toString();
         VodDetailCache.putContent(sourceKey, id, content);
         SpiderDebug.log("detail-cache", "store key=%s,id=%s,size=%d", key, id, content.length());
+    }
+
+    /**
+     * 这份详情带没带元数据——名字、封面、简介，有一项就算。
+     *
+     * <p>「只有线路、没有元数据」是<b>设置类站点</b>的签名。那类站点把每个设置项做成一个条目，
+     * 真正的工作发生在 {@code detailContent} 里——弹输入框、写配置、扫码；返回值只是个占位的
+     * 假线路，好让宿主别报错。实测某网盘配置源返回的就是：
+     * <pre>{"list":[{"vod_play_from":"Config","vod_play_url":"Config$Config"}],"parse":0,"jx":0}</pre>
+     *
+     * <p>缓存住这种条目就等于把那个动作阉掉：命中缓存时 {@code detailContent} 压根不被调用，
+     * 弹窗再也不出现，宿主还会拿着那个叫 {@code Config} 的假地址直奔播放页——这正是
+     * 「设置类入口只有第一次点击生效，第二次进播放页」的由来。
+     *
+     * <p>{@link CatAction#blank} 挡不住它：{@code vod_play_from}/{@code vod_play_url} 会生成一条
+     * Flag，{@code getFlags()} 非空，{@code blank} 就不成立。所以这里<b>刻意不看线路</b>——线路是
+     * 占位结果也能轻易凑出来的东西，而元数据不是。
+     *
+     * <p>代价：真把元数据全放在列表项、detail 只回线路的源，每次进详情都要重新调一次 spider。
+     * 那是缓存引入之前的原有行为，不是退步；而反过来把动作缓存掉是功能损坏。
+     */
+    private static boolean hasMetadata(Vod vod) {
+        if (vod == null) return false;
+        return !vod.getName().isEmpty()
+                || !TextUtils.isEmpty(vod.getPic())
+                || !TextUtils.isEmpty(vod.getContent());
     }
 
     private static String detailCacheSourceKey(String key, Site site) {
