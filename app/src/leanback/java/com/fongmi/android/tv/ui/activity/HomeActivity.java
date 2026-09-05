@@ -60,6 +60,7 @@ import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.service.DLNARendererService;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.setting.AutoBackupPolicy;
+import com.fongmi.android.tv.setting.AppBranding;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.adapter.BaseDiffCallback;
 import com.fongmi.android.tv.ui.adapter.TypeAdapter;
@@ -79,7 +80,6 @@ import com.fongmi.android.tv.ui.presenter.ProgressPresenter;
 import com.fongmi.android.tv.ui.presenter.VodPresenter;
 import com.fongmi.android.tv.utils.Clock;
 import com.fongmi.android.tv.utils.FileChooser;
-import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
@@ -106,10 +106,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 
 
 import javax.net.ssl.HostnameVerifier;
@@ -214,6 +212,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
         mResult = Result.empty();
         mHomeResult = Result.empty();
         mClock = Clock.create(mBinding.clock);
+        setLogo();
         syncHomeSiteLock();
         mBinding.progressLayout.showProgress();
         setRecyclerView();
@@ -612,9 +611,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     }
 
     private void setTitle() {
-        List<String> items = Arrays.asList(getHome().getDisplayName(), getConfig().getName(), getString(R.string.app_name));
-        Optional<String> optional = items.stream().filter(s -> !TextUtils.isEmpty(s)).findFirst();
-        optional.ifPresent(s -> mBinding.title.setText(s));
+        mBinding.title.setText(AppBranding.getDisplayName(this, getHome().getDisplayName(), getConfig().getName()));
     }
 
     private void syncHomeSiteLock() {
@@ -878,7 +875,7 @@ public class HomeActivity extends BaseActivity implements ExitConfirmDialog.List
     }
 
     private void setLogo() {
-        ImgUtil.logo(mBinding.logo);
+        AppBranding.applyLogo(mBinding.logo);
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
