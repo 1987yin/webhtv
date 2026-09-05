@@ -26,9 +26,9 @@ import com.fongmi.android.tv.bean.TmdbMatchCache;
 import com.fongmi.android.tv.bean.TmdbSeasonMatchCache;
 import com.fongmi.android.tv.bean.Update;
 import com.fongmi.android.tv.utils.AppCache;
-import com.fongmi.android.tv.update.GithubProxy;
 import com.fongmi.android.tv.update.OciMirror;
 import com.fongmi.android.tv.update.UpdateSource;
+import com.fongmi.android.tv.utils.GithubProxy;
 import com.fongmi.android.tv.utils.WebViewUtil;
 import com.github.catvod.crawler.DebugLogStore;
 import com.github.catvod.crawler.SpiderDebug;
@@ -42,6 +42,8 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.HashMap;
 
 public class Setting {
 
@@ -735,30 +737,6 @@ public class Setting {
         Prefers.put("update_source", UpdateSource.normalize(source));
     }
 
-    public static String getUpdateGithubProxy() {
-        return GithubProxy.find(Prefers.getString("update_github_proxy", GithubProxy.DIRECT)).id;
-    }
-
-    public static void putUpdateGithubProxy(String proxy) {
-        Prefers.put("update_github_proxy", GithubProxy.find(proxy).id);
-    }
-
-    public static String getUpdateGithubProxyUrl() {
-        return Prefers.getString("update_github_proxy_url");
-    }
-
-    public static void putUpdateGithubProxyUrl(String url) {
-        Prefers.put("update_github_proxy_url", url == null ? "" : url.trim());
-    }
-
-    public static String getUpdateGithubProxyMode() {
-        return GithubProxy.normalizeMode(Prefers.getString("update_github_proxy_mode", GithubProxy.MODE_FULL_URL));
-    }
-
-    public static void putUpdateGithubProxyMode(String mode) {
-        Prefers.put("update_github_proxy_mode", GithubProxy.normalizeMode(mode));
-    }
-
     public static String getUpdateOciMirror() {
         return OciMirror.find(Prefers.getString("update_oci_mirror", OciMirror.DEFAULT)).id;
     }
@@ -776,6 +754,7 @@ public class Setting {
     }
 
     public static String getGithubProxy() {
+        migrateLegacyGithubProxy();
         return Prefers.getString("github_proxy", com.fongmi.android.tv.utils.GithubProxy.defaultSources());
     }
 
@@ -783,6 +762,14 @@ public class Setting {
         Prefers.put("github_proxy", com.fongmi.android.tv.utils.GithubProxy.normalizeConfig(value));
     }
 
+    public static String getGithubProxyMode() {
+        migrateLegacyGithubProxy();
+        return GithubProxy.normalizeMode(Prefers.getString("github_proxy_mode", GithubProxy.MODE_FULL_URL));
+    }
+
+    public static void putGithubProxyMode(String mode) {
+        Prefers.put("github_proxy_mode", GithubProxy.normalizeMode(mode));
+    }
 
     public static boolean isGithubProxyEnabled() {
         return Prefers.getBoolean("github_proxy_enabled", true);
@@ -790,6 +777,66 @@ public class Setting {
 
     public static void putGithubProxyEnabled(boolean enabled) {
         Prefers.put("github_proxy_enabled", enabled);
+    }
+
+    /**
+     * 把旧的单选 GitHub 代理设置迁移成新的多源列表。
+     *
+     * <p>{@code synchronized}：两个 getter 都会调它，而它先读后删旧键。不加锁时
+     * 「关于」对话框与探测线程可能同时进来，两边都看到旧键存在，后写的 {@code putGithubProxy}
+     * 会盖掉前一次已经扩好的列表。窗口只有升级后第一次读，但那正是唯一一次机会。
+     */
+    private static synchronized void migrateLegacyGithubProxy() {
+        if (!Prefers.getPrefers().contains("update_github_proxy")) return;
+
+        String proxy = Prefers.getString("update_github_proxy");
+        if (GithubProxy.DIRECT.equals(proxy)) {
+            putGithubProxyEnabled(false);
+        } else {
+            String url = "custom".equals(proxy)
+                    ? Prefers.getString("update_github_proxy_url")
+                    : legacyGithubProxyUrl(proxy);
+            if (!url.isEmpty()) {
+                // 旧选择成为列表首位（即生效源），其余内置源保留在后面备用。
+                // 先前这里用 putGithubProxy(url) 覆盖，会把刚合并出来的整份列表抹成一条。
+                String merged = GithubProxy.addSources(Prefers.getString("github_proxy"), legacyGithubProxySources(url));
+                putGithubProxy(GithubProxy.addSources(url, merged));
+                putGithubProxyEnabled(true);
+                putGithubProxyMode(Prefers.getString("update_github_proxy_mode", GithubProxy.MODE_FULL_URL));
+            }
+        }
+
+        Prefers.remove("update_github_proxy");
+        Prefers.remove("update_github_proxy_url");
+        Prefers.remove("update_github_proxy_mode");
+    }
+
+    private static String legacyGithubProxyUrl(String proxy) {
+        return switch (proxy) {
+            case "github_chenc" -> "https://github.chenc.dev";
+            case "gh_acmsz" -> "https://gh.acmsz.top";
+            case "ghfast" -> "https://ghfast.top";
+            case "gh_monlor" -> "https://gh.monlor.com";
+            default -> "";
+        };
+    }
+
+    /**
+     * 旧版本内置的四个代理加上用户自填的那个，作为迁移时要并入的候选源。
+     *
+     * <p>{@code selectedUrl} 放在最前：并入后它就是生效源，与用户升级前的选择一致。
+     * 自填地址无论当时选没选中都保留 —— 它是用户手输的，丢掉就再也找不回来。
+     */
+    private static String legacyGithubProxySources(String selectedUrl) {
+        List<String> list = new ArrayList<>();
+        if (selectedUrl != null && !selectedUrl.isEmpty()) list.add(selectedUrl);
+        list.add("https://github.chenc.dev");
+        list.add("https://gh.acmsz.top");
+        list.add("https://ghfast.top");
+        list.add("https://gh.monlor.com");
+        String custom = Prefers.getString("update_github_proxy_url");
+        if (!custom.isEmpty()) list.add(custom);
+        return String.join("\n", list);
     }
 
     public static boolean isAdblock() {
@@ -1277,6 +1324,45 @@ public class Setting {
 
     public static boolean isHistoryAggregationEffective() {
         return isHistoryAggregationByTmdb();
+    }
+
+    private static final String KEY_TMDB_SEASON_OFFSET = "tmdb_season_offset_map";
+
+    /** 用户自定义的"TMDB 剧名 -> 季号偏移"映射（源季号 + 偏移 = TMDB season_number）。 */
+    public static Map<String, Integer> getTmdbSeasonOffsetMap() {
+        String json = Prefers.getString(KEY_TMDB_SEASON_OFFSET, null);
+        if (json == null || json.isEmpty()) return new HashMap<>();
+        try {
+            Map<String, Integer> map = App.gson().fromJson(json, new TypeToken<Map<String, Integer>>() {}.getType());
+            return map != null ? map : new HashMap<>();
+        } catch (Exception e) {
+            return new HashMap<>();
+        }
+    }
+
+    public static void putTmdbSeasonOffsetMap(Map<String, Integer> map) {
+        Prefers.put(KEY_TMDB_SEASON_OFFSET, App.gson().toJson(map));
+    }
+
+    public static int getTmdbSeasonOffset(String tmdbTitle) {
+        if (tmdbTitle == null) return 0;
+        Integer offset = getTmdbSeasonOffsetMap().get(tmdbTitle.trim());
+        return offset != null ? offset : 0;
+    }
+
+    public static void putTmdbSeasonOffset(String tmdbTitle, int offset) {
+        if (tmdbTitle == null || tmdbTitle.trim().isEmpty()) return;
+        Map<String, Integer> map = getTmdbSeasonOffsetMap();
+        if (offset == 0) map.remove(tmdbTitle.trim());
+        else map.put(tmdbTitle.trim(), offset);
+        putTmdbSeasonOffsetMap(map);
+    }
+
+    public static void removeTmdbSeasonOffset(String tmdbTitle) {
+        if (tmdbTitle == null) return;
+        Map<String, Integer> map = getTmdbSeasonOffsetMap();
+        map.remove(tmdbTitle.trim());
+        putTmdbSeasonOffsetMap(map);
     }
 
     public static boolean isHomeVodAutoLoad() {

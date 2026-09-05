@@ -20,6 +20,7 @@ public class GithubTest {
         assertTrue(beta.contains("/releases/download/update-channel/"));
         assertEquals("https://github.com/1987yin/webhtv/releases/download/update-channel/mobile-arm64_v8a.json", stable);
         assertEquals("https://github.com/1987yin/webhtv/releases/download/update-channel/mobile-arm64_v8a-beta.json", beta);
+
     }
 
 

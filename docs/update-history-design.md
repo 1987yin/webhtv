@@ -239,7 +239,7 @@ app/src/leanback/java/com/fongmi/android/tv/ui/dialog/UpdateDialog.java
 使用现有公开 GitHub Releases API：
 
 ```text
-GET https://api.github.com/repos/Silent1566/webhtv/releases
+GET https://api.github.com/repos/YaChengMu/webhtv/releases
     ?per_page=20
     &page=<n>
 
