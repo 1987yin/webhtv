@@ -276,6 +276,13 @@ public class PlayerManager implements ParseCallback {
     private volatile boolean liveDanmakuPlaybackActive;
     private long pendingSwitchPositionMs = C.TIME_UNSET;
     private long pendingInitialStartPositionMs = C.TIME_UNSET;
+    /**
+     * 宿主从 History 里恢复出来的外挂字幕，等本次起播前注入。
+     *
+     * <p>不让宿主直接改 spec：spec 在 {@code parse()} 路径里是 PlayerManager 自己
+     * 构造的，宿主拿不到。取用一次即清，避免换集时复用上一集的字幕。
+     */
+    private Sub pendingRestoreSub;
     private float pendingSwitchSpeed = 1f;
     private boolean danmakuLoadInProgress;
     private boolean danmakuForeground = true;
@@ -906,6 +913,12 @@ public class PlayerManager implements ParseCallback {
                 : engine.getVideoPlaybackDetails();
     }
 
+    public AudioPlaybackDiagnostics.Snapshot getAudioPlaybackDiagnostics() {
+        return engine == null
+                ? AudioPlaybackDiagnostics.Snapshot.empty()
+                : engine.getAudioPlaybackDiagnostics();
+    }
+
     public long getDroppedFrames() {
         return engine == null ? 0 : engine.getDroppedFrames();
     }
@@ -1140,6 +1153,11 @@ public class PlayerManager implements ParseCallback {
         return playerType == PlayerSetting.MPV;
     }
 
+    public boolean sendMpvCustomButton(String id, boolean longPress) {
+        if (!isMpv() || TextUtils.isEmpty(id) || !(engine instanceof MpvPlayerEngine mpv)) return false;
+        return mpv.sendScriptMessage(MpvConfigStore.CUSTOM_BUTTON_MESSAGE, id, longPress ? "long" : "short");
+    }
+
     public boolean isMpvSurfaceDirect() {
         return engine instanceof MpvPlayerEngine mpv && mpv.isSurfaceDirect();
     }
@@ -1209,6 +1227,10 @@ public class PlayerManager implements ParseCallback {
         Track.delete(getKey(), C.TRACK_TYPE_TEXT);
         engine.resetTrack(C.TRACK_TYPE_TEXT);
         spec.setSub(sub);
+        // 这里是本地文件、在线搜索、AI 翻译、局域网推送四条路径的唯一收口，
+        // 一处上报就够，不需要在各 UI 入口分别接线。集地址由宿主从自己的
+        // History 里取，PlayerManager 不掺和历史记录的事。
+        callback.onSubtitleSelected(sub);
         boolean automaticOutput = MpvPerformanceSetting.getOutputMode() == MpvPerformanceSetting.OUTPUT_AUTO;
         if (MpvAutoOutputPolicy.shouldLeaveSurfaceDirectForSubtitle(automaticOutput, isMpvSurfaceDirect(), true, false)) {
             resetMpvOutputEvaluationState();
@@ -1216,6 +1238,16 @@ public class PlayerManager implements ParseCallback {
         } else {
             restartCurrentItemWithState();
         }
+    }
+
+    /**
+     * 登记一条待恢复的外挂字幕，下一次起播时注入。
+     *
+     * <p>必须在 {@code start()} / {@code parse()} 之前调用。是否该恢复由宿主用
+     * {@code SubtitleRestorePolicy} 判定，这里只负责搬运。
+     */
+    public void setPendingRestoreSub(Sub sub) {
+        pendingRestoreSub = sub;
     }
 
     public void setFormat(String format) {
@@ -1386,6 +1418,8 @@ public class PlayerManager implements ParseCallback {
     }
 
     private ExoNetworkGuardEligibility.Decision getNetworkProtectionEligibility() {
+        AudioPlaybackDiagnostics.OutputMode audioOutputMode = getAudioPlaybackDiagnostics()
+                .outputMode();
         return ExoNetworkGuardEligibility.resolve(new ExoNetworkGuardEligibility.Request(
                 ExoPerformanceSetting.isNetworkProtectionEnabled()
                         && experimentAllowed(
@@ -1395,16 +1429,19 @@ public class PlayerManager implements ParseCallback {
                 Math.abs(userPlaybackSpeed - 1f) < 0.001f,
                 player != null && player.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH),
                 PlayerSetting.isTunnel(),
-                PlayerSetting.isAudioPassThrough(PlayerSetting.EXO)));
+                audioOutputMode));
     }
 
     private void scheduleNetworkProtection(long delayMs) {
         App.removeCallbacks(networkProtectionRunnable);
         ExoNetworkGuardEligibility.Decision eligibility = getNetworkProtectionEligibility();
+        AudioPlaybackDiagnostics.OutputMode audioOutputMode = getAudioPlaybackDiagnostics()
+                .outputMode();
         logNetworkGuard("schedule delay=" + delayMs + " eligible=" + eligibility.eligible()
                 + " reason=" + eligibility.reason() + " exo=" + isExo() + " vod=" + isVod()
                 + " userSpeed=" + userPlaybackSpeed + " tunnel=" + PlayerSetting.isTunnel()
-                + " passthrough=" + PlayerSetting.isAudioPassThrough(PlayerSetting.EXO)
+                + " configuredPassthrough=" + PlayerSetting.isAudioPassThrough(PlayerSetting.EXO)
+                + " audioOutput=" + audioOutputMode
                 + " state=" + (player == null ? -1 : player.getPlaybackState())
                 + " playing=" + (player != null && player.isPlaying()));
         if (!eligibility.eligible()) {
@@ -1772,6 +1809,10 @@ public class PlayerManager implements ParseCallback {
         resetMpvOutputRuntime();
         closeMultiThreadProxyRegistration();
         spec = null;
+        // 待恢复字幕是绑定「下一次起播」的一次性登记。若那次起播被提前拦下
+        // （DRM 不支持、阅读器路由、地址为空），登记会留在这里；不清掉的话
+        // 会被后续某次无关起播（例如音频迷你播放器）取走并挂上。
+        pendingRestoreSub = null;
         clearPendingSwitchRestore();
         clearDanmaku("clear");
         lutAppliedForItem = false;
@@ -5283,6 +5324,7 @@ public void resetTrack(int type) {
         mpv.clearHwdecOverride();
         mpv.setVulkanRenderOverride(null);
         mpv.resetDv7HandlingForNewItem();
+        mpv.resetDv8HandlingForNewItem();
         rebuildAndRestartMpv(null, "performance-settings-changed");
     }
 
@@ -5347,6 +5389,10 @@ public void resetTrack(int type) {
 
     private void prepareMpvOutputForNewItem() {
         resetMpvOutputEvaluationState();
+        // 必须在 instanceof 早退之前注入：Exo 和 IJK 也要恢复外挂字幕。
+        // 也必须在下面算 externalSubtitleActive 之前，否则 MPV 的输出模式判定
+        // 会漏掉这条刚挂上的字幕。
+        restorePendingSubtitle();
         List<Track> persistedTracks = Track.find(getKey());
         Track persistedSubtitle = findRequestedSubtitle(persistedTracks);
         mpvExplicitSubtitlePreference = persistedSubtitle != null;
@@ -5354,6 +5400,7 @@ public void resetTrack(int type) {
         boolean hwdecOverrideCleared = mpv.clearHwdecOverride();
         mpv.prepareSubtitleForNewItem(persistedSubtitle);
         boolean dv7HandlingChanged = mpv.resetDv7HandlingForNewItem();
+        boolean dv8HandlingChanged = mpv.resetDv8HandlingForNewItem();
         boolean clearAutoVulkanRenderer = mpvAutoVulkanPinnedForItem;
         mpvAutoVulkanPinnedForItem = false;
         mpvAutoVulkanDisabledForItem = false;
@@ -5384,10 +5431,26 @@ public void resetTrack(int type) {
         }
         if (mpv.isSurfaceDirect() == shouldStartDirect
                 && !hwdecOverrideCleared
-                && !clearAutoVulkanRenderer && !dv7HandlingChanged) return;
-        if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "prepare new item rebuild currentDirect=%s desiredDirect=%s mode=%s hwdecOverrideCleared=%s clearAutoVulkan=%s dv7HandlingChanged=%s", mpv.isSurfaceDirect(), shouldStartDirect, MpvPerformanceSetting.getOutputModeText(), hwdecOverrideCleared, clearAutoVulkanRenderer, dv7HandlingChanged);
+                && !clearAutoVulkanRenderer && !dv7HandlingChanged && !dv8HandlingChanged) return;
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "prepare new item rebuild currentDirect=%s desiredDirect=%s mode=%s hwdecOverrideCleared=%s clearAutoVulkan=%s dv7HandlingChanged=%s dv8HandlingChanged=%s", mpv.isSurfaceDirect(), shouldStartDirect, MpvPerformanceSetting.getOutputModeText(), hwdecOverrideCleared, clearAutoVulkanRenderer, dv7HandlingChanged, dv8HandlingChanged);
         mpv.setSurfaceDirectOverride(shouldStartDirect);
         rebuildPlayer();
+    }
+
+    /**
+     * 把宿主放在 spec 上的待恢复字幕挂进字幕列表。
+     *
+     * <p>发生在 {@code setMediaItem} 之前，所以走的是正常起播路径——不会触发
+     * {@link #setSub(Sub)} 里的重启分支，用户也就看不到画面闪一下。三个内核
+     * 统一从 {@code PlaySpec.subs} 取字幕，因此这里不区分内核。
+     */
+    private void restorePendingSubtitle() {
+        Sub sub = pendingRestoreSub;
+        pendingRestoreSub = null;
+        if (spec == null || sub == null) return;
+        // setSub() 内部会先 remove 再插首位，源站自带同一个 url 时天然幂等。
+        spec.setSub(sub);
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("subtitle-restore", "inject persisted subtitle name=%s key=%s", sub.getName(), getKey());
     }
 
     private void resetMpvOutputRuntime() {
@@ -5489,6 +5552,14 @@ public void resetTrack(int type) {
         boolean dv7HandlingChanged = dolbyVision
                 && videoDetails.dolbyVisionProfile() == 7
                 && mpv.updateDv7Handling(dolbyVisionSupport, profile81Support);
+        MpvAutoOutputPolicy.DolbyVisionSupport hevcHdr10Support =
+                dolbyVision && videoDetails.dolbyVisionProfile() == 8
+                        ? CodecCapabilityInspector.hevcHdr10Support(
+                        App.get(), format, width, height)
+                        : MpvAutoOutputPolicy.DolbyVisionSupport.UNKNOWN;
+        boolean dv8HandlingChanged = dolbyVision
+                && videoDetails.dolbyVisionProfile() == 8
+                && mpv.updateDv8Handling(dolbyVisionSupport, hevcHdr10Support);
         dv7Hdr10FallbackEnabled = dolbyVision
                 && videoDetails.dolbyVisionProfile() == 7
                 && mpv.isDv7Hdr10Active();
@@ -5497,7 +5568,8 @@ public void resetTrack(int type) {
                 Util.isLeanback(), lutOrFilterActive, customGpuProcessing,
                 dolbyVisionSupport,
                 dolbyVision ? videoDetails.dolbyVisionProfile() : C.INDEX_UNSET,
-                dv7Hdr10FallbackEnabled);
+                dv7Hdr10FallbackEnabled,
+                hevcHdr10Support);
         int dolbyVisionProfile = dolbyVision
                 ? videoDetails.dolbyVisionProfile() : C.INDEX_UNSET;
         boolean currentlyVulkan = mpv.isVulkanRenderer();
@@ -5521,19 +5593,21 @@ public void resetTrack(int type) {
         boolean currentlyDirect = isMpvSurfaceDirect();
         boolean effectiveEligible = MpvPerformanceSetting.isAutoSurfaceDirectEnabled() && decision.eligible();
         MpvAutoOutputPolicy.Transition transition = MpvAutoOutputPolicy.transition(effectiveEligible, currentlyDirect);
-        if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "auto decision eligible=%s effectiveEligible=%s transition=%s reason=%s size=%dx%d tracksReady=%s early=%s subtitle=%s lutOrFilter=%s customGpu=%s dvProfile=%d dvSupport=%s direct=%s gpuPinned=%s attempts=%d", decision.eligible(), effectiveEligible, transition, decision.reason(), width, height, tracksReady, earlyEvaluation, subtitleActive, lutOrFilterActive, customGpuProcessing, dolbyVision ? videoDetails.dolbyVisionProfile() : C.INDEX_UNSET, dolbyVisionSupport, currentlyDirect, mpvAutoGpuPinnedForSession, mpvAutoOutputProbeAttempts);
-        boolean transitionRequested = dv7HandlingChanged || enableAutoVulkan
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("mpv-output", "auto decision eligible=%s effectiveEligible=%s transition=%s reason=%s renderAction=%s renderReason=%s size=%dx%d tracksReady=%s early=%s subtitle=%s lutOrFilter=%s customGpu=%s dvProfile=%d dvSupport=%s direct=%s gpuPinned=%s autoVulkan=%s attempts=%d", decision.eligible(), effectiveEligible, transition, decision.reason(), renderDecision.action(), renderDecision.reason(), width, height, tracksReady, earlyEvaluation, subtitleActive, lutOrFilterActive, customGpuProcessing, dolbyVisionProfile, dolbyVisionSupport, currentlyDirect, mpvAutoGpuPinnedForSession, mpvAutoVulkanPinnedForItem, mpvAutoOutputProbeAttempts);
+        boolean transitionRequested = dv7HandlingChanged || dv8HandlingChanged || enableAutoVulkan
                 || transition == MpvAutoOutputPolicy.Transition.ENTER_SURFACE_DIRECT
                 || transition == MpvAutoOutputPolicy.Transition.LEAVE_SURFACE_DIRECT;
         boolean requestAccepted = true;
-        if (dv7HandlingChanged) {
+        if (dv7HandlingChanged || dv8HandlingChanged) {
             Boolean outputOverride = enableAutoVulkan
                     || transition == MpvAutoOutputPolicy.Transition.LEAVE_SURFACE_DIRECT
-                    ? false
+                    ? Boolean.FALSE
                     : transition == MpvAutoOutputPolicy.Transition.ENTER_SURFACE_DIRECT
-                    ? true : null;
-            requestAccepted = rebuildAndRestartMpv(outputOverride,
-                    "auto-dv7-" + mpv.getDv7HandlingOption());
+                    ? Boolean.TRUE : null;
+            String reason = dv7HandlingChanged
+                    ? "auto-dv7-" + mpv.getDv7HandlingOption()
+                    : "auto-dv8-" + mpv.getDv8HandlingOption();
+            requestAccepted = rebuildAndRestartMpv(outputOverride, reason);
         } else if (enableAutoVulkan) {
             requestAccepted = rebuildAndRestartMpv(false,
                     "auto-" + renderDecision.reason());
@@ -8363,6 +8437,13 @@ public void resetTrack(int type) {
         }
 
         default void onExoFirstFrame() {
+        }
+
+        /**
+         * 用户选中了一个外挂字幕。宿主负责写进自己的 History——PlayerManager
+         * 不持有 History 引用，也不该持有。
+         */
+        default void onSubtitleSelected(Sub sub) {
         }
 
         void onPlayerRebuild(Player newPlayer, boolean resetVideoSurface);
