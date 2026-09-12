@@ -7748,6 +7748,9 @@ private void checkOrientation() {
             public void onKeep() {
                 VideoActivity.this.onKeep();
             }
+            @Override
+            public void onDownload() {
+            }
         });
 
         // 设置图片加载完成监听器
