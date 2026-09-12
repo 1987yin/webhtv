@@ -100,6 +100,7 @@ import com.fongmi.android.tv.playback.PlaybackOrientation;
 import com.fongmi.android.tv.playback.SubtitleRestoreCoordinator;
 import com.fongmi.android.tv.player.IntroSkipKinds;
 import com.fongmi.android.tv.player.IntroSkipPlayback;
+import com.fongmi.android.tv.player.PlaybackResourceClassifier;
 import com.fongmi.android.tv.player.PlayerHelper;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.engine.PlayerEngine;
@@ -115,6 +116,7 @@ import com.fongmi.android.tv.setting.PlayerButtonSetting;
 import com.fongmi.android.tv.setting.MultiThreadProxySetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
+import com.fongmi.android.tv.ui.dialog.PlaybackSpeedDialog;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.setting.TmdbSitePolicy;
@@ -4616,9 +4618,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void onSpeed() {
-        mBinding.control.action.speed.setText(player().addSpeed());
-        saveUserSpeed();
-        setR1Callback();
+        PlaybackSpeedDialog.show(this, player().getSpeed(), speed -> {
+            if (!isServiceReady() || !isOwner() || player().isEmpty()) return;
+            mBinding.control.action.speed.setText(player().setSpeed(speed));
+            saveUserSpeed();
+            setR1Callback();
+        });
     }
 
     private boolean onSpeedLong() {
@@ -9339,10 +9344,15 @@ private void checkOrientation() {
     }
 
     private boolean isAdFeedbackEnabled() {
-        // AI 不再是硬门槛：本地归因通道（切片结构/域名/既有规则）不依赖 AI 配置。
-        // 只要求可定位的时间轴 —— 直播和时长未知的内容无法框选区间。
-        if (player() == null || TextUtils.isEmpty(player().getUrl())) return false;
-        return Setting.isAdblock() && !player().isLive() && player().getDuration() > 0;
+        // 功能开关 + 仅支持解析的格式(HLS/m3u8)才可反馈,因为去广分析依赖切片列表
+        return Setting.isAiConfigReady() && Setting.isAdblock() && Setting.isAiAdDetection() && isAdFeedbackSupportedFormat();
+    }
+
+    private boolean isAdFeedbackSupportedFormat() {
+        if (player() == null) return false;
+        String url = player().getUrl();
+        if (TextUtils.isEmpty(url)) return false;
+        return PlaybackResourceClassifier.isHlsUrl(url);
     }
 
     private void setAdFeedbackVisible() {
