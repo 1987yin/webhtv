@@ -180,3 +180,4 @@
 - Recovery tag：`recovery/C4/20260907105426-188553addf66`；`git merge-base --is-ancestor` 已确认本地基线和上游目标均为 HEAD 祖先，merge metadata 已清理。
 - 最终工作树仅保留任务开始前的 5 个受保护 `.bak` 未跟踪文件；其 SHA-256 与 guard 初始指纹一致。`docs/OCI1-oci-apk-update.md` 与 `docs/mobile-apk-link-push.md` 均保留。
 - 最终状态：完成（本地未推送）。连接设备播放、真实 OCI 下载/局域网 APK 推送和 native 重建不属于本轮验证范围，后续如需验收应另开任务。
+Note: Task guard for C4 (dev2) finished at 2026-09-13 00:49:46 CST because we are now switching to dev1 for upstream merge.
