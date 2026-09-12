@@ -5032,5 +5032,6 @@ C3 的触发来源主要是 media `990abc2368fd74779f525ee345734470659f3d53`（`
 
 ### 59.5 当前恢复锚点
 
-- 当前 HEAD 仍为 `da34bfc400ccff4c07287ef1e3cfa61327aaee39`，工作树包含本轮 121 个上游净变更路径的已验证合并结果。
-- 下一动作：运行 `bash .codex/scripts/task_guard.sh finish --verified ... --commit-message ...`，创建一个原子提交和 annotated recovery tag；失败则不提交并保留本轮工作树。
+- 当前 HEAD 为 merge commit `65facf4bcbed78e702a1ec0fd86c50778fcf639f`，第一父提交 `da34bfc400ccff4c07287ef1e3cfa61327aaee39`，第二父提交 `fc62397591701b2232ae7de4f50a032bd7742064`；上游目标已是 HEAD 祖先。
+- Recovery tag：`recovery/merge-upstream-binary-override-java-merge/20260913015933-65facf4bcbed`。
+- 当前状态：完成（本地未推送）；工作树收口后不再重复构建、测试或扩展研究。
