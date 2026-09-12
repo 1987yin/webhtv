@@ -7,8 +7,10 @@ import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.databinding.AdapterVodBinding;
+import com.fongmi.android.tv.utils.HistoryProgressFormatter;
 import com.fongmi.android.tv.utils.ImgUtil;
 
 import java.util.List;
@@ -95,6 +97,9 @@ public class HistoryAdapter extends BaseDiffAdapter<History, HistoryAdapter.View
         holder.binding.site.setVisibility(item.getSiteVisible());
         holder.binding.playback.setText(item.getPlaybackTimeText());
         holder.binding.playback.setVisibility(!delete && item.hasPlaybackTime() ? View.VISIBLE : View.GONE);
+        String watchedTime = HistoryProgressFormatter.format(item.getPosition(), item.getDuration());
+        holder.binding.historyProgress.setText(watchedTime.isEmpty() ? "" : holder.itemView.getContext().getString(R.string.history_watched_time, watchedTime));
+        holder.binding.historyProgress.setVisibility(delete || watchedTime.isEmpty() ? View.GONE : View.VISIBLE);
         int duration = (int) Math.min(Integer.MAX_VALUE, Math.max(0, item.getDuration()));
         int progress = (int) Math.min(Integer.MAX_VALUE, Math.max(0, item.getPosition()));
         holder.binding.progress.setMax(duration > 0 ? duration : 1);

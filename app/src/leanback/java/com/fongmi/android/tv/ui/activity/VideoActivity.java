@@ -37,6 +37,7 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Player;
 import androidx.media3.common.VideoSize;
+import androidx.media3.mpvplayer.MpvPlayer;
 import androidx.media3.ui.PlayerView;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -316,6 +317,8 @@ private int mLyricsRefreshSeq;
 private int mAudioQueueSearchSeq;
 private int mStatusBarInset;
 private int mEpisodeBottomInset;
+private MpvPlayer mDiscMenuPlayer;
+private final Runnable mDiscMenuStateListener = this::updateDiscMenuAction;
 private Runnable mR3;
 private Runnable mAudioRefreshLyricsRunnable;
 private Runnable mApplyAudioBackgroundRunnable;
@@ -1446,6 +1449,15 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.control.action.next.setOnClickListener(view -> checkNext());
         mBinding.control.action.prev.setOnClickListener(view -> checkPrev());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
+        mBinding.control.action.discMenu.setOnClickListener(view -> {
+            hideControl();
+            openDiscMenu();
+        });
+        mBinding.control.action.discMenu.setOnLongClickListener(view -> {
+            hideControl();
+            showDiscMenuControls();
+            return true;
+        });
         mBinding.episodeReverse.setOnClickListener(view -> onRevSort());
         mBinding.episodeViewMode.setOnClickListener(view -> toggleEpisodeViewMode());
         mBinding.episodeFileName.setOnClickListener(view -> toggleEpisodeFileName());
@@ -1503,7 +1515,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.control.action.ending.setOnLongClickListener(view -> onEndingReset());
         mBinding.control.action.opening.setOnLongClickListener(view -> onOpeningReset());
         setActionFocusScroll();
-        mBinding.video.setOnTouchListener(this::onVideoTouch);
+        mBinding.video.setOnTouchListener((view, event) ->
+                dispatchDiscMenuTouch(event) || onVideoTouch(view, event));
         mBinding.flag.addOnChildViewHolderSelectedListener(new OnChildViewHolderSelectedListener() {
             @Override
             public void onChildViewHolderSelected(@NonNull RecyclerView parent, @Nullable RecyclerView.ViewHolder child, int position, int subposition) {
@@ -1675,6 +1688,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         setupCustomActionButtons();
         placePanDiagnosticAction();
         updatePanDiagnosticAction();
+        updateDiscMenuAction();
         applyActionButtonVisibility();
     }
 
@@ -1693,7 +1707,7 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         List<MpvConfigStore.CustomButton> buttons = MpvConfigStore.customButtons();
         for (int index = 0; index < buttons.size(); index++) {
             MpvConfigStore.CustomButton button = buttons.get(index);
-            if (!button.enabled) continue;
+            if (!button.isButtonVisible()) continue;
             TextView view = new TextView(this);
             view.setTextSize(13);
             view.setTextColor(Color.WHITE);
@@ -1770,7 +1784,21 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         mBinding.control.action.cast.setVisibility(isFullscreen() ? View.GONE : View.VISIBLE);
         updateImmersiveAudioAction();
         updatePanDiagnosticAction();
+        updateDiscMenuAction();
         if (mActionButtons != null) PlayerButtonSetting.applyVisibility(mActionButtons);
+    }
+
+    private void updateDiscMenuAction() {
+        MpvPlayer mpv = service() != null && isOwner()
+                && player().getPlayer() instanceof MpvPlayer active ? active : null;
+        if (mDiscMenuPlayer != mpv) {
+            if (mDiscMenuPlayer != null) mDiscMenuPlayer.removeDiscMenuStateListener(mDiscMenuStateListener);
+            mDiscMenuPlayer = mpv;
+            if (mpv != null) mpv.addDiscMenuStateListener(mDiscMenuStateListener);
+        }
+        boolean available = mpv != null && mpv.isDiscMenuAvailable();
+        if (!available && mBinding.control.action.discMenu.hasFocus()) mBinding.control.action.playParams.requestFocus();
+        mBinding.control.action.discMenu.setVisibility(available ? View.VISIBLE : View.GONE);
     }
 
     private void updatePanDiagnosticAction() {
@@ -7284,6 +7312,11 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
             mInitialPlaybackPosition = C.TIME_UNSET;
             return;
         }
+        if (hasDiscMenu()) {
+            tmdbHistoryResumePending = false;
+            mInitialPlaybackPosition = C.TIME_UNSET;
+            return;
+        }
         long position = resolveInitialPlaybackPosition();
         if (position == C.TIME_UNSET || position <= 0) {
             tmdbHistoryResumePending = false;
@@ -7636,7 +7669,14 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
 
     @Override
+    protected boolean dispatchDiscMenuKey(KeyEvent event) {
+        if (isVisible(mBinding.control.getRoot()) || isVisible(mBinding.lutQuick)) return false;
+        return super.dispatchDiscMenuKey(event);
+    }
+
+    @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (dispatchDiscMenuKey(event)) return true;
         if (KeyUtil.isActionUp(event) && KeyUtil.isBackKey(event) && mBinding.lutQuick.hideIfVisible()) return true;
         if (mKeyDown.isChangingSpeed() && KeyUtil.isActionUp(event)) {
             mKeyDown.releaseSpeed();
@@ -8078,6 +8118,10 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
     }
     @Override
     protected void onDestroy() {
+        if (mDiscMenuPlayer != null) {
+            mDiscMenuPlayer.removeDiscMenuStateListener(mDiscMenuStateListener);
+            mDiscMenuPlayer = null;
+        }
         invalidateShortDramaQueue("destroy");
         cancelTvTouch();
         mIntroSkipPlayback.reset();

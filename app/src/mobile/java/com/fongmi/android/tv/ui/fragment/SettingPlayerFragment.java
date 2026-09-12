@@ -117,6 +117,10 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.scale.setOnClickListener(this::onScale);
         mBinding.lut.setOnClickListener(this::onLut);
         mBinding.mpvConfig.setOnClickListener(view -> MpvConfigDialog.show(this, () -> mBinding.mpvConfigText.setText(MpvConfigStore.summary())));
+        mBinding.blurayMenu.setOnClickListener(view -> {
+            PlayerSetting.putBlurayMenu(!PlayerSetting.isBlurayMenu());
+            mBinding.blurayMenuText.setText(getSwitch(PlayerSetting.isBlurayMenu()));
+        });
         mBinding.mpvRender.setOnClickListener(this::onMpvRender);
         mBinding.osd.setOnClickListener(this::onOsd);
         mBinding.playerButtons.setOnClickListener(view -> PlayerButtonConfigDialog.show(this, this::setPlayerButtonsText));
@@ -189,8 +193,10 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     private void setMpvRows() {
         boolean visible = PlayerSetting.getPlayer() == PlayerSetting.MPV;
         mBinding.mpvConfig.setVisibility(visible ? View.VISIBLE : View.GONE);
+        mBinding.blurayMenu.setVisibility(visible ? View.VISIBLE : View.GONE);
         mBinding.mpvRender.setVisibility(visible ? View.VISIBLE : View.GONE);
         mBinding.mpvConfigText.setText(MpvConfigStore.summary());
+        mBinding.blurayMenuText.setText(getSwitch(PlayerSetting.isBlurayMenu()));
         mBinding.mpvRenderText.setText(getMpvRenderText());
     }
 
