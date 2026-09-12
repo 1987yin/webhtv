@@ -8559,19 +8559,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return Setting.isAdblock() && !player().isLive() && player().getDuration() > 0;
     }
 
-<<<<<<< HEAD
-    private AdFeedbackController adFeedback() {
-        if (mAdFeedback == null) {
-            mAdFeedbackHost = new AdFeedbackHostAdapter(
-                    new AdFeedbackPlayback(), new AdFeedbackMetadata(), new AdFeedbackUi());
-            mAdFeedback = new AdFeedbackController(mAdFeedbackHost);
-        }
-        return mAdFeedback;
-=======
+
     private boolean isInlineAdFeedbackSupportedFormat() {
         return player() != null && !TextUtils.isEmpty(player().getUrl())
                 && PlaybackResourceClassifier.isHlsUrl(player().getUrl());
->>>>>>> upstream/main
+
     }
 
     /** 换源换集：作废在途归因、清标记模式与上一集的切片证据缓存。 */
