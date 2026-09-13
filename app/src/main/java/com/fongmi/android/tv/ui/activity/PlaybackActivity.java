@@ -58,7 +58,6 @@ import com.fongmi.android.tv.ui.dialog.AdSkipPromptPresenter;
 import com.fongmi.android.tv.ui.dialog.DiscMenuDialog;
 import com.fongmi.android.tv.ui.dialog.VideoAspectModeDialog;
 import com.fongmi.android.tv.ui.novel.NovelRouter;
-import com.fongmi.android.tv.ui.dialog.DiscMenuDialog;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.github.catvod.crawler.SpiderDebug;

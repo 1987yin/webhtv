@@ -46,3 +46,17 @@
 - `bash .codex/scripts/task_guard.sh check`：通过。
 - VC-1 归因复核未重复执行已经具有确定结果的失败测试；以祖先提交 `636dbcea31ebe48896f1c6430d706831b3f17d65` 的同失败记录、合并前后 blob 身份一致和相关路径零 diff 作为决定性证据。
 - 2026-09-14 01:48 CST 重新 fetch 后，`origin/beta` 仍为 `c5a492261b05b5fdc4323d97a3333a3aa88492b9`，`origin/dev1` 与复评交付提交一致；PR #270 为 OPEN/CLEAN、无新评论或 review。
+
+## 2026-09-14 复评补充
+
+- 重新拉取远端后确认 `origin/beta` 未变化，当前 `dev1` 比 `beta` 多 28 个提交，工作树初始干净；此前已提交但未推送的代码也已纳入本次差异审查。
+- 发现并修复 `PlaybackActivity.java` 中由 merge 结果产生的重复 `DiscMenuDialog` import；Leanback `VideoActivity.java` 中的 `QuickSearchDialog`、`SubtitleDialog`、`TitleDialog` 重复 import 在 merge 两个父提交中均已存在，因此未扩大修复范围。
+- 对相对 `origin/beta` 的 19 个修改路径完成复评：MPV 音频策略、MPV 属性事件顺序、历史卡片显示/删除态、设置备份键、TV/移动播放交互与资源变更均未发现新的行为阻断；已修复重复 import 后再做编译与结构检查。
+- 本轮不重复执行已归因的 VC-1 失败测试，不打包 APK，不修改依赖/锁/native 产物。
+
+### 最终复评与修复结果
+
+- 2026-09-14 01:55 CST 重新拉取远端后，`origin/beta` 仍为 `c5a492261b05b5fdc4323d97a3333a3aa88492b9`；当前 `dev1` 相对 beta 的 19 个修改路径已逐文件复评，包含此前已提交但尚未推送的修改。
+- 发现：merge 结果在 `PlaybackActivity.java` 重复导入 `DiscMenuDialog`；该重复项只存在于 merge 结果，不存在于两个父提交。修复：删除一行重复 import。Leanback `VideoActivity.java` 的三个重复 import 在两个父提交中均存在，判定为 pre-existing，未在本轮扩大范围。
+- 修复后复评：Mobile/Leanback Arm64 Java 编译通过；`git diff --check`、三套 strings 重复 ID 检查、`APP_PREFS` 138 项唯一性检查、changed Java duplicate-import 检查和 task guard check 通过；未发现新的行为阻断。
+- 本轮修复提交与 PR 更新后，须再次 fetch `origin/beta`/`origin/dev1`，确认 beta 未变化、远端 head 与本地一致、PR 仍以 `beta` 为 base 且状态可合并。VC-1 两个既有失败仍按上节独立依赖风险记录，不将本轮结果表述为全量测试通过。
