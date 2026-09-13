@@ -6,7 +6,7 @@
 - 范围：动作卡解析、输入链式执行、内置 WebView、列表/内容分发入口、Activity 注册。
 - 当前状态：已完成源码移植、入口补齐和加载占位层处理；协议测试 5/5 通过，mobile/leanback Arm64 Debug 主源码编译通过。
 - 当前文件：`ActionCardHelper`、`GameContentHandler`、`GameWebActivity`、`Vod`、`App`、首页与两端 `TypeFragment`、主清单、输入布局、协议测试。
-- 验证记录：`bash ./gradlew :app:testMobileArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.content.GameContentHandlerTest :app:compileMobileArm64_v8aDebugJavaWithJavac :app:compileLeanbackArm64_v8aDebugJavaWithJavac --console=plain` 成功。仅有仓库既有 Gradle/Android 资源警告和 Java deprecated/unchecked 提示，无本任务错误。
+- 验证记录：`bash ./gradlew :app:testMobileArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.content.GameContentHandlerTest :app:compileMobileArm64_v8aDebugJavaWithJavac :app:compileLeanbackArm64_v8aDebugJavaWithJavac --console=plain` 成功。已加强 GameWebActivity 安全设置：禁用本地文件访问和混合内容，符合 CatWebActivity 与 HomeWebController 水平。
 - 下一步：提交任务守卫并创建本地恢复标签。
 
 ## 设计与行为

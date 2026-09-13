@@ -92,11 +92,11 @@ public class GameWebActivity extends AppCompatActivity {
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(true);
         s.setSupportZoom(false);
-        s.setAllowFileAccess(true);
-        s.setAllowContentAccess(true);
+        s.setAllowFileAccess(false);
+        s.setAllowContentAccess(false);
         s.setMediaPlaybackRequiresUserGesture(false); // 游戏音频自动播放
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW); // 游戏站 http/https 混合资源
+            s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW); // 禁用混合内容
         }
         if (!ua.isEmpty()) s.setUserAgentString(ua);
 
