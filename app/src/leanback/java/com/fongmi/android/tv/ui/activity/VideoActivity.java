@@ -5522,10 +5522,9 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
                 requestIntroSkipPlan();
                 if (!pendingResumeSeekApplied) applyAutoIntroSkip();
                 setAdFeedbackVisible(); // 播放地址确定后按格式刷新"有广告"按钮
-<<<<<<< HEAD
-=======
+
                 if (!mShortDramaQueueSessionActive) beginShortDramaQueue();
->>>>>>> upstream/main
+
                 break;
             case Player.STATE_ENDED:
                 if (mShortDramaQueue.shouldSuppressLegacyAutoAdvance()) {
