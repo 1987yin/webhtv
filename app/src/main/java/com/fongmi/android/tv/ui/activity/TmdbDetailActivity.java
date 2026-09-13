@@ -366,9 +366,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private boolean inlineFullscreen;
     private boolean inlineShortDramaMode;
     private boolean inlinePauseInfo;
-    private boolean inlinePlaybackLoading;
     private boolean inlinePlaybackReconnectPending;
-    private boolean inlinePlayerSwitchLoading;
     private boolean savingTmdbPhoto;
     private boolean pendingInlineLutImport;
     private PlayerGesture inlineGestureDetector;
@@ -714,8 +712,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         tmdbApplyGeneration++;
         tmdbEpisodeDetailGeneration++;
         sourceSearchGeneration++;
-        inlinePlaybackLoading = false;
-        inlinePlayerSwitchLoading = false;
         inlineStartPosition = C.TIME_UNSET;
         pendingInlineResult = null;
         currentInlineResult = null;
@@ -740,7 +736,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         updateNavigationKey();
         binding.loading.setVisibility(View.VISIBLE);
         setLoadingOnlyBeforeDefaultPlayback(shouldUseLoadingOnlyBeforeDefaultPlayback());
-        hideInlineLoading();
         binding.playerError.setVisibility(View.GONE);
         binding.playerControls.setVisibility(View.GONE);
         binding.detailControlHost.setVisibility(View.GONE);
@@ -1864,7 +1859,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             binding.playerError.setTextColor(0xFFFFFFFF);
             tintInlineControl(inlineControlsView());
             tintInlineDisplay();
-            tintInlineLoading();
         }
         if (episodeAdapter != null) {
             episodeAdapter.setTheme(lightTheme, colors.accent);
@@ -2106,11 +2100,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerDisplayClock.setTextColor(0xFFFFFFFF);
         binding.playerDisplayPosition.setTextColor(0xFFFFFFFF);
         binding.playerDisplayTraffic.setTextColor(0xFFFFFFFF);
-    }
-
-    private void tintInlineLoading() {
-        binding.playerProgressTraffic.setTextColor(0xFFFFFFFF);
-        binding.playerProgressTraffic.setAlpha(1f);
     }
 
     private void tintInlineGestureOverlay() {
@@ -2536,11 +2525,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void cancelPendingInlinePlayback() {
-        if (!inlinePlaybackLoading && !inlinePlayerSwitchLoading) return;
         inlinePlaybackGeneration++;
-        inlinePlaybackLoading = false;
-        inlinePlayerSwitchLoading = false;
-        hideInlineLoading();
         updateInlineDisplayPanel();
     }
 
@@ -7060,15 +7045,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void playInline(long resumePosition, String failedUrl, String failureMessage) {
         if (selectedFlag == null || selectedEpisode == null) return;
-        inlinePlaybackLoading = true;
         int generation = ++inlinePlaybackGeneration;
-        inlinePlayerSwitchLoading = false;
         String key = getKeyText();
         String flag = selectedFlag.getFlag();
         String episodeUrl = selectedEpisode.getUrl();
         int playerKernel = inlineHistoryPlayerKernel();
         stopInlinePlayerForReload();
-        showInlineLoading();
         updateInlineDisplayPanel();
         detailTasks.submit(() -> {
             try {
@@ -7077,7 +7059,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                     if (!isInlinePlaybackRequestCurrent(generation, key, flag, episodeUrl)) return;
                     String resolvedUrl = result.getUrl() == null ? "" : result.getUrl().v();
                     if (!TextUtils.isEmpty(failedUrl) && TextUtils.equals(failedUrl, resolvedUrl)) {
-                        inlinePlaybackLoading = false;
                         SpiderDebug.log("webhome-inline", "http refresh rejected unchanged url key=%s id=%s", key, episodeUrl);
                         showInlineError(failureMessage);
                         return;
@@ -7144,7 +7125,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             pendingInlineResult = result;
             return;
         }
-        inlinePlaybackLoading = false;
         inlineStarted = true;
         inlineFirstReady = false;  // 重置标志,允许新播放首次 READY 时显示控制栏
         inlineButtonsReordered = false;  // 重置标志,允许新播放重新排序按钮
@@ -7213,38 +7193,15 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void showInlineError(String text) {
-        inlinePlaybackLoading = false;
-        hideInlineLoading();
         binding.playerError.setText(text);
         binding.playerError.setVisibility(View.VISIBLE);
         updateInlineDisplayPanel();
-    }
-
-    private void showInlineLoading() {
-        binding.playerError.setVisibility(View.GONE);
-        binding.playerProgress.setVisibility(View.VISIBLE);
-        tintInlineLoading();
-        updateInlineLoadingTraffic();
-        hideInlineControls();
-    }
-
-    private void hideInlineLoading() {
-        binding.playerProgress.setVisibility(View.GONE);
-        binding.playerProgressTraffic.setVisibility(View.GONE);
-        Traffic.reset(binding.playerProgressTraffic);
-    }
-
-    private void updateInlineLoadingTraffic() {
-        if (binding == null || binding.playerProgress.getVisibility() != View.VISIBLE) return;
-        Traffic.setSpeed(binding.playerProgressTraffic, service() == null ? null : player());
-        tintInlineLoading();
     }
 
     private void toggleInlinePlayback() {
         if (!isInlinePlayerMode()) return;
         if (inlinePlaybackReconnectPending) return;
         if (controller() == null || service() == null || player().isEmpty()) {
-            if (isSamePendingInlinePlayback(selectedEpisode)) return;
             onPlay();
             return;
         }
@@ -8435,8 +8392,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         String episodeUrl = selectedEpisode.getUrl();
         if (TextUtils.isEmpty(flag) || TextUtils.isEmpty(episodeUrl)) return false;
         int generation = ++inlinePlaybackGeneration;
-        inlinePlayerSwitchLoading = true;
-        showInlineLoading();
         long position = player().getPosition();
         float speed = player().getSpeed();
         boolean repeat = player().isRepeatOne();
@@ -8448,14 +8403,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 runOnAliveUi(() -> {
                     if (!isInlinePlayerSwitchRequestCurrent(generation, key, flag, episodeUrl)) return;
                     if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
-                        finishInlinePlayerSwitchRequest();
+                        updateInlineDisplayPanel();
                         Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
                     } else {
                         currentInlineResult = result;
                         inlineHttpRefreshAttempted = false;
                         useParse = result.shouldUseParse();
-                        inlinePlayerSwitchLoading = false;
-                        player().switchPlayer(playerType, result, activePlaybackKey(), metadata, useParse, position, speed, repeat);
+                                        player().switchPlayer(playerType, result, activePlaybackKey(), metadata, useParse, position, speed, repeat);
                         rememberInlinePlayerKernel(playerType);
                     }
                     finishInlinePlayerSwitch();
@@ -8463,7 +8417,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             } catch (Throwable e) {
                 runOnAliveUi(() -> {
                     if (!isInlinePlayerSwitchRequestCurrent(generation, key, flag, episodeUrl)) return;
-                    finishInlinePlayerSwitchRequest();
+                    updateInlineDisplayPanel();
                     finishInlinePlayerSwitch();
                     Notify.show(TextUtils.isEmpty(e.getMessage()) ? getString(R.string.error_play_url) : e.getMessage());
                 });
@@ -8473,20 +8427,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void cancelPendingInlinePlayerSwitch() {
-        if (!inlinePlayerSwitchLoading) return;
         inlinePlaybackGeneration++;
-        finishInlinePlayerSwitchRequest();
-    }
-
-    private void finishInlinePlayerSwitchRequest() {
-        inlinePlayerSwitchLoading = false;
-        hideInlineLoading();
         updateInlineDisplayPanel();
     }
 
     private boolean isInlinePlayerSwitchRequestCurrent(int generation, String key, String flag, String episodeUrl) {
-        return inlinePlayerSwitchLoading
-                && inlineStarted
+        return inlineStarted
                 && isInlinePlayerMode()
                 && isOwner()
                 && service() != null
@@ -9435,17 +9381,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         return 3;
     }
 
-    private boolean isSamePendingInlinePlayback(Episode episode) {
-        return inlinePlaybackLoading && selectedEpisode != null && selectedEpisode.equals(episode);
-    }
-
     private void selectInlineEpisode(Episode episode) {
         if (NovelRouter.route(this, getKeyText(), episode, vod, selectedFlag, () -> inlinePlay(episode))) return;
         inlinePlay(episode);
     }
 
     private void inlinePlay(Episode episode) {
-        if (isSamePendingInlinePlayback(episode)) return;
         cancelPendingInlinePlayback();
         playbackSelectionTouched = true;
         selectedEpisode = episode;
@@ -9879,8 +9820,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         saveInlineHistory();
         stopInlinePlaybackSync();
         inlinePlaybackGeneration++;
-        inlinePlaybackLoading = false;
-        inlinePlayerSwitchLoading = false;
         introSkipPlayback.reset();
         subtitlePlaybackSession.stop(this);
         hideInlineControls();
@@ -9888,7 +9827,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             player().stop();
             player().clear();
         }
-        hideInlineLoading();
         binding.playerError.setVisibility(View.GONE);
         updateInlineDisplayPanel();
         binding.playerPanel.setVisibility(View.GONE);
@@ -10475,9 +10413,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     @Override
     protected void onStateChanged(int state) {
         if (!isInlinePlayerMode()) return;
-        if (state == Player.STATE_BUFFERING) showInlineLoading();
         if (state == Player.STATE_READY) {
-            hideInlineLoading();
             hideInlineControls();
             player().reset();
             boolean pendingResumeSeekApplied = applyInlineStartPosition();
@@ -10923,8 +10859,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     @Override
     public void onTimeChanged(long time) {
         if (!isInlinePlayerMode()) return;
-        updateInlineLoadingTraffic();
-        if (inlinePlaybackLoading || !isOwner() || history == null || service() == null || player() == null || player().isEmpty()) return;
+        if (!isOwner() || history == null || service() == null || player() == null || player().isEmpty()) return;
         long position = player().getPosition();
         long duration = player().getDuration();
         boolean canUpdateProgress = inlineStartPositionApplied || getInlineStartPosition() <= 0;
