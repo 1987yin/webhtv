@@ -86,7 +86,10 @@ public class HistoryPresenter extends Presenter {
         holder.binding.historyProgress.setText(watchedTime.isEmpty() ? "" : holder.view.getContext().getString(R.string.history_watched_time, watchedTime));
         holder.binding.historyProgress.setVisibility(delete || watchedTime.isEmpty() ? View.GONE : View.VISIBLE);
         holder.binding.delete.setVisibility(!delete ? View.GONE : View.VISIBLE);
-        holder.binding.remark.setVisibility(delete || same ? View.INVISIBLE : View.VISIBLE);
+        holder.binding.remark.setVisibility(delete || same ? View.GONE : View.VISIBLE);
+        String watchedTime = HistoryProgressFormatter.format(item.getPosition(), item.getDuration());
+        holder.binding.historyProgress.setText(watchedTime.isEmpty() ? "" : holder.view.getContext().getString(R.string.history_watched_time, watchedTime));
+        holder.binding.historyProgress.setVisibility(delete || watchedTime.isEmpty() ? View.GONE : View.VISIBLE);
         ImgUtil.load(item.getVodName(), item.getVodPic(), holder.binding.image);
     }
 

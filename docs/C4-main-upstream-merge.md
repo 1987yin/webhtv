@@ -180,17 +180,11 @@
 - Recovery tag：`recovery/C4/20260907105426-188553addf66`；`git merge-base --is-ancestor` 已确认本地基线和上游目标均为 HEAD 祖先，merge metadata 已清理。
 - 最终工作树仅保留任务开始前的 5 个受保护 `.bak` 未跟踪文件；其 SHA-256 与 guard 初始指纹一致。`docs/OCI1-oci-apk-update.md` 与 `docs/mobile-apk-link-push.md` 均保留。
 - 最终状态：完成（本地未推送）。连接设备播放、真实 OCI 下载/局域网 APK 推送和 native 重建不属于本轮验证范围，后续如需验收应另开任务。
-Note: Task guard for C4 (dev2) finished because we are now switching to dev1 for upstream merge.
 
-## 增量实施：2026-09-12 dev1
+## 第三轮源码合并：2026-09-13 Asia/Shanghai
 
-- 目标：继续同步 `fish2018/webhtv:main`，本轮冻结上游目标为 `fc62397591701b2232ae7de4f50a032bd7742064`，共同基线为既有 C4 上游目标 `784b90420d646eb6c7ddcc63ad622a92c65b02b4`，本地实施基线为 `dev1@da34bfc400ccff4c07287ef1e3cfa61327aaee39`。
-- 外部核对：GitHub API 返回 `fish2018/webhtv:main@fc62397591701b2232ae7de4f50a032bd7742064`；因 `git fetch` 出现 GnuTLS 连接中断，使用本地已存在且与 API 一致的 `upstream/main` ref 作为冻结源。
-- 用户策略：`.so`、`.aar`、`.jar`、`.apk` 等已编译/二进制资产，若上游有同路径版本，直接采用上游文件；Java、Python 及其调用链按三方合并，保留本地修复并补入上游能力；patch、构建脚本和测试按内容审阅，不做无关覆盖。
-- 比较方案：不变会遗漏上游 MPV Blu-ray/ISO 导航、历史卡片、脚本开关、DV5 和网盘状态修复；直接整树覆盖会丢失本地播放器生命周期和产品改动；采用“上游提交作为 merge 输入 + 二进制优先 theirs + Java/Python 冲突手工三方组合”的方案，范围最小且保留可回滚的上游父链。
-- 接受条件：无未解决冲突；上游目标可追溯为 HEAD 祖先；所有上游新增/修改二进制路径与 `upstream/main` 字节一致；Java/Python 冲突由内容组合而非盲目覆盖；双 ABI native 资产检查、受影响 Java 编译/单测和 `git diff --check` 通过；使用一个原子提交及 annotated recovery tag 收口。
-- 回滚：回滚到本轮实施前 `da34bfc400ccff4c07287ef1e3cfa61327aaee39` 或本轮 merge commit 对应 recovery tag；不推送远端。
-- 实施结果：由于 `784b90420d646eb6c7ddcc63ad622a92c65b02b4` 与本地当前分支没有可用 Git 共同祖先，本轮采用等价的基于该冻结基线的三方文件合并；121 个上游净变更路径已处理，18 个 `.so` 直接采用 `upstream/main` 字节，Java/XML/资源/patch/脚本按三方结果并保留本地播放器与产品修复。冲突标记已清零；重复的移动端 `change2` binding 已按现有布局合同去重；Leanback/Mobile Blu-ray 菜单入口、历史观看时间、MPV 菜单状态观察和 `DiscMenuDialog` 接线已补齐。
-- 完成验证：二进制 18 路逐文件 hash 与 `upstream/main` 一致；`bash scripts/verify_mpv_native_assets.sh --require-elf` 通过；`bash ./gradlew :app:compileMobileArm64_v8aDebugJavaWithJavac :app:compileLeanbackArm64_v8aDebugJavaWithJavac :app:testMobileArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.bean.HistoryTest --tests com.fongmi.android.tv.utils.HistoryProgressFormatterTest --tests com.fongmi.android.tv.player.mpv.MpvConfigStoreTest --tests androidx.media3.mpvplayer.MpvDiscMenuPolicyTest --tests androidx.media3.mpvplayer.MpvDiscRebufferTrackerTest --tests com.fongmi.android.tv.service.DriveCheckServiceTest --tests com.fongmi.android.tv.player.exo.ExoDv5GpuRendererTest --tests com.fongmi.android.tv.player.mpv.MpvAutoOutputPolicyTest` 通过（`BUILD SUCCESSFUL`）；`git diff --check` 通过；未打包 APK，故不产生 APK 产物。
-- 当前状态：实现、验证、原子 merge commit 与本地 recovery tag 均已完成；不执行远端 push。
-- 收口记录：merge commit `65facf4bcbed78e702a1ec0fd86c50778fcf639f`，第一父提交 `da34bfc400ccff4c07287ef1e3cfa61327aaee39`，第二父提交 `fc62397591701b2232ae7de4f50a032bd7742064`；recovery tag `recovery/merge-upstream-binary-override-java-merge/20260913015933-65facf4bcbed`。
+- 目标：`fish2018/webhtv:main@fc62397591701b2232ae7de4f50a032bd7742064`；本地基线 `154e003520a751a19187057f103e1496c5197457`；三方合并基 `2b36396c0d76b312154d560c0c94e55909b951a2`。
+- 冲突：26 处，按“本地行为契约 + 上游新功能并集”解决；二进制/编译产物按用户要求直接覆盖更新，本地任务/评估文档保留。
+- 关键并集：播放器蓝光菜单、原盘导航、历史进度、MPV 渲染设置、短剧 dock/生命周期、Disc 菜单清理与 native patch 链；`.gitignore` 保留本地缓存目录。
+- 尚未完成：定向验证、guard finish 提交与 recovery tag。
+- 2026-09-13 05:44–06:13：修复 mobile/leanback 合并残留的结构、绑定、设置行、动作注册与初始续播冲突；恢复 mobile disc-menu 生命周期触发与 leanback `updateDiscMenuButton()`。mobile/leanback Java 编译和 8 个定向单测通过，`git diff --check` 通过。

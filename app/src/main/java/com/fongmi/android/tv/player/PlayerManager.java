@@ -5408,6 +5408,7 @@ public void resetTrack(int type) {
         // 也必须在下面算 externalSubtitleActive 之前，否则 MPV 的输出模式判定
         // 会漏掉这条刚挂上的字幕。
         restorePendingSubtitle();
+        mpvSurfaceFallbackTried = false;
         List<Track> persistedTracks = Track.find(getKey());
         Track persistedSubtitle = findRequestedSubtitle(persistedTracks);
         mpvExplicitSubtitlePreference = persistedSubtitle != null;
