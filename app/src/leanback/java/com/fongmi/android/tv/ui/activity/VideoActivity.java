@@ -3429,10 +3429,9 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
 
     @Override
     public void onItemClick(Result result) {
-<<<<<<< HEAD
-=======
+
         invalidateShortDramaQueue("quality");
->>>>>>> upstream/main
+
         updateActionQuality(result);
         beginPlayHealth();
         // 切清晰度也会重建 spec，字幕列表跟着重置，所以这里同样要恢复一次。
