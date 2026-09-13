@@ -1550,15 +1550,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.action.next.setOnClickListener(view -> checkNext());
         mBinding.control.action.decode.setOnClickListener(guarded(this::onDecode));
         mBinding.control.action.playParams.setOnClickListener(guarded(this::onPlayParams));
-        mBinding.control.action.discMenu.setOnClickListener(view -> {
-            hideControl();
-            openDiscMenu();
-        });
-        mBinding.control.action.discMenu.setOnLongClickListener(view -> {
-            hideControl();
-            showDiscMenuControls();
-            return true;
-        });
         mBinding.control.action.ending.setOnClickListener(guarded(this::onEnding));
         mBinding.control.action.repeat.setOnClickListener(guarded(this::onRepeat));
         mBinding.control.action.opening.setOnClickListener(guarded(this::onOpening));
@@ -1575,7 +1566,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (mBinding.audioKaraokeAction != null) mBinding.audioKaraokeAction.setOnClickListener(view -> onKaraokeMode());
         if (mBinding.audioBackgroundAction != null) mBinding.audioBackgroundAction.setOnClickListener(view -> randomizeAudioBackgroundMix(false));
         if (mBinding.audioMoreAction != null) mBinding.audioMoreAction.setOnClickListener(view -> onAudioMore());
-        if (mBinding.discTools != null) mBinding.discTools.fullscreen.setOnClickListener(view -> onFullscreen());
         if (mBinding.audioTrackAction != null) mBinding.audioTrackAction.setOnClickListener(view -> onTrack(C.TRACK_TYPE_AUDIO));
         if (mBinding.audioSubtitleAction != null) mBinding.audioSubtitleAction.setOnClickListener(view -> onTrack(C.TRACK_TYPE_TEXT));
         if (mBinding.audioStage != null) mBinding.audioStage.setOnClickListener(view -> { });
@@ -1588,9 +1578,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.action.reset.setOnLongClickListener(view -> onResetToggle());
         mBinding.control.action.ending.setOnLongClickListener(view -> onEndingReset());
         mBinding.control.action.opening.setOnLongClickListener(view -> onOpeningReset());
-        mBinding.video.setOnTouchListener((view, event) ->
-                (!isVisible(mBinding.control.getRoot()) && dispatchDiscMenuTouch(event))
-                        || mKeyDown.onTouchEvent(event));
         // 控制层显示时会先于 video 容器接收事件，空白区域必须直接转发给手势检测器。
         mBinding.control.getRoot().setOnTouchListener(this::onPlayerControlTouch);
         mBinding.video.setOnTouchListener((view, event) ->
@@ -5903,7 +5890,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             mHistory.setCreateTime(System.currentTimeMillis());
         }
         if (exit && service() != null) PlaybackEventCollector.get().onStop(player());
-        if (!canSavePlaybackHistory(mHistory)) return;
+        if (!mHistory.canSave() && !hasPlayback) return;
         History history = mHistory.copy();
         Task.execute(() -> {
             history.save();
@@ -7614,7 +7601,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void updatePlaybackHistoryPosition() {
-        if (mHistory == null || hasDiscNavigationTimeline()) return;
+        if (mHistory == null || tmdbHistoryResumePending) return;
+        if (hasDiscNavigationTimeline()) return;
         long position = player().getPosition();
         long duration = player().getDuration();
         if (position > 0) mHistory.setPosition(position);
