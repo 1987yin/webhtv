@@ -49,6 +49,7 @@ import com.fongmi.android.tv.ui.custom.CustomScroller;
 import com.fongmi.android.tv.ui.dialog.SliderNumberDialog;
 import com.fongmi.android.tv.ui.helper.TouchOptimizationHelper;
 import com.fongmi.android.tv.utils.Notify;
+import android.graphics.Rect;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.SearchPageState;
 import com.fongmi.android.tv.utils.SearchResultFilter;
@@ -785,12 +786,16 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
             View target = manager == null ? null : manager.findViewByPosition(position);
             if (target != null) {
                 target.requestFocus();
+                alignSearchResultCard(target);
             } else {
                 scrollToSearchResult(position);
                 mBinding.recycler.post(() -> {
                     if (generation != mSearchFocusGeneration || isFinishing() || isDestroyed()) return;
                     View laidOutTarget = mBinding.recycler.getLayoutManager() == null ? null : mBinding.recycler.getLayoutManager().findViewByPosition(position);
-                    if (laidOutTarget != null) laidOutTarget.requestFocus();
+                    if (laidOutTarget != null) {
+                        laidOutTarget.requestFocus();
+                        alignSearchResultCard(laidOutTarget);
+                    }
                 });
             }
         };
@@ -805,6 +810,21 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
     private void scrollToSearchResult(int position) {
         RecyclerView.LayoutManager manager = mBinding.recycler.getLayoutManager();
         if (manager instanceof GridLayoutManager layoutManager) layoutManager.scrollToPosition(position);
+    }
+
+    private void alignSearchResultCard(View focusedView) {
+        if (focusedView == null || mBinding == null || mBinding.recycler.getHeight() <= 0) return;
+        Rect rect = new Rect();
+        focusedView.getDrawingRect(rect);
+        mBinding.recycler.offsetDescendantRectToMyCoords(focusedView, rect);
+        int padding = ResUtil.dp2px(8);
+        int top = mBinding.recycler.getPaddingTop() + padding;
+        int bottom = mBinding.recycler.getHeight() - mBinding.recycler.getPaddingBottom() - padding;
+        int targetScrollY = 0;
+        if (rect.bottom > bottom) targetScrollY = rect.bottom - bottom;
+        else if (rect.top < top) targetScrollY = rect.top - top;
+        if (targetScrollY == 0) return;
+        mBinding.recycler.smoothScrollBy(0, targetScrollY);
     }
 
     private void preloadNextRows(int count) {
