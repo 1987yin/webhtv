@@ -2042,13 +2042,6 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
                 observeChapterProperties((int) Math.max(0, longValue(value, 0)));
                 if (!shouldDeferStartupMetadataRefresh()) scheduleChapterRefresh();
             }
-            case "disc-menu-active" -> {
-                setDiscMenuActive(Boolean.TRUE.equals(value));
-                Log.d(TAG, "disc menu active=" + discMenuActive + " available=" + discMenuAvailable);
-                PlaybackTrace.log("mpv", playbackTraceId, "disc menu active=%s available=%s",
-                        discMenuActive, discMenuAvailable);
-                if (discMenuActive) requestIsoOsdSurface();
-            }
             default -> {
                 if (property.startsWith("track-list/")) scheduleTrackRefresh(property);
                 else if (property.startsWith("chapter-list/")) scheduleChapterRefresh();
