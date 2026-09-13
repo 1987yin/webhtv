@@ -77,6 +77,8 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
     private CollectAdapter mCollectAdapter;
     private SearchAdapter mSearchAdapter;
     private CustomScroller mScroller;
+    private Runnable mSearchFocusRequest;
+    private int mSearchFocusGeneration;
     private SiteViewModel mViewModel;
     private RecyclerView.OnScrollListener mImageScrollListener;
     private List<Site> mSites;
@@ -773,6 +775,38 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         mPendingItems.clear();
     }
 
+    private void focusSearchTarget(int position) {
+        int generation = ++mSearchFocusGeneration;
+        if (mSearchFocusRequest != null) App.removeCallbacks(mSearchFocusRequest);
+        mSearchFocusRequest = () -> {
+            if (generation != mSearchFocusGeneration || isFinishing() || isDestroyed()) return;
+            if (!canFocusSearchResult(position)) return;
+            RecyclerView.LayoutManager manager = mBinding.recycler.getLayoutManager();
+            View target = manager == null ? null : manager.findViewByPosition(position);
+            if (target != null) {
+                target.requestFocus();
+            } else {
+                scrollToSearchResult(position);
+                mBinding.recycler.post(() -> {
+                    if (generation != mSearchFocusGeneration || isFinishing() || isDestroyed()) return;
+                    View laidOutTarget = mBinding.recycler.getLayoutManager() == null ? null : mBinding.recycler.getLayoutManager().findViewByPosition(position);
+                    if (laidOutTarget != null) laidOutTarget.requestFocus();
+                });
+            }
+        };
+        App.post(mSearchFocusRequest);
+    }
+
+    private boolean canFocusSearchResult(int position) {
+        return mBinding != null && mBinding.recycler != null && mSearchAdapter != null
+                && position >= 0 && position < mSearchAdapter.getItemCount();
+    }
+
+    private void scrollToSearchResult(int position) {
+        RecyclerView.LayoutManager manager = mBinding.recycler.getLayoutManager();
+        if (manager instanceof GridLayoutManager layoutManager) layoutManager.scrollToPosition(position);
+    }
+
     private void preloadNextRows(int count) {
         RecyclerView.LayoutManager manager = mBinding.recycler.getLayoutManager();
         if (!(manager instanceof GridLayoutManager layoutManager)) return;
@@ -984,8 +1018,12 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         if (next + count >= mSearchAdapter.getItemCount()) flushPendingItems();
         mSearchAdapter.ensureLoaded(next + 1, count * 3);
         boolean bottom = next >= mSearchAdapter.getItemCount();
-        if (bottom) mScroller.checkMore();
-        return bottom;
+        if (bottom) {
+            mScroller.checkMore();
+            return true;
+        }
+        focusSearchTarget(next);
+        return true;
     }
 
     @Override
