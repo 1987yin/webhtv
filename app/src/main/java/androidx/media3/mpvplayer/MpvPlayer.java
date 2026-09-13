@@ -1545,7 +1545,7 @@ public final class MpvPlayer extends SimpleBasePlayer implements MPVLib.EventObs
         setOption("hwdec", config.hwdec());
         setOption("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1");
         setOption("ao", config.ao());
-        setOption("ad", MpvAudioDecoderPolicy.hardwareFirstDecoderList());
+        setOption("ad", MpvAudioDecoderPolicy.decoderList(config.audioSpdif()));
         if (!TextUtils.isEmpty(config.audioSpdif())) setOption("audio-spdif", config.audioSpdif());
         setOption("audio-set-media-role", "yes");
         setOption("tls-verify", config.tlsVerify() ? "yes" : "no");
