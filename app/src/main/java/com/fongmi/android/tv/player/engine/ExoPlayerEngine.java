@@ -17,6 +17,7 @@ import androidx.media3.common.Timeline;
 import androidx.media3.common.Tracks;
 import androidx.media3.exoplayer.ExoPlaybackException;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.MediaSource;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
@@ -24,8 +25,6 @@ import com.fongmi.android.tv.bean.Track;
 import com.fongmi.android.tv.player.AudioPlaybackDiagnostics;
 import com.fongmi.android.tv.player.PlaybackTrace;
 import com.fongmi.android.tv.player.PlaybackResourceClassifier;
-import com.fongmi.android.tv.player.audio.PlaybackMediaClock;
-import com.fongmi.android.tv.player.audio.PlaybackMediaSignalHub;
 import com.fongmi.android.tv.player.exo.ErrorMsgProvider;
 import com.fongmi.android.tv.player.exo.ExoDecoderRuntimeProfiles;
 import com.fongmi.android.tv.player.exo.ExoDecoderRuntimeSession;
@@ -54,43 +53,22 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExoPlayerEngine implements PlayerEngine {
-
-    private static final AtomicInteger PREPARE_GENERATION = new AtomicInteger();
-
-    public interface PrepareListener {
-
-        PrepareListener NONE = new PrepareListener() {
-        };
-
-        default void onPrepareStarted(int generation) {
-        }
-
-        default void onPrepareReady(int generation) {
-        }
-
-        default void onPrepareCanceled(int generation) {
-        }
-    }
 
     private final ErrorMsgProvider provider;
     private final PreCache preCache;
     private final Set<String> attemptedFormats;
-    private final PrepareListener prepareListener;
     private final ExoDecoderRuntimeSession decoderRuntimeSession;
     private final ExoCompressedAudioDirectPolicy compressedAudioDirectPolicy;
     private final ExoDolbyVisionPlaybackState dolbyVisionPlaybackState;
     private final ExoFrameSchedulingSessionLock frameSchedulingSessionLock;
-    private final PlaybackMediaSignalHub mediaSignals;
-    private final PlaybackMediaClock mediaClock;
     private PlaySpec spec;
+    private PlaySpec queuedSpec;
+    private String queuedMediaId;
     private String activeFormat;
     private ExoPlayer player;
-    private Player.Listener prepareReadyListener;
     private int decode;
-    private int pendingPrepareGeneration = -1;
     private boolean playWhenReady;
     private boolean cacheSessionActive;
     private boolean tunnelingFallbackAttempted;
@@ -160,17 +138,6 @@ public class ExoPlayerEngine implements PlayerEngine {
     };
 
     public ExoPlayerEngine(int decode, Player.Listener listener) {
-        this(decode, listener, PrepareListener.NONE, null, null);
-    }
-
-    public ExoPlayerEngine(int decode, Player.Listener listener, PrepareListener prepareListener) {
-        this(decode, listener, prepareListener, null, null);
-    }
-
-    public ExoPlayerEngine(int decode, Player.Listener listener, PrepareListener prepareListener,
-                           PlaybackMediaSignalHub mediaSignals, PlaybackMediaClock mediaClock) {
-        this.mediaSignals = mediaSignals;
-        this.mediaClock = mediaClock;
         this.decoderRuntimeSession = ExoDecoderRuntimeProfiles.process().newSession();
         this.compressedAudioDirectPolicy = new ExoCompressedAudioDirectPolicy(App.get());
         this.dolbyVisionPlaybackState = new ExoDolbyVisionPlaybackState();
@@ -194,8 +161,6 @@ public class ExoPlayerEngine implements PlayerEngine {
                     decoderRuntimeSession,
                     frameSchedulingSettings,
                     dolbyVisionPlaybackState,
-                    mediaSignals,
-                    mediaClock,
                     compressedAudioDirectPolicy);
         } catch (RuntimeException | Error e) {
             MediaSourceFactory.releaseCacheSession();
@@ -205,7 +170,6 @@ public class ExoPlayerEngine implements PlayerEngine {
         this.provider = new ErrorMsgProvider();
         this.preCache = new PreCache();
         this.attemptedFormats = new HashSet<>();
-        this.prepareListener = prepareListener == null ? PrepareListener.NONE : prepareListener;
         this.decode = decode;
         this.tunnelingEnabledForSession = ExoUtil.isTunnelingEnabled(decode, false);
         this.firstFrameRendered = false;
@@ -219,7 +183,6 @@ public class ExoPlayerEngine implements PlayerEngine {
 
     @Override
     public void release() {
-        cancelPendingPrepare();
         Runnable cacheRelease = null;
         if (cacheSessionActive) {
             cacheSessionActive = false;
@@ -240,7 +203,6 @@ public class ExoPlayerEngine implements PlayerEngine {
 
     @Override
     public Player rebuild(Player.Listener listener) {
-        cancelPendingPrepare();
         ExoFrameSchedulingPlayerSettings schedulingSettings =
                 settingsForRebuild();
         preCache.stop("engine-rebuild");
@@ -266,8 +228,6 @@ public class ExoPlayerEngine implements PlayerEngine {
                 decoderRuntimeSession,
                 schedulingSettings,
                 dolbyVisionPlaybackState,
-                mediaSignals,
-                mediaClock,
                 compressedAudioDirectPolicy);
         frameSchedulingSettings = schedulingSettings;
         frameSchedulingSessionLock.onRendererRebuilt(
@@ -528,6 +488,101 @@ public class ExoPlayerEngine implements PlayerEngine {
     }
 
     @Override
+    public boolean supportsPlaylistQueue() {
+        return player != null && PreCache.isPlaylistPreloadEnabled()
+                && ExoUtil.supportsPlaylistPreload(player)
+                && !player.isCurrentMediaItemLive()
+                && !player.getShuffleModeEnabled()
+                && player.getRepeatMode() == Player.REPEAT_MODE_OFF
+                && !dolbyVisionPlaybackState.snapshot().hdr10FallbackActive()
+                && !dolbyVisionPlaybackState.snapshot().p81ConversionActive()
+                && !dolbyVisionPlaybackState.isHdr10FallbackRequested()
+                && !dolbyVisionPlaybackState.isP81ConversionAttempted();
+    }
+
+    @Override
+    public boolean appendPlaylistItem(PlaySpec queuedSpec, String mediaId) {
+        if (!supportsPlaylistQueue() || queuedSpec == null || mediaId == null || mediaId.isBlank()) return false;
+        // Only an empty next slot is appendable. Consumed items are removed at commit,
+        // never by a later append (which could transiently grow the playlist to three).
+        if (queuedMediaId != null || player.getCurrentMediaItemIndex() != 0
+                || player.getMediaItemCount() != 1
+                || mediaId.equals(player.getCurrentMediaItem().mediaId)
+                || queuedSpec.getDrm() != null || queuedSpec.isParseSource()) return false;
+        try {
+            MediaItem item = ExoUtil.getMediaItem(queuedSpec, decode, mediaId);
+            // The future extractor must not mutate the active renderer's DV state.
+            MediaSource source = ExoUtil.createMediaSource(item, new ExoDolbyVisionPlaybackState());
+            // Queue success is intentionally only this append. Do not call stop, clear,
+            // setMediaItem, setMediaSource, prepare, or rebuild the active player here.
+            player.addMediaSource(source);
+            this.queuedSpec = queuedSpec.copyWithFormat(queuedSpec.getFormat());
+            this.queuedMediaId = mediaId;
+            return true;
+        } catch (RuntimeException error) {
+            PlaybackTrace.log(
+                    "player-engine",
+                    getPlaybackTraceId(),
+                    "playlist append failed mediaId=%s error=%s",
+                    mediaId,
+                    error.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    @Override
+    public boolean removePlaylistItemsAfterCurrent() {
+        if (player == null) return false;
+        preCache.setPlaylistPreloadDurationMs(player, 0);
+        queuedSpec = null;
+        queuedMediaId = null;
+        int currentIndex = player.getCurrentMediaItemIndex();
+        int itemCount = player.getMediaItemCount();
+        if (currentIndex < 0 || currentIndex >= itemCount) return false;
+        if (currentIndex + 1 < itemCount) player.removeMediaItems(currentIndex + 1, itemCount);
+        return true;
+    }
+
+    @Override
+    public boolean setPlaylistPreloadDurationMs(long durationMs) {
+        if (player == null) return false;
+        if (durationMs > 0 && (!supportsPlaylistQueue() || queuedMediaId == null)) return false;
+        return preCache.setPlaylistPreloadDurationMs(player, durationMs);
+    }
+
+    @Override
+    public boolean commitPlaylistTransition(PlaySpec nextSpec) {
+        if (player == null || nextSpec == null || queuedSpec == null
+                || player.getCurrentMediaItem() == null
+                || !Objects.equals(queuedMediaId, player.getCurrentMediaItem().mediaId)
+                || !Objects.equals(queuedSpec.getKey(), nextSpec.getKey())
+                || !Objects.equals(queuedSpec.getUrl(), nextSpec.getUrl())
+                || !Objects.equals(queuedSpec.getHeaders(), nextSpec.getHeaders())
+                || player.getCurrentMediaItemIndex() != 1
+                || player.getMediaItemCount() != 2) return false;
+        preCache.setPlaylistPreloadDurationMs(player, 0);
+        spec = nextSpec;
+        queuedSpec = null;
+        queuedMediaId = null;
+        attemptedFormats.clear();
+        attemptedFormats.add(nextSpec.getFormat());
+        prepareDolbyVisionForStart(nextSpec);
+        activeFormat = nextSpec.getFormat();
+        playWhenReady = player.getPlayWhenReady();
+        resourceClassification = PlaybackResourceClassifier.classifyRequest(
+                nextSpec.getUrl(), nextSpec.getFormat(), nextSpec.getFormat());
+        preCache.onMediaItemTransition(
+                player,
+                player.getCurrentMediaItem(),
+                nextSpec.getPlaybackTraceId(),
+                nextSpec.getPlaybackRoute());
+        // This is a playlist mutation, not a new playback start. It also makes the
+        // slot available before the UI can enqueue the following episode.
+        player.removeMediaItems(0, 1);
+        return true;
+    }
+
+    @Override
     public void restart(PlaySpec spec, long position, boolean playWhenReady) {
         prepareDolbyVisionForStart(spec);
         finishDecoderRuntimeAttempt();
@@ -540,7 +595,6 @@ public class ExoPlayerEngine implements PlayerEngine {
         }
         resetAttemptedFormats();
         PlaybackTrace.log("player-engine", getPlaybackTraceId(), "restart decode=%d format=%s position=%d play=%s headers=%s urlLen=%d", decode, spec.getFormat(), position, playWhenReady, spec.getHeaders() == null ? 0 : spec.getHeaders().size(), spec.getUrl() == null ? 0 : spec.getUrl().length());
-        cancelPendingPrepare();
         preCache.stop("engine-restart");
         player.stop();
         startInternal(position, playWhenReady);
@@ -557,7 +611,6 @@ public class ExoPlayerEngine implements PlayerEngine {
 
     @Override
     public void stop() {
-        cancelPendingPrepare();
         preCache.stop("player-stop");
         cancelDecoderRuntimeStableWindow();
         finishDecoderRuntimeAttempt();
@@ -607,11 +660,6 @@ public class ExoPlayerEngine implements PlayerEngine {
     @Override
     public void resetTrack() {
         TrackUtil.reset(player);
-    }
-
-    @Override
-public void resetTrack(int type) {
-        TrackUtil.reset(player, type);
     }
 
     @Override
@@ -954,7 +1002,7 @@ public void resetTrack(int type) {
         PlaybackTrace.log("exo-rtsp-live", getPlaybackTraceId(),
                 "action=seek-live-edge");
         player.seekToDefaultPosition();
-        preparePlayer();
+        player.prepare();
         return true;
     }
 
@@ -967,6 +1015,9 @@ public void resetTrack(int type) {
     }
 
     private void startInternal(long position, boolean playWhenReady) {
+        preCache.setPlaylistPreloadDurationMs(player, 0);
+        queuedSpec = null;
+        queuedMediaId = null;
         this.playWhenReady = playWhenReady;
         firstFrameRendered = false;
         cancelTunnelingProgressWatchdog();
@@ -992,44 +1043,8 @@ public void resetTrack(int type) {
         MediaItem item = ExoUtil.getMediaItem(spec.copyWithFormat(activeFormat), decode);
         player.setMediaItem(item, position);
         preCache.start(player, item, spec.getPlaybackTraceId(), spec.getPlaybackRoute());
-        preparePlayer();
-        if (playWhenReady) player.play();
-    }
-
-    private void preparePlayer() {
-        int generation = beginPrepare();
-        prepareListener.onPrepareStarted(generation);
         player.prepare();
-    }
-
-    private int beginPrepare() {
-        cancelPendingPrepare();
-        int generation = PREPARE_GENERATION.incrementAndGet();
-        pendingPrepareGeneration = generation;
-        Player.Listener readyListener = new Player.Listener() {
-            @Override
-            public void onPlaybackStateChanged(int state) {
-                if (state != Player.STATE_READY || generation != pendingPrepareGeneration || prepareReadyListener != this) return;
-                player.removeListener(this);
-                prepareReadyListener = null;
-                pendingPrepareGeneration = -1;
-                prepareListener.onPrepareReady(generation);
-            }
-        };
-        prepareReadyListener = readyListener;
-        player.addListener(readyListener);
-        return generation;
-    }
-
-    @Override
-    public void cancelPendingPrepare() {
-        int generation = pendingPrepareGeneration;
-        if (generation < 0) return;
-        pendingPrepareGeneration = -1;
-        Player.Listener readyListener = prepareReadyListener;
-        prepareReadyListener = null;
-        if (readyListener != null) player.removeListener(readyListener);
-        prepareListener.onPrepareCanceled(generation);
+        if (playWhenReady) player.play();
     }
 
     private void finishDecoderRuntimeAttempt() {
@@ -1173,7 +1188,7 @@ public void resetTrack(int type) {
 
     private ErrorAction seekToDefaultPosition() {
         player.seekToDefaultPosition();
-        preparePlayer();
+        player.prepare();
         return ErrorAction.RECOVERED;
     }
 
