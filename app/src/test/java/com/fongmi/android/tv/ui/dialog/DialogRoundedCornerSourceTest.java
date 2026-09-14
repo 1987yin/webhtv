@@ -22,7 +22,11 @@ public class DialogRoundedCornerSourceTest {
                 "src/main/res/drawable/shape_dialog_glass_toolbar.xml",
                 "src/main/res/drawable/shape_audio_playlist_panel.xml",
                 "src/main/res/drawable/shape_disc_menu_panel.xml",
-                "src/leanback/res/drawable/shape_exit_confirm_dialog.xml"
+                "src/leanback/res/drawable/shape_exit_confirm_dialog.xml",
+                "src/mobile/res/drawable/selector_control_sheet_button.xml",
+                "src/mobile/res/drawable/selector_player_child_sheet_button.xml",
+                "src/mobile/res/drawable/selector_live_action_button.xml",
+                "src/main/res/drawable/selector_dialog_step_button.xml"
         };
 
         for (String drawable : drawables) {
