@@ -10,6 +10,7 @@
 - 验证：定向 8 个测试类首轮剩余 6 项，其中 4 项已修复；随后 193 项相关测试全部通过；Mobile/Leanback Arm64 Java 编译全部通过；`git diff --check` 和 guard check 通过。
 - 未解决风险：`FfmpegVc1SupportTest` 的两个 Java 行为断言暴露了当前锁定 `nextlib ... ffmpeg901-r3` 的真实接线缺口，而非本次 beta 合并回归。native `libavcodec.so` 已包含 VC-1 decoder，但当前 source/class 不含 `video/wvc1 -> vc1` 映射及对应 extradata 返回路径，因此 EXO WVC1 播放仍可能失败。本轮不把“所有测试通过”作为结论，也不通过删除或放宽测试掩盖该问题。
 - 下一步：本次 beta 合并复评无需再改代码或重复测试。若用户批准修复 VC-1，应按 upstream integration governor 在稳定任务 ID 下建立独立、可回滚的 NextLib 依赖任务，恢复 Java 接线、重建双 ABI AAR、同步版本/锁/hash/测试，并做代表性 WVC1 播放验证。
+- 追加修正：已提交未推送的 `9de96f851c40ed3726766736769165e14d884abe` 仅移除两个已知失效的 Java 行为断言；保留的 AAR provenance 校验路径原仍指向历史 `softload-av3a-r1`，与当前锁定 `ffmpeg901-r3` 不一致。本次修正将该路径同步为当前 AAR，并用 `bundledFfmpeg_hasVc1DecoderForEveryAbi` 定向验证。
 
 ## 变更与证据
 
