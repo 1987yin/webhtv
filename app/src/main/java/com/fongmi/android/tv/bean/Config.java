@@ -148,7 +148,7 @@ public class Config {
 
 public String getUrl() {
     if (TextUtils.isEmpty(url)) {
-        return "https://gh-proxy.com/https://github.com/1987yin/mini/raw/refs/heads/master/web.json";
+        return "https://gitee.com/xuanzhu181/py/raw/master/web.json";
     }
     return url;
 }
