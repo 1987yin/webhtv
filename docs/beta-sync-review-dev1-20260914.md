@@ -71,3 +71,13 @@
 - 契约修正：`TmdbUIAdapterTest` 改为验证内核切换保留 position/speed/repeat、活跃内嵌播放守卫及新的取消代际契约，并明确禁止恢复已删除的加载层；`SearchResultDownFocusTest` 改用 `onLoadMore` 作为方法边界，不以放宽断言掩盖问题。
 - 最终验证：`PlayerControlFocusIntegrationTest`、`TmdbUIAdapterTest`、`SearchResultDownFocusTest` 全部通过；Mobile/Leanback Arm64 Java 编译 `BUILD SUCCESSFUL`；`git diff --check` 与 task guard check 通过。
 - 回滚锚点：本段合并提交的父提交为 `5e6933b52006b31123d1f97b1f380895579927f2`；回滚该提交即可恢复合并前状态。
+
+## 2026-09-14 第三轮 beta 合并复评
+
+- 推送 `dev1` 后，远端 `beta` 又前进到 `0312720923de7d3e76b01c7a03d493c1220a1fbb`，新增 `c89b166e6e`、`ca9febe024`、`484bdc9dd9` 三个接口容灾提交；直接创建 PR 会错误显示删除这些新功能，因此先继续合并最新 beta。
+- 合并结果：最新 beta 25 个变更路径自动合入，接口容灾策略、状态、顺序存储、设置入口、备份键及测试均已在 `dev1` 中存在；无文本冲突。
+- 全量 Mobile 测试暴露 6 个失败。其中 `GlobalHistorySettingSourceTest`、`PlayerDisplaySettingSyncTest`、`VideoAspectUiSourceTest` 为真实回归：`c89b166e6e` 恢复接口容灾时覆盖 `Backup.APP_PREFS`，误删 35 个既有偏好键。修复为在保留 `interface_failover_mode`、`interface_order_vod` 的同时恢复全部被覆盖键。
+- `TmdbDetailActivityLayoutTest.repeatedEpisodeTapDoesNotRestartSamePendingInlinePlayback` 为真实回归：历史提交 `6a2af5f43d` 同时包含“移除加载遮罩”和“同集待播放去重”，前次环境回退整体丢弃后只保留了测试。修复为使用独立的 `inlinePlaybackPending` 请求状态和文本约束的 `isSamePendingInlinePlayback(Episode)` 守卫，不恢复 `inlinePlaybackLoading`、`inlinePlayerSwitchLoading` 或已删除加载层。
+- `FfmpegVc1SupportTest` 两个失败仍为既有 NextLib FFmpeg Java 接线/依赖产物问题，与最新 beta 三个提交无路径或代码关系，不在本 PR 扩大修复。
+- 定向验证：`BackupPreferenceFilterTest`、`GlobalHistorySettingSourceTest`、`PlayerDisplaySettingSyncTest`、`VideoAspectUiSourceTest`、`TmdbDetailActivityLayoutTest`、`PlayerControlFocusIntegrationTest`、`TmdbUIAdapterTest` 在 Mobile Arm64 变体全部通过，`BUILD SUCCESSFUL in 46s`；`SearchResultDownFocusTest` 在 Leanback Arm64 变体通过，`BUILD SUCCESSFUL in 1m`；两个任务同时完成对应 Java 编译。
+- 回滚锚点：本轮原子提交的第一父为 `f2d0d0e11e86b20330a4a1e1ae83382223cbffcf`，第二父为 `0312720923de7d3e76b01c7a03d493c1220a1fbb`；回退该提交即可恢复推送前状态。
