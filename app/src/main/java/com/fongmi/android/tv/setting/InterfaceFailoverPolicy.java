@@ -5,7 +5,7 @@ public final class InterfaceFailoverPolicy {
     public static final int OFF = 0;
     public static final int AUTO = 1;
     public static final int CONFIRM = 2;
-    public static final int DEFAULT_MODE = OFF;
+    public static final int DEFAULT_MODE = AUTO;
     public static final int MAX_ATTEMPTS = 3;
 
     private InterfaceFailoverPolicy() {

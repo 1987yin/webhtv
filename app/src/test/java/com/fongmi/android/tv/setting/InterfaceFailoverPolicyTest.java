@@ -9,9 +9,9 @@ import static org.junit.Assert.assertTrue;
 public class InterfaceFailoverPolicyTest {
 
     @Test
-    public void invalidModeFallsBackToOff() {
-        assertEquals(InterfaceFailoverPolicy.OFF, InterfaceFailoverPolicy.clampMode(-1));
-        assertEquals(InterfaceFailoverPolicy.OFF, InterfaceFailoverPolicy.clampMode(99));
+    public void invalidModeFallsBackToDefault() {
+        assertEquals(InterfaceFailoverPolicy.AUTO, InterfaceFailoverPolicy.clampMode(-1));
+        assertEquals(InterfaceFailoverPolicy.AUTO, InterfaceFailoverPolicy.clampMode(99));
     }
 
     @Test
@@ -29,9 +29,9 @@ public class InterfaceFailoverPolicyTest {
     }
 
     @Test
-    public void invalidModesNeverEnableFailover() {
-        assertFalse(InterfaceFailoverPolicy.shouldFailover(-1));
-        assertFalse(InterfaceFailoverPolicy.shouldFailover(99));
+    public void invalidModesFallBackToDefault() {
+        assertTrue(InterfaceFailoverPolicy.shouldFailover(-1));
+        assertTrue(InterfaceFailoverPolicy.shouldFailover(99));
     }
 
     @Test

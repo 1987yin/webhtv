@@ -14,7 +14,7 @@
 
 ## Decision
 
-Use the narrow project-adapted design: default `OFF`, URL order in preferences, maximum three candidates, automatic mode retries remaining candidates, confirm mode shows the remaining list once and ends the round after a selected candidate fails. Manual selection starts a fresh round. Intermediate failures do not emit VOD events; only terminal success/failure does.
+Use the narrow project-adapted design: default `AUTO`, URL order in preferences, maximum three candidates, automatic mode retries remaining candidates, confirm mode shows the remaining list once and ends the round after a selected candidate fails. Manual selection starts a fresh round. Intermediate failures do not emit VOD events; only terminal success/failure does.
 
 ## Verification log
 
