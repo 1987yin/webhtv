@@ -394,6 +394,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private float inlineGestureSpeed = 1.0f;
     private boolean inlineStartPositionApplied;
     private boolean inlineFirstReady;
+    private boolean inlineFullscreenDeferred;
     private boolean inlineButtonsReordered;
     private View mNightModeOverlay;
     private int mNightModeLevel = PlayerSetting.NIGHT_MODE_OFF;
@@ -7028,7 +7029,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         ensureInlineDanmakuController();
         binding.playerPanel.setVisibility(View.VISIBLE);
         binding.playerPanelSpacer.setVisibility(View.VISIBLE); // spacer 作为焦点桥梁需要可见
-        enterInlineFullscreen();
+        if (current || !isPlayerMode() || hasInlineVideoSize()) {
+            enterInlineFullscreen();
+        } else {
+            // 详情直放首播时 PlayerView 还没有视频尺寸。先保留详情页可见，
+            // 等首帧/尺寸回调再进全屏，避免黑色 playerPanel 提前盖住详情页。
+            inlineFullscreenDeferred = true;
+        }
         if (!current) playInline();
     }
 
@@ -7127,6 +7134,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         }
         inlineStarted = true;
         inlineFirstReady = false;  // 重置标志,允许新播放首次 READY 时显示控制栏
+        inlineFullscreenDeferred = false;
         inlineButtonsReordered = false;  // 重置标志,允许新播放重新排序按钮
         inlinePlaybackEpisode = selectedEpisode;
         inlinePlaybackKey = getKeyText();
@@ -9487,8 +9495,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void applyInlineShortDramaMode() {
         if (!isShortDramaSource()) {
             resetInlineShortDramaMode();
+            exitDeferredInlineFullscreenIfNeeded();
             return;
         }
+        exitDeferredInlineFullscreenIfNeeded();
         if (inlinePiPLayout || isInPictureInPictureMode()) return;
         if (!inlineFullscreen) enterInlineFullscreen();
         if (!shouldUseInlineShortDramaMode()) {
@@ -9502,6 +9512,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         setInlineShortDramaVideoFrame(!shouldUseShortDramaPortrait());
         setInlinePreviewScale(SHORT_DRAMA_SCALE);
         hideInlineControls();
+    }
+
+    private void exitDeferredInlineFullscreenIfNeeded() {
+        if (!inlineFullscreenDeferred || inlinePiPLayout || isInPictureInPictureMode()) return;
+        inlineFullscreenDeferred = false;
+        if (!inlineFullscreen) enterInlineFullscreen();
     }
 
     /**
