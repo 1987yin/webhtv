@@ -49,7 +49,6 @@ import com.fongmi.android.tv.ui.custom.CustomScroller;
 import com.fongmi.android.tv.ui.dialog.SliderNumberDialog;
 import com.fongmi.android.tv.ui.helper.TouchOptimizationHelper;
 import com.fongmi.android.tv.utils.Notify;
-import android.graphics.Rect;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.SearchPageState;
 import com.fongmi.android.tv.utils.SearchResultFilter;
@@ -274,8 +273,11 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
                 saveSearchPosition(getActiveSiteKey());
                 if (!canLoadImage()) return;
-                ensureSearchRows(count, 2);
-                preloadNextRows(count);
+                recyclerView.post(() -> {
+                    if (!canLoadImage()) return;
+                    ensureSearchRows(count, 2);
+                    preloadNextRows(count);
+                });
             }
 
             @Override
@@ -785,21 +787,29 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
             RecyclerView.LayoutManager manager = mBinding.recycler.getLayoutManager();
             View target = manager == null ? null : manager.findViewByPosition(position);
             if (target != null) {
-                target.requestFocus();
-                alignSearchResultCard(target);
+                alignSearchResultCard(position, target);
+                requestSearchResultFocus(position, generation);
             } else {
                 scrollToSearchResult(position);
                 mBinding.recycler.post(() -> {
                     if (generation != mSearchFocusGeneration || isFinishing() || isDestroyed()) return;
                     View laidOutTarget = mBinding.recycler.getLayoutManager() == null ? null : mBinding.recycler.getLayoutManager().findViewByPosition(position);
                     if (laidOutTarget != null) {
-                        laidOutTarget.requestFocus();
-                        alignSearchResultCard(laidOutTarget);
+                        alignSearchResultCard(position, laidOutTarget);
+                        requestSearchResultFocus(position, generation);
                     }
                 });
             }
         };
         App.post(mSearchFocusRequest);
+    }
+
+    private void requestSearchResultFocus(int position, int generation) {
+        mBinding.recycler.post(() -> {
+            if (generation != mSearchFocusGeneration || isFinishing() || isDestroyed()) return;
+            View target = mBinding.recycler.getLayoutManager() == null ? null : mBinding.recycler.getLayoutManager().findViewByPosition(position);
+            if (target != null) target.requestFocus();
+        });
     }
 
     private boolean canFocusSearchResult(int position) {
@@ -812,19 +822,19 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         if (manager instanceof GridLayoutManager layoutManager) layoutManager.scrollToPosition(position);
     }
 
-    private void alignSearchResultCard(View focusedView) {
+    private void alignSearchResultCard(int position, View focusedView) {
         if (focusedView == null || mBinding == null || mBinding.recycler.getHeight() <= 0) return;
-        Rect rect = new Rect();
-        focusedView.getDrawingRect(rect);
-        mBinding.recycler.offsetDescendantRectToMyCoords(focusedView, rect);
+        RecyclerView.LayoutManager manager = mBinding.recycler.getLayoutManager();
+        if (!(manager instanceof GridLayoutManager layoutManager)) return;
+        int cardHeight = focusedView.getHeight();
+        if (cardHeight <= 0) return;
+        int spanCount = Math.max(1, layoutManager.getSpanCount());
+        int rowStart = Math.max(0, position - position % spanCount);
         int padding = ResUtil.dp2px(8);
-        int top = mBinding.recycler.getPaddingTop() + padding;
         int bottom = mBinding.recycler.getHeight() - mBinding.recycler.getPaddingBottom() - padding;
-        int targetScrollY = 0;
-        if (rect.bottom > bottom) targetScrollY = rect.bottom - bottom;
-        else if (rect.top < top) targetScrollY = rect.top - top;
-        if (targetScrollY == 0) return;
-        mBinding.recycler.smoothScrollBy(0, targetScrollY);
+        int offset = Math.max(mBinding.recycler.getPaddingTop(), bottom - cardHeight);
+        mBinding.recycler.stopScroll();
+        layoutManager.scrollToPositionWithOffset(rowStart, offset);
     }
 
     private void preloadNextRows(int count) {
@@ -834,7 +844,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         int last = layoutManager.findLastVisibleItemPosition();
         if (first < 0 || last < 0) return;
         int direction = last >= first ? last + 1 : first + 1;
-        mSearchAdapter.ensureLoaded(direction, count * 2);
+        ensureSearchItemsLoaded(direction, count * 2);
     }
 
     private void ensureSearchRows(int count, int rows) {
@@ -842,7 +852,15 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         if (!(manager instanceof GridLayoutManager layoutManager)) return;
         int last = layoutManager.findLastVisibleItemPosition();
         if (last < 0) return;
-        mSearchAdapter.ensureLoaded(last + 1, count * rows);
+        ensureSearchItemsLoaded(last + 1, count * rows);
+    }
+
+    private void ensureSearchItemsLoaded(int position, int count) {
+        if (mBinding.recycler.isComputingLayout()) {
+            mBinding.recycler.post(() -> ensureSearchItemsLoaded(position, count));
+            return;
+        }
+        mSearchAdapter.ensureLoaded(position, count);
     }
 
     @Override
