@@ -1530,6 +1530,12 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         });
         mBinding.episode.setOnKeyListener((view, keyCode, event) -> onEpisodeKey(event));
         mBinding.episodeGrid.setOnKeyListener((view, keyCode, event) -> onEpisodeKey(event));
+        mBinding.array.addOnChildViewHolderSelectedListener(new OnChildViewHolderSelectedListener() {
+            @Override
+            public void onChildViewHolderSelected(@NonNull RecyclerView parent, @Nullable RecyclerView.ViewHolder child, int position, int subposition) {
+                if (child != null) selectEpisodeSegment(position, false);
+            }
+        });
         setupIntroSkipConfirmListener();
     }
 
