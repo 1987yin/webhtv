@@ -2559,7 +2559,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
      * 不再先整页转圈、揭开后再转一次，避免同一次进入出现两层「加载中」。
      */
     private boolean shouldRevealShellWhileLoading() {
-        return Setting.isOriginalEnhancedDetailPage();
+        // 影视原生与原生增强一样由播放器窗口表达加载态，避免进场后整页再转一次。
+        return Setting.isOriginalEnhancedDetailPage() || Setting.isDirectDetailPage();
     }
 
     private void setOriginalEnhancedActionVisibility(boolean hide) {
