@@ -1790,6 +1790,19 @@
         <item>Choose source from search</item>
     </string-array>
 
+    <string-array name="select_interface_failover_mode">
+        <item>Off</item>
+        <item>Auto</item>
+        <item>Confirm</item>
+    </string-array>
+
+    <string name="setting_interface_failover">VOD config failover</string>
+    <string name="interface_failover_title">Interface load failed</string>
+    <string name="interface_failover_message">Current: %1$s</string>
+    <string name="interface_failover_next">Trying next interface: %1$s</string>
+    <string name="interface_failover_switch">Switch</string>
+    <string name="interface_failover_cancelled">Interface switch cancelled</string>
+
     <string-array name="select_auto_skip_intro_outro">
         <item>Off</item>
         <item>Auto skip</item>
