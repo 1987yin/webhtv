@@ -18,7 +18,11 @@ public class DialogRoundedCornerSourceTest {
                 "src/main/res/drawable/shape_one_key_sync_dialog.xml",
                 "src/leanback/res/drawable/shape_config_history_dialog.xml",
                 "src/leanback/res/drawable/shape_episode_dialog_panel.xml",
-                "src/main/res/drawable/shape_site_dialog.xml"
+                "src/main/res/drawable/shape_site_dialog.xml",
+                "src/main/res/drawable/shape_dialog_glass_toolbar.xml",
+                "src/main/res/drawable/shape_audio_playlist_panel.xml",
+                "src/main/res/drawable/shape_disc_menu_panel.xml",
+                "src/leanback/res/drawable/shape_exit_confirm_dialog.xml"
         };
 
         for (String drawable : drawables) {
@@ -27,5 +31,12 @@ public class DialogRoundedCornerSourceTest {
             assertTrue(drawable + " should use the unified 22dp corner radius",
                     source.contains("<corners android:radius=\"22dp\" />"));
         }
+    }
+
+    @Test
+    public void materialDialogShapeUsesTheUnifiedTwentyTwoDpRadius() throws Exception {
+        String styles = Files.readString(Path.of("src/main/res/values/styles.xml"), StandardCharsets.UTF_8);
+        assertTrue("Material dialog shape should use the unified 22dp corner radius",
+                styles.contains("<style name=\"ShapeAppearance.WebHTV.Dialog\" parent=\"\">\n        <item name=\"cornerFamily\">rounded</item>\n        <item name=\"cornerSize\">22dp</item>\n    </style>"));
     }
 }

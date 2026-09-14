@@ -109,7 +109,7 @@
 
     <style name="ShapeAppearance.WebHTV.Dialog" parent="">
         <item name="cornerFamily">rounded</item>
-        <item name="cornerSize">24dp</item>
+        <item name="cornerSize">22dp</item>
     </style>
 
     <style name="MaterialAlertDialog.WebHTV.NoInset" parent="MaterialAlertDialog.Material3">
