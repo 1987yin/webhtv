@@ -106,4 +106,28 @@ public class DetailModeControllerTest {
         assertTrue("initPage should not set detailActions visibility based on mode (delegated to Controller)",
                 !initPageBody.contains("binding.detailActions.setVisibility(isFusionMode()"));
     }
+
+    @Test
+    public void playerDetailMode_keepsFullscreenInlinePlayback() throws Exception {
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = Files.readString(activityPath, StandardCharsets.UTF_8);
+        String onPlayBody = methodBody(source, "private void onPlay()");
+        String detailModeBody = methodBody(source, "private int getDetailMode()");
+
+        // 详情直放必须进入内嵌全屏播放器，不能因为播放载入界面误判成融合模式。
+        assertTrue("detail-player mode must keep fullscreen inline playback",
+                onPlayBody.contains("if (isFusionMode()) playInline();")
+                        && onPlayBody.contains("else if (isPlayerMode()) playDetailFullscreen();"));
+        assertTrue("detail-player mode must restore the selected mode when no intent mode marker exists",
+                detailModeBody.contains("return Setting.getDetailOpenMode();")
+                        && !detailModeBody.contains("getIntent().getBooleanExtra(\"fusion\", false) ? Setting.DETAIL_OPEN_FUSION : Setting.DETAIL_OPEN_ENHANCED"));
+    }
+
+    private String methodBody(String source, String signature) {
+        int start = source.indexOf(signature);
+        assertTrue(signature + " is missing from TmdbDetailActivity", start >= 0);
+        int end = source.indexOf("\n    private void ", start + signature.length());
+        if (end < 0) end = source.length();
+        return source.substring(start, end);
+    }
 }

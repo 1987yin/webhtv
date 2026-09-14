@@ -6970,7 +6970,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private int getDetailMode() {
         // 返回原始模式，不做 normalize，否则 isPlayerMode() 永远返回 false
         if (getIntent().hasExtra("detail_mode")) return getIntent().getIntExtra("detail_mode", Setting.DETAIL_OPEN_ENHANCED);
-        return getIntent().getBooleanExtra("fusion", false) ? Setting.DETAIL_OPEN_FUSION : Setting.DETAIL_OPEN_ENHANCED;
+        // 详情直放没有内嵌播放界面；若既无 detail_mode 也无 fusion 标记，只能按当前设置还原，
+        // 不能把无标记默认成炫彩详情，否则点击播放会误走融合内嵌播放。
+        return Setting.getDetailOpenMode();
     }
 
     private int detailModeTitle() {
