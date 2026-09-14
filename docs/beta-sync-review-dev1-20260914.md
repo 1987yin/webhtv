@@ -60,3 +60,14 @@
 - 发现：merge 结果在 `PlaybackActivity.java` 重复导入 `DiscMenuDialog`；该重复项只存在于 merge 结果，不存在于两个父提交。修复：删除一行重复 import。Leanback `VideoActivity.java` 的三个重复 import 在两个父提交中均存在，判定为 pre-existing，未在本轮扩大范围。
 - 修复后复评：Mobile/Leanback Arm64 Java 编译通过；`git diff --check`、三套 strings 重复 ID 检查、`APP_PREFS` 138 项唯一性检查、changed Java duplicate-import 检查和 task guard check 通过；未发现新的行为阻断。
 - 本轮修复提交与 PR 更新后，须再次 fetch `origin/beta`/`origin/dev1`，确认 beta 未变化、远端 head 与本地一致、PR 仍以 `beta` 为 base 且状态可合并。VC-1 两个既有失败仍按上节独立依赖风险记录，不将本轮结果表述为全量测试通过。
+
+## 2026-09-14 第二轮 beta 合并复评
+
+- 远端更新：`origin/beta` 从 `c5a492261b05b5fdc4323d97a3333a3aa88492b9` 前进到 `0b43e10040edc8e8e3bcf7041f339861d098e05e`，新增搜索下行焦点、TMDB 详情首播遮罩、移动端首帧骨架显示及对应测试。
+- 合并前保护：工作区曾有两个已暂存文件，经复核确认是 `origin/temp-branch` `015be8734c` 的旧基线补丁硬套到当前 `702b270652` 后，导致 Leanback `VideoActivity` 重复声明 `setRecyclerView/setupTmdbGridViews/setVideoView`；已回退该错误暂存内容，未纳入合并结果。
+- 合并结果：`origin/beta` 5 个变更路径自动合入，无文本冲突；从 C4 丢失点恢复了 Leanback TV 控制栏确认事件、焦点滚动、片头跳过确认和触控接线，并新增 `leanbackPlaybackControlButtonsKeepConfirmActionsWired` 防回归。
+- 定向验证首轮：`PlayerControlFocusIntegrationTest` 通过；Mobile Arm64 Java 编译通过。`TmdbUIAdapterTest` 66 项中仅 `tmdbDetailActivityRefreshesCurrentEpisodeForSelectedPlayerKernel` 失败，原因是最新 beta 已删除 `inlinePlayerSwitchLoading/showInlineLoading`，测试仍断言旧加载层契约。
+- 第二轮发现：beta 自带 `SearchResultDownFocusTest` 的测试代码使用 `focusSearchTarget()` 作为错误区间终点，而该方法定义在 `onSearchDown()` 之前，导致 4 项中 1 项区间断言失败；生产 `CollectActivity` 的新焦点和延迟加载逻辑本身存在且后 3 项断言通过。
+- 契约修正：`TmdbUIAdapterTest` 改为验证内核切换保留 position/speed/repeat、活跃内嵌播放守卫及新的取消代际契约，并明确禁止恢复已删除的加载层；`SearchResultDownFocusTest` 改用 `onLoadMore` 作为方法边界，不以放宽断言掩盖问题。
+- 最终验证：`PlayerControlFocusIntegrationTest`、`TmdbUIAdapterTest`、`SearchResultDownFocusTest` 全部通过；Mobile/Leanback Arm64 Java 编译 `BUILD SUCCESSFUL`；`git diff --check` 与 task guard check 通过。
+- 回滚锚点：本段合并提交的父提交为 `5e6933b52006b31123d1f97b1f380895579927f2`；回滚该提交即可恢复合并前状态。

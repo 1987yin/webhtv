@@ -5789,11 +5789,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     /**
-     * 原生增强把详情与播放放在同一页：进入即揭开页面骨架，加载态只由播放器窗口内那一层表达，
-     * 不再让详情区整块转圈与播放器转圈同屏叠出两层「加载中」。
+     * 原生增强以及从独立 TMDB 详情页直达播放时都立即揭开页面骨架，
+     * 加载态只由播放器窗口内那一层表达，避免整页先显示主题色遮盖层。
      */
     private boolean shouldRevealShellWhileLoading() {
-        return Setting.isOriginalEnhancedDetailPage();
+        return Setting.isOriginalEnhancedDetailPage() || getIntent().hasExtra(EXTRA_TMDB_DETAIL_THEME);
     }
 
     private boolean canRevealPlaybackContent() {
