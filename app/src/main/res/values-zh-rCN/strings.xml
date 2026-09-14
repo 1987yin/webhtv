@@ -1754,6 +1754,19 @@
         <item>搜索后选择播放源</item>
     </string-array>
 
+    <string-array name="select_interface_failover_mode">
+        <item>关闭</item>
+        <item>自动容灾</item>
+        <item>手动确认</item>
+    </string-array>
+
+    <string name="setting_interface_failover">点播接口容灾</string>
+    <string name="interface_failover_title">接口加载失败</string>
+    <string name="interface_failover_message">当前接口：%1$s</string>
+    <string name="interface_failover_next">正在尝试下一个接口：%1$s</string>
+    <string name="interface_failover_switch">切换接口</string>
+    <string name="interface_failover_cancelled">已取消接口切换</string>
+
     <string-array name="select_auto_skip_intro_outro">
         <item>关闭</item>
         <item>自动跳过</item>
