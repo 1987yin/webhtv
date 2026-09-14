@@ -16,8 +16,8 @@ import java.util.zip.ZipFile;
 public class FfmpegVc1SupportTest {
 
     private static final String AAR_PATH = "third_party/maven/io/github/anilbeesetti/nextlib-media3ext/"
-            + "1.10.0-0.12.1-fongmi-softload-av3a-r1/"
-            + "nextlib-media3ext-1.10.0-0.12.1-fongmi-softload-av3a-r1.aar";
+            + "1.10.0-0.12.1-fongmi-softload-av3a-ffmpeg901-r3/"
+            + "nextlib-media3ext-1.10.0-0.12.1-fongmi-softload-av3a-ffmpeg901-r3.aar";
 
     @Test
     public void bundledFfmpeg_hasVc1DecoderForEveryAbi() throws Exception {
