@@ -42,5 +42,9 @@ public class DialogRoundedCornerSourceTest {
         String styles = Files.readString(Path.of("src/main/res/values/styles.xml"), StandardCharsets.UTF_8);
         assertTrue("Material dialog shape should use the unified 22dp corner radius",
                 styles.contains("<style name=\"ShapeAppearance.WebHTV.Dialog\" parent=\"\">\n        <item name=\"cornerFamily\">rounded</item>\n        <item name=\"cornerSize\">22dp</item>\n    </style>"));
+
+        String baseDialog = Files.readString(Path.of("src/main/java/com/fongmi/android/tv/ui/dialog/BaseAlertDialog.java"), StandardCharsets.UTF_8);
+        assertTrue("BaseAlertDialog builder should apply the unified rounded style",
+                baseDialog.contains("new MaterialAlertDialogBuilder(requireActivity(), R.style.MaterialAlertDialog_WebHTV_Rounded)"));
     }
 }
