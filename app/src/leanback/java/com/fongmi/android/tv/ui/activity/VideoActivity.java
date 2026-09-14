@@ -1539,18 +1539,6 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         setupIntroSkipConfirmListener();
     }
 
-    private void setActionFocusScroll() {
-        HorizontalScrollView scroll = mBinding.control.action.getRoot();
-        if (scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof ViewGroup group)) return;
-        for (int i = 0; i < group.getChildCount(); i++) {
-            View child = group.getChildAt(i);
-            child.setOnFocusChangeListener((view, hasFocus) -> {
-                if (hasFocus) scroll.post(() -> scroll.smoothScrollTo(Math.max(0, view.getLeft() - ResUtil.dp2px(24)), 0));
-            });
-        }
-    }
-
-
     private void setupIntroSkipConfirmListener() {
         mIntroSkipPlayback.setSkipConfirmListener((segment, action) -> {
             if (mIntroSkipConfirmDialog != null && mIntroSkipConfirmDialog.isShowing()) return false;
@@ -1578,6 +1566,18 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         }
         mIntroSkipConfirmDialog = null;
     }
+
+    private void setActionFocusScroll() {
+        HorizontalScrollView scroll = mBinding.control.action.getRoot();
+        if (scroll.getChildCount() == 0 || !(scroll.getChildAt(0) instanceof ViewGroup group)) return;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            child.setOnFocusChangeListener((view, hasFocus) -> {
+                if (hasFocus) scroll.post(() -> scroll.smoothScrollTo(Math.max(0, view.getLeft() - ResUtil.dp2px(24)), 0));
+            });
+        }
+    }
+
     private void setupActionButtons() {
         mActionButtons = new HashMap<>();
         addActionButton(PlayerButtonSetting.NEXT, mBinding.control.action.next);
