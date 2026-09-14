@@ -36,8 +36,16 @@ Use the narrow project-adapted design: default `AUTO`, URL order in preferences,
 - Runtime safety: cancellation now invalidates and aborts an active BaseConfig task, so a late candidate success cannot mutate the active VOD state or emit a refresh event.
 - Failure classification: a successfully parsed VOD payload with an empty `sites` list is treated as a configuration-load failure and enters the same failover path.
 - Invalidation: ordinary direct `VodConfig.load()` calls now invalidate the superseded task without delivering a stale error, then start a fresh round; only the internal candidate loader preserves the current round.
-- Policy/order evidence: invalid modes remain `Off`; the fallback limit reserves the origin attempt, and URL sorting is tested for saved-order precedence, new-URL append, duplicate removal, and ignored deleted URLs.
+- Policy/order evidence: invalid modes fall back to the default `AUTO` mode; the fallback limit reserves the origin attempt, and URL sorting is tested for saved-order precedence, new-URL append, duplicate removal, and ignored deleted URLs.
 - State evidence: `InterfaceFailoverStateTest` drives automatic unique candidate progression with the three-attempt cap, confirm-mode single selection, and cancellation blocking all later attempts; `VodConfig` now uses this state for candidate selection and rejects stale attempt callbacks.
+
+## Default AUTO review
+
+- Reviewed commits: `c89b166e6e39c01fe1ea8446346316983adac726` and `ca9febe024002e55945a55caa6f66023da405699`.
+- Compared with the previously reviewed implementation commit `3562be1ecf0a32ce4b7b0222ffbbff4d06254fe7`, the only behavior change is `InterfaceFailoverPolicy.DEFAULT_MODE` from `OFF` to `AUTO`; invalid stored or supplied modes now clamp to `AUTO`, and the policy tests assert that behavior.
+- `git diff --check`: passed.
+- `:app:testMobileArm64_v8aDebugUnitTest` focused on `InterfaceFailoverPolicyTest`, `InterfaceFailoverStateTest`, `InterfaceOrderStoreTest`, and `BackupPreferenceFilterTest`: passed.
+- `:app:compileMobileArm64_v8aDebugJavaWithJavac` and `:app:compileLeanbackArm64_v8aDebugJavaWithJavac`: passed.
 
 ## Runtime-off verification
 
