@@ -140,8 +140,8 @@ public class Setting {
     public static final int WALL_GREEN = 1;
 
     private static final int[] DEFAULT_WALLS = {
-            WALL_DREAM_PURPLE, WALL_LAVENDER_CRYSTAL, WALL_PASTEL_PRISM, WALL_ROSE_VEIL, WALL_VIOLET_SMOKE,
-            WALL_NEON_BERRY, WALL_MIDNIGHT_MOON, WALL_NEON_CYBER, WALL_DEEP_SPACE_GLASS, WALL_GRAPHITE_SMOKE,
+            WALL_GRAPHITE_SMOKE,WALL_DREAM_PURPLE, WALL_LAVENDER_CRYSTAL, WALL_PASTEL_PRISM, WALL_ROSE_VEIL, WALL_VIOLET_SMOKE,
+            WALL_NEON_BERRY, WALL_MIDNIGHT_MOON, WALL_NEON_CYBER, WALL_DEEP_SPACE_GLASS, 
             WALL_DAYLIGHT_MINIMAL, WALL_SKY_MINT, WALL_POLAR_LIGHT_GLASS, WALL_GLASS_GRADIENT, WALL_CRYSTAL_SKY,
             WALL_BLUE_SILK, WALL_CYAN_CRYSTAL, WALL_MINT_GLACIER, WALL_AURORA_GLASS, WALL_DEEP_SEA,
             WALL_LIQUID_CHROME, WALL_FOREST_MIST, WALL_EMERALD_AURORA, WALL_WARM_MOON_GLASS, WALL_PEACH_DAWN,
@@ -205,8 +205,8 @@ public class Setting {
     }
 
     public static int getWall() {
-        int wall = Prefers.getInt("wall", WALL_DREAM_PURPLE);
-        return wall == WALL_GREEN || isLegacyColorWall(wall) ? WALL_DREAM_PURPLE : wall;
+        int wall = Prefers.getInt("wall", WALL_GRAPHITE_SMOKE);
+        return wall == WALL_GREEN || isLegacyColorWall(wall) ? WALL_GRAPHITE_SMOKE : wall;
     }
 
     public static void putWall(int wall) {
