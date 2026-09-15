@@ -5,7 +5,7 @@
 - 目标：详情直放模式点击播放必须进入内嵌全屏播放器，不能误入沉浸融合内嵌播放。
 - 基线：`06442ea996fc8e964f51da973507b8ac3fa8d186`。
 - 范围：`TmdbDetailActivity.getDetailMode()` 单处模式还原、`DetailModeControllerTest` 回归用例、本任务记录。
-- 当前状态：模式还原与首播时序修正已提交；后续复测发现详情直放仍故意延迟到视频尺寸就绪才全屏，已删除该延迟路径并完成 5559 即时全屏验证；本轮待收口提交与恢复标签。
+- 当前状态：模式还原、首播时序与播放语义已提交；本轮复测确认最近首帧延迟改动再次让详情直放先显示融合详情页，已删除首帧延迟路径并恢复点击后立即全屏，待收口提交与恢复标签。
 
 ## 根因与修正
 
@@ -49,6 +49,14 @@
 - 修正：移除异步解析开始前的 `stopInlinePlayerForReload()`，保留真正开始新播放时 `startInlinePlayer()` 内既有的播放器停止、清理和重新准备流程，避免在等待解析期间提前破坏全屏播放表面。
 - 防回归：新增 `playerDetailMode_doesNotClearPlayerAfterEnteringFullscreen`，锁定详情直放进入全屏以后，异步解析入口不得提前清空播放器。
 - 定向验证：`bash ./gradlew :app:testMobileArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.ui.detail.DetailModeControllerTest` 通过，`BUILD SUCCESSFUL in 11s`；`git diff --check` 通过。
+
+## 首帧延迟回归修正（2026-09-15）
+
+- 用户复测现象：详情直放点击播放后先显示沉浸融合详情页，没有直接全屏。
+- 根因：`948000af96` 为避免首帧前黑屏引入 `detailPlayerFullscreenPending`，`playDetailFullscreen()` 首播时保留详情页，直到 `onFirstFrameRendered()` 才进入全屏；这覆盖了此前 `dcae3bb7c7` 的“点击后立即全屏”契约。
+- 修正：删除 `detailPlayerFullscreenPending`、`revealDetailPlayerFullscreen()` 和首帧回调；`playDetailFullscreen()` 在异步解析前直接执行 `enterInlineFullscreen()`。保留异步解析入口不提前清播放器的既有修复。
+- 防回归：改写 `playerDetailMode_entersFullscreenBeforeAsyncPlayerLoad` 与 `playerDetailMode_doesNotClearPlayerAfterEnteringFullscreen`，锁定 `enterInlineFullscreen()` 必须先于 `playInline()`，且不得重新引入首帧延迟。
+- 定向验证：`./gradlew :app:testMobileArm64_v8aDebugUnitTest --tests '*DetailModeControllerTest' --tests '*TmdbDetailActivityLayoutTest'` 通过，`git diff --check` 通过。
 
 ## 回滚
 
