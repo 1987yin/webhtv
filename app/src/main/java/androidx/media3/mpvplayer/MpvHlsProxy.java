@@ -826,7 +826,7 @@ public final class MpvHlsProxy extends NanoHTTPD {
         okhttp3.HttpUrl parsed = okhttp3.HttpUrl.parse(url);
         if (parsed == null) return;
         long fallbackCount = outcome.legacy() ? 1 : 0;
-        AdBlockStatsStore.recordBlocks(parsed.host(), outcome.ruleCounts(), fallbackCount);
+        AdBlockStatsStore.recordBlocks(parsed.host(), "MPV", outcome.ruleCounts(), fallbackCount);
         if (!HlsAdblockNotice.shouldNotify(url, System.currentTimeMillis())) return;
         int removed = outcome.removedSegments() > 0 ? outcome.removedSegments() : (int) fallbackCount;
         String message = outcome.structured() && outcome.removedDurationSec() > 0

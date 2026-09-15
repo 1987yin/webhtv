@@ -68,36 +68,32 @@ public class AdBlockStatsStore {
      * 记录一次拦截
      */
     public static void recordBlock(String siteKey, String ruleId) {
+        recordBlock(siteKey, "OTHER", ruleId);
+    }
+
+    public static void recordBlock(String siteKey, String pipeline, String ruleId) {
         executor.execute(() -> {
             AdBlockStats stats = load();
-            stats.incrementTotalBlocked();
-            if (!TextUtils.isEmpty(siteKey)) {
-                stats.incrementSiteBlocked(siteKey);
-            }
-            if (!TextUtils.isEmpty(ruleId)) {
-                stats.incrementRuleCount(ruleId);
-            }
+            stats.incrementBlocks(siteKey, pipeline, ruleId, 1);
             save(stats);
         });
     }
 
     /** Records a complete HLS-cleaning result atomically on the existing stats executor. */
     public static void recordBlocks(String siteKey, Map<String, Long> ruleCounts, long fallbackCount) {
+        recordBlocks(siteKey, "HLS", ruleCounts, fallbackCount);
+    }
+
+    public static void recordBlocks(String siteKey, String pipeline, Map<String, Long> ruleCounts, long fallbackCount) {
         executor.execute(() -> {
             AdBlockStats stats = load();
-            long total = Math.max(0, fallbackCount);
             if (ruleCounts != null) {
                 for (Map.Entry<String, Long> entry : ruleCounts.entrySet()) {
                     long count = entry.getValue() == null ? 0 : Math.max(0, entry.getValue());
-                    total += count;
-                    for (long i = 0; i < count; i++) stats.incrementRuleCount(entry.getKey());
+                    stats.incrementBlocks(siteKey, pipeline, entry.getKey(), count);
                 }
             }
-            for (long i = 0; i < fallbackCount; i++) stats.incrementRuleCount("hls.legacy-fallback");
-            for (long i = 0; i < total; i++) {
-                stats.incrementTotalBlocked();
-                if (!TextUtils.isEmpty(siteKey)) stats.incrementSiteBlocked(siteKey);
-            }
+            stats.incrementBlocks(siteKey, pipeline, "hls.legacy-fallback", Math.max(0, fallbackCount));
             save(stats);
         });
     }

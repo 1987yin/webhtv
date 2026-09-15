@@ -29,6 +29,9 @@ public class SiteHealthReportSourceTest {
         assertTrue(source.contains("detailReasons"));
         assertTrue(source.contains("parseReasons"));
         assertTrue(source.contains("playReasons"));
+        assertTrue(source.contains("AdBlockStatsStore.getStats()"));
+        assertTrue(source.contains("public final long adBlockedTotal"));
+        assertTrue(source.contains("public final Map<String, Long> adBlockedByPipeline"));
 
         String score = methodBody(source, "private double score()");
         assertFalse("Sort score should not depend on parse metrics in the report-only slice", score.contains("parseSuccess"));
