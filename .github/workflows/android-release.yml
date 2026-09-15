@@ -80,7 +80,9 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-
+        with:
+          packages: []
+          
       - name: Install Android packages
         run: |
           # API 37 is not published in sdkmanager's stable channel; install the platform archive directly.
