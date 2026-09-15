@@ -80,6 +80,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Default packages include the legacy "tools" package, which was removed in
+          # cmdline-tools 16.0. Skip it; the next step installs the required packages explicitly.
+          packages: ""
 
       - name: Install Android packages
         run: |
