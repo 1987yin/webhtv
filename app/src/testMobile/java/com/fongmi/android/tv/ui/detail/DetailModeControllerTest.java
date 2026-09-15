@@ -129,7 +129,7 @@ public class DetailModeControllerTest {
         String source = Files.readString(activityPath, StandardCharsets.UTF_8);
         String playBody = methodBody(source, "private void playDetailFullscreen()");
         int markPending = playBody.indexOf("detailPlayerFullscreenPending = !current;");
-        int startPlayback = playBody.indexOf("else playInline();");
+        int startPlayback = playBody.indexOf("if (!current) playInline();");
 
         // 首次解析期间保留详情内容，避免空 SurfaceView 全屏覆盖；已有画面的当前剧集仍可立即全屏。
         assertTrue("detail-player playback must defer fullscreen until the first frame",

@@ -7036,7 +7036,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         binding.playerPanelSpacer.setVisibility(View.VISIBLE); // spacer 作为焦点桥梁需要可见
         detailPlayerFullscreenPending = !current;
         if (current) revealDetailPlayerFullscreen();
-        else playInline();
+        if (!current) playInline();
     }
 
     private void revealDetailPlayerFullscreen() {
