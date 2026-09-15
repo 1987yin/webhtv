@@ -7034,6 +7034,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         ensureInlineDanmakuController();
         binding.playerPanel.setVisibility(View.VISIBLE);
         binding.playerPanelSpacer.setVisibility(View.VISIBLE); // spacer 作为焦点桥梁需要可见
+        inlineFullscreenDeferred = false;
         if (current || !isPlayerMode() || hasInlineVideoSize()) {
             enterInlineFullscreen();
         } else {
@@ -7143,7 +7144,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         }
         inlineStarted = true;
         inlineFirstReady = false;  // 重置标志,允许新播放首次 READY 时显示控制栏
-        inlineFullscreenDeferred = false;
         inlineButtonsReordered = false;  // 重置标志,允许新播放重新排序按钮
         inlinePlaybackEpisode = selectedEpisode;
         inlinePlaybackKey = getKeyText();

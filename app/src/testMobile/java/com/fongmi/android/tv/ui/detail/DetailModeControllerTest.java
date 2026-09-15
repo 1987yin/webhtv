@@ -123,6 +123,22 @@ public class DetailModeControllerTest {
                         && !detailModeBody.contains("getIntent().getBooleanExtra(\"fusion\", false) ? Setting.DETAIL_OPEN_FUSION : Setting.DETAIL_OPEN_ENHANCED"));
     }
 
+    @Test
+    public void playerDetailMode_preservesDeferredFullscreenUntilPlayerReady() throws Exception {
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = Files.readString(activityPath, StandardCharsets.UTF_8);
+        String playBody = methodBody(source, "private void playDetailFullscreen()");
+        String startBody = methodBody(source, "private void startInlinePlayer(Result result, long resumePosition)");
+        int reset = playBody.indexOf("inlineFullscreenDeferred = false;");
+        int firstPlaybackDecision = playBody.indexOf("if (current || !isPlayerMode() || hasInlineVideoSize())");
+
+        // 首播尚无视频尺寸时，必须先记录待全屏状态；异步解析完成后不能把该状态提前清掉。
+        assertTrue("detail-player playback must clear stale deferred state before deciding fullscreen",
+                reset >= 0 && firstPlaybackDecision > reset);
+        assertTrue("async player startup must preserve deferred fullscreen state",
+                !startBody.contains("inlineFullscreenDeferred = false;"));
+    }
+
     private String methodBody(String source, String signature) {
         int start = source.indexOf(signature);
         assertTrue(signature + " is missing from TmdbDetailActivity", start >= 0);
