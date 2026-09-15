@@ -8670,6 +8670,10 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (inlineFullscreen) backFromInlineFullscreen();
         else {
             prepareInlinePlayerTransition();
+            saveInlineHistory();
+            stopInlinePlaybackSync();
+            if (inlineStarted && isOwner()) stopPlayback();
+            inlineStarted = false;
             finish();
         }
     }
