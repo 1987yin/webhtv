@@ -34,6 +34,14 @@
 - 防回归：`DetailModeControllerTest.playerDetailMode_entersFullscreenBeforeAsyncPlayerLoad` 先在旧延迟逻辑上失败，再在删除延迟后通过。
 - 设备验证：重新打包安装后，5559 点击“继续播放”约 1 秒截图 `/tmp/webhtv-direct-immediate-fixed-1s.png` 已是全屏黑色播放器窗口；约 6 秒截图 `/tmp/webhtv-direct-immediate-fixed-playing.png` 已正常显示视频，详情页不再可见。
 
+## 详情直放入口播放语义校正（2026-09-15）
+
+- 设备复测确认，曾将 `isPlayerMode()` 加入 `maybeAutoPlayInline()` 后，用户从内容列表进入详情页会在资源加载完成后立即开始播放。
+- 产品预期：详情直放只约束用户明确触发播放后的行为，即点击播放、继续播放或选集等操作后直接进入全屏播放器；进入详情页本身仍应停留在详情内容中。
+- 修正：从 `maybeAutoPlayInline()` 的自动播放条件中移除 `isPlayerMode()`，保留融合模式和入口显式 `auto_play=true` 的既有自动播放语义；`playDetailFullscreen()` 的立即全屏逻辑保持不变。
+- 防回归：新增 `playerDetailMode_waitsForExplicitPlaybackAction`，锁定详情直放不会因进入详情页而自动调用 `onPlay()`。
+- 最终验证：`./gradlew :app:testMobileArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.ui.detail.DetailModeControllerTest --offline` 通过，`BUILD SUCCESSFUL in 13s`。
+
 ## 回滚
 
 - 回退 `TmdbDetailActivity.getDetailMode()` 单处修改和 `DetailModeControllerTest.playerDetailMode_keepsFullscreenInlinePlayback` 用例即可恢复基线行为。

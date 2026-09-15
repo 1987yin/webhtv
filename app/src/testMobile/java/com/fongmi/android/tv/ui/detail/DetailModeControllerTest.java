@@ -138,6 +138,18 @@ public class DetailModeControllerTest {
                 !playBody.contains("inlineFullscreenDeferred"));
     }
 
+    @Test
+    public void playerDetailMode_waitsForExplicitPlaybackAction() throws Exception {
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = Files.readString(activityPath, StandardCharsets.UTF_8);
+        String autoPlayBody = methodBody(source, "private void maybeAutoPlayInline()");
+
+        // 详情直放只定义点击播放后的全屏行为，进入详情页本身不能触发播放。
+        assertTrue("detail-player mode must wait for an explicit playback action",
+                !autoPlayBody.contains("isPlayerMode()")
+                        && autoPlayBody.contains("binding.playerPanel.post(this::onPlay);"));
+    }
+
     private String methodBody(String source, String signature) {
         int start = source.indexOf(signature);
         assertTrue(signature + " is missing from TmdbDetailActivity", start >= 0);
