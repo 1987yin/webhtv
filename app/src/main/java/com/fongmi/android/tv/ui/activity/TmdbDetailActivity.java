@@ -7056,7 +7056,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         String flag = selectedFlag.getFlag();
         String episodeUrl = selectedEpisode.getUrl();
         int playerKernel = inlineHistoryPlayerKernel();
-        stopInlinePlayerForReload();
         updateInlineDisplayPanel();
         detailTasks.submit(() -> {
             try {

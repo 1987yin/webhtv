@@ -42,6 +42,14 @@
 - 防回归：新增 `playerDetailMode_waitsForExplicitPlaybackAction`，锁定详情直放不会因进入详情页而自动调用 `onPlay()`。
 - 最终验证：`./gradlew :app:testMobileArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.ui.detail.DetailModeControllerTest --offline` 通过，`BUILD SUCCESSFUL in 13s`。
 
+## 全屏启动连续性修正（2026-09-15）
+
+- 用户复测现象：点击播放后先进入全屏播放界面，随后短暂黑屏，再次出现播放画面。
+- 根因：`playDetailFullscreen()` 已先调用 `enterInlineFullscreen()`，但异步地址解析入口 `playInline(long, String, String)` 随即调用 `stopInlinePlayerForReload()` 清空播放器，形成“显示全屏容器 → 清空播放器 → 重新准备播放”的二次切换。
+- 修正：移除异步解析开始前的 `stopInlinePlayerForReload()`，保留真正开始新播放时 `startInlinePlayer()` 内既有的播放器停止、清理和重新准备流程，避免在等待解析期间提前破坏全屏播放表面。
+- 防回归：新增 `playerDetailMode_doesNotClearPlayerAfterEnteringFullscreen`，锁定详情直放进入全屏以后，异步解析入口不得提前清空播放器。
+- 定向验证：`bash ./gradlew :app:testMobileArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.ui.detail.DetailModeControllerTest` 通过，`BUILD SUCCESSFUL in 11s`；`git diff --check` 通过。
+
 ## 回滚
 
 - 回退 `TmdbDetailActivity.getDetailMode()` 单处修改和 `DetailModeControllerTest.playerDetailMode_keepsFullscreenInlinePlayback` 用例即可恢复基线行为。

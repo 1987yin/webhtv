@@ -139,6 +139,18 @@ public class DetailModeControllerTest {
     }
 
     @Test
+    public void playerDetailMode_doesNotClearPlayerAfterEnteringFullscreen() throws Exception {
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = Files.readString(activityPath, StandardCharsets.UTF_8);
+        String playBody = methodBody(source, "private void playDetailFullscreen()");
+        String inlineBody = methodBody(source, "private void playInline(long resumePosition, String failedUrl, String failureMessage)");
+
+        assertTrue("detail-player startup must preserve a continuous fullscreen surface while resolving playback",
+                playBody.contains("enterInlineFullscreen();")
+                        && !inlineBody.contains("stopInlinePlayerForReload();"));
+    }
+
+    @Test
     public void playerDetailMode_waitsForExplicitPlaybackAction() throws Exception {
         Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String source = Files.readString(activityPath, StandardCharsets.UTF_8);
