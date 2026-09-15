@@ -124,19 +124,18 @@ public class DetailModeControllerTest {
     }
 
     @Test
-    public void playerDetailMode_preservesDeferredFullscreenUntilPlayerReady() throws Exception {
+    public void playerDetailMode_entersFullscreenBeforeAsyncPlayerLoad() throws Exception {
         Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String source = Files.readString(activityPath, StandardCharsets.UTF_8);
         String playBody = methodBody(source, "private void playDetailFullscreen()");
-        String startBody = methodBody(source, "private void startInlinePlayer(Result result, long resumePosition)");
-        int reset = playBody.indexOf("inlineFullscreenDeferred = false;");
-        int firstPlaybackDecision = playBody.indexOf("if (current || !isPlayerMode() || hasInlineVideoSize())");
+        int enterFullscreen = playBody.indexOf("enterInlineFullscreen();");
+        int startPlayback = playBody.indexOf("if (!current) playInline();");
 
-        // 首播尚无视频尺寸时，必须先记录待全屏状态；异步解析完成后不能把该状态提前清掉。
-        assertTrue("detail-player playback must clear stale deferred state before deciding fullscreen",
-                reset >= 0 && firstPlaybackDecision > reset);
-        assertTrue("async player startup must preserve deferred fullscreen state",
-                !startBody.contains("inlineFullscreenDeferred = false;"));
+        // 详情直放的点击动作必须先铺满播放器，再异步解析播放地址，不能先显示融合式详情卡片。
+        assertTrue("detail-player playback must enter fullscreen before async player loading",
+                enterFullscreen >= 0 && startPlayback > enterFullscreen);
+        assertTrue("detail-player playback must not defer fullscreen until video size is known",
+                !playBody.contains("inlineFullscreenDeferred"));
     }
 
     private String methodBody(String source, String signature) {

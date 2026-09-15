@@ -5,7 +5,7 @@
 - 目标：详情直放模式点击播放必须进入内嵌全屏播放器，不能误入沉浸融合内嵌播放。
 - 基线：`06442ea996fc8e964f51da973507b8ac3fa8d186`。
 - 范围：`TmdbDetailActivity.getDetailMode()` 单处模式还原、`DetailModeControllerTest` 回归用例、本任务记录。
-- 当前状态：模式还原修正已提交；运行时复测发现首播待全屏状态被异步播放器启动清掉，已完成二次修正、测试和模拟器验证；待收口提交与恢复标签。
+- 当前状态：模式还原与首播时序修正已提交；后续复测发现详情直放仍故意延迟到视频尺寸就绪才全屏，已删除该延迟路径并完成 5559 即时全屏验证；本轮待收口提交与恢复标签。
 
 ## 根因与修正
 
@@ -25,6 +25,14 @@
 - 防回归：`DetailModeControllerTest.playerDetailMode_preservesDeferredFullscreenUntilPlayerReady` 先在旧代码上失败，再在修正后通过，锁定 deferred 状态的生命周期。
 - 最终验证：`./gradlew :app:testMobileArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.ui.detail.DetailModeControllerTest --tests com.fongmi.android.tv.ui.activity.TmdbDetailActivityLayoutTest --offline` 通过，`BUILD SUCCESSFUL in 9s`；`git diff --check` 通过。
 - 设备验证：重新打包并安装 `app-mobile-arm64_v8a-debug.apk` 后，从首页打开“早春晴朗”详情，点击“继续播放”；截图 `/tmp/webhtv-detail-direct-fixed.png` 显示播放器铺满 `1920x1080` 窗口，详情背景不再可见，播放标题为“早春晴朗：2. 职场不是过家家”，播放正常。
+
+## 立即全屏复测与第三次修正（2026-09-15）
+
+- 用户复测反馈仍可见融合式过渡。对 `192.168.50.3:5559` 重现：上一版本点击后 1 秒截图 `/tmp/webhtv-5559-after-1s.png` 仍为播放器卡片叠在详情页上，约 6 秒才全屏；入口日志确认 `mode=4`，不是设置或入口参数错误。
+- 根因：`ea9b666752` 为避免首帧前黑色覆盖，给 `playDetailFullscreen()` 增加了 `inlineFullscreenDeferred`，导致详情直放首播必须等待视频尺寸/READY 才进入全屏；这与“点击后直接全屏”的产品契约冲突。
+- 修正：删除 `inlineFullscreenDeferred` 字段、延迟判断和 READY 回调补偿路径；`playDetailFullscreen()` 在发起异步解析前直接执行 `enterInlineFullscreen()`，保留当前播放复用与融合模式路径不变。
+- 防回归：`DetailModeControllerTest.playerDetailMode_entersFullscreenBeforeAsyncPlayerLoad` 先在旧延迟逻辑上失败，再在删除延迟后通过。
+- 设备验证：重新打包安装后，5559 点击“继续播放”约 1 秒截图 `/tmp/webhtv-direct-immediate-fixed-1s.png` 已是全屏黑色播放器窗口；约 6 秒截图 `/tmp/webhtv-direct-immediate-fixed-playing.png` 已正常显示视频，详情页不再可见。
 
 ## 回滚
 
