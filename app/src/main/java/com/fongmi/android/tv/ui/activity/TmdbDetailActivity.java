@@ -395,6 +395,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private float inlineGestureSpeed = 1.0f;
     private boolean inlineStartPositionApplied;
     private boolean inlineFirstReady;
+    private boolean detailPlayerFullscreenPending;
     private boolean inlineButtonsReordered;
     private View mNightModeOverlay;
     private int mNightModeLevel = PlayerSetting.NIGHT_MODE_OFF;
@@ -7033,8 +7034,14 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         ensureInlineDanmakuController();
         binding.playerPanel.setVisibility(View.VISIBLE);
         binding.playerPanelSpacer.setVisibility(View.VISIBLE); // spacer 作为焦点桥梁需要可见
-        enterInlineFullscreen();
-        if (!current) playInline();
+        detailPlayerFullscreenPending = !current;
+        if (current) revealDetailPlayerFullscreen();
+        else playInline();
+    }
+
+    private void revealDetailPlayerFullscreen() {
+        detailPlayerFullscreenPending = false;
+        if (!inlineFullscreen) enterInlineFullscreen();
     }
 
     private void playInline() {
@@ -10398,6 +10405,12 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (service() == null || inlineControlController == null) return;
         player().setDanmakuController(binding.exo.getDanmakuController());
         inlineControlController.applyDanmakuSetting();
+    }
+
+    @Override
+    protected void onFirstFrameRendered() {
+        if (!detailPlayerFullscreenPending || !isPlayerMode() || !inlineStarted || !isOwner()) return;
+        revealDetailPlayerFullscreen();
     }
 
     @Override

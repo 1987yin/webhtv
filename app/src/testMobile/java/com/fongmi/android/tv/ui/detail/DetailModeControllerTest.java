@@ -128,14 +128,27 @@ public class DetailModeControllerTest {
         Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
         String source = Files.readString(activityPath, StandardCharsets.UTF_8);
         String playBody = methodBody(source, "private void playDetailFullscreen()");
-        int enterFullscreen = playBody.indexOf("enterInlineFullscreen();");
-        int startPlayback = playBody.indexOf("if (!current) playInline();");
+        int markPending = playBody.indexOf("detailPlayerFullscreenPending = !current;");
+        int startPlayback = playBody.indexOf("else playInline();");
 
-        // 详情直放的点击动作必须先铺满播放器，再异步解析播放地址，不能先显示融合式详情卡片。
-        assertTrue("detail-player playback must enter fullscreen before async player loading",
-                enterFullscreen >= 0 && startPlayback > enterFullscreen);
-        assertTrue("detail-player playback must not defer fullscreen until video size is known",
-                !playBody.contains("inlineFullscreenDeferred"));
+        // 首次解析期间保留详情内容，避免空 SurfaceView 全屏覆盖；已有画面的当前剧集仍可立即全屏。
+        assertTrue("detail-player playback must defer fullscreen until the first frame",
+                markPending >= 0 && startPlayback > markPending);
+        assertTrue("current playback must still enter fullscreen immediately",
+                playBody.contains("if (current) revealDetailPlayerFullscreen();"));
+    }
+
+    @Test
+    public void playerDetailMode_keepsDetailVisibleUntilFirstVideoFrame() throws Exception {
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = Files.readString(activityPath, StandardCharsets.UTF_8);
+        String playBody = methodBody(source, "private void playDetailFullscreen()");
+        String firstFrameBody = methodBody(source, "private void revealDetailPlayerFullscreen()");
+
+        assertTrue("detail-player startup must defer the black fullscreen surface until video is ready",
+                playBody.contains("detailPlayerFullscreenPending = !current;")
+                        && !playBody.contains("enterInlineFullscreen();")
+                        && firstFrameBody.contains("enterInlineFullscreen();"));
     }
 
     @Test
@@ -145,8 +158,8 @@ public class DetailModeControllerTest {
         String playBody = methodBody(source, "private void playDetailFullscreen()");
         String inlineBody = methodBody(source, "private void playInline(long resumePosition, String failedUrl, String failureMessage)");
 
-        assertTrue("detail-player startup must preserve a continuous fullscreen surface while resolving playback",
-                playBody.contains("enterInlineFullscreen();")
+        assertTrue("detail-player startup must preserve the player while resolving playback",
+                playBody.contains("detailPlayerFullscreenPending = !current;")
                         && !inlineBody.contains("stopInlinePlayerForReload();"));
     }
 
