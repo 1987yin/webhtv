@@ -129,7 +129,7 @@ public class SiteHealthReportDialog extends BaseAlertDialog {
 
     private void render() {
         while (binding.rows.getChildCount() > 1) binding.rows.removeViewAt(1);
-        binding.summary.setText(summaryText(report.summary));
+        binding.summary.setText(summaryText(report.summary) + "\n" + getString(R.string.site_health_report_ad_summary, report.adBlockedTotal, pipelineSummary(report.adBlockedByPipeline)));
         binding.clearAll.setEnabled(!report.isEmpty());
         binding.clearAll.setAlpha(report.isEmpty() ? 0.5f : 1.0f);
         int visible = 0;
@@ -182,6 +182,14 @@ public class SiteHealthReportDialog extends BaseAlertDialog {
             case BAD -> row.status == SiteHealthStore.Status.BAD;
             case WARN -> row.status == SiteHealthStore.Status.WARN;
         };
+    }
+
+    private String pipelineSummary(java.util.Map<String, Long> pipelines) {
+        if (pipelines.isEmpty()) return getString(R.string.ad_stats_empty);
+        return pipelines.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+                .map(entry -> entry.getKey() + " " + entry.getValue())
+                .collect(java.util.stream.Collectors.joining(" · "));
     }
 
     private String summaryText(SiteHealthStore.Summary summary) {
