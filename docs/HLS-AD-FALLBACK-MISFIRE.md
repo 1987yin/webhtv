@@ -34,3 +34,12 @@
 - Added a proxy regression test and applied the same empty-rules/no-master-switch guard. Focused mobile tests passed.
 - Installed APK SHA-256 `31a963f7782dfbc54ea82eeca9637a6fb1e06b608d3fe3d118699ce083ec9173`; proxy response now has 712 segments / 47:27.880 and logs `removed=0 structured=false legacy=false`.
 - Playback still showed 25:17 because Exo's patched parser has a separate `MediaItem.adblock` legacy path; diagnosis continues under a separate task guard.
+
+## Exo parser follow-up
+
+- The Fongmi-patched `HlsPlaylistParser` runs `HlsAdsParser` whenever `MediaItem.adblock` is true.
+- `ExoUtil.getMediaItem` set that flag from the master switch alone, so the parser's legacy heuristic ran even with no enabled rules.
+- `MediaItem.adblock` now requires both the master switch and at least one configured HLS rule.
+- Added `ExoParserAdblockGateTest`; focused mobile test passed.
+- Installed APK SHA-256 `5939f11e8cc62e2578e34404e8c80ff5ee9b1a1d765ea18a285ac20a4dba0077`.
+- Replayed on 192.168.50.3:5559: child manifest bytes stayed 38,687, `removed=0`, `legacy=false`; telemetry reported `durationMs=2847879` and the UI showed 47:28.
