@@ -28,6 +28,23 @@ public class AdBlockStatsDialogLayoutTest {
     }
 
     @Test
+    public void statsDialogUsesFixedSafetyMarginsInsteadOfScreenPercentages() throws Exception {
+        Path root = findRepositoryRoot();
+        String mobile = read(root.resolve(Path.of("app", "src", "mobile", "java", "com", "fongmi", "android", "tv", "ui", "dialog", "AdBlockStatsDialog.java")));
+        String leanback = read(root.resolve(Path.of("app", "src", "leanback", "java", "com", "fongmi", "android", "tv", "ui", "dialog", "AdBlockStatsDialog.java")));
+
+        assertTrue(mobile.contains("metrics.widthPixels - horizontalMargin * 2"));
+        assertTrue(mobile.contains("metrics.heightPixels - verticalMargin * 2"));
+        assertTrue(mobile.contains("window.getDecorView().setPadding(0, 0, 0, 0)"));
+        assertTrue(leanback.contains("ResUtil.getScreenWidth(activity) - horizontalMargin * 2"));
+        assertTrue(leanback.contains("ResUtil.getScreenHeight(activity) - verticalMargin * 2"));
+        assertTrue(!mobile.contains("metrics.widthPixels * 0.94f"));
+        assertTrue(!mobile.contains("metrics.heightPixels * 0.92f"));
+        assertTrue(!leanback.contains("ResUtil.getScreenWidth(activity) * 0.94f"));
+        assertTrue(!leanback.contains("ResUtil.getScreenHeight(activity) * 0.92f"));
+    }
+
+    @Test
     public void statsDialogKeepsAllThreeCoreMetrics() throws Exception {
         for (String flavor : new String[] {"mobile", "leanback"}) {
             String layout = read(findRepositoryRoot().resolve(Path.of("app", "src", flavor, "res", "layout", "dialog_ad_block_stats.xml")));
