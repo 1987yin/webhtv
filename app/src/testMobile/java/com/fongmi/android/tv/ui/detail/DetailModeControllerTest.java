@@ -116,8 +116,9 @@ public class DetailModeControllerTest {
 
         // 详情直放必须进入内嵌全屏播放器，不能因为播放载入界面误判成融合模式。
         assertTrue("detail-player mode must keep fullscreen inline playback",
-                onPlayBody.contains("if (isFusionMode()) playInline();")
-                        && onPlayBody.contains("else if (isPlayerMode()) playDetailFullscreen();"));
+                onPlayBody.contains("modeController.play();")
+                        && !onPlayBody.contains("isFusionMode()")
+                        && !onPlayBody.contains("isPlayerMode()"));
         assertTrue("detail-player mode must restore the selected mode when no intent mode marker exists",
                 detailModeBody.contains("return Setting.getDetailOpenMode();")
                         && !detailModeBody.contains("getIntent().getBooleanExtra(\"fusion\", false) ? Setting.DETAIL_OPEN_FUSION : Setting.DETAIL_OPEN_ENHANCED"));
@@ -157,9 +158,22 @@ public class DetailModeControllerTest {
         String autoPlayBody = methodBody(source, "private void maybeAutoPlayInline()");
 
         // 详情直放只定义点击播放后的全屏行为，进入详情页本身不能触发播放。
-        assertTrue("detail-player mode must wait for an explicit playback action",
-                !autoPlayBody.contains("isPlayerMode()")
+        assertTrue("auto playback eligibility must be delegated to the active mode controller",
+                autoPlayBody.contains("modeController.shouldAutoPlay()")
+                        && !autoPlayBody.contains("isFusionMode()")
+                        && !autoPlayBody.contains("isAutoPlayMode()")
                         && autoPlayBody.contains("binding.playerPanel.post(this::onPlay);"));
+    }
+
+    @Test
+    public void playbackHistoryPublishing_isDelegatedToModeController() throws Exception {
+        Path activityPath = findMainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "TmdbDetailActivity.java"));
+        String source = Files.readString(activityPath, StandardCharsets.UTF_8);
+        String body = methodBody(source, "private void updateInlineHistory(Episode item)");
+
+        assertTrue("history publishing eligibility must be delegated to the active mode controller",
+                body.contains("modeController.shouldPublishPlaybackHistory()")
+                        && !body.contains("isFusionMode() || isPlayerMode()"));
     }
 
     private String methodBody(String source, String signature) {

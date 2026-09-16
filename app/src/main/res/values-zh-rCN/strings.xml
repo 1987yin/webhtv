@@ -2603,6 +2603,7 @@
     <string name="ad_ai_success_rate">AI 分析成功率</string>
     <string name="ad_site_rank">站点拦截排行</string>
     <string name="ad_rule_rank">规则命中排行</string>
+    <string name="ad_pipeline_rank">播放链路排行</string>
     <string name="ad_stats_reset">重置统计</string>
     <string name="ad_stats_reset_confirm">确定重置所有统计数据吗？</string>
     <string name="ad_stats_empty">暂无统计数据</string>
