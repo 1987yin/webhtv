@@ -11,6 +11,11 @@ public final class HlsAdblockPipeline {
     private HlsAdblockPipeline() {}
 
     public static Outcome apply(String url, String manifest, List<HlsManifestCleaner.Rule> rules, boolean legacyFallback) {
+        if (!legacyFallback) {
+            HlsManifestCleaner.Result clean = HlsManifestCleaner.clean(url, manifest, rules);
+            return new Outcome(clean.manifest(), clean.changed(), false,
+                    clean.removedSegments(), clean.removedDurationSec(), clean.ruleCounts());
+        }
         HlsManifestCleaner.Result clean = HlsManifestCleaner.clean(url, manifest, rules);
         if (clean.changed()) {
             return new Outcome(clean.manifest(), true, false, clean.removedSegments(), clean.removedDurationSec(), clean.ruleCounts());

@@ -58,4 +58,21 @@ public class HlsAdblockPipelineTest {
         assertTrue(outcome.structured());
         assertEquals(Map.of("rule-one", 1L), outcome.ruleCounts());
     }
+
+    @Test
+    public void disablesLegacyHeuristicsWithoutRules() {
+        String manifest = "#EXTM3U\n"
+                + "#EXT-X-DISCONTINUITY\n"
+                + "#EXTINF:4.0,\nmain-1.ts\n"
+                + "#EXT-X-DISCONTINUITY\n"
+                + "#EXTINF:4.0,\nmain-2.ts\n"
+                + "#EXT-X-ENDLIST\n";
+
+        HlsAdblockPipeline.Outcome outcome = HlsAdblockPipeline.apply(
+                "https://cdn.example.com/index.m3u8", manifest, List.of(), false);
+
+        assertFalse(outcome.structured());
+        assertFalse(outcome.legacy());
+        assertEquals(manifest, outcome.manifest());
+    }
 }
