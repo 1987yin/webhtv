@@ -11,18 +11,19 @@ import static org.junit.Assert.assertTrue;
 public class AdBlockStatsDialogLayoutTest {
 
     @Test
-    public void statsDialogUsesNearFullScreenScrollableRoot() throws Exception {
+    public void statsDialogUsesNearFullScreenTabbedRoot() throws Exception {
         for (String flavor : new String[] {"mobile", "leanback"}) {
             String layout = read(findRepositoryRoot().resolve(Path.of("app", "src", flavor, "res", "layout", "dialog_ad_block_stats.xml")));
-            int rootStart = layout.indexOf("<androidx.core.widget.NestedScrollView");
+            int rootStart = layout.indexOf("<androidx.appcompat.widget.LinearLayoutCompat");
             String root = layout.substring(rootStart, layout.indexOf('>', rootStart) + 1);
 
             assertTrue(flavor + " statistics dialog should use the available height",
                     root.contains("android:layout_height=\"match_parent\""));
-            assertTrue(flavor + " statistics dialog should fill the viewport",
-                    root.contains("android:fillViewport=\"true\""));
-            assertTrue(flavor + " statistics dialog should retain its vertical scrollbar",
-                    root.contains("android:scrollbars=\"vertical\""));
+            assertTrue(layout.contains("android:id=\"@+id/statsTabs\""));
+            assertTrue(layout.contains("android:id=\"@+id/overviewPage\""));
+            assertTrue(layout.contains("android:id=\"@+id/sitePage\""));
+            assertTrue(layout.contains("android:id=\"@+id/rulePage\""));
+            assertTrue(layout.contains("android:id=\"@+id/pipelinePage\""));
         }
     }
 
@@ -38,14 +39,24 @@ public class AdBlockStatsDialogLayoutTest {
     }
 
     @Test
-    public void statsDialogMakesScrollableContentExplicitlyDiscoverable() throws Exception {
+    public void statsDialogDisablesOverscrollAndRemovesGrayCards() throws Exception {
         for (String flavor : new String[] {"mobile", "leanback"}) {
             String layout = read(findRepositoryRoot().resolve(Path.of("app", "src", flavor, "res", "layout", "dialog_ad_block_stats.xml")));
 
-            assertTrue("The statistics dialog should expose a persistent vertical scroll indicator",
-                    layout.contains("android:scrollbars=\"vertical\""));
-            assertTrue("The statistics dialog should keep the scroll indicator visible long enough to reveal more content",
-                    layout.contains("android:fadeScrollbars=\"false\""));
+            assertTrue(layout.contains("android:overScrollMode=\"never\""));
+            assertTrue(!layout.contains("MaterialCardView"));
+            assertTrue(!layout.contains("app:cardBackgroundColor=\"@color/black_10\""));
+        }
+    }
+
+    @Test
+    public void statsDialogIncludesSiteDimensionOverview() throws Exception {
+        for (String flavor : new String[] {"mobile", "leanback"}) {
+            String layout = read(findRepositoryRoot().resolve(Path.of("app", "src", flavor, "res", "layout", "dialog_ad_block_stats.xml")));
+
+            assertTrue(layout.contains("android:id=\"@+id/siteCount\""));
+            assertTrue(layout.contains("android:id=\"@+id/topSite\""));
+            assertTrue(layout.contains("android:id=\"@+id/topSiteShare\""));
         }
     }
 
@@ -79,7 +90,7 @@ public class AdBlockStatsDialogLayoutTest {
         String strings = read(findRepositoryRoot().resolve(Path.of("app", "src", "main", "res", "values-zh-rCN", "strings.xml")));
 
         assertTrue("The pipeline ranking title should be localized for the Chinese TV/mobile UI",
-                strings.contains("<string name=\"ad_pipeline_rank\">播放链路排行</string>"));
+                strings.contains("<string name=\"ad_pipeline_rank\">播放链路</string>"));
     }
 
     private static Path findRepositoryRoot() {
