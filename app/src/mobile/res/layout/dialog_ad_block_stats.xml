@@ -4,7 +4,9 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/shape_shell_proxy_dialog"
-    android:fillViewport="true">
+    android:fadeScrollbars="false"
+    android:fillViewport="true"
+    android:scrollbars="vertical">
 
     <androidx.appcompat.widget.LinearLayoutCompat
         android:layout_width="match_parent"
@@ -16,7 +18,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/ad_block_stats"
-            android:textColor="@color/white"
+            android:textColor="@color/dialog_outlined_button_text"
             android:textSize="17sp"
             android:textStyle="bold" />
 
@@ -39,7 +41,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/ad_stats_overview"
-                    android:textColor="@color/white"
+                    android:textColor="@color/dialog_outlined_button_text"
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
@@ -61,7 +63,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0"
-                            android:textColor="@color/white"
+                            android:textColor="@color/dialog_outlined_button_text"
                             android:textSize="24sp"
                             android:textStyle="bold" />
 
@@ -70,7 +72,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
                             android:text="@string/ad_block_total"
-                            android:textColor="@color/white_50"
+                            android:textColor="#5F6368"
                             android:textSize="12sp" />
 
                     </androidx.appcompat.widget.LinearLayoutCompat>
@@ -87,7 +89,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0"
-                            android:textColor="@color/white"
+                            android:textColor="@color/dialog_outlined_button_text"
                             android:textSize="24sp"
                             android:textStyle="bold" />
 
@@ -96,7 +98,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
                             android:text="@string/ad_feedback_count"
-                            android:textColor="@color/white_50"
+                            android:textColor="#5F6368"
                             android:textSize="12sp" />
 
                     </androidx.appcompat.widget.LinearLayoutCompat>
@@ -113,7 +115,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0%"
-                            android:textColor="@color/white"
+                            android:textColor="@color/dialog_outlined_button_text"
                             android:textSize="24sp"
                             android:textStyle="bold" />
 
@@ -122,7 +124,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
                             android:text="@string/ad_ai_success_rate"
-                            android:textColor="@color/white_50"
+                            android:textColor="#5F6368"
                             android:textSize="12sp" />
 
                     </androidx.appcompat.widget.LinearLayoutCompat>
@@ -139,7 +141,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:text="@string/ad_site_rank"
-            android:textColor="@color/white"
+            android:textColor="@color/dialog_outlined_button_text"
             android:textSize="14sp"
             android:textStyle="bold" />
 
@@ -149,7 +151,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="@string/ad_stats_empty"
-            android:textColor="@color/white_50"
+            android:textColor="#5F6368"
             android:textSize="13sp"
             android:visibility="gone" />
 
@@ -167,7 +169,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:text="@string/ad_rule_rank"
-            android:textColor="@color/white"
+            android:textColor="@color/dialog_outlined_button_text"
             android:textSize="14sp"
             android:textStyle="bold" />
 
@@ -177,7 +179,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="@string/ad_stats_empty"
-            android:textColor="@color/white_50"
+            android:textColor="#5F6368"
             android:textSize="13sp"
             android:visibility="gone" />
 
@@ -195,7 +197,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:text="@string/ad_pipeline_rank"
-            android:textColor="@color/white"
+            android:textColor="@color/dialog_outlined_button_text"
             android:textSize="14sp"
             android:textStyle="bold" />
 
@@ -205,7 +207,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="@string/ad_stats_empty"
-            android:textColor="@color/white_50"
+            android:textColor="#5F6368"
             android:textSize="13sp"
             android:visibility="gone" />
 
