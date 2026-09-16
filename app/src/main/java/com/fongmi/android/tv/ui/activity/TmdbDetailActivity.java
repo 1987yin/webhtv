@@ -395,7 +395,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private float inlineGestureSpeed = 1.0f;
     private boolean inlineStartPositionApplied;
     private boolean inlineFirstReady;
-    private boolean inlineFullscreenDeferred;
     private boolean inlineButtonsReordered;
     private View mNightModeOverlay;
     private int mNightModeLevel = PlayerSetting.NIGHT_MODE_OFF;
@@ -658,12 +657,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     @Override
     protected boolean shouldBindPlaybackService() {
-        return isFusionMode() || isPlayerMode();
+        return modeController.shouldBindPlaybackService();
     }
 
     @Override
     protected void initView(Bundle savedInstanceState) {
         inflateMobileInlineControl();
+        initModeController();
         super.initView(savedInstanceState);
         tmdbConfig = TmdbConfig.objectFrom(Setting.getTmdbConfig());
         initialTmdbItem = getIntentTmdbItem();
@@ -671,7 +671,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         applyDetailEdgeToEdge();
         applySystemBarInsets();
         initPage();
-        initModeController();
+        bindModeController();
         setLoadingOnlyBeforeDefaultPlayback(shouldUseLoadingOnlyBeforeDefaultPlayback());
         loadContent(null);
     }
@@ -901,6 +901,26 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             public ViewBinding binding() {
                 return binding;
             }
+
+            @Override
+            public void closeDetailFullscreenPlayer() {
+                TmdbDetailActivity.this.closeDetailFullscreenPlayer();
+            }
+
+            @Override
+            public void playInline() {
+                TmdbDetailActivity.this.playInline();
+            }
+
+            @Override
+            public void playDetailFullscreen() {
+                TmdbDetailActivity.this.playDetailFullscreen();
+            }
+
+            @Override
+            public void playDefaultPlayback() {
+                TmdbDetailActivity.this.playDefaultPlayback();
+            }
         };
 
         if (isFusionMode()) {
@@ -911,6 +931,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             modeController = new EnhancedDetailController(host);
         }
 
+    }
+
+    private void bindModeController() {
         modeController.bind();
         modeController.applyInitialLayout();
     }
@@ -6066,9 +6089,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (enterInlineFullscreenIfCurrentInlinePlayback(selectedEpisode)) return;
         saveInlineHistory();
         updateInlineHistory(selectedEpisode);
-        if (isFusionMode()) playInline();
-        else if (isPlayerMode()) playDetailFullscreen();
-        else playDefaultPlayback();
+        modeController.play();
     }
 
     private void playDefaultPlayback() {
@@ -6980,7 +7001,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private int getDetailMode() {
         // 返回原始模式，不做 normalize，否则 isPlayerMode() 永远返回 false
         if (getIntent().hasExtra("detail_mode")) return getIntent().getIntExtra("detail_mode", Setting.DETAIL_OPEN_ENHANCED);
-        return getIntent().getBooleanExtra("fusion", false) ? Setting.DETAIL_OPEN_FUSION : Setting.DETAIL_OPEN_ENHANCED;
+        // 详情直放没有内嵌播放界面；若既无 detail_mode 也无 fusion 标记，只能按当前设置还原，
+        // 不能把无标记默认成炫彩详情，否则点击播放会误走融合内嵌播放。
+        return Setting.getDetailOpenMode();
     }
 
     private int detailModeTitle() {
@@ -7027,7 +7050,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void maybeAutoPlayInline() {
-        if ((!isFusionMode() && !isAutoPlayMode()) || autoPlayed) return;
+        if (!modeController.shouldAutoPlay() || autoPlayed) return;
         autoPlayed = true;
         binding.playerPanel.post(this::onPlay);
     }
@@ -7042,13 +7065,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         ensureInlineDanmakuController();
         binding.playerPanel.setVisibility(View.VISIBLE);
         binding.playerPanelSpacer.setVisibility(View.VISIBLE); // spacer 作为焦点桥梁需要可见
-        if (current || !isPlayerMode() || hasInlineVideoSize()) {
-            enterInlineFullscreen();
-        } else {
-            // 详情直放首播时 PlayerView 还没有视频尺寸。先保留详情页可见，
-            // 等首帧/尺寸回调再进全屏，避免黑色 playerPanel 提前盖住详情页。
-            inlineFullscreenDeferred = true;
-        }
+        enterInlineFullscreen();
         if (!current) playInline();
     }
 
@@ -7071,7 +7088,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         String flag = selectedFlag.getFlag();
         String episodeUrl = selectedEpisode.getUrl();
         int playerKernel = inlineHistoryPlayerKernel();
-        stopInlinePlayerForReload();
         updateInlineDisplayPanel();
         detailTasks.submit(() -> {
             try {
@@ -7151,7 +7167,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         }
         inlineStarted = true;
         inlineFirstReady = false;  // 重置标志,允许新播放首次 READY 时显示控制栏
-        inlineFullscreenDeferred = false;
         inlineButtonsReordered = false;  // 重置标志,允许新播放重新排序按钮
         inlinePlaybackEpisode = selectedEpisode;
         inlinePlaybackKey = getKeyText();
@@ -7174,6 +7189,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         startPlayer(getHistoryKey(), result, useParse, site == null ? 0 : site.getTimeout(), buildMetadata());
         updateNavigationKey();
         subtitlePlaybackSession.onPlaybackStarted(this, result);
+        modeController.onPlaybackStarted();
         searchInlineDanmaku(result);
         binding.playerPanel.requestFocus();
     }
@@ -8680,19 +8696,18 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (inlineFullscreen) backFromInlineFullscreen();
         else {
             prepareInlinePlayerTransition();
+            saveInlineHistory();
+            stopInlinePlaybackSync();
+            if (inlineStarted && isOwner()) stopPlayback();
+            inlineStarted = false;
             finish();
         }
     }
 
     private void backFromInlineFullscreen() {
-        // 详情直放模式（含手机版）返回时应关闭内嵌播放器回到纯详情页，
-        // 否则手机版只退出全屏、播放器面板仍可见，看起来跟沉浸融合模式一样
-        if (isPlayerMode()) {
-            exitInlineFullscreen();
-            closeDetailFullscreenPlayer();
-            return;
-        }
         exitInlineFullscreen();
+        modeController.onExitFullscreen();
+        return;
     }
 
     private void finishPlaybackToHome() {
@@ -9518,10 +9533,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     private void applyInlineShortDramaMode() {
         if (!isShortDramaSource()) {
             resetInlineShortDramaMode();
-            exitDeferredInlineFullscreenIfNeeded();
             return;
         }
-        exitDeferredInlineFullscreenIfNeeded();
         if (inlinePiPLayout || isInPictureInPictureMode()) return;
         if (!inlineFullscreen) enterInlineFullscreen();
         if (!shouldUseInlineShortDramaMode()) {
@@ -9535,12 +9548,6 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         setInlineShortDramaVideoFrame(!shouldUseShortDramaPortrait());
         setInlinePreviewScale(SHORT_DRAMA_SCALE);
         hideInlineControls();
-    }
-
-    private void exitDeferredInlineFullscreenIfNeeded() {
-        if (!inlineFullscreenDeferred || inlinePiPLayout || isInPictureInPictureMode()) return;
-        inlineFullscreenDeferred = false;
-        if (!inlineFullscreen) enterInlineFullscreen();
     }
 
     /**
@@ -11035,7 +11042,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 coalesce(castNames(), vod == null ? "" : vod.getActor()),
                 coalesce(firstCrew("Director"), vod == null ? "" : vod.getDirector()),
                 yearLabel());
-        if (isFusionMode() || isPlayerMode()) PlaybackEventCollector.get().updateHistory(history);
+        if (modeController.shouldPublishPlaybackHistory()) PlaybackEventCollector.get().updateHistory(history);
         syncDanmakuCompatHistory();
     }
 
