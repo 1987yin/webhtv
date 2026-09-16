@@ -49,6 +49,15 @@ public class AdBlockStatsDialog {
         initView();
         loadStats();
         dialog.show();
+
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            android.util.DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
+            int width = Math.round(metrics.widthPixels * 0.94f);
+            int height = Math.round(metrics.heightPixels * 0.92f);
+            window.setLayout(width, height);
+            window.setGravity(android.view.Gravity.CENTER);
+        }
     }
 
     private void initView() {

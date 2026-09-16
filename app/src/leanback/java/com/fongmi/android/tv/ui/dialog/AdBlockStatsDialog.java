@@ -61,11 +61,11 @@ public class AdBlockStatsDialog {
     private void configureWindow() {
         Window window = dialog.getWindow();
         if (window == null) return;
-        int width = Math.min(Math.round(ResUtil.getScreenWidth(activity) * 0.72f), ResUtil.dp2px(720));
-        int height = Math.min(Math.round(ResUtil.getScreenHeight(activity) * 0.82f), ResUtil.dp2px(680));
+        int width = Math.round(ResUtil.getScreenWidth(activity) * 0.94f);
+        int height = Math.round(ResUtil.getScreenHeight(activity) * 0.92f);
         WindowManager.LayoutParams params = window.getAttributes();
-        params.width = Math.max(width, ResUtil.dp2px(420));
-        params.height = Math.max(height, ResUtil.dp2px(360));
+        params.width = width;
+        params.height = height;
         params.gravity = Gravity.CENTER;
         window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         window.getDecorView().setPadding(0, 0, 0, 0);

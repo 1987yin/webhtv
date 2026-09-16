@@ -11,6 +11,33 @@ import static org.junit.Assert.assertTrue;
 public class AdBlockStatsDialogLayoutTest {
 
     @Test
+    public void statsDialogUsesNearFullScreenScrollableRoot() throws Exception {
+        for (String flavor : new String[] {"mobile", "leanback"}) {
+            String layout = read(findRepositoryRoot().resolve(Path.of("app", "src", flavor, "res", "layout", "dialog_ad_block_stats.xml")));
+            int rootStart = layout.indexOf("<androidx.core.widget.NestedScrollView");
+            String root = layout.substring(rootStart, layout.indexOf('>', rootStart) + 1);
+
+            assertTrue(flavor + " statistics dialog should use the available height",
+                    root.contains("android:layout_height=\"match_parent\""));
+            assertTrue(flavor + " statistics dialog should fill the viewport",
+                    root.contains("android:fillViewport=\"true\""));
+            assertTrue(flavor + " statistics dialog should retain its vertical scrollbar",
+                    root.contains("android:scrollbars=\"vertical\""));
+        }
+    }
+
+    @Test
+    public void statsDialogKeepsAllThreeCoreMetrics() throws Exception {
+        for (String flavor : new String[] {"mobile", "leanback"}) {
+            String layout = read(findRepositoryRoot().resolve(Path.of("app", "src", flavor, "res", "layout", "dialog_ad_block_stats.xml")));
+
+            assertTrue(layout.contains("android:id=\"@+id/totalBlocked\""));
+            assertTrue(layout.contains("android:id=\"@+id/aiFeedbackCount\""));
+            assertTrue(layout.contains("android:id=\"@+id/aiSuccessRate\""));
+        }
+    }
+
+    @Test
     public void statsDialogMakesScrollableContentExplicitlyDiscoverable() throws Exception {
         for (String flavor : new String[] {"mobile", "leanback"}) {
             String layout = read(findRepositoryRoot().resolve(Path.of("app", "src", flavor, "res", "layout", "dialog_ad_block_stats.xml")));
