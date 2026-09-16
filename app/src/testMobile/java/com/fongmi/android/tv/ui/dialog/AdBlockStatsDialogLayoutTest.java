@@ -11,14 +11,72 @@ import static org.junit.Assert.assertTrue;
 public class AdBlockStatsDialogLayoutTest {
 
     @Test
-    public void statsDialogMakesScrollableContentExplicitlyDiscoverable() throws Exception {
+    public void statsDialogUsesNearFullScreenTabbedRoot() throws Exception {
+        for (String flavor : new String[] {"mobile", "leanback"}) {
+            String layout = read(findRepositoryRoot().resolve(Path.of("app", "src", flavor, "res", "layout", "dialog_ad_block_stats.xml")));
+            int rootStart = layout.indexOf("<androidx.appcompat.widget.LinearLayoutCompat");
+            String root = layout.substring(rootStart, layout.indexOf('>', rootStart) + 1);
+
+            assertTrue(flavor + " statistics dialog should use the available height",
+                    root.contains("android:layout_height=\"match_parent\""));
+            assertTrue(layout.contains("android:id=\"@+id/statsTabs\""));
+            assertTrue(layout.contains("android:id=\"@+id/overviewPage\""));
+            assertTrue(layout.contains("android:id=\"@+id/sitePage\""));
+            assertTrue(layout.contains("android:id=\"@+id/rulePage\""));
+            assertTrue(layout.contains("android:id=\"@+id/pipelinePage\""));
+        }
+    }
+
+    @Test
+    public void statsDialogUsesFixedSafetyMarginsInsteadOfScreenPercentages() throws Exception {
+        Path root = findRepositoryRoot();
+        String mobile = read(root.resolve(Path.of("app", "src", "mobile", "java", "com", "fongmi", "android", "tv", "ui", "dialog", "AdBlockStatsDialog.java")));
+        String leanback = read(root.resolve(Path.of("app", "src", "leanback", "java", "com", "fongmi", "android", "tv", "ui", "dialog", "AdBlockStatsDialog.java")));
+
+        assertTrue(mobile.contains("metrics.widthPixels - horizontalMargin * 2"));
+        assertTrue(mobile.contains("metrics.heightPixels - verticalMargin * 2"));
+        assertTrue(mobile.contains("window.getDecorView().setPadding(0, 0, 0, 0)"));
+        assertTrue(mobile.contains("params.height = height"));
+        assertTrue(mobile.contains("binding.getRoot().setMinimumHeight(height)"));
+        assertTrue(leanback.contains("ResUtil.getScreenWidth(activity) - horizontalMargin * 2"));
+        assertTrue(leanback.contains("binding.getRoot().setMinimumHeight(height)"));
+        assertTrue(leanback.contains("ResUtil.getScreenHeight(activity) - verticalMargin * 2"));
+        assertTrue(!mobile.contains("metrics.widthPixels * 0.94f"));
+        assertTrue(!mobile.contains("metrics.heightPixels * 0.92f"));
+        assertTrue(!leanback.contains("ResUtil.getScreenWidth(activity) * 0.94f"));
+        assertTrue(!leanback.contains("ResUtil.getScreenHeight(activity) * 0.92f"));
+    }
+
+    @Test
+    public void statsDialogKeepsAllThreeCoreMetrics() throws Exception {
         for (String flavor : new String[] {"mobile", "leanback"}) {
             String layout = read(findRepositoryRoot().resolve(Path.of("app", "src", flavor, "res", "layout", "dialog_ad_block_stats.xml")));
 
-            assertTrue("The statistics dialog should expose a persistent vertical scroll indicator",
-                    layout.contains("android:scrollbars=\"vertical\""));
-            assertTrue("The statistics dialog should keep the scroll indicator visible long enough to reveal more content",
-                    layout.contains("android:fadeScrollbars=\"false\""));
+            assertTrue(layout.contains("android:id=\"@+id/totalBlocked\""));
+            assertTrue(layout.contains("android:id=\"@+id/aiFeedbackCount\""));
+            assertTrue(layout.contains("android:id=\"@+id/aiSuccessRate\""));
+        }
+    }
+
+    @Test
+    public void statsDialogDisablesOverscrollAndRemovesGrayCards() throws Exception {
+        for (String flavor : new String[] {"mobile", "leanback"}) {
+            String layout = read(findRepositoryRoot().resolve(Path.of("app", "src", flavor, "res", "layout", "dialog_ad_block_stats.xml")));
+
+            assertTrue(layout.contains("android:overScrollMode=\"never\""));
+            assertTrue(!layout.contains("MaterialCardView"));
+            assertTrue(!layout.contains("app:cardBackgroundColor=\"@color/black_10\""));
+        }
+    }
+
+    @Test
+    public void statsDialogIncludesSiteDimensionOverview() throws Exception {
+        for (String flavor : new String[] {"mobile", "leanback"}) {
+            String layout = read(findRepositoryRoot().resolve(Path.of("app", "src", flavor, "res", "layout", "dialog_ad_block_stats.xml")));
+
+            assertTrue(layout.contains("android:id=\"@+id/siteCount\""));
+            assertTrue(layout.contains("android:id=\"@+id/topSite\""));
+            assertTrue(layout.contains("android:id=\"@+id/topSiteShare\""));
         }
     }
 
@@ -52,7 +110,7 @@ public class AdBlockStatsDialogLayoutTest {
         String strings = read(findRepositoryRoot().resolve(Path.of("app", "src", "main", "res", "values-zh-rCN", "strings.xml")));
 
         assertTrue("The pipeline ranking title should be localized for the Chinese TV/mobile UI",
-                strings.contains("<string name=\"ad_pipeline_rank\">播放链路排行</string>"));
+                strings.contains("<string name=\"ad_pipeline_rank\">播放链路</string>"));
     }
 
     private static Path findRepositoryRoot() {
