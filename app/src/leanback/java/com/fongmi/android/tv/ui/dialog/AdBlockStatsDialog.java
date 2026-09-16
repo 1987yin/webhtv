@@ -113,6 +113,17 @@ public class AdBlockStatsDialog {
             binding.ruleRankRecycler.setVisibility(View.VISIBLE);
             binding.ruleRankRecycler.setAdapter(new RuleRankAdapter(ruleRank));
         }
+
+        // 播放链路排行与站点、规则使用同一份�共享快照
+        List<SiteRankItem> pipelineRank = buildPipelineRank(stats);
+        if (pipelineRank.isEmpty()) {
+            binding.pipelineRankEmpty.setVisibility(View.VISIBLE);
+            binding.pipelineRankRecycler.setVisibility(View.GONE);
+        } else {
+            binding.pipelineRankEmpty.setVisibility(View.GONE);
+            binding.pipelineRankRecycler.setVisibility(View.VISIBLE);
+            binding.pipelineRankRecycler.setAdapter(new SiteRankAdapter(pipelineRank));
+        }
     }
 
     private List<SiteRankItem> buildSiteRank(AdBlockStats stats) {
@@ -120,6 +131,13 @@ public class AdBlockStatsDialog {
                 .map(entry -> new SiteRankItem(entry.getKey(), entry.getValue()))
                 .sorted(Comparator.comparingLong(SiteRankItem::getCount).reversed())
                 .limit(10)
+                .collect(Collectors.toList());
+    }
+
+    private List<SiteRankItem> buildPipelineRank(AdBlockStats stats) {
+        return stats.getPipelineCounts().entrySet().stream()
+                .map(entry -> new SiteRankItem(entry.getKey(), entry.getValue()))
+                .sorted(Comparator.comparingLong(SiteRankItem::getCount).reversed())
                 .collect(Collectors.toList());
     }
 

@@ -2270,6 +2270,8 @@
     <string name="ad_ai_success_rate">AI success rate</string>
     <string name="ad_site_rank">Top blocked sites</string>
     <string name="ad_rule_rank">Top matching rules</string>
+    <string name="ad_pipeline_rank">Top playback pipelines</string>
+    <string name="site_health_report_ad_summary">Ad blocking: %1$d total · %2$s</string>
     <string name="ad_stats_reset">Reset stats</string>
     <string name="ad_stats_reset_confirm">Reset all statistics?</string>
     <string name="ad_stats_empty">No statistics yet</string>

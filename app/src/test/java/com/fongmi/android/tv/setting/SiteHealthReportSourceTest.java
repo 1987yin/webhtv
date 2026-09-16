@@ -29,6 +29,9 @@ public class SiteHealthReportSourceTest {
         assertTrue(source.contains("detailReasons"));
         assertTrue(source.contains("parseReasons"));
         assertTrue(source.contains("playReasons"));
+        assertTrue(source.contains("AdBlockStatsStore.getStats()"));
+        assertTrue(source.contains("public final long adBlockedTotal"));
+        assertTrue(source.contains("public final Map<String, Long> adBlockedByPipeline"));
 
         String score = methodBody(source, "private double score()");
         assertFalse("Sort score should not depend on parse metrics in the report-only slice", score.contains("parseSuccess"));
@@ -71,6 +74,19 @@ public class SiteHealthReportSourceTest {
         assertTrue(reportSource.contains("SiteHealthStore.clear(row.siteKey)"));
         assertTrue(reportSource.contains("confirmClearAll()"));
         assertTrue(reportSource.contains("SiteHealthStore.clear()"));
+        String m3u8Source = read(mainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "server", "process", "M3u8.java")));
+        String mpvProxySource = read(mainJavaPath().resolve(Path.of("androidx", "media3", "mpvplayer", "MpvHlsProxy.java")));
+        assertTrue(m3u8Source.contains("AdBlockStatsStore.recordBlocks("));
+        assertTrue(m3u8Source.contains("clean.ruleCounts()"));
+        assertTrue(m3u8Source.contains("HlsAdblockNotice.shouldNotify("));
+        assertTrue(mpvProxySource.contains("AdBlockStatsStore.recordBlocks("));
+        assertTrue(mpvProxySource.contains("HlsAdblockNotice.shouldNotify("));
+        assertTrue(mpvProxySource.contains("Notify.show("));
+        assertTrue(m3u8Source.contains("Notify.show("));
+        String statsStoreSource = read(mainJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "api", "config", "AdBlockStatsStore.java")));
+        assertTrue(statsStoreSource.contains("HlsRuleConfig.getEntries()"));
+        assertTrue(statsStoreSource.contains("hls.legacy-fallback"));
+        assertTrue(statsStoreSource.contains("内置兜底规则"));
         String clearConfirmationBody = methodBody(reportSource, "private void showClearConfirmation(");
         assertTrue(clearConfirmationBody.contains("R.style.Theme_WebHTV_LightDialog"));
         assertTrue(clearConfirmationBody.contains("LightDialog.apply(dialog)"));
