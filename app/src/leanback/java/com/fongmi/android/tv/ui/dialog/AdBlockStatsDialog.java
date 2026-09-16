@@ -73,6 +73,7 @@ public class AdBlockStatsDialog {
         window.getDecorView().setPadding(0, 0, 0, 0);
         window.setAttributes(params);
         window.setLayout(params.width, params.height);
+        binding.getRoot().setMinimumHeight(height);
     }
 
     private void initView() {

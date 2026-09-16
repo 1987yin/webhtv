@@ -57,9 +57,15 @@ public class AdBlockStatsDialog {
             int verticalMargin = Math.round(16 * metrics.density);
             int width = Math.max(1, metrics.widthPixels - horizontalMargin * 2);
             int height = Math.max(1, metrics.heightPixels - verticalMargin * 2);
+            android.view.WindowManager.LayoutParams params = window.getAttributes();
+            params.width = width;
+            params.height = height;
+            params.gravity = android.view.Gravity.CENTER;
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
             window.getDecorView().setPadding(0, 0, 0, 0);
+            window.setAttributes(params);
             window.setLayout(width, height);
-            window.setGravity(android.view.Gravity.CENTER);
+            binding.getRoot().setMinimumHeight(height);
         }
     }
 

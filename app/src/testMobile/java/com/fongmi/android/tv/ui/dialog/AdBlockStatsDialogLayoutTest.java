@@ -36,7 +36,10 @@ public class AdBlockStatsDialogLayoutTest {
         assertTrue(mobile.contains("metrics.widthPixels - horizontalMargin * 2"));
         assertTrue(mobile.contains("metrics.heightPixels - verticalMargin * 2"));
         assertTrue(mobile.contains("window.getDecorView().setPadding(0, 0, 0, 0)"));
+        assertTrue(mobile.contains("params.height = height"));
+        assertTrue(mobile.contains("binding.getRoot().setMinimumHeight(height)"));
         assertTrue(leanback.contains("ResUtil.getScreenWidth(activity) - horizontalMargin * 2"));
+        assertTrue(leanback.contains("binding.getRoot().setMinimumHeight(height)"));
         assertTrue(leanback.contains("ResUtil.getScreenHeight(activity) - verticalMargin * 2"));
         assertTrue(!mobile.contains("metrics.widthPixels * 0.94f"));
         assertTrue(!mobile.contains("metrics.heightPixels * 0.92f"));
