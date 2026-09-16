@@ -5273,7 +5273,8 @@ private long mInitialPlaybackPosition = C.TIME_UNSET;
         }
 
         if (!sameEpisode && !tmdbHistoryResumePending) {
-            // 从缓存中恢复新集的播放位置
+            // updatePlaybackHistoryPosition() 刚把旧集进度写回 History；切换新集前必须先覆盖，
+            // 否则新集没有独立缓存时会继承旧集进度并从错误位置开始播放。
             EpisodePositionCache.EpisodePosition cached = skipEpisodePositionCache() ? null : EpisodePositionCache.get().get(
                 getKey(),
                 getId(),

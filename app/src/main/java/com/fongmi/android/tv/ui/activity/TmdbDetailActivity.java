@@ -657,12 +657,13 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     @Override
     protected boolean shouldBindPlaybackService() {
-        return isFusionMode() || isPlayerMode();
+        return modeController.shouldBindPlaybackService();
     }
 
     @Override
     protected void initView(Bundle savedInstanceState) {
         inflateMobileInlineControl();
+        initModeController();
         super.initView(savedInstanceState);
         tmdbConfig = TmdbConfig.objectFrom(Setting.getTmdbConfig());
         initialTmdbItem = getIntentTmdbItem();
@@ -670,7 +671,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         applyDetailEdgeToEdge();
         applySystemBarInsets();
         initPage();
-        initModeController();
+        bindModeController();
         setLoadingOnlyBeforeDefaultPlayback(shouldUseLoadingOnlyBeforeDefaultPlayback());
         loadContent(null);
     }
@@ -900,6 +901,26 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             public ViewBinding binding() {
                 return binding;
             }
+
+            @Override
+            public void closeDetailFullscreenPlayer() {
+                TmdbDetailActivity.this.closeDetailFullscreenPlayer();
+            }
+
+            @Override
+            public void playInline() {
+                TmdbDetailActivity.this.playInline();
+            }
+
+            @Override
+            public void playDetailFullscreen() {
+                TmdbDetailActivity.this.playDetailFullscreen();
+            }
+
+            @Override
+            public void playDefaultPlayback() {
+                TmdbDetailActivity.this.playDefaultPlayback();
+            }
         };
 
         if (isFusionMode()) {
@@ -910,6 +931,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             modeController = new EnhancedDetailController(host);
         }
 
+    }
+
+    private void bindModeController() {
         modeController.bind();
         modeController.applyInitialLayout();
     }
@@ -6065,9 +6089,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         if (enterInlineFullscreenIfCurrentInlinePlayback(selectedEpisode)) return;
         saveInlineHistory();
         updateInlineHistory(selectedEpisode);
-        if (isFusionMode()) playInline();
-        else if (isPlayerMode()) playDetailFullscreen();
-        else playDefaultPlayback();
+        modeController.play();
     }
 
     private void playDefaultPlayback() {
@@ -7028,7 +7050,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void maybeAutoPlayInline() {
-        if ((!isFusionMode() && !isAutoPlayMode()) || autoPlayed) return;
+        if (!modeController.shouldAutoPlay() || autoPlayed) return;
         autoPlayed = true;
         binding.playerPanel.post(this::onPlay);
     }
@@ -7167,6 +7189,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         startPlayer(getHistoryKey(), result, useParse, site == null ? 0 : site.getTimeout(), buildMetadata());
         updateNavigationKey();
         subtitlePlaybackSession.onPlaybackStarted(this, result);
+        modeController.onPlaybackStarted();
         searchInlineDanmaku(result);
         binding.playerPanel.requestFocus();
     }
@@ -8682,14 +8705,9 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void backFromInlineFullscreen() {
-        // 详情直放模式（含手机版）返回时应关闭内嵌播放器回到纯详情页，
-        // 否则手机版只退出全屏、播放器面板仍可见，看起来跟沉浸融合模式一样
-        if (isPlayerMode()) {
-            exitInlineFullscreen();
-            closeDetailFullscreenPlayer();
-            return;
-        }
         exitInlineFullscreen();
+        modeController.onExitFullscreen();
+        return;
     }
 
     private void finishPlaybackToHome() {
@@ -11024,7 +11042,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
                 coalesce(castNames(), vod == null ? "" : vod.getActor()),
                 coalesce(firstCrew("Director"), vod == null ? "" : vod.getDirector()),
                 yearLabel());
-        if (isFusionMode() || isPlayerMode()) PlaybackEventCollector.get().updateHistory(history);
+        if (modeController.shouldPublishPlaybackHistory()) PlaybackEventCollector.get().updateHistory(history);
         syncDanmakuCompatHistory();
     }
 
