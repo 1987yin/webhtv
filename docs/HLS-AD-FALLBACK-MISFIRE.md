@@ -24,3 +24,13 @@
 - One compilation miss for `Setting` was fixed with the required import; retry passed.
 - `:app:testLeanbackArm64_v8aDebugUnitTest --tests com.fongmi.android.tv.utils.HlsAdblockPipelineTest` compiled the changed Exo source and ran 4 tests: failures 0, errors 0.
 - `git diff --check` passed; changed files are the two runtime guards, one regression test, and this task document.
+
+## Follow-up 2026-09-16
+
+- Device 192.168.50.3:5559 still showed 25:17.066 while the raw child playlist is 47:27.880.
+- Installing fingerprint `9452d42...` matched the prior fix APK, so stale installation was ruled out.
+- Calling the app's `/m3u8` child playlist returned 379 segments / 25:17.187; its log reported `removed=0 structured=false legacy=true`.
+- Root cause of the follow-up: the local `/m3u8` proxy also hardcoded legacy fallback even when the master switch was disabled.
+- Added a proxy regression test and applied the same empty-rules/no-master-switch guard. Focused mobile tests passed.
+- Installed APK SHA-256 `31a963f7782dfbc54ea82eeca9637a6fb1e06b608d3fe3d118699ce083ec9173`; proxy response now has 712 segments / 47:27.880 and logs `removed=0 structured=false legacy=false`.
+- Playback still showed 25:17 because Exo's patched parser has a separate `MediaItem.adblock` legacy path; diagnosis continues under a separate task guard.
